@@ -2,13 +2,15 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
-import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData } from "@/types";
+import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences } from "@/types";
 
 interface AppData {
   habitData: HabitData;
   todoData: TodoData;
   tradeData: TradeData;
   diaryData: DiaryData;
+  notesData: NotesData;
+  preferences: UserPreferences;
   scoreWeights: ScoreWeights;
   theme: "light" | "dark";
 }
@@ -18,16 +20,27 @@ interface AppContextType extends AppData {
   setTodoData: (data: TodoData) => void;
   setTradeData: (data: TradeData) => void;
   setDiaryData: (data: DiaryData) => void;
+  setNotesData: (data: NotesData) => void;
+  setPreferences: (prefs: UserPreferences) => void;
   setScoreWeights: (weights: ScoreWeights) => void;
   setTheme: (theme: "light" | "dark") => void;
   loading: boolean;
 }
 
+const defaultPreferences: UserPreferences = {
+  accentColor: "#6366f1",
+  defaultPage: "/productivity",
+  defaultTab: "todos",
+  sectionOrder: ["todos", "habits", "diary", "notes"],
+};
+
 const defaultData: AppData = {
   habitData: { habits: [], logs: [] },
-  todoData: { todos: [] },
+  todoData: { todos: [], tags: [] },
   tradeData: { trades: [], customStrategies: [] },
   diaryData: { entries: [] },
+  notesData: { notes: [] },
+  preferences: defaultPreferences,
   scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },
   theme: "dark",
 };
@@ -38,6 +51,8 @@ const AppContext = createContext<AppContextType>({
   setTodoData: () => {},
   setTradeData: () => {},
   setDiaryData: () => {},
+  setNotesData: () => {},
+  setPreferences: () => {},
   setScoreWeights: () => {},
   setTheme: () => {},
   loading: true,
@@ -65,6 +80,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           todoData: userData.todoData || defaultData.todoData,
           tradeData: userData.tradeData || defaultData.tradeData,
           diaryData: userData.diaryData || defaultData.diaryData,
+          notesData: userData.notesData || defaultData.notesData,
+          preferences: userData.preferences || defaultPreferences,
           scoreWeights: userData.scoreWeights || defaultData.scoreWeights,
           theme: userData.theme || defaultData.theme,
         });
@@ -127,6 +144,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [saveToApi]
   );
 
+  const setNotesData = useCallback(
+    (notesData: NotesData) => {
+      setData((prev) => ({ ...prev, notesData }));
+      saveToApi({ notesData });
+    },
+    [saveToApi]
+  );
+
+  const setPreferences = useCallback(
+    (preferences: UserPreferences) => {
+      setData((prev) => ({ ...prev, preferences }));
+      saveToApi({ preferences });
+    },
+    [saveToApi]
+  );
+
   const setScoreWeights = useCallback(
     (scoreWeights: ScoreWeights) => {
       setData((prev) => ({ ...prev, scoreWeights }));
@@ -153,6 +186,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [data.theme]);
 
+  // Apply accent color
+  useEffect(() => {
+    document.documentElement.style.setProperty("--accent-color", data.preferences.accentColor || "#6366f1");
+  }, [data.preferences.accentColor]);
+
   return (
     <AppContext.Provider
       value={{
@@ -161,6 +199,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setTodoData,
         setTradeData,
         setDiaryData,
+        setNotesData,
+        setPreferences,
         setScoreWeights,
         setTheme,
         loading,

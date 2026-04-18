@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
-import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData } from "@/types";
+import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences } from "@/types";
 
 export interface IUserData extends Document {
   userId: string;
@@ -7,6 +7,8 @@ export interface IUserData extends Document {
   todoData: TodoData;
   tradeData: TradeData;
   diaryData: DiaryData;
+  notesData: NotesData;
+  preferences: UserPreferences;
   scoreWeights: ScoreWeights;
   theme: "light" | "dark";
   updatedAt: Date;
@@ -21,7 +23,7 @@ const UserDataSchema = new Schema<IUserData>(
     },
     todoData: {
       type: Schema.Types.Mixed,
-      default: { todos: [] },
+      default: { todos: [], tags: [] },
     },
     tradeData: {
       type: Schema.Types.Mixed,
@@ -30,6 +32,14 @@ const UserDataSchema = new Schema<IUserData>(
     diaryData: {
       type: Schema.Types.Mixed,
       default: { entries: [] },
+    },
+    notesData: {
+      type: Schema.Types.Mixed,
+      default: { notes: [] },
+    },
+    preferences: {
+      type: Schema.Types.Mixed,
+      default: { accentColor: "#6366f1", defaultPage: "/productivity", defaultTab: "todos", sectionOrder: ["todos", "habits", "diary", "notes"] },
     },
     scoreWeights: {
       type: Schema.Types.Mixed,

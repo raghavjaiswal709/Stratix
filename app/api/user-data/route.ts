@@ -16,9 +16,11 @@ export async function GET() {
     userData = await UserDataModel.create({
       userId: session.user.id,
       habitData: { habits: [], logs: [] },
-      todoData: { todos: [] },
+      todoData: { todos: [], tags: [] },
       tradeData: { trades: [], customStrategies: [] },
       diaryData: { entries: [] },
+      notesData: { notes: [] },
+      preferences: { accentColor: "#6366f1", defaultPage: "/productivity", defaultTab: "todos", sectionOrder: ["todos", "habits", "diary", "notes"] },
       scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },
       theme: "dark",
     });
@@ -37,7 +39,7 @@ export async function PUT(req: NextRequest) {
   const body = await req.json();
 
   // Only allow updating specific fields
-  const allowedFields = ["habitData", "todoData", "tradeData", "diaryData", "scoreWeights", "theme"];
+  const allowedFields = ["habitData", "todoData", "tradeData", "diaryData", "notesData", "preferences", "scoreWeights", "theme"];
   const updateData: Record<string, unknown> = {};
 
   for (const field of allowedFields) {

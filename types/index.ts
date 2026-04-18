@@ -67,11 +67,15 @@ export interface Todo {
   category: string;
   subtasks: SubTask[];
   order: number;
+  color?: string; // user-assigned color for visual categorization
+  tags: string[];
   createdAt: string;
+  completedAt?: string; // ISO timestamp when marked done
 }
 
 export interface TodoData {
   todos: Todo[];
+  tags: string[]; // user-defined reusable tags
 }
 
 // ============ DIARY ============
@@ -85,6 +89,41 @@ export interface DiaryEntry {
 
 export interface DiaryData {
   entries: DiaryEntry[];
+}
+
+// ============ NOTES ============
+export interface Note {
+  id: string;
+  title: string;
+  content: string;
+  tags: string[];
+  color?: string;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotesData {
+  notes: Note[];
+}
+
+// ============ USER PREFERENCES ============
+export const ACCENT_PRESETS = [
+  { name: "Indigo", value: "#6366f1" },
+  { name: "Violet", value: "#8b5cf6" },
+  { name: "Blue", value: "#3b82f6" },
+  { name: "Cyan", value: "#06b6d4" },
+  { name: "Emerald", value: "#10b981" },
+  { name: "Amber", value: "#f59e0b" },
+  { name: "Rose", value: "#f43f5e" },
+  { name: "Pink", value: "#ec4899" },
+] as const;
+
+export interface UserPreferences {
+  accentColor: string;       // hex color for primary tint
+  defaultPage: string;       // "/productivity" | "/trading-journal"
+  defaultTab: string;        // default tab within landing page
+  sectionOrder: string[];    // ordered list of tab values
 }
 
 // ============ TRADES ============

@@ -48,6 +48,12 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ===== ACCENT COLOR SYSTEM ===== */
+/* --accent-color is set dynamically via JS from user preferences */
+:root {
+  --accent-color: #6366f1;
+}
+
 /* ===== LIGHT MODE ===== */
 :root {
   --background: oklch(0.985 0 0);

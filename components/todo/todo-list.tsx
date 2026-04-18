@@ -42,8 +42,11 @@ import {
   MoreVertical,
   ChevronDown,
   ChevronRight,
-  GripVertical,
   Ban,
+  Filter,
+  Tag,
+  X,
+  Clock,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import type { Todo, Priority, SubTask, TodoStatus } from "@/types";
@@ -57,7 +60,17 @@ const PRIORITY_STYLE: Record<Priority, { bg: string; text: string; border: strin
   low:    { bg: "#09998122", text: "#099981", border: "#09998144" },
 };
 
+const TASK_COLORS = [
+  "", "#ef4444", "#f97316", "#f59e0b", "#eab308",
+  "#84cc16", "#22c55e", "#14b8a6", "#06b6d4",
+  "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899",
+];
+
 const SWIPE_THRESHOLD = 80;
+
+type SortMode = "manual" | "priority" | "created" | "tag";
+
+// ──────────────────────────── TodoRow ────────────────────────────
 
 function TodoRow({
   todo,
@@ -138,7 +151,12 @@ function TodoRow({
           isDropped && "opacity-40",
           todo.completed && !isDropped && "opacity-60"
         )}
-        style={{ transform: `translateX(${swipeX}px)`, transition: swipeX === 0 ? "transform 0.2s" : "none", backgroundColor: "var(--background)" }}
+        style={{
+          transform: `translateX(${swipeX}px)`,
+          transition: swipeX === 0 ? "transform 0.2s" : "none",
+          backgroundColor: "var(--background)",
+          borderLeft: todo.color ? `3px solid ${todo.color}` : undefined,
+        }}
       >
         {/* Reorder */}
         <div className="mt-1 hidden md:flex flex-col gap-0">
@@ -208,6 +226,11 @@ function TodoRow({
             {todo.category && (
               <span className="text-[10px] text-muted-foreground/60 bg-muted/50 px-1.5 py-0.5 rounded">{todo.category}</span>
             )}
+            {todo.tags?.map((tag) => (
+              <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 flex items-center gap-0.5">
+                <Tag className="h-2 w-2" />{tag}
+              </span>
+            ))}
             {todo.dueTime && <span className="text-[10px] text-muted-foreground/60">{todo.dueTime}</span>}
             {todo.dueDate && <span className="text-[10px] text-muted-foreground/60">{format(parseISO(todo.dueDate), "MMM d")}</span>}
             {totalSubtasks > 0 && (
@@ -215,6 +238,18 @@ function TodoRow({
                 {showSubtasks ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 {completedSubtasks}/{totalSubtasks} subtasks
               </button>
+            )}
+          </div>
+
+          {/* Timestamps */}
+          <div className="flex items-center gap-3 mt-0.5">
+            <span className="text-[9px] text-muted-foreground/40 flex items-center gap-0.5">
+              <Clock className="h-2 w-2" />Created {format(parseISO(todo.createdAt), "MMM d, h:mm a")}
+            </span>
+            {todo.completedAt && (
+              <span className="text-[9px] text-green-500/50 flex items-center gap-0.5">
+                <Check className="h-2 w-2" />Done {format(parseISO(todo.completedAt), "MMM d, h:mm a")}
+              </span>
             )}
           </div>
 
@@ -272,6 +307,8 @@ function TodoRow({
   );
 }
 
+// ──────────────────────────── TodoList ────────────────────────────
+
 export function TodoList() {
   const { todoData, setTodoData } = useAppContext();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -282,6 +319,13 @@ export function TodoList() {
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropReason, setDropReason] = useState("");
 
+  // Filter & sort state
+  const [sortMode, setSortMode] = useState<SortMode>("manual");
+  const [filterPriority, setFilterPriority] = useState<Priority | "all">("all");
+  const [filterTag, setFilterTag] = useState<string>("all");
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+
+  // Form state
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("medium");
@@ -289,20 +333,60 @@ export function TodoList() {
   const [category, setCategory] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [isGeneral, setIsGeneral] = useState(false);
+  const [todoColor, setTodoColor] = useState("");
+  const [todoTags, setTodoTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState("");
 
   const [inlineTitle, setInlineTitle] = useState("");
   const [inlinePriority, setInlinePriority] = useState<Priority>("medium");
 
   const todos = useMemo(() => todoData.todos.map(migrateTodo), [todoData.todos]);
+  const allTags = useMemo(() => todoData.tags || [], [todoData.tags]);
 
   const dateStr = format(selectedDate, "yyyy-MM-dd");
+
+  // Apply filters
+  const applyFilters = useCallback((list: Todo[]) => {
+    let result = list;
+    if (filterPriority !== "all") {
+      result = result.filter((t) => t.priority === filterPriority);
+    }
+    if (filterTag !== "all") {
+      result = result.filter((t) => t.tags?.includes(filterTag));
+    }
+    return result;
+  }, [filterPriority, filterTag]);
+
+  // Sort: completed items always to bottom, then by sort mode
+  const applySort = useCallback((list: Todo[]) => {
+    const active = list.filter((t) => !t.completed && t.status !== "dropped");
+    const done = list.filter((t) => t.completed || t.status === "dropped");
+
+    const sortFn = (a: Todo, b: Todo) => {
+      switch (sortMode) {
+        case "priority": {
+          const order: Record<Priority, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+          return order[a.priority] - order[b.priority];
+        }
+        case "created":
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        case "tag":
+          return (a.tags?.[0] || "zzz").localeCompare(b.tags?.[0] || "zzz");
+        default:
+          return (a.order ?? 0) - (b.order ?? 0);
+      }
+    };
+
+    return [...active.sort(sortFn), ...done.sort(sortFn)];
+  }, [sortMode]);
+
   const dayTodos = useMemo(
-    () => getTodosForDate(todos, dateStr).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    [todos, dateStr]
+    () => applySort(applyFilters(getTodosForDate(todos, dateStr))),
+    [todos, dateStr, applyFilters, applySort]
   );
   const generalTodos = useMemo(
-    () => getGeneralTodos(todos).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    [todos]
+    () => applySort(applyFilters(getGeneralTodos(todos))),
+    [todos, applyFilters, applySort]
   );
   const score = useMemo(() => getTodoScore(todos, dateStr), [todos, dateStr]);
 
@@ -310,10 +394,31 @@ export function TodoList() {
   const completedCount = activeDayTodos.filter((t) => t.completed).length;
 
   const resetForm = () => {
-    setTitle(""); setDescription(""); setPriority("medium"); setDueTime(""); setCategory(""); setDueDate(""); setIsGeneral(false); setEditingTodo(null);
+    setTitle(""); setDescription(""); setPriority("medium"); setDueTime("");
+    setCategory(""); setDueDate(""); setIsGeneral(false); setTodoColor("");
+    setTodoTags([]); setNewTagInput(""); setEditingTodo(null);
   };
 
-  const saveTodos = useCallback((updated: Todo[]) => setTodoData({ todos: updated }), [setTodoData]);
+  const saveTodos = useCallback((updated: Todo[]) => setTodoData({ ...todoData, todos: updated }), [setTodoData, todoData]);
+
+  const saveTag = useCallback((tag: string) => {
+    if (!tag.trim()) return;
+    const t = tag.trim().toLowerCase();
+    if (!allTags.includes(t)) {
+      setTodoData({ ...todoData, tags: [...allTags, t] });
+    }
+  }, [allTags, todoData, setTodoData]);
+
+  const addTag = () => {
+    const t = newTagInput.trim().toLowerCase();
+    if (t && !todoTags.includes(t)) {
+      setTodoTags([...todoTags, t]);
+      saveTag(t);
+    }
+    setNewTagInput("");
+  };
+
+  const removeTag = (tag: string) => setTodoTags(todoTags.filter((t) => t !== tag));
 
   const addTodo = () => {
     if (!title.trim()) return;
@@ -322,7 +427,8 @@ export function TodoList() {
       id: generateId(), title: title.trim(), description, priority,
       dueDate: isGeneral ? "" : (dueDate || dateStr), dueTime,
       completed: false, status: "active", category, subtasks: [],
-      order: maxOrder + 1, createdAt: new Date().toISOString(),
+      order: maxOrder + 1, color: todoColor || undefined,
+      tags: todoTags, createdAt: new Date().toISOString(),
     };
     saveTodos([...todos, todo]);
     resetForm(); setShowAddDialog(false);
@@ -334,7 +440,8 @@ export function TodoList() {
     const todo: Todo = {
       id: generateId(), title: inlineTitle.trim(), description: "", priority: inlinePriority,
       dueDate: dateStr, dueTime: "", completed: false, status: "active",
-      category: "", subtasks: [], order: maxOrder + 1, createdAt: new Date().toISOString(),
+      category: "", subtasks: [], order: maxOrder + 1, tags: [],
+      createdAt: new Date().toISOString(),
     };
     saveTodos([...todos, todo]);
     setInlineTitle(""); setInlinePriority("medium");
@@ -344,15 +451,21 @@ export function TodoList() {
     if (!editingTodo || !title.trim()) return;
     const updated = todos.map((t) =>
       t.id === editingTodo.id
-        ? { ...t, title: title.trim(), description, priority, dueTime, category, dueDate: isGeneral ? "" : (dueDate || t.dueDate) }
+        ? { ...t, title: title.trim(), description, priority, dueTime, category, dueDate: isGeneral ? "" : (dueDate || t.dueDate), color: todoColor || undefined, tags: todoTags }
         : t
     );
     saveTodos(updated); resetForm(); setShowAddDialog(false);
   };
 
   const toggleTodo = useCallback((id: string) => {
+    const now = new Date().toISOString();
     const updated = todos.map((t) =>
-      t.id === id ? { ...t, completed: !t.completed, status: (!t.completed ? "completed" : "active") as TodoStatus } : t
+      t.id === id ? {
+        ...t,
+        completed: !t.completed,
+        status: (!t.completed ? "completed" : "active") as TodoStatus,
+        completedAt: !t.completed ? now : undefined,
+      } : t
     );
     saveTodos(updated);
   }, [todos, saveTodos]);
@@ -405,13 +518,16 @@ export function TodoList() {
   const startEdit = (todo: Todo) => {
     setEditingTodo(todo); setTitle(todo.title); setDescription(todo.description);
     setPriority(todo.priority); setDueTime(todo.dueTime); setCategory(todo.category);
-    setDueDate(todo.dueDate); setIsGeneral(!todo.dueDate); setShowAddDialog(true);
+    setDueDate(todo.dueDate); setIsGeneral(!todo.dueDate); setTodoColor(todo.color || "");
+    setTodoTags(todo.tags || []); setShowAddDialog(true);
   };
 
   const todoDates = useMemo(() => {
     const dates = new Set(todos.filter((t) => t.dueDate).map((t) => t.dueDate));
     return Array.from(dates).map((d) => parseISO(d));
   }, [todos]);
+
+  const hasActiveFilters = filterPriority !== "all" || filterTag !== "all" || sortMode !== "manual";
 
   const renderTodoList = (list: Todo[], sectionType: "dated" | "general") => (
     <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--table-border)" }}>
@@ -483,6 +599,16 @@ export function TodoList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Filter button */}
+          <button
+            className={cn(
+              "h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted transition-colors",
+              hasActiveFilters ? "text-indigo-400 border-indigo-500/30 bg-indigo-500/10" : "text-muted-foreground"
+            )}
+            onClick={() => setShowFilterMenu(!showFilterMenu)}
+          >
+            <Filter className="h-4 w-4" />
+          </button>
           <button
             className="md:hidden h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted transition-colors text-muted-foreground"
             onClick={() => setShowMobileCalendar(true)}
@@ -494,6 +620,61 @@ export function TodoList() {
           </Button>
         </div>
       </div>
+
+      {/* Filter bar */}
+      {showFilterMenu && (
+        <div className="flex flex-wrap items-center gap-2 p-3 rounded-lg border border-border/60 bg-muted/30">
+          <span className="text-xs font-medium text-muted-foreground">Sort:</span>
+          <select
+            className="bg-transparent text-xs outline-none cursor-pointer text-foreground border border-border rounded px-2 py-1"
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as SortMode)}
+          >
+            <option value="manual" className="bg-background">Manual</option>
+            <option value="priority" className="bg-background">Priority</option>
+            <option value="created" className="bg-background">Date Created</option>
+            <option value="tag" className="bg-background">Tag</option>
+          </select>
+
+          <span className="text-xs font-medium text-muted-foreground ml-2">Priority:</span>
+          <select
+            className="bg-transparent text-xs outline-none cursor-pointer text-foreground border border-border rounded px-2 py-1"
+            value={filterPriority}
+            onChange={(e) => setFilterPriority(e.target.value as Priority | "all")}
+          >
+            <option value="all" className="bg-background">All</option>
+            <option value="urgent" className="bg-background">Urgent</option>
+            <option value="high" className="bg-background">High</option>
+            <option value="medium" className="bg-background">Medium</option>
+            <option value="low" className="bg-background">Low</option>
+          </select>
+
+          {allTags.length > 0 && (
+            <>
+              <span className="text-xs font-medium text-muted-foreground ml-2">Tag:</span>
+              <select
+                className="bg-transparent text-xs outline-none cursor-pointer text-foreground border border-border rounded px-2 py-1"
+                value={filterTag}
+                onChange={(e) => setFilterTag(e.target.value)}
+              >
+                <option value="all" className="bg-background">All</option>
+                {allTags.map((tag) => (
+                  <option key={tag} value={tag} className="bg-background">{tag}</option>
+                ))}
+              </select>
+            </>
+          )}
+
+          {hasActiveFilters && (
+            <button
+              onClick={() => { setSortMode("manual"); setFilterPriority("all"); setFilterTag("all"); }}
+              className="text-[10px] text-red-400 hover:text-red-300 ml-auto"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Layout */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-4 items-start">
@@ -543,7 +724,7 @@ export function TodoList() {
           <DialogHeader><DialogTitle>Drop Task</DialogTitle></DialogHeader>
           <div className="space-y-3 mt-2">
             <p className="text-sm text-muted-foreground">Why are you dropping this task? A reason is required.</p>
-            <Textarea placeholder="Enter reason…" value={dropReason} onChange={(e) => setDropReason(e.target.value)} rows={2} />
+            <Textarea placeholder="Enter reason…" value={dropReason} onChange={(e) => setDropReason(e.target.value)} rows={2} className="resize-none" />
             <Button onClick={dropTask} disabled={!dropReason.trim()} className="w-full" variant="destructive">Drop Task</Button>
           </div>
         </DialogContent>
@@ -551,7 +732,7 @@ export function TodoList() {
 
       {/* Add / Edit Task dialog */}
       <Dialog open={showAddDialog} onOpenChange={(o) => { if (!o) { resetForm(); setShowAddDialog(false); } }}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingTodo ? "Edit Task" : "Add New Task"}</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="space-y-2">
@@ -562,7 +743,13 @@ export function TodoList() {
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea placeholder="Optional description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+              <Textarea
+                placeholder="Optional description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="resize-none max-h-[120px] overflow-y-auto"
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -599,6 +786,68 @@ export function TodoList() {
                 <Input type="date" value={isGeneral ? "" : (dueDate || dateStr)} onChange={(e) => { setDueDate(e.target.value); setIsGeneral(false); }} disabled={isGeneral} />
               </div>
             </div>
+
+            {/* Color picker */}
+            <div className="space-y-2">
+              <Label>Color</Label>
+              <div className="flex flex-wrap gap-2">
+                {TASK_COLORS.map((c) => (
+                  <button
+                    key={c || "none"}
+                    onClick={() => setTodoColor(c)}
+                    className={cn(
+                      "h-6 w-6 rounded-full border-2 transition-transform hover:scale-110",
+                      todoColor === c ? "scale-110 ring-2 ring-offset-1 ring-offset-background ring-foreground/30" : ""
+                    )}
+                    style={{
+                      backgroundColor: c || "transparent",
+                      borderColor: c || "var(--border)",
+                    }}
+                    title={c || "No color"}
+                  >
+                    {!c && todoColor === "" && <X className="h-3 w-3 text-muted-foreground mx-auto" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tags */}
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <div className="flex flex-wrap gap-1.5 mb-1">
+                {todoTags.map((tag) => (
+                  <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center gap-1">
+                    {tag}
+                    <button onClick={() => removeTag(tag)} className="hover:text-red-400"><X className="h-2.5 w-2.5" /></button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add tag…"
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                  className="h-8 text-sm"
+                />
+                {allTags.length > 0 && (
+                  <select
+                    className="bg-transparent text-xs outline-none cursor-pointer text-muted-foreground border border-border rounded px-2"
+                    value=""
+                    onChange={(e) => {
+                      const t = e.target.value;
+                      if (t && !todoTags.includes(t)) setTodoTags([...todoTags, t]);
+                    }}
+                  >
+                    <option value="" className="bg-background">Saved tags…</option>
+                    {allTags.filter((t) => !todoTags.includes(t)).map((t) => (
+                      <option key={t} value={t} className="bg-background">{t}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center gap-2">
               <input type="checkbox" id="general-todo" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="rounded" />
               <label htmlFor="general-todo" className="text-sm text-muted-foreground cursor-pointer">General task (no specific date)</label>

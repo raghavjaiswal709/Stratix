@@ -83,5 +83,7 @@ export function migrateTodo(t: Todo): Todo {
     subtasks: t.subtasks || [],
     order: t.order ?? 0,
     dueDate: t.dueDate ?? "",
+    tags: t.tags || [],
+    completedAt: t.completedAt ?? undefined,
   };
 }

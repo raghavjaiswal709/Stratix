@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useAppContext } from "@/lib/context";
-import { Sunrise, Activity, TrendingUp, Sun, Moon, LogOut, Menu, X, ChevronDown } from "lucide-react";
+import { Sunrise, Activity, TrendingUp, Sun, Moon, LogOut, Menu, X, ChevronDown, Settings } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { GlobalSearch } from "@/components/shared/global-search";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,6 +72,9 @@ export function Navbar() {
         {/* Right: actions */}
         <div className="flex items-center gap-1">
 
+          {/* Global Search */}
+          <GlobalSearch />
+
           {/* Theme toggle */}
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -99,6 +103,10 @@ export function Navbar() {
                   <p className="text-[13px] font-medium truncate">{session.user.name}</p>
                   <p className="text-[11px] text-muted-foreground truncate">{session.user.email}</p>
                 </div>
+                <DropdownMenuItem onClick={() => { window.location.href = "/settings"; }} className="mt-1">
+                    <Settings className="mr-2 h-3.5 w-3.5" />
+                    Settings
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => signOut({ callbackUrl: "/auth/signin" })}
                   className="mt-1 text-red-400 focus:text-red-300 focus:bg-red-500/10"
