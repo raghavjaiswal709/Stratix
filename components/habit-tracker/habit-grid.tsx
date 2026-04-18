@@ -2,8 +2,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useAppContext } from "@/lib/context";
-import { getWeekDates, generateId } from "@/lib/habits";
-import { format } from "date-fns";
+import { getWeekDates, generateId, getDateRange } from "@/lib/habits";
+import { format, eachDayOfInterval } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,32 +19,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Plus, MoreVertical, Pencil, Trash2, Search } from "lucide-react";
 import {
-  Plus, MoreVertical, Pencil, Trash2,
-  Dumbbell, Bike, Flame, Heart, Apple, Pill, Droplets,
-  Activity, Wind, Stethoscope, Timer, Brain, BookOpen,
-  Lightbulb, PenLine, Code, Coffee, Eye, Globe,
-  Moon, Sun, Smile, Waves, Leaf, Music, Camera, Home,
-  Utensils, ShoppingCart, Smartphone, Gamepad2, Bed,
-  DollarSign, PiggyBank, TrendingUp, Target, Trophy,
-  Zap, Rocket, Star, Users, MessageCircle,
-} from "lucide-react";
-import type { Habit } from "@/types";
+  HABIT_ICON_MAP,
+  HABIT_ICONS_LIST,
+  ICON_CATEGORIES,
+  type HabitIconKey,
+  type IconCategory,
+} from "@/lib/habit-icons";
+import type { Habit, TimeFrame } from "@/types";
 import { cn } from "@/lib/utils";
 
-// ── Icon registry ──────────────────────────────────────────────────────────
-const HABIT_ICONS = {
-  Dumbbell, Bike, Flame, Heart, Apple, Pill, Droplets,
-  Activity, Wind, Stethoscope, Timer, Brain, BookOpen,
-  Lightbulb, PenLine, Code, Coffee, Eye, Globe,
-  Moon, Sun, Smile, Waves, Leaf, Music, Camera, Home,
-  Utensils, ShoppingCart, Smartphone, Gamepad2, Bed,
-  DollarSign, PiggyBank, TrendingUp, Target, Trophy,
-  Zap, Rocket, Star, Users, MessageCircle,
-} as const;
-
-type HabitIconKey = keyof typeof HABIT_ICONS;
-const ICON_KEYS = Object.keys(HABIT_ICONS) as HabitIconKey[];
+// ── Icon display helper ────────────────────────────────────────────────────
 
 function HabitIconComp({
   iconKey,
@@ -55,8 +41,8 @@ function HabitIconComp({
   size?: number;
   color?: string;
 }) {
-  const Icon = (HABIT_ICONS[(iconKey as HabitIconKey) || "Target"] ??
-    Target) as React.FC<{ size?: number; color?: string }>;
+  const Icon = (HABIT_ICON_MAP[(iconKey as HabitIconKey) || "Target"] ??
+    HABIT_ICON_MAP["Target"]) as React.FC<{ size?: number; color?: string }>;
   return <Icon size={size} color={color} />;
 }
 
@@ -72,7 +58,7 @@ const DAY_FULL   = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS   = [0, 1, 2, 3, 4, 5, 6];
 
 // ── Component ─────────────────────────────────────────────────────────────
-export function HabitGrid() {
+export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
   const { habitData, setHabitData } = useAppContext();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
@@ -83,7 +69,37 @@ export function HabitGrid() {
   const [newHabitCategory, setNewHabitCategory] = useState("");
   const [newHabitWeekDays, setNewHabitWeekDays] = useState<number[]>(ALL_DAYS);
 
-  const weekDates = useMemo(() => getWeekDates(), []);
+  // Icon picker search / category state
+  const [iconSearch,   setIconSearch]   = useState("");
+  const [iconCategory, setIconCategory] = useState<IconCategory>("All");
+
+  // ── Date columns based on timeFrame ──────────────────────────────────────
+  const displayDates = useMemo(() => {
+    if (!timeFrame || timeFrame === "this-week") return getWeekDates();
+    if (timeFrame === "this-month") {
+      const { start, end } = getDateRange("this-month");
+      return eachDayOfInterval({ start, end });
+    }
+    // For longer ranges: show the most recent 31 days
+    const { end } = getDateRange(timeFrame);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 30);
+    return eachDayOfInterval({ start, end });
+  }, [timeFrame]);
+
+  // ── Filtered icon list for picker ────────────────────────────────────────
+  const filteredIcons = useMemo(() => {
+    const q = iconSearch.toLowerCase().trim();
+    return HABIT_ICONS_LIST.filter((entry) => {
+      if (iconCategory !== "All" && entry.category !== iconCategory) return false;
+      if (!q) return true;
+      return (
+        entry.key.toLowerCase().includes(q) ||
+        entry.label.toLowerCase().includes(q) ||
+        entry.tags.some((t) => t.includes(q))
+      );
+    });
+  }, [iconSearch, iconCategory]);
 
   // ── Habit log helpers ────────────────────────────────────────────────────
   const toggleHabit = useCallback(
@@ -118,6 +134,8 @@ export function HabitGrid() {
     setNewHabitColor(COLOR_OPTIONS[0]);
     setNewHabitCategory("");
     setNewHabitWeekDays(ALL_DAYS);
+    setIconSearch("");
+    setIconCategory("All");
   };
 
   const openAdd = () => { resetForm(); setShowAddDialog(true); };
@@ -182,6 +200,8 @@ export function HabitGrid() {
     !!newHabitName.trim() && !!newHabitIcon && newHabitWeekDays.length > 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const isWideView = displayDates.length > 7;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -192,36 +212,46 @@ export function HabitGrid() {
         </Button>
       </div>
 
-      {/* Responsive table — fits mobile without horizontal scroll */}
-      <div
-        className="rounded-lg overflow-hidden"
-        style={{ border: "1px solid rgba(255,255,255,0.08)" }}
-      >
+      {/* Responsive table — horizontal scroll for wide timeframes */}
+      <div className="rounded-lg overflow-x-auto" style={{ border: "1px solid var(--table-border)" }}>
         <table
           className="w-full"
-          style={{ borderCollapse: "collapse", tableLayout: "fixed" }}
+          style={{
+            borderCollapse: "collapse",
+            tableLayout: isWideView ? "auto" : "fixed",
+            minWidth: isWideView
+              ? `${48 + displayDates.length * (isWideView ? 22 : 36)}px`
+              : undefined,
+          }}
         >
           <thead>
-            <tr className="bg-white/[0.03]">
-              {/* Name column: 44px on mobile (icon only), 192px on desktop */}
+            <tr style={{ background: "var(--table-header-bg)" }}>
+              {/* Name column */}
               <th
                 className="w-11 md:w-48 px-1 md:px-3 py-2 text-left"
-                style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                style={{ border: "1px solid var(--table-border)" }}
               >
-                <span className="hidden md:inline text-xs font-medium text-white/40 uppercase tracking-wide">
+                <span className="hidden md:inline text-xs font-medium text-muted-foreground uppercase tracking-wide">
                   Habit
                 </span>
               </th>
-              {weekDates.map((date, i) => (
+              {displayDates.map((date, i) => (
                 <th
                   key={i}
                   className="text-center py-2 px-0"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{
+                    border: "1px solid var(--table-border)",
+                    minWidth: isWideView ? 22 : 36,
+                  }}
                 >
-                  <p className="hidden md:block text-xs font-medium text-white/50">
-                    {DAY_FULL[i]}
+                  {!isWideView && (
+                    <p className="hidden md:block text-xs font-medium text-muted-foreground">
+                      {DAY_FULL[date.getDay()]}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {format(date, isWideView ? "d" : "d")}
                   </p>
-                  <p className="text-[10px] text-white/30">{format(date, "d")}</p>
                 </th>
               ))}
             </tr>
@@ -232,12 +262,12 @@ export function HabitGrid() {
                 {/* Name / icon cell */}
                 <td
                   className="p-0"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   {/* Mobile: icon is the dropdown trigger */}
                   <div className="md:hidden flex items-center justify-center py-2.5">
                     <DropdownMenu>
-                      <DropdownMenuTrigger className="flex items-center justify-center h-7 w-7 rounded hover:bg-white/10 transition-colors">
+                      <DropdownMenuTrigger className="flex items-center justify-center h-7 w-7 rounded hover:bg-muted transition-colors">
                         <HabitIconComp
                           iconKey={habit.icon}
                           size={14}
@@ -270,7 +300,7 @@ export function HabitGrid() {
                       {habit.name}
                     </span>
                     <DropdownMenu>
-                      <DropdownMenuTrigger className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors">
+                      <DropdownMenuTrigger className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
                         <MoreVertical className="h-3 w-3" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start">
@@ -291,28 +321,31 @@ export function HabitGrid() {
                 </td>
 
                 {/* Day cells */}
-                {weekDates.map((date, i) => {
+                {displayDates.map((date, i) => {
                   const dateStr   = format(date, "yyyy-MM-dd");
                   const dayOfWeek = date.getDay();
                   const isActive  =
                     !habit.weekDays?.length ||
                     habit.weekDays.includes(dayOfWeek);
                   const checked = isChecked(habit.id, dateStr);
+                  const cellH = isWideView ? "h-7" : "h-9 md:h-10";
                   return (
                     <td
                       key={i}
                       className="p-0"
-                      style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                      style={{ border: "1px solid var(--table-border)" }}
                     >
                       {isActive ? (
                         <button
                           onClick={() => toggleHabit(habit.id, dateStr)}
-                          className="w-full h-9 md:h-10 transition-opacity hover:opacity-80 active:opacity-60"
-                          style={{ backgroundColor: checked ? "#099981" : "#F23645" }}
-                          aria-label={`${habit.name} ${DAY_FULL[i]} ${checked ? "done" : "not done"}`}
+                          className={`w-full ${cellH} transition-opacity hover:opacity-80 active:opacity-60`}
+                          style={{
+                            backgroundColor: checked ? "#099981" : "#F23645",
+                          }}
+                          aria-label={`${habit.name} ${DAY_FULL[dayOfWeek]} ${checked ? "done" : "not done"}`}
                         />
                       ) : (
-                        <div className="w-full h-9 md:h-10 bg-white/[0.02]" />
+                        <div className={`w-full ${cellH}`} style={{ background: "var(--table-header-bg)" }} />
                       )}
                     </td>
                   );
@@ -322,9 +355,9 @@ export function HabitGrid() {
             {habitData.habits.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
-                  className="py-8 text-center text-sm text-white/30"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  colSpan={displayDates.length + 1}
+                  className="py-8 text-center text-sm text-muted-foreground"
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   No habits yet — click Add Habit to get started
                 </td>
@@ -354,56 +387,102 @@ export function HabitGrid() {
                 Icon
                 <span className="ml-1 text-[#F23645]">*</span>
                 {newHabitIcon && (
-                  <span className="ml-2 text-xs text-white/40">
-                    {newHabitIcon} selected
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {HABIT_ICONS_LIST.find((e) => e.key === newHabitIcon)?.label ?? newHabitIcon}
                   </span>
                 )}
               </Label>
+
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Search icons…"
+                  value={iconSearch}
+                  onChange={(e) => setIconSearch(e.target.value)}
+                  className="pl-8 h-8 text-[13px]"
+                />
+              </div>
+
+              {/* Category filter */}
+              <div className="flex flex-wrap gap-1">
+                {ICON_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setIconCategory(cat)}
+                    className="px-2 py-0.5 rounded text-[11px] transition-all"
+                    style={
+                      iconCategory === cat
+                        ? {
+                            backgroundColor: newHabitColor + "30",
+                            color: newHabitColor,
+                            border: `1px solid ${newHabitColor}50`,
+                          }
+                        : {
+                            background: "var(--muted)",
+                            color: "var(--muted-foreground)",
+                            border: "1px solid transparent",
+                          }
+                    }
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Icon grid */}
               <div
-                className="rounded-lg p-2 max-h-48 overflow-y-auto"
+                className="rounded-lg p-2 max-h-44 overflow-y-auto"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(8, 1fr)",
                   gap: "4px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.02)",
+                  border: "1px solid var(--table-border)",
+                  background: "var(--muted)",
                 }}
               >
-                {ICON_KEYS.map((key) => {
-                  const selected = newHabitIcon === key;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      title={key}
-                      onClick={() => setNewHabitIcon(key)}
-                      className="h-9 flex items-center justify-center rounded-md transition-all"
-                      style={
-                        selected
-                          ? {
-                              backgroundColor: newHabitColor + "30",
-                              color: newHabitColor,
-                              boxShadow: `inset 0 0 0 1.5px ${newHabitColor}`,
-                            }
-                          : { color: "rgba(255,255,255,0.4)" }
-                      }
-                      onMouseEnter={(e) => {
-                        if (!selected) {
-                          e.currentTarget.style.background = "rgba(255,255,255,0.08)";
-                          e.currentTarget.style.color = "rgba(255,255,255,0.8)";
+                {filteredIcons.length === 0 ? (
+                  <div className="col-span-8 py-4 text-center text-xs text-muted-foreground">
+                    No icons found
+                  </div>
+                ) : (
+                  filteredIcons.map(({ key, label }) => {
+                    const selected = newHabitIcon === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        title={label}
+                        onClick={() => setNewHabitIcon(key)}
+                        className="h-9 flex items-center justify-center rounded-md transition-all"
+                        style={
+                          selected
+                            ? {
+                                backgroundColor: newHabitColor + "30",
+                                color: newHabitColor,
+                                boxShadow: `inset 0 0 0 1.5px ${newHabitColor}`,
+                              }
+                            : { color: "var(--muted-foreground)" }
                         }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!selected) {
-                          e.currentTarget.style.background = "";
-                          e.currentTarget.style.color = "rgba(255,255,255,0.4)";
-                        }
-                      }}
-                    >
-                      <HabitIconComp iconKey={key} size={15} />
-                    </button>
-                  );
-                })}
+                        onMouseEnter={(e) => {
+                          if (!selected) {
+                            e.currentTarget.style.background = "var(--accent)";
+                            e.currentTarget.style.color = "var(--accent-foreground)";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!selected) {
+                            e.currentTarget.style.background = "";
+                            e.currentTarget.style.color = "var(--muted-foreground)";
+                          }
+                        }}
+                      >
+                        <HabitIconComp iconKey={key} size={15} />
+                      </button>
+                    );
+                  })
+                )}
               </div>
               {!newHabitIcon && (
                 <p className="text-[11px]" style={{ color: "#F23645" }}>
@@ -458,14 +537,14 @@ export function HabitGrid() {
                     <button
                       key={i}
                       onClick={() => toggleWeekDay(i)}
-                      className="flex-1 h-9 rounded-md text-[12px] font-semibold transition-all"
+                      className={cn(
+                        "flex-1 h-9 rounded-md text-[12px] font-semibold transition-all",
+                        !active && "bg-muted text-muted-foreground"
+                      )}
                       style={
                         active
                           ? { backgroundColor: newHabitColor, color: "#fff" }
-                          : {
-                              background: "rgba(255,255,255,0.05)",
-                              color: "rgba(255,255,255,0.35)",
-                            }
+                          : undefined
                       }
                     >
                       {letter}
@@ -473,7 +552,7 @@ export function HabitGrid() {
                   );
                 })}
               </div>
-              <p className="text-[11px] text-white/30">
+              <p className="text-[11px] text-muted-foreground">
                 {newHabitWeekDays.length === 7
                   ? "Every day"
                   : newHabitWeekDays.length === 0

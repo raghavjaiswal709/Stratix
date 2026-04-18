@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useMemo, useCallback } from "react";
 import { useAppContext } from "@/lib/context";
@@ -166,7 +166,7 @@ export function TodoList() {
             <CalendarDays className="h-4 w-4 text-indigo-400" />
             {format(selectedDate, "EEEE, MMMM d, yyyy")}
           </h3>
-          <p className="text-xs text-white/40 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             {dayTodos.length} task{dayTodos.length !== 1 ? "s" : ""}
             {dayTodos.length > 0 && (
               <span
@@ -181,7 +181,7 @@ export function TodoList() {
         <div className="flex items-center gap-2">
           {/* Mobile calendar icon button */}
           <button
-            className="md:hidden h-8 w-8 flex items-center justify-center rounded-md border border-white/10 hover:bg-white/5 transition-colors text-white/50"
+            className="md:hidden h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted transition-colors text-muted-foreground"
             onClick={() => setShowMobileCalendar(true)}
             aria-label="Open calendar"
           >
@@ -202,41 +202,41 @@ export function TodoList() {
       <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-4 items-start">
 
         {/* Task table */}
-        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--table-border)" }}>
           <table className="w-full" style={{ borderCollapse: "collapse" }}>
             <thead>
-              <tr className="bg-white/[0.03]">
+              <tr style={{ background: "var(--table-header-bg)" }}>
                 <th
                   className="py-2 px-2 w-10"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 />
                 <th
-                  className="text-left px-3 py-2 text-[10px] font-semibold text-white/40 uppercase tracking-widest"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest"
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   Task
                 </th>
                 <th
-                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-white/40 uppercase tracking-widest w-24"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest w-24"
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   Priority
                 </th>
                 <th
-                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-white/40 uppercase tracking-widest w-20"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest w-20"
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   Time
                 </th>
                 <th
-                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-white/40 uppercase tracking-widest w-24"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest w-24"
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   Category
                 </th>
                 <th
                   className="py-2 w-16"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 />
               </tr>
             </thead>
@@ -247,14 +247,14 @@ export function TodoList() {
                   <tr
                     key={todo.id}
                     className={cn(
-                      "group transition-colors hover:bg-white/[0.025]",
+                      "group transition-colors hover:bg-muted/40",
                       todo.completed && "opacity-50"
                     )}
                   >
                     {/* Radio/circle completion toggle */}
                     <td
                       className="text-center py-2.5 px-2"
-                      style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                      style={{ border: "1px solid var(--table-border)" }}
                     >
                       <button
                         onClick={() => toggleTodo(todo.id)}
@@ -273,18 +273,18 @@ export function TodoList() {
                     {/* Title */}
                     <td
                       className="px-3 py-2.5"
-                      style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                      style={{ border: "1px solid var(--table-border)" }}
                     >
                       <p
                         className={cn(
                           "text-sm leading-tight",
-                          todo.completed ? "line-through text-white/25" : "text-white/80"
+                          todo.completed ? "line-through text-foreground/30" : "text-foreground/80"
                         )}
                       >
                         {todo.title}
                       </p>
                       {todo.description && (
-                        <p className="text-[11px] text-white/30 mt-0.5 truncate max-w-[220px]">
+                        <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate max-w-[220px]">
                           {todo.description}
                         </p>
                       )}
@@ -292,7 +292,7 @@ export function TodoList() {
                     {/* Priority — desktop only */}
                     <td
                       className="hidden md:table-cell px-3 py-2.5"
-                      style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                      style={{ border: "1px solid var(--table-border)" }}
                     >
                       <span
                         className="text-[11px] px-2 py-0.5 rounded font-medium capitalize"
@@ -309,37 +309,37 @@ export function TodoList() {
                     <td
                       className="hidden md:table-cell px-3 py-2.5 text-xs"
                       style={{
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        color: "rgba(255,255,255,0.45)",
+                        border: "1px solid var(--table-border)",
+                        color: "var(--muted-foreground)",
                       }}
                     >
-                      {todo.dueTime || <span style={{ color: "rgba(255,255,255,0.15)" }}>—</span>}
+                      {todo.dueTime || <span style={{ color: "var(--muted-foreground)" }}>—</span>}
                     </td>
                     {/* Category — desktop only */}
                     <td
                       className="hidden md:table-cell px-3 py-2.5 text-xs truncate max-w-[96px]"
                       style={{
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        color: "rgba(255,255,255,0.45)",
+                        border: "1px solid var(--table-border)",
+                        color: "var(--muted-foreground)",
                       }}
                     >
-                      {todo.category || <span style={{ color: "rgba(255,255,255,0.15)" }}>—</span>}
+                      {todo.category || <span style={{ color: "var(--muted-foreground)" }}>—</span>}
                     </td>
                     {/* Actions */}
                     <td
                       className="px-2 py-2.5"
-                      style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                      style={{ border: "1px solid var(--table-border)" }}
                     >
                       <div className="flex items-center gap-0.5">
                         <button
-                          className="h-6 w-6 flex items-center justify-center rounded transition-colors hover:bg-white/10 text-white/30 hover:text-white/60"
+                          className="h-6 w-6 flex items-center justify-center rounded transition-colors hover:bg-muted text-muted-foreground/70 hover:text-foreground"
                           onClick={() => startEdit(todo)}
                           aria-label="Edit task"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
                         <button
-                          className="h-6 w-6 flex items-center justify-center rounded transition-colors hover:bg-white/10 text-white/30 hover:text-[#F23645]"
+                          className="h-6 w-6 flex items-center justify-center rounded transition-colors hover:bg-muted text-muted-foreground/70 hover:text-[#F23645]"
                           onClick={() => deleteTodo(todo.id)}
                           aria-label="Delete task"
                         >
@@ -352,20 +352,20 @@ export function TodoList() {
               })}
 
               {/* Inline add row */}
-              <tr className="bg-white/[0.015]">
+              <tr className="bg-muted/30">
                 <td
                   className="text-center py-2.5 px-2"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   <div className="mx-auto h-5 w-5 rounded-full border-[1.5px] border-white/15" />
                 </td>
                 <td
                   className="px-3 py-2"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   <input
-                    className="w-full bg-transparent text-sm outline-none placeholder-white/20"
-                    style={{ color: "rgba(255,255,255,0.8)" }}
+                    className="w-full bg-transparent text-sm outline-none placeholder-muted-foreground/40"
+                    style={{ color: "var(--foreground)" }}
                     placeholder="Type a task and press Enter…"
                     value={inlineTitle}
                     onChange={(e) => setInlineTitle(e.target.value)}
@@ -374,39 +374,39 @@ export function TodoList() {
                 </td>
                 <td
                   className="hidden md:table-cell px-2 py-2"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   <select
                     className="w-full bg-transparent text-xs outline-none cursor-pointer"
-                    style={{ color: "rgba(255,255,255,0.45)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                     value={inlinePriority}
                     onChange={(e) => setInlinePriority(e.target.value as Priority)}
                   >
-                    <option value="low" className="bg-[#0d0f1a] text-white">Low</option>
-                    <option value="medium" className="bg-[#0d0f1a] text-white">Medium</option>
-                    <option value="high" className="bg-[#0d0f1a] text-white">High</option>
-                    <option value="urgent" className="bg-[#0d0f1a] text-white">Urgent</option>
+                    <option value="low" className="bg-background text-foreground">Low</option>
+                    <option value="medium" className="bg-background text-foreground">Medium</option>
+                    <option value="high" className="bg-background text-foreground">High</option>
+                    <option value="urgent" className="bg-background text-foreground">Urgent</option>
                   </select>
                 </td>
                 <td
                   className="hidden md:table-cell px-2 py-2"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   <input
                     type="time"
                     className="w-full bg-transparent text-xs outline-none cursor-pointer"
-                    style={{ color: "rgba(255,255,255,0.45)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                     value={inlineTime}
                     onChange={(e) => setInlineTime(e.target.value)}
                   />
                 </td>
                 <td
                   className="hidden md:table-cell px-2 py-2"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   <input
-                    className="w-full bg-transparent text-xs outline-none placeholder-white/20"
-                    style={{ color: "rgba(255,255,255,0.45)" }}
+                    className="w-full bg-transparent text-xs outline-none placeholder-muted-foreground/40"
+                    style={{ color: "var(--muted-foreground)" }}
                     placeholder="Category"
                     value={inlineCategory}
                     onChange={(e) => setInlineCategory(e.target.value)}
@@ -414,7 +414,7 @@ export function TodoList() {
                 </td>
                 <td
                   className="px-2 py-2 text-center"
-                  style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={{ border: "1px solid var(--table-border)" }}
                 >
                   <button
                     onClick={addInlineTodo}

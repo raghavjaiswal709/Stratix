@@ -1,37 +1,39 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useAppContext } from "@/lib/context";
+import { getDateRange, getFilteredLogs } from "@/lib/habits";
+import { eachDayOfInterval, format } from "date-fns";
 import {
-  getDailyScore,
-  getHabitCompletionRate,
-  getHeatmapData,
-  getCurrentStreak,
-  getLongestStreak,
-  getDateRange,
-} from "@/lib/habits";
-import { eachDayOfInterval, format, getDay, startOfYear, getWeek } from "date-fns";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
   AreaChart,
   Area,
-  RadarChart,
-  Radar,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import type { TimeFrame } from "@/types";
+
+// ── 10-level heatmap gradient: red → orange → yellow → lime → teal ────────
+const HEAT_COLORS = [
+  "transparent", // 0: no data
+  "#F23645",     // 1: 1-10%
+  "#f5533a",     // 2: 11-20%
+  "#f97316",     // 3: 21-30%
+  "#f4a015",     // 4: 31-40%
+  "#eab308",     // 5: 41-50%
+  "#c8b800",     // 6: 51-60%
+  "#84ca00",     // 7: 61-70%
+  "#4ade80",     // 8: 71-80%
+  "#22c55e",     // 9: 81-90%
+  "#099981",     // 10: 91-100%
+] as const;
+
+function getHeatLevel(pct: number): number {
+  if (pct === 0) return 0;
+  return Math.min(10, Math.ceil(pct / 10));
+}
 
 interface HabitChartsProps {
   timeFrame: TimeFrame;
@@ -39,287 +41,309 @@ interface HabitChartsProps {
 
 export function HabitCharts({ timeFrame }: HabitChartsProps) {
   const { habitData } = useAppContext();
+  const [activeTab, setActiveTab] = useState<"heatmap" | "area">("heatmap");
 
-  // Bar/Line/Area chart data
-  const dailyData = useMemo(() => {
-    const { start, end } = getDateRange(timeFrame);
-    const days = eachDayOfInterval({ start, end });
+  const { start, end } = useMemo(() => getDateRange(timeFrame), [timeFrame]);
+  const days = useMemo(
+    () => eachDayOfInterval({ start, end }),
+    [start, end]
+  );
+  const filteredLogs = useMemo(
+    () => getFilteredLogs(habitData.logs, timeFrame),
+    [habitData.logs, timeFrame]
+  );
 
-    if (timeFrame === "this-week") {
-      return days.map((day) => ({
-        name: format(day, "EEE"),
-        score: getDailyScore(habitData.habits, habitData.logs, format(day, "yyyy-MM-dd")),
-      }));
-    }
-
-    // For longer time frames, aggregate by week or month
-    if (days.length > 60) {
-      // Group by month
-      const monthMap: Record<string, number[]> = {};
-      days.forEach((day) => {
-        const key = format(day, "MMM yyyy");
-        if (!monthMap[key]) monthMap[key] = [];
-        monthMap[key].push(
-          getDailyScore(habitData.habits, habitData.logs, format(day, "yyyy-MM-dd"))
+  // ── Per-habit rows × per-date columns (binary done/not) ──────────────────
+  const heatmapRows = useMemo(() => {
+    return habitData.habits.map((habit) => ({
+      habit,
+      cells: days.map((day) => {
+        const dateStr = format(day, "yyyy-MM-dd");
+        const done = filteredLogs.some(
+          (l) => l.habitId === habit.id && l.date === dateStr && l.completed
         );
-      });
-      return Object.entries(monthMap).map(([name, scores]) => ({
-        name,
-        score: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
-      }));
-    }
-
-    return days.map((day) => ({
-      name: format(day, "MMM d"),
-      score: getDailyScore(habitData.habits, habitData.logs, format(day, "yyyy-MM-dd")),
+        return done;
+      }),
     }));
-  }, [timeFrame, habitData]);
+  }, [habitData.habits, days, filteredLogs]);
 
-  // Radar chart data
-  const radarData = useMemo(() => {
-    return habitData.habits.map((habit) => ({
-      habit: habit.name,
-      completion: getHabitCompletionRate(habit.id, habitData.logs, timeFrame),
-    }));
-  }, [habitData, timeFrame]);
-
-  // Heatmap data
-  const heatmapData = useMemo(() => getHeatmapData(habitData.habits, habitData.logs), [habitData]);
-
-  // Streak data
-  const streakData = useMemo(() => {
-    return habitData.habits.map((habit) => ({
-      name: habit.name,
-      current: getCurrentStreak(habit.id, habitData.logs),
-      longest: getLongestStreak(habit.id, habitData.logs),
-    }));
-  }, [habitData]);
-
-  // Organize heatmap into weeks
-  const heatmapWeeks = useMemo(() => {
-    const now = new Date();
-    const yearStart = startOfYear(now);
-    const weeks: { date: string; score: number; dayOfWeek: number; week: number }[][] = [];
-    const dataMap: Record<string, number> = {};
-    heatmapData.forEach((d) => (dataMap[d.date] = d.score));
-
-    const allDays = eachDayOfInterval({ start: yearStart, end: now });
-    allDays.forEach((day) => {
-      const weekNum = getWeek(day, { weekStartsOn: 0 });
-      if (!weeks[weekNum]) weeks[weekNum] = [];
-      weeks[weekNum].push({
-        date: format(day, "yyyy-MM-dd"),
-        score: dataMap[format(day, "yyyy-MM-dd")] || 0,
-        dayOfWeek: getDay(day),
-        week: weekNum,
-      });
+  // ── Daily completion % across all habits (for area + summary row) ─────────
+  const dailyPct = useMemo(() => {
+    return days.map((day) => {
+      const dateStr = format(day, "yyyy-MM-dd");
+      if (habitData.habits.length === 0) return 0;
+      const done = filteredLogs.filter(
+        (l) => l.date === dateStr && l.completed
+      ).length;
+      return Math.round((done / habitData.habits.length) * 100);
     });
+  }, [days, habitData.habits, filteredLogs]);
 
-    return weeks.filter(Boolean);
-  }, [heatmapData]);
+  const areaData = useMemo(
+    () =>
+      days.map((day, i) => ({
+        date: format(
+          day,
+          days.length <= 14 ? "EEE d" : days.length <= 60 ? "MMM d" : "MMM"
+        ),
+        pct: dailyPct[i],
+      })),
+    [days, dailyPct]
+  );
 
-  const getHeatColor = (score: number) => {
-    if (score === 0) return "bg-muted";
-    if (score <= 40) return "bg-green-200 dark:bg-green-900";
-    if (score <= 70) return "bg-green-400 dark:bg-green-700";
-    if (score <= 90) return "bg-green-500 dark:bg-green-500";
-    return "bg-green-600 dark:bg-green-400";
-  };
+  // ── Cell sizing ──────────────────────────────────────────────────────────
+  const cellPx =
+    days.length <= 7 ? 32 : days.length <= 31 ? 22 : days.length <= 90 ? 14 : 10;
+  const habitLabelW = 120;
 
-  const chartColors = {
-    primary: "hsl(var(--primary))",
-    bar: "#3b82f6",
-    line: "#8b5cf6",
-    area: "#06b6d4",
-  };
+  const isEmpty = habitData.habits.length === 0;
 
   return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Analytics</h3>
-      <Tabs defaultValue="bar" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6">
-          <TabsTrigger value="bar">Bar</TabsTrigger>
-          <TabsTrigger value="line">Line</TabsTrigger>
-          <TabsTrigger value="area">Area</TabsTrigger>
-          <TabsTrigger value="radar">Radar</TabsTrigger>
-          <TabsTrigger value="heatmap">Heatmap</TabsTrigger>
-          <TabsTrigger value="streak">Streak</TabsTrigger>
-        </TabsList>
+    <div className="space-y-0">
+      {/* ── Tab bar ─────────────────────────────────────────────────────── */}
+      <div className="flex gap-1 mb-4">
+        {(["heatmap", "area"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className="px-3 py-1.5 rounded-md text-[13px] font-medium transition-all"
+            style={
+              activeTab === tab
+                ? {
+                    background: "rgba(99,102,241,0.15)",
+                    color: "rgb(165,180,252)",
+                    border: "1px solid rgba(99,102,241,0.22)",
+                  }
+                : {
+                    background: "transparent",
+                    color: "var(--muted-foreground)",
+                    border: "1px solid transparent",
+                  }
+            }
+          >
+            {tab === "heatmap" ? "Heatmap" : "Progress"}
+          </button>
+        ))}
+      </div>
 
-        <TabsContent value="bar" className="mt-4">
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dailyData}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "8px",
-                    color: "hsl(var(--card-foreground))",
+      {/* ── Heatmap tab ─────────────────────────────────────────────────── */}
+      {activeTab === "heatmap" && (
+        <div>
+          {isEmpty ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              No habits yet — add one to see your heatmap.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <div style={{ minWidth: habitLabelW + days.length * (cellPx + 2) }}>
+                {/* Date header */}
+                <div
+                  className="flex"
+                  style={{ marginLeft: habitLabelW, marginBottom: 4 }}
+                >
+                  {days.map((day, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: cellPx + 2,
+                        flexShrink: 0,
+                        textAlign: "center",
+                      }}
+                    >
+                      {days.length <= 7 ? (
+                        <span className="text-[10px] text-muted-foreground">
+                          {format(day, "EEE")}
+                        </span>
+                      ) : i % Math.ceil(days.length / 12) === 0 ? (
+                        <span className="text-[9px] text-muted-foreground">
+                          {format(day, days.length <= 60 ? "d" : "MMM")}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Overall daily completion summary row */}
+                <div
+                  className="flex items-center mb-1"
+                  style={{ height: cellPx + 2 }}
+                >
+                  <div
+                    className="text-[11px] font-semibold text-muted-foreground truncate pr-2"
+                    style={{ width: habitLabelW }}
+                  >
+                    All habits
+                  </div>
+                  {dailyPct.map((pct, i) => {
+                    const level = getHeatLevel(pct);
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          width: cellPx,
+                          height: cellPx,
+                          margin: 1,
+                          flexShrink: 0,
+                          borderRadius: Math.max(2, cellPx * 0.15),
+                          backgroundColor:
+                            level === 0
+                              ? "rgba(128,128,128,0.12)"
+                              : HEAT_COLORS[level],
+                          opacity: level === 0 ? 0.7 : 1,
+                        }}
+                        title={`${format(days[i], "MMM d")}: ${pct}%`}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* Divider */}
+                <div
+                  className="mb-1"
+                  style={{
+                    height: 1,
+                    marginLeft: habitLabelW,
+                    background: "var(--border)",
+                    opacity: 0.5,
                   }}
                 />
-                <Bar dataKey="score" fill={chartColors.bar} radius={[4, 4, 0, 0]} name="Score %" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </TabsContent>
 
-        <TabsContent value="line" className="mt-4">
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={dailyData}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "8px",
-                    color: "hsl(var(--card-foreground))",
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="score"
-                  stroke={chartColors.line}
-                  strokeWidth={2}
-                  dot={{ r: 4 }}
-                  name="Score %"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="area" className="mt-4">
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyData}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "8px",
-                    color: "hsl(var(--card-foreground))",
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="score"
-                  stroke={chartColors.area}
-                  fill={chartColors.area}
-                  fillOpacity={0.3}
-                  name="Score %"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="radar" className="mt-4">
-          <div className="h-[300px] w-full">
-            {radarData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={radarData}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="habit" tick={{ fontSize: 10 }} />
-                  <PolarRadiusAxis domain={[0, 100]} />
-                  <Radar
-                    dataKey="completion"
-                    stroke={chartColors.line}
-                    fill={chartColors.line}
-                    fillOpacity={0.4}
-                    name="Completion %"
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                      color: "hsl(var(--card-foreground))",
-                    }}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                Add habits to see radar chart
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="heatmap" className="mt-4">
-          <div className="overflow-x-auto pb-4">
-            <div className="min-w-[700px]">
-              <div className="flex gap-[3px]">
-                {heatmapWeeks.map((week, wi) => (
-                  <div key={wi} className="flex flex-col gap-[3px]">
-                    {Array.from({ length: 7 }).map((_, di) => {
-                      const day = week.find((d) => d.dayOfWeek === di);
-                      if (!day) {
-                        return <div key={di} className="h-3 w-3" />;
-                      }
+                {/* Per-habit rows */}
+                {heatmapRows.map(({ habit, cells }) => (
+                  <div
+                    key={habit.id}
+                    className="flex items-center"
+                    style={{ height: cellPx + 4, marginBottom: 1 }}
+                  >
+                    <div
+                      className="text-[11px] text-muted-foreground truncate pr-2"
+                      style={{ width: habitLabelW, flexShrink: 0 }}
+                    >
+                      {habit.name}
+                    </div>
+                    {cells.map((done, i) => {
+                      const dayOfWeek = days[i].getDay();
+                      const isScheduled =
+                        !habit.weekDays?.length ||
+                        habit.weekDays.includes(dayOfWeek);
                       return (
                         <div
-                          key={di}
-                          className={`h-3 w-3 rounded-sm ${getHeatColor(day.score)} cursor-pointer transition-colors`}
-                          title={`${day.date}: ${day.score}%`}
+                          key={i}
+                          style={{
+                            width: cellPx,
+                            height: cellPx,
+                            margin: 1,
+                            flexShrink: 0,
+                            borderRadius: Math.max(2, cellPx * 0.15),
+                            backgroundColor: !isScheduled
+                              ? "transparent"
+                              : done
+                              ? "#099981"
+                              : "#F23645",
+                            opacity: !isScheduled ? 0.25 : done ? 1 : 0.55,
+                          }}
+                          title={`${habit.name} · ${format(days[i], "MMM d")}: ${
+                            !isScheduled ? "off" : done ? "done" : "missed"
+                          }`}
                         />
                       );
                     })}
                   </div>
                 ))}
-              </div>
-              <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-                <span>Less</span>
-                <div className="h-3 w-3 rounded-sm bg-muted" />
-                <div className="h-3 w-3 rounded-sm bg-green-200 dark:bg-green-900" />
-                <div className="h-3 w-3 rounded-sm bg-green-400 dark:bg-green-700" />
-                <div className="h-3 w-3 rounded-sm bg-green-500 dark:bg-green-500" />
-                <div className="h-3 w-3 rounded-sm bg-green-600 dark:bg-green-400" />
-                <span>More</span>
+
+                {/* Legend */}
+                <div
+                  className="flex items-center gap-1 mt-3"
+                  style={{ marginLeft: habitLabelW }}
+                >
+                  <span className="text-[10px] text-muted-foreground mr-1">
+                    0%
+                  </span>
+                  {HEAT_COLORS.slice(1).map((color, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 2,
+                        backgroundColor: color,
+                        flexShrink: 0,
+                      }}
+                      title={`${(i + 1) * 10}%`}
+                    />
+                  ))}
+                  <span className="text-[10px] text-muted-foreground ml-1">
+                    100%
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        </TabsContent>
+          )}
+        </div>
+      )}
 
-        <TabsContent value="streak" className="mt-4">
-          <div className="h-[300px] w-full">
-            {streakData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={streakData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis type="number" tick={{ fontSize: 12 }} />
-                  <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={120} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                      color: "hsl(var(--card-foreground))",
-                    }}
-                  />
-                  <Legend />
-                  <Bar dataKey="current" fill="#3b82f6" name="Current Streak" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="longest" fill="#8b5cf6" name="Longest Streak" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                Add habits to see streak data
-              </div>
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
+      {/* ── Area chart tab ──────────────────────────────────────────────── */}
+      {activeTab === "area" && (
+        <div>
+          {isEmpty ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              No habits yet — add one to see your progress.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart
+                data={areaData}
+                margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="habitAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#099981" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#099981" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="var(--border)"
+                  opacity={0.5}
+                />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval={Math.max(0, Math.ceil(areaData.length / 8) - 1)}
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--popover)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    color: "var(--popover-foreground)",
+                  }}
+                  formatter={(v) => [`${v}%`, "Completion"]}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="pct"
+                  stroke="#099981"
+                  strokeWidth={2}
+                  fill="url(#habitAreaGrad)"
+                  dot={false}
+                  activeDot={{ r: 4, fill: "#099981" }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
     </div>
   );
 }

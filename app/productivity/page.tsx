@@ -75,7 +75,7 @@ export default function ProductivityPage() {
           </div>
 
           <div className="glass-card p-4">
-            <HabitGrid />
+            <HabitGrid timeFrame={timeFrame} />
           </div>
 
           <div className="glass-card p-4">

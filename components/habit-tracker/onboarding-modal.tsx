@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { useAppContext } from "@/lib/context";
@@ -13,33 +13,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Plus, Trash2, ArrowRight, Search } from "lucide-react";
 import {
-  Plus, Trash2, ArrowRight,
-  Dumbbell, Bike, Flame, Heart, Apple, Pill, Droplets,
-  Activity, Wind, Stethoscope, Timer, Brain, BookOpen,
-  Lightbulb, PenLine, Code, Coffee, Eye, Globe,
-  Moon, Sun, Smile, Waves, Leaf, Music, Camera, Home,
-  Utensils, ShoppingCart, Smartphone, Gamepad2, Bed,
-  DollarSign, PiggyBank, TrendingUp, Target, Trophy,
-  Zap, Rocket, Star, Users, MessageCircle,
-} from "lucide-react";
+  HABIT_ICON_MAP,
+  HABIT_ICONS_LIST,
+  type HabitIconKey,
+} from "@/lib/habit-icons";
 import type { Habit } from "@/types";
 import { cn } from "@/lib/utils";
 
-// ── shared icon registry (same as habit-grid) ─────────────────────────────
-const HABIT_ICONS = {
-  Dumbbell, Bike, Flame, Heart, Apple, Pill, Droplets,
-  Activity, Wind, Stethoscope, Timer, Brain, BookOpen,
-  Lightbulb, PenLine, Code, Coffee, Eye, Globe,
-  Moon, Sun, Smile, Waves, Leaf, Music, Camera, Home,
-  Utensils, ShoppingCart, Smartphone, Gamepad2, Bed,
-  DollarSign, PiggyBank, TrendingUp, Target, Trophy,
-  Zap, Rocket, Star, Users, MessageCircle,
-} as const;
-
-type HabitIconKey = keyof typeof HABIT_ICONS;
-const ICON_KEYS = Object.keys(HABIT_ICONS) as HabitIconKey[];
-
+// ── Icon display helper ────────────────────────────────────────────────────
 function HabitIconComp({
   iconKey,
   size = 14,
@@ -49,8 +32,8 @@ function HabitIconComp({
   size?: number;
   color?: string;
 }) {
-  const Icon = (HABIT_ICONS[(iconKey as HabitIconKey) || "Target"] ??
-    Target) as React.FC<{ size?: number; color?: string }>;
+  const Icon = (HABIT_ICON_MAP[(iconKey as HabitIconKey) || "Target"] ??
+    HABIT_ICON_MAP["Target"]) as React.FC<{ size?: number; color?: string }>;
   return <Icon size={size} color={color} />;
 }
 
@@ -66,6 +49,7 @@ interface HabitDraft {
   icon: HabitIconKey | "";
   color: string;
   category: string;
+  iconSearch: string;
 }
 
 interface OnboardingModalProps {
@@ -77,12 +61,12 @@ export function OnboardingModal({ open, onClose }: OnboardingModalProps) {
   const { habitData, setHabitData } = useAppContext();
 
   const [habits, setHabits] = useState<HabitDraft[]>([
-    { name: "", icon: "", color: COLOR_OPTIONS[0], category: "" },
+    { name: "", icon: "", color: COLOR_OPTIONS[0], category: "", iconSearch: "" },
   ]);
 
   const addRow = () => {
     const nextColor = COLOR_OPTIONS[habits.length % COLOR_OPTIONS.length];
-    setHabits([...habits, { name: "", icon: "", color: nextColor, category: "" }]);
+    setHabits([...habits, { name: "", icon: "", color: nextColor, category: "", iconSearch: "" }]);
   };
 
   const removeRow = (index: number) => {
@@ -128,120 +112,150 @@ export function OnboardingModal({ open, onClose }: OnboardingModalProps) {
         </DialogHeader>
 
         <div className="space-y-4 mt-4">
-          {habits.map((habit, index) => (
-            <div
-              key={index}
-              className="rounded-lg p-3 space-y-3"
-              style={{ border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)" }}
-            >
-              {/* Row header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-white/50">
-                  {habit.icon ? (
-                    <HabitIconComp iconKey={habit.icon} size={14} color={habit.color} />
-                  ) : (
-                    <div className="h-3.5 w-3.5 rounded border border-white/20" />
-                  )}
-                  <span>{habit.name || `Habit ${index + 1}`}</span>
-                </div>
-                {habits.length > 1 && (
-                  <button
-                    onClick={() => removeRow(index)}
-                    className="h-6 w-6 flex items-center justify-center rounded text-white/30 hover:text-[#F23645] hover:bg-white/5 transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
+          {habits.map((habit, index) => {
+            const q = habit.iconSearch.toLowerCase().trim();
+            const filteredIcons = q
+              ? HABIT_ICONS_LIST.filter(
+                  ({ key, label, tags }) =>
+                    key.toLowerCase().includes(q) ||
+                    label.toLowerCase().includes(q) ||
+                    tags.some((t) => t.includes(q))
+                )
+              : HABIT_ICONS_LIST;
 
-              {/* Name */}
-              <div className="space-y-1">
-                <Label className="text-xs text-white/40">Name *</Label>
-                <Input
-                  placeholder="e.g., Read 30 minutes"
-                  value={habit.name}
-                  onChange={(e) => updateRow(index, { name: e.target.value })}
-                />
-              </div>
-
-              {/* Icon picker */}
-              <div className="space-y-1">
-                <Label className="text-xs text-white/40">
-                  Icon *{" "}
-                  {!habit.icon && (
-                    <span style={{ color: "#F23645" }}>— required</span>
-                  )}
-                </Label>
-                <div
-                  className="rounded-md p-1.5 overflow-y-auto"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(10, 1fr)",
-                    gap: "2px",
-                    maxHeight: "120px",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                    background: "rgba(255,255,255,0.015)",
-                  }}
-                >
-                  {ICON_KEYS.map((key) => {
-                    const sel = habit.icon === key;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        title={key}
-                        onClick={() => updateRow(index, { icon: key })}
-                        className="h-8 flex items-center justify-center rounded transition-all"
-                        style={
-                          sel
-                            ? {
-                                backgroundColor: habit.color + "30",
-                                color: habit.color,
-                                boxShadow: `inset 0 0 0 1.5px ${habit.color}`,
-                              }
-                            : { color: "rgba(255,255,255,0.35)" }
-                        }
-                      >
-                        <HabitIconComp iconKey={key} size={13} />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Color + Category */}
-              <div className="flex items-end gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs text-white/40">Color</Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {COLOR_OPTIONS.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => updateRow(index, { color: c })}
-                        className={cn(
-                          "h-5 w-5 rounded-full border-2 transition-transform",
-                          habit.color === c
-                            ? "border-white scale-110"
-                            : "border-transparent hover:scale-105"
-                        )}
-                        style={{ backgroundColor: c }}
-                        aria-label={c}
-                      />
-                    ))}
+            return (
+              <div
+                key={index}
+                className="rounded-lg p-3 space-y-3"
+                style={{ border: "1px solid var(--table-border)", background: "var(--muted)" }}
+              >
+                {/* Row header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    {habit.icon ? (
+                      <HabitIconComp iconKey={habit.icon} size={14} color={habit.color} />
+                    ) : (
+                      <div className="h-3.5 w-3.5 rounded border border-border" />
+                    )}
+                    <span>{habit.name || `Habit ${index + 1}`}</span>
                   </div>
+                  {habits.length > 1 && (
+                    <button
+                      onClick={() => removeRow(index)}
+                      className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
-                <div className="flex-1 space-y-1">
-                  <Label className="text-xs text-white/40">Category</Label>
+
+                {/* Name */}
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Name *</Label>
                   <Input
-                    placeholder="Health, Work…"
-                    value={habit.category}
-                    onChange={(e) => updateRow(index, { category: e.target.value })}
-                    className="h-8 text-xs"
+                    placeholder="e.g., Read 30 minutes"
+                    value={habit.name}
+                    onChange={(e) => updateRow(index, { name: e.target.value })}
                   />
                 </div>
+
+                {/* Icon picker with search */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    Icon *{" "}
+                    {!habit.icon && (
+                      <span style={{ color: "#F23645" }}>— required</span>
+                    )}
+                  </Label>
+
+                  {/* Search */}
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <Input
+                      placeholder="Search icons…"
+                      value={habit.iconSearch}
+                      onChange={(e) => updateRow(index, { iconSearch: e.target.value })}
+                      className="pl-7 h-7 text-[12px]"
+                    />
+                  </div>
+
+                  <div
+                    className="rounded-md p-1 overflow-y-auto"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(10, 1fr)",
+                      gap: "2px",
+                      maxHeight: "112px",
+                      border: "1px solid var(--table-border)",
+                      background: "var(--background)",
+                    }}
+                  >
+                    {filteredIcons.length === 0 ? (
+                      <div className="col-span-10 py-3 text-center text-xs text-muted-foreground">
+                        No icons found
+                      </div>
+                    ) : (
+                      filteredIcons.map(({ key, label }) => {
+                        const sel = habit.icon === key;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            title={label}
+                            onClick={() => updateRow(index, { icon: key })}
+                            className="h-8 flex items-center justify-center rounded transition-all text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                            style={
+                              sel
+                                ? {
+                                    backgroundColor: habit.color + "30",
+                                    color: habit.color,
+                                    boxShadow: `inset 0 0 0 1.5px ${habit.color}`,
+                                  }
+                                : undefined
+                            }
+                          >
+                            <HabitIconComp iconKey={key} size={13} />
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Color + Category */}
+                <div className="flex items-end gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Color</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {COLOR_OPTIONS.map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => updateRow(index, { color: c })}
+                          className={cn(
+                            "h-5 w-5 rounded-full border-2 transition-transform",
+                            habit.color === c
+                              ? "border-foreground scale-110"
+                              : "border-transparent hover:scale-105"
+                          )}
+                          style={{ backgroundColor: c }}
+                          aria-label={c}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <Label className="text-xs text-muted-foreground">Category</Label>
+                    <Input
+                      placeholder="Health, Work…"
+                      value={habit.category}
+                      onChange={(e) => updateRow(index, { category: e.target.value })}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           <Button variant="outline" onClick={addRow} className="w-full gap-2">
             <Plus className="h-4 w-4" />
