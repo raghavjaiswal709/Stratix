@@ -2,12 +2,13 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
-import type { HabitData, TodoData, TradeData, ScoreWeights } from "@/types";
+import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData } from "@/types";
 
 interface AppData {
   habitData: HabitData;
   todoData: TodoData;
   tradeData: TradeData;
+  diaryData: DiaryData;
   scoreWeights: ScoreWeights;
   theme: "light" | "dark";
 }
@@ -16,6 +17,7 @@ interface AppContextType extends AppData {
   setHabitData: (data: HabitData) => void;
   setTodoData: (data: TodoData) => void;
   setTradeData: (data: TradeData) => void;
+  setDiaryData: (data: DiaryData) => void;
   setScoreWeights: (weights: ScoreWeights) => void;
   setTheme: (theme: "light" | "dark") => void;
   loading: boolean;
@@ -25,6 +27,7 @@ const defaultData: AppData = {
   habitData: { habits: [], logs: [] },
   todoData: { todos: [] },
   tradeData: { trades: [], customStrategies: [] },
+  diaryData: { entries: [] },
   scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },
   theme: "dark",
 };
@@ -34,6 +37,7 @@ const AppContext = createContext<AppContextType>({
   setHabitData: () => {},
   setTodoData: () => {},
   setTradeData: () => {},
+  setDiaryData: () => {},
   setScoreWeights: () => {},
   setTheme: () => {},
   loading: true,
@@ -60,6 +64,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           habitData: userData.habitData || defaultData.habitData,
           todoData: userData.todoData || defaultData.todoData,
           tradeData: userData.tradeData || defaultData.tradeData,
+          diaryData: userData.diaryData || defaultData.diaryData,
           scoreWeights: userData.scoreWeights || defaultData.scoreWeights,
           theme: userData.theme || defaultData.theme,
         });
@@ -114,6 +119,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [saveToApi]
   );
 
+  const setDiaryData = useCallback(
+    (diaryData: DiaryData) => {
+      setData((prev) => ({ ...prev, diaryData }));
+      saveToApi({ diaryData });
+    },
+    [saveToApi]
+  );
+
   const setScoreWeights = useCallback(
     (scoreWeights: ScoreWeights) => {
       setData((prev) => ({ ...prev, scoreWeights }));
@@ -147,6 +160,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setHabitData,
         setTodoData,
         setTradeData,
+        setDiaryData,
         setScoreWeights,
         setTheme,
         loading,

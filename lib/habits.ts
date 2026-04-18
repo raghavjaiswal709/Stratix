@@ -51,6 +51,24 @@ export function getDailyScore(
   return Math.round((dayLogs.length / habits.length) * 100);
 }
 
+/** Average habit score across a timeframe */
+export function getAverageHabitScore(
+  habits: Habit[],
+  logs: HabitLog[],
+  timeFrame: TimeFrame
+): number {
+  if (habits.length === 0) return 0;
+  const { start, end } = getDateRange(timeFrame);
+  const days = eachDayOfInterval({ start, end: end > new Date() ? new Date() : end });
+  if (days.length === 0) return 0;
+  let total = 0;
+  for (const day of days) {
+    const dateStr = format(day, "yyyy-MM-dd");
+    total += getDailyScore(habits, logs, dateStr);
+  }
+  return Math.round(total / days.length);
+}
+
 export function getScoreColor(score: number): string {
   if (score <= 40) return "bg-red-500";
   if (score <= 60) return "bg-orange-500";

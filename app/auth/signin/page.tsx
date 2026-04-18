@@ -1,7 +1,7 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { BarChart2 } from "lucide-react";
+import { Sunrise } from "lucide-react";
 import { useState } from "react";
 
 export default function SignInPage() {
@@ -32,7 +32,7 @@ export default function SignInPage() {
                 boxShadow: "0 0 24px rgba(99,102,241,0.12)",
               }}
             >
-              <BarChart2 className="h-5.5 w-5.5 text-indigo-400" style={{ width: 22, height: 22 }} />
+              <Sunrise className="h-5.5 w-5.5 text-indigo-400" style={{ width: 22, height: 22 }} />
             </div>
             <div className="text-center space-y-1">
               <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Stratix</h1>

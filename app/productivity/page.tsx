@@ -7,8 +7,10 @@ import { DailyScore } from "@/components/habit-tracker/daily-score";
 import { HabitCharts } from "@/components/habit-tracker/habit-charts";
 import { OnboardingModal } from "@/components/habit-tracker/onboarding-modal";
 import { TodoList } from "@/components/todo/todo-list";
+import { Diary } from "@/components/diary/diary";
 import { ScoreOfTheDay } from "@/components/shared/score-of-the-day";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScoreProgress } from "@/components/shared/score-progress";
+import { SwipeableTabs } from "@/components/shared/swipeable-tabs";
 import {
   Select,
   SelectContent,
@@ -18,10 +20,17 @@ import {
 } from "@/components/ui/select";
 import type { TimeFrame } from "@/types";
 
+const mainTabs = [
+  { value: "todos", label: "To-Do List" },
+  { value: "habits", label: "Habit Tracker" },
+  { value: "diary", label: "Diary" },
+];
+
 export default function ProductivityPage() {
   const { habitData, loading } = useAppContext();
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [timeFrame, setTimeFrame] = useState<TimeFrame>("this-week");
+  const [activeTab, setActiveTab] = useState("todos");
 
   useEffect(() => {
     if (!loading && habitData.habits.length === 0) {
@@ -42,21 +51,18 @@ export default function ProductivityPage() {
     <div className="mx-auto max-w-7xl px-4 py-6 space-y-5 animate-fade-up">
       <ScoreOfTheDay />
 
-      <Tabs defaultValue="todos" className="w-full">
-        <TabsList className="w-full max-w-xs">
-          <TabsTrigger value="todos">To-Do List</TabsTrigger>
-          <TabsTrigger value="habits">Habit Tracker</TabsTrigger>
-        </TabsList>
-
+      <SwipeableTabs
+        tabs={mainTabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      >
         {/* To-Do List Tab */}
-        <TabsContent value="todos" className="mt-5">
-          <div className="glass-card p-4">
-            <TodoList />
-          </div>
-        </TabsContent>
+        <div className="glass-card p-4">
+          <TodoList />
+        </div>
 
         {/* Habit Tracker Tab */}
-        <TabsContent value="habits" className="space-y-4 mt-5">
+        <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-[18px] font-semibold">Habit Tracker</h2>
             <Select value={timeFrame} onValueChange={(v) => setTimeFrame(v as TimeFrame)}>
@@ -79,14 +85,23 @@ export default function ProductivityPage() {
           </div>
 
           <div className="glass-card p-4">
-            <DailyScore />
+            <ScoreProgress timeFrame={timeFrame} />
+          </div>
+
+          <div className="glass-card p-4">
+            <DailyScore timeFrame={timeFrame} />
           </div>
 
           <div className="glass-card p-4">
             <HabitCharts timeFrame={timeFrame} />
           </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+
+        {/* Diary Tab */}
+        <div className="glass-card p-4">
+          <Diary />
+        </div>
+      </SwipeableTabs>
 
       <OnboardingModal
         open={showOnboarding}

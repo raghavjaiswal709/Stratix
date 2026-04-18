@@ -18,6 +18,7 @@ export async function GET() {
       habitData: { habits: [], logs: [] },
       todoData: { todos: [] },
       tradeData: { trades: [], customStrategies: [] },
+      diaryData: { entries: [] },
       scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },
       theme: "dark",
     });
@@ -36,7 +37,7 @@ export async function PUT(req: NextRequest) {
   const body = await req.json();
 
   // Only allow updating specific fields
-  const allowedFields = ["habitData", "todoData", "tradeData", "scoreWeights", "theme"];
+  const allowedFields = ["habitData", "todoData", "tradeData", "diaryData", "scoreWeights", "theme"];
   const updateData: Record<string, unknown> = {};
 
   for (const field of allowedFields) {

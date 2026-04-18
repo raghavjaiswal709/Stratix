@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useAppContext } from "@/lib/context";
-import { BarChart2, Activity, TrendingUp, Sun, Moon, LogOut, Menu, X, ChevronDown } from "lucide-react";
+import { Sunrise, Activity, TrendingUp, Sun, Moon, LogOut, Menu, X, ChevronDown } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -16,8 +16,8 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
-  { href: "/productivity", label: "Productivity", icon: Activity },
-  { href: "/trading-journal", label: "Trading", icon: TrendingUp },
+  { href: "/productivity", label: "Life-Os", icon: Activity },
+  { href: "/trading-journal", label: "Tradebook", icon: TrendingUp },
 ];
 
 export function Navbar() {
@@ -40,7 +40,7 @@ export function Navbar() {
                 border: "1px solid rgba(99,102,241,0.3)",
               }}
             >
-              <BarChart2 style={{ width: 14, height: 14 }} className="text-indigo-400" />
+              <Sunrise style={{ width: 14, height: 14 }} className="text-indigo-400" />
             </div>
             <span className="text-[15px] font-semibold tracking-tight">Stratix</span>
           </Link>

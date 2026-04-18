@@ -1,11 +1,12 @@
 import mongoose, { Schema, Document } from "mongoose";
-import type { HabitData, TodoData, TradeData, ScoreWeights } from "@/types";
+import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData } from "@/types";
 
 export interface IUserData extends Document {
   userId: string;
   habitData: HabitData;
   todoData: TodoData;
   tradeData: TradeData;
+  diaryData: DiaryData;
   scoreWeights: ScoreWeights;
   theme: "light" | "dark";
   updatedAt: Date;
@@ -25,6 +26,10 @@ const UserDataSchema = new Schema<IUserData>(
     tradeData: {
       type: Schema.Types.Mixed,
       default: { trades: [], customStrategies: [] },
+    },
+    diaryData: {
+      type: Schema.Types.Mixed,
+      default: { entries: [] },
     },
     scoreWeights: {
       type: Schema.Types.Mixed,

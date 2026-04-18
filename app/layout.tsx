@@ -19,8 +19,11 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stratix — Productivity & Trading Journal",
+  title: "Stratix — Life-Os & Tradebook",
   description: "Your all-in-one productivity tracker and trading journal platform.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

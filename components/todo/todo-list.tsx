@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useAppContext } from "@/lib/context";
 import {
   getTodosForDate,
   getTodoScore,
+  getGeneralTodos,
+  migrateTodo,
 } from "@/lib/todos";
 import { generateId } from "@/lib/habits";
 import { Calendar } from "@/components/ui/calendar";
@@ -25,9 +27,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, CalendarDays, Check } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  CalendarDays,
+  Check,
+  MoreVertical,
+  ChevronDown,
+  ChevronRight,
+  GripVertical,
+  Ban,
+} from "lucide-react";
 import { format, parseISO } from "date-fns";
-import type { Todo, Priority } from "@/types";
+import type { Todo, Priority, SubTask, TodoStatus } from "@/types";
+import { TODO_CATEGORIES } from "@/types";
 import { cn } from "@/lib/utils";
 
 const PRIORITY_STYLE: Record<Priority, { bg: string; text: string; border: string }> = {
@@ -37,129 +57,416 @@ const PRIORITY_STYLE: Record<Priority, { bg: string; text: string; border: strin
   low:    { bg: "#09998122", text: "#099981", border: "#09998144" },
 };
 
+const SWIPE_THRESHOLD = 80;
+
+function TodoRow({
+  todo,
+  onToggle,
+  onEdit,
+  onDelete,
+  onDrop,
+  onUpdateTitle,
+  onToggleSubtask,
+  onAddSubtask,
+  onDeleteSubtask,
+  onMoveUp,
+  onMoveDown,
+}: {
+  todo: Todo;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onDrop: () => void;
+  onUpdateTitle: (title: string) => void;
+  onToggleSubtask: (subtaskId: string) => void;
+  onAddSubtask: (title: string) => void;
+  onDeleteSubtask: (subtaskId: string) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleValue, setTitleValue] = useState(todo.title);
+  const [showSubtasks, setShowSubtasks] = useState(false);
+  const [newSubtask, setNewSubtask] = useState("");
+  const [swipeX, setSwipeX] = useState(0);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const ps = PRIORITY_STYLE[todo.priority];
+  const isDropped = todo.status === "dropped";
+  const completedSubtasks = todo.subtasks?.filter((s) => s.completed).length ?? 0;
+  const totalSubtasks = todo.subtasks?.length ?? 0;
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = Math.abs(e.touches[0].clientY - touchStartRef.current.y);
+    if (dy > 30) { setSwipeX(0); return; }
+    if (dx > 0) setSwipeX(Math.min(dx, 120));
+    else setSwipeX(0);
+  };
+
+  const handleTouchEnd = () => {
+    if (swipeX >= SWIPE_THRESHOLD && !isDropped) onToggle();
+    setSwipeX(0);
+    touchStartRef.current = null;
+  };
+
+  const handleTitleSave = () => {
+    if (titleValue.trim() && titleValue.trim() !== todo.title) onUpdateTitle(titleValue.trim());
+    else setTitleValue(todo.title);
+    setEditingTitle(false);
+  };
+
+  return (
+    <div className="relative overflow-hidden">
+      {swipeX > 0 && (
+        <div className="absolute inset-0 flex items-center pl-4 bg-green-500/20 text-green-500 text-sm font-medium">
+          <Check className="h-5 w-5 mr-2" /> {todo.completed ? "Undo" : "Done"}
+        </div>
+      )}
+
+      <div
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className={cn(
+          "relative flex items-start gap-2 px-3 py-2.5 transition-colors hover:bg-muted/40 border-b border-[var(--table-border)]",
+          isDropped && "opacity-40",
+          todo.completed && !isDropped && "opacity-60"
+        )}
+        style={{ transform: `translateX(${swipeX}px)`, transition: swipeX === 0 ? "transform 0.2s" : "none", backgroundColor: "var(--background)" }}
+      >
+        {/* Reorder */}
+        <div className="mt-1 hidden md:flex flex-col gap-0">
+          <button onClick={onMoveUp} className="text-muted-foreground/30 hover:text-muted-foreground h-3" title="Move up">
+            <ChevronDown className="h-3 w-3 rotate-180" />
+          </button>
+          <button onClick={onMoveDown} className="text-muted-foreground/30 hover:text-muted-foreground h-3" title="Move down">
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </div>
+
+        {/* Toggle */}
+        <button
+          onClick={isDropped ? undefined : onToggle}
+          disabled={isDropped}
+          className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center shrink-0 transition-transform hover:scale-110 active:scale-95"
+          style={{
+            backgroundColor: isDropped ? "#666" : todo.completed ? "#099981" : "#F23645",
+            border: `2px solid ${isDropped ? "#666" : todo.completed ? "#099981" : "#F23645"}`,
+          }}
+        >
+          {todo.completed && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+          {isDropped && <Ban className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+        </button>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            {editingTitle ? (
+              <input
+                autoFocus
+                className="bg-transparent text-sm outline-none border-b border-muted-foreground/30 w-full text-foreground"
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={(e) => { if (e.key === "Enter") handleTitleSave(); if (e.key === "Escape") { setTitleValue(todo.title); setEditingTitle(false); } }}
+              />
+            ) : (
+              <p
+                onClick={() => { if (!isDropped) { setEditingTitle(true); setTitleValue(todo.title); } }}
+                className={cn(
+                  "text-sm leading-tight cursor-text",
+                  todo.completed ? "line-through text-foreground/30" : "text-foreground/80",
+                  isDropped && "line-through cursor-default"
+                )}
+              >
+                {todo.title}
+              </p>
+            )}
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded font-medium capitalize shrink-0"
+              style={{ backgroundColor: ps.bg, color: ps.text, border: `1px solid ${ps.border}` }}
+            >
+              {todo.priority}
+            </span>
+          </div>
+
+          {todo.description && (
+            <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate max-w-[280px]">{todo.description}</p>
+          )}
+
+          {isDropped && todo.dropReason && (
+            <p className="text-[10px] text-red-400/70 mt-0.5 italic">Dropped: {todo.dropReason}</p>
+          )}
+
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {todo.category && (
+              <span className="text-[10px] text-muted-foreground/60 bg-muted/50 px-1.5 py-0.5 rounded">{todo.category}</span>
+            )}
+            {todo.dueTime && <span className="text-[10px] text-muted-foreground/60">{todo.dueTime}</span>}
+            {todo.dueDate && <span className="text-[10px] text-muted-foreground/60">{format(parseISO(todo.dueDate), "MMM d")}</span>}
+            {totalSubtasks > 0 && (
+              <button onClick={() => setShowSubtasks(!showSubtasks)} className="text-[10px] text-indigo-400 flex items-center gap-0.5">
+                {showSubtasks ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                {completedSubtasks}/{totalSubtasks} subtasks
+              </button>
+            )}
+          </div>
+
+          {showSubtasks && (
+            <div className="mt-2 ml-2 space-y-1">
+              {todo.subtasks?.map((sub) => (
+                <div key={sub.id} className="flex items-center gap-2 group/sub">
+                  <button
+                    onClick={() => onToggleSubtask(sub.id)}
+                    className="h-3.5 w-3.5 rounded-sm border border-muted-foreground/30 flex items-center justify-center shrink-0"
+                    style={sub.completed ? { backgroundColor: "#099981", borderColor: "#099981" } : {}}
+                  >
+                    {sub.completed && <Check className="h-2 w-2 text-white" strokeWidth={3} />}
+                  </button>
+                  <span className={cn("text-[12px]", sub.completed && "line-through text-muted-foreground/50")}>{sub.title}</span>
+                  <button onClick={() => onDeleteSubtask(sub.id)} className="h-4 w-4 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hidden group-hover/sub:flex">
+                    <Trash2 className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <Plus className="h-3 w-3 text-muted-foreground/40" />
+                <input
+                  className="bg-transparent text-[12px] outline-none placeholder-muted-foreground/40 w-full"
+                  placeholder="Add subtask…"
+                  value={newSubtask}
+                  onChange={(e) => setNewSubtask(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newSubtask.trim()) { onAddSubtask(newSubtask.trim()); setNewSubtask(""); }
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Three-dot menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger className="mt-0.5 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors shrink-0">
+            <MoreVertical className="h-3.5 w-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={onEdit}><Pencil className="mr-2 h-3.5 w-3.5" /> Edit</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowSubtasks(true)}><Plus className="mr-2 h-3.5 w-3.5" /> Subtasks</DropdownMenuItem>
+            <DropdownMenuItem onClick={onMoveUp}><ChevronDown className="mr-2 h-3.5 w-3.5 rotate-180" /> Move Up</DropdownMenuItem>
+            <DropdownMenuItem onClick={onMoveDown}><ChevronDown className="mr-2 h-3.5 w-3.5" /> Move Down</DropdownMenuItem>
+            {!isDropped && (
+              <DropdownMenuItem onClick={onDrop} className="text-orange-400"><Ban className="mr-2 h-3.5 w-3.5" /> Drop Task</DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={onDelete} className="text-red-400"><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
+
 export function TodoList() {
   const { todoData, setTodoData } = useAppContext();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [showMobileCalendar, setShowMobileCalendar] = useState(false);
+  const [showDropDialog, setShowDropDialog] = useState(false);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dropReason, setDropReason] = useState("");
 
-  // Dialog form state
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("medium");
   const [dueTime, setDueTime] = useState("");
   const [category, setCategory] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [isGeneral, setIsGeneral] = useState(false);
 
-  // Inline add row state
   const [inlineTitle, setInlineTitle] = useState("");
   const [inlinePriority, setInlinePriority] = useState<Priority>("medium");
-  const [inlineTime, setInlineTime] = useState("");
-  const [inlineCategory, setInlineCategory] = useState("");
+
+  const todos = useMemo(() => todoData.todos.map(migrateTodo), [todoData.todos]);
 
   const dateStr = format(selectedDate, "yyyy-MM-dd");
   const dayTodos = useMemo(
-    () => getTodosForDate(todoData.todos, dateStr),
-    [todoData.todos, dateStr]
+    () => getTodosForDate(todos, dateStr).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    [todos, dateStr]
   );
-  const score = useMemo(
-    () => getTodoScore(todoData.todos, dateStr),
-    [todoData.todos, dateStr]
+  const generalTodos = useMemo(
+    () => getGeneralTodos(todos).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    [todos]
   );
+  const score = useMemo(() => getTodoScore(todos, dateStr), [todos, dateStr]);
 
-  const completedCount = dayTodos.filter((t) => t.completed).length;
+  const activeDayTodos = dayTodos.filter((t) => t.status !== "dropped");
+  const completedCount = activeDayTodos.filter((t) => t.completed).length;
 
   const resetForm = () => {
-    setTitle("");
-    setDescription("");
-    setPriority("medium");
-    setDueTime("");
-    setCategory("");
-    setEditingTodo(null);
+    setTitle(""); setDescription(""); setPriority("medium"); setDueTime(""); setCategory(""); setDueDate(""); setIsGeneral(false); setEditingTodo(null);
   };
+
+  const saveTodos = useCallback((updated: Todo[]) => setTodoData({ todos: updated }), [setTodoData]);
 
   const addTodo = () => {
     if (!title.trim()) return;
+    const maxOrder = Math.max(0, ...todos.map((t) => t.order ?? 0));
     const todo: Todo = {
-      id: generateId(),
-      title: title.trim(),
-      description,
-      priority,
-      dueDate: dateStr,
-      dueTime,
-      completed: false,
-      category,
-      createdAt: new Date().toISOString(),
+      id: generateId(), title: title.trim(), description, priority,
+      dueDate: isGeneral ? "" : (dueDate || dateStr), dueTime,
+      completed: false, status: "active", category, subtasks: [],
+      order: maxOrder + 1, createdAt: new Date().toISOString(),
     };
-    setTodoData({ todos: [...todoData.todos, todo] });
-    resetForm();
-    setShowAddDialog(false);
+    saveTodos([...todos, todo]);
+    resetForm(); setShowAddDialog(false);
   };
 
   const addInlineTodo = () => {
     if (!inlineTitle.trim()) return;
+    const maxOrder = Math.max(0, ...todos.map((t) => t.order ?? 0));
     const todo: Todo = {
-      id: generateId(),
-      title: inlineTitle.trim(),
-      description: "",
-      priority: inlinePriority,
-      dueDate: dateStr,
-      dueTime: inlineTime,
-      completed: false,
-      category: inlineCategory,
-      createdAt: new Date().toISOString(),
+      id: generateId(), title: inlineTitle.trim(), description: "", priority: inlinePriority,
+      dueDate: dateStr, dueTime: "", completed: false, status: "active",
+      category: "", subtasks: [], order: maxOrder + 1, createdAt: new Date().toISOString(),
     };
-    setTodoData({ todos: [...todoData.todos, todo] });
-    setInlineTitle("");
-    setInlinePriority("medium");
-    setInlineTime("");
-    setInlineCategory("");
+    saveTodos([...todos, todo]);
+    setInlineTitle(""); setInlinePriority("medium");
   };
 
   const updateTodo = () => {
     if (!editingTodo || !title.trim()) return;
-    const updated = todoData.todos.map((t) =>
+    const updated = todos.map((t) =>
       t.id === editingTodo.id
-        ? { ...t, title: title.trim(), description, priority, dueTime, category }
+        ? { ...t, title: title.trim(), description, priority, dueTime, category, dueDate: isGeneral ? "" : (dueDate || t.dueDate) }
         : t
     );
-    setTodoData({ todos: updated });
-    resetForm();
-    setShowAddDialog(false);
+    saveTodos(updated); resetForm(); setShowAddDialog(false);
   };
 
-  const toggleTodo = useCallback(
-    (id: string) => {
-      const updated = todoData.todos.map((t) =>
-        t.id === id ? { ...t, completed: !t.completed } : t
-      );
-      setTodoData({ todos: updated });
-    },
-    [todoData, setTodoData]
-  );
+  const toggleTodo = useCallback((id: string) => {
+    const updated = todos.map((t) =>
+      t.id === id ? { ...t, completed: !t.completed, status: (!t.completed ? "completed" : "active") as TodoStatus } : t
+    );
+    saveTodos(updated);
+  }, [todos, saveTodos]);
 
-  const deleteTodo = (id: string) => {
-    setTodoData({ todos: todoData.todos.filter((t) => t.id !== id) });
+  const deleteTodo = (id: string) => saveTodos(todos.filter((t) => t.id !== id));
+
+  const dropTask = () => {
+    if (!dropTargetId || !dropReason.trim()) return;
+    const updated = todos.map((t) =>
+      t.id === dropTargetId ? { ...t, status: "dropped" as TodoStatus, dropReason: dropReason.trim(), completed: false } : t
+    );
+    saveTodos(updated); setShowDropDialog(false); setDropTargetId(null); setDropReason("");
+  };
+
+  const updateTitle = (id: string, newTitle: string) => {
+    saveTodos(todos.map((t) => (t.id === id ? { ...t, title: newTitle } : t)));
+  };
+
+  const toggleSubtask = (todoId: string, subtaskId: string) => {
+    saveTodos(todos.map((t) => {
+      if (t.id !== todoId) return t;
+      return { ...t, subtasks: t.subtasks.map((s) => s.id === subtaskId ? { ...s, completed: !s.completed } : s) };
+    }));
+  };
+
+  const addSubtask = (todoId: string, stTitle: string) => {
+    const sub: SubTask = { id: generateId(), title: stTitle, completed: false };
+    saveTodos(todos.map((t) => t.id === todoId ? { ...t, subtasks: [...(t.subtasks || []), sub] } : t));
+  };
+
+  const deleteSubtask = (todoId: string, subtaskId: string) => {
+    saveTodos(todos.map((t) => {
+      if (t.id !== todoId) return t;
+      return { ...t, subtasks: t.subtasks.filter((s) => s.id !== subtaskId) };
+    }));
+  };
+
+  const moveTodo = (id: string, direction: "up" | "down", list: Todo[]) => {
+    const idx = list.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= list.length) return;
+    saveTodos(todos.map((t) => {
+      if (t.id === list[idx].id) return { ...t, order: list[swapIdx].order };
+      if (t.id === list[swapIdx].id) return { ...t, order: list[idx].order };
+      return t;
+    }));
   };
 
   const startEdit = (todo: Todo) => {
-    setEditingTodo(todo);
-    setTitle(todo.title);
-    setDescription(todo.description);
-    setPriority(todo.priority);
-    setDueTime(todo.dueTime);
-    setCategory(todo.category);
-    setShowAddDialog(true);
+    setEditingTodo(todo); setTitle(todo.title); setDescription(todo.description);
+    setPriority(todo.priority); setDueTime(todo.dueTime); setCategory(todo.category);
+    setDueDate(todo.dueDate); setIsGeneral(!todo.dueDate); setShowAddDialog(true);
   };
 
   const todoDates = useMemo(() => {
-    const dates = new Set(todoData.todos.map((t) => t.dueDate));
+    const dates = new Set(todos.filter((t) => t.dueDate).map((t) => t.dueDate));
     return Array.from(dates).map((d) => parseISO(d));
-  }, [todoData.todos]);
+  }, [todos]);
+
+  const renderTodoList = (list: Todo[], sectionType: "dated" | "general") => (
+    <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--table-border)" }}>
+      {list.map((todo) => (
+        <TodoRow
+          key={todo.id}
+          todo={todo}
+          onToggle={() => toggleTodo(todo.id)}
+          onEdit={() => startEdit(todo)}
+          onDelete={() => deleteTodo(todo.id)}
+          onDrop={() => { setDropTargetId(todo.id); setShowDropDialog(true); }}
+          onUpdateTitle={(t) => updateTitle(todo.id, t)}
+          onToggleSubtask={(sid) => toggleSubtask(todo.id, sid)}
+          onAddSubtask={(t) => addSubtask(todo.id, t)}
+          onDeleteSubtask={(sid) => deleteSubtask(todo.id, sid)}
+          onMoveUp={() => moveTodo(todo.id, "up", list)}
+          onMoveDown={() => moveTodo(todo.id, "down", list)}
+        />
+      ))}
+
+      {sectionType === "dated" && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+          <div className="h-5 w-5 rounded-full border-[1.5px] border-muted-foreground/15 shrink-0" />
+          <input
+            className="flex-1 bg-transparent text-sm outline-none placeholder-muted-foreground/40 text-foreground"
+            placeholder="Type a task and press Enter…"
+            value={inlineTitle}
+            onChange={(e) => setInlineTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addInlineTodo()}
+          />
+          <select
+            className="bg-transparent text-xs outline-none cursor-pointer text-muted-foreground hidden md:block"
+            value={inlinePriority}
+            onChange={(e) => setInlinePriority(e.target.value as Priority)}
+          >
+            <option value="low" className="bg-background text-foreground">Low</option>
+            <option value="medium" className="bg-background text-foreground">Medium</option>
+            <option value="high" className="bg-background text-foreground">High</option>
+            <option value="urgent" className="bg-background text-foreground">Urgent</option>
+          </select>
+          <button
+            onClick={addInlineTodo}
+            disabled={!inlineTitle.trim()}
+            className="h-6 w-6 flex items-center justify-center rounded transition-colors disabled:opacity-20 disabled:cursor-not-allowed hover:bg-indigo-500/20 text-indigo-400"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
-      {/* Header row */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold flex items-center gap-2">
@@ -167,270 +474,42 @@ export function TodoList() {
             {format(selectedDate, "EEEE, MMMM d, yyyy")}
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {dayTodos.length} task{dayTodos.length !== 1 ? "s" : ""}
-            {dayTodos.length > 0 && (
-              <span
-                className="ml-1.5 font-medium"
-                style={{ color: score >= 80 ? "#099981" : score >= 50 ? "#eab308" : "#F23645" }}
-              >
-                {completedCount}/{dayTodos.length} done &middot; {score}%
+            {activeDayTodos.length} task{activeDayTodos.length !== 1 ? "s" : ""}
+            {activeDayTodos.length > 0 && (
+              <span className="ml-1.5 font-medium" style={{ color: score >= 80 ? "#099981" : score >= 50 ? "#eab308" : "#F23645" }}>
+                {completedCount}/{activeDayTodos.length} done &middot; {score}%
               </span>
             )}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Mobile calendar icon button */}
           <button
             className="md:hidden h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted transition-colors text-muted-foreground"
             onClick={() => setShowMobileCalendar(true)}
-            aria-label="Open calendar"
           >
             <CalendarDays className="h-4 w-4" />
           </button>
-          <Button
-            size="sm"
-            onClick={() => { resetForm(); setShowAddDialog(true); }}
-            className="gap-1"
-          >
-            <Plus className="h-4 w-4" />
-            Add Task
+          <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="gap-1">
+            <Plus className="h-4 w-4" /> Add Task
           </Button>
         </div>
       </div>
 
-      {/* Main layout: table LEFT, calendar RIGHT */}
+      {/* Layout */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-4 items-start">
+        <div className="space-y-4">
+          {renderTodoList(dayTodos, "dated")}
 
-        {/* Task table */}
-        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--table-border)" }}>
-          <table className="w-full" style={{ borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "var(--table-header-bg)" }}>
-                <th
-                  className="py-2 px-2 w-10"
-                  style={{ border: "1px solid var(--table-border)" }}
-                />
-                <th
-                  className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  Task
-                </th>
-                <th
-                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest w-24"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  Priority
-                </th>
-                <th
-                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest w-20"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  Time
-                </th>
-                <th
-                  className="hidden md:table-cell text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest w-24"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  Category
-                </th>
-                <th
-                  className="py-2 w-16"
-                  style={{ border: "1px solid var(--table-border)" }}
-                />
-              </tr>
-            </thead>
-            <tbody>
-              {dayTodos.map((todo) => {
-                const ps = PRIORITY_STYLE[todo.priority];
-                return (
-                  <tr
-                    key={todo.id}
-                    className={cn(
-                      "group transition-colors hover:bg-muted/40",
-                      todo.completed && "opacity-50"
-                    )}
-                  >
-                    {/* Radio/circle completion toggle */}
-                    <td
-                      className="text-center py-2.5 px-2"
-                      style={{ border: "1px solid var(--table-border)" }}
-                    >
-                      <button
-                        onClick={() => toggleTodo(todo.id)}
-                        className="mx-auto h-5 w-5 rounded-full flex items-center justify-center transition-transform hover:scale-110 active:scale-95"
-                        style={{
-                          backgroundColor: todo.completed ? "#099981" : "#F23645",
-                          border: `2px solid ${todo.completed ? "#099981" : "#F23645"}`,
-                        }}
-                        aria-label={todo.completed ? "Mark incomplete" : "Mark complete"}
-                      >
-                        {todo.completed && (
-                          <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
-                        )}
-                      </button>
-                    </td>
-                    {/* Title */}
-                    <td
-                      className="px-3 py-2.5"
-                      style={{ border: "1px solid var(--table-border)" }}
-                    >
-                      <p
-                        className={cn(
-                          "text-sm leading-tight",
-                          todo.completed ? "line-through text-foreground/30" : "text-foreground/80"
-                        )}
-                      >
-                        {todo.title}
-                      </p>
-                      {todo.description && (
-                        <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate max-w-[220px]">
-                          {todo.description}
-                        </p>
-                      )}
-                    </td>
-                    {/* Priority — desktop only */}
-                    <td
-                      className="hidden md:table-cell px-3 py-2.5"
-                      style={{ border: "1px solid var(--table-border)" }}
-                    >
-                      <span
-                        className="text-[11px] px-2 py-0.5 rounded font-medium capitalize"
-                        style={{
-                          backgroundColor: ps.bg,
-                          color: ps.text,
-                          border: `1px solid ${ps.border}`,
-                        }}
-                      >
-                        {todo.priority}
-                      </span>
-                    </td>
-                    {/* Time — desktop only */}
-                    <td
-                      className="hidden md:table-cell px-3 py-2.5 text-xs"
-                      style={{
-                        border: "1px solid var(--table-border)",
-                        color: "var(--muted-foreground)",
-                      }}
-                    >
-                      {todo.dueTime || <span style={{ color: "var(--muted-foreground)" }}>—</span>}
-                    </td>
-                    {/* Category — desktop only */}
-                    <td
-                      className="hidden md:table-cell px-3 py-2.5 text-xs truncate max-w-[96px]"
-                      style={{
-                        border: "1px solid var(--table-border)",
-                        color: "var(--muted-foreground)",
-                      }}
-                    >
-                      {todo.category || <span style={{ color: "var(--muted-foreground)" }}>—</span>}
-                    </td>
-                    {/* Actions */}
-                    <td
-                      className="px-2 py-2.5"
-                      style={{ border: "1px solid var(--table-border)" }}
-                    >
-                      <div className="flex items-center gap-0.5">
-                        <button
-                          className="h-6 w-6 flex items-center justify-center rounded transition-colors hover:bg-muted text-muted-foreground/70 hover:text-foreground"
-                          onClick={() => startEdit(todo)}
-                          aria-label="Edit task"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                        <button
-                          className="h-6 w-6 flex items-center justify-center rounded transition-colors hover:bg-muted text-muted-foreground/70 hover:text-[#F23645]"
-                          onClick={() => deleteTodo(todo.id)}
-                          aria-label="Delete task"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {/* Inline add row */}
-              <tr className="bg-muted/30">
-                <td
-                  className="text-center py-2.5 px-2"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  <div className="mx-auto h-5 w-5 rounded-full border-[1.5px] border-white/15" />
-                </td>
-                <td
-                  className="px-3 py-2"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  <input
-                    className="w-full bg-transparent text-sm outline-none placeholder-muted-foreground/40"
-                    style={{ color: "var(--foreground)" }}
-                    placeholder="Type a task and press Enter…"
-                    value={inlineTitle}
-                    onChange={(e) => setInlineTitle(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addInlineTodo()}
-                  />
-                </td>
-                <td
-                  className="hidden md:table-cell px-2 py-2"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  <select
-                    className="w-full bg-transparent text-xs outline-none cursor-pointer"
-                    style={{ color: "var(--muted-foreground)" }}
-                    value={inlinePriority}
-                    onChange={(e) => setInlinePriority(e.target.value as Priority)}
-                  >
-                    <option value="low" className="bg-background text-foreground">Low</option>
-                    <option value="medium" className="bg-background text-foreground">Medium</option>
-                    <option value="high" className="bg-background text-foreground">High</option>
-                    <option value="urgent" className="bg-background text-foreground">Urgent</option>
-                  </select>
-                </td>
-                <td
-                  className="hidden md:table-cell px-2 py-2"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  <input
-                    type="time"
-                    className="w-full bg-transparent text-xs outline-none cursor-pointer"
-                    style={{ color: "var(--muted-foreground)" }}
-                    value={inlineTime}
-                    onChange={(e) => setInlineTime(e.target.value)}
-                  />
-                </td>
-                <td
-                  className="hidden md:table-cell px-2 py-2"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  <input
-                    className="w-full bg-transparent text-xs outline-none placeholder-muted-foreground/40"
-                    style={{ color: "var(--muted-foreground)" }}
-                    placeholder="Category"
-                    value={inlineCategory}
-                    onChange={(e) => setInlineCategory(e.target.value)}
-                  />
-                </td>
-                <td
-                  className="px-2 py-2 text-center"
-                  style={{ border: "1px solid var(--table-border)" }}
-                >
-                  <button
-                    onClick={addInlineTodo}
-                    disabled={!inlineTitle.trim()}
-                    className="mx-auto h-6 w-6 flex items-center justify-center rounded transition-colors disabled:opacity-20 disabled:cursor-not-allowed hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300"
-                    aria-label="Add task"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          {generalTodos.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
+                <span className="h-px flex-1 bg-border/60" /> General Tasks <span className="h-px flex-1 bg-border/60" />
+              </h4>
+              {renderTodoList(generalTodos, "general")}
+            </div>
+          )}
         </div>
 
-        {/* Calendar — desktop right side only */}
         <div className="hidden md:block glass-card p-3">
           <Calendar
             mode="single"
@@ -446,9 +525,7 @@ export function TodoList() {
       {/* Mobile calendar dialog */}
       <Dialog open={showMobileCalendar} onOpenChange={setShowMobileCalendar}>
         <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-medium">Select Date</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle className="text-sm font-medium">Select Date</DialogTitle></DialogHeader>
           <Calendar
             mode="single"
             selected={selectedDate}
@@ -460,41 +537,38 @@ export function TodoList() {
         </DialogContent>
       </Dialog>
 
+      {/* Drop Task dialog */}
+      <Dialog open={showDropDialog} onOpenChange={(o) => { if (!o) { setShowDropDialog(false); setDropTargetId(null); setDropReason(""); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Drop Task</DialogTitle></DialogHeader>
+          <div className="space-y-3 mt-2">
+            <p className="text-sm text-muted-foreground">Why are you dropping this task? A reason is required.</p>
+            <Textarea placeholder="Enter reason…" value={dropReason} onChange={(e) => setDropReason(e.target.value)} rows={2} />
+            <Button onClick={dropTask} disabled={!dropReason.trim()} className="w-full" variant="destructive">Drop Task</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Add / Edit Task dialog */}
-      <Dialog
-        open={showAddDialog}
-        onOpenChange={(o) => { if (!o) { resetForm(); setShowAddDialog(false); } }}
-      >
+      <Dialog open={showAddDialog} onOpenChange={(o) => { if (!o) { resetForm(); setShowAddDialog(false); } }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingTodo ? "Edit Task" : "Add New Task"}</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{editingTodo ? "Edit Task" : "Add New Task"}</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="space-y-2">
               <Label>Title *</Label>
-              <Input
-                placeholder="Task title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
+              <Input placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && (editingTodo ? updateTodo() : addTodo())}
               />
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea
-                placeholder="Optional description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-              />
+              <Textarea placeholder="Optional description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Priority</Label>
                 <Select value={priority} onValueChange={(v) => v && setPriority(v as Priority)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="low">Low</SelectItem>
                     <SelectItem value="medium">Medium</SelectItem>
@@ -504,21 +578,30 @@ export function TodoList() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Due Time</Label>
-                <Input
-                  type="time"
-                  value={dueTime}
-                  onChange={(e) => setDueTime(e.target.value)}
-                />
+                <Label>Category</Label>
+                <Select value={category} onValueChange={(v) => setCategory(v ?? "")}>
+                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectContent>
+                    {TODO_CATEGORIES.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Category</Label>
-              <Input
-                placeholder="e.g., Work, Personal"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Due Time</Label>
+                <Input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Due Date</Label>
+                <Input type="date" value={isGeneral ? "" : (dueDate || dateStr)} onChange={(e) => { setDueDate(e.target.value); setIsGeneral(false); }} disabled={isGeneral} />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="general-todo" checked={isGeneral} onChange={(e) => setIsGeneral(e.target.checked)} className="rounded" />
+              <label htmlFor="general-todo" className="text-sm text-muted-foreground cursor-pointer">General task (no specific date)</label>
             </div>
             <Button onClick={editingTodo ? updateTodo : addTodo} className="w-full">
               {editingTodo ? "Update Task" : "Add Task"}

@@ -1,12 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { useAppContext } from "@/lib/context";
 import { TradeTable } from "@/components/trading/trade-table";
 import { PerformanceDashboard } from "@/components/trading/performance-dashboard";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SwipeableTabs } from "@/components/shared/swipeable-tabs";
+
+const tradeTabs = [
+  { value: "trades", label: "Trade Log" },
+  { value: "analytics", label: "Performance" },
+];
 
 export default function TradingJournalPage() {
   const { loading } = useAppContext();
+  const [activeTab, setActiveTab] = useState("trades");
 
   if (loading) {
     return (
@@ -19,26 +26,21 @@ export default function TradingJournalPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 space-y-5 animate-fade-up">
-      <h1 className="text-[22px] font-semibold">Trading Journal</h1>
+      <h1 className="text-[22px] font-semibold">Tradebook</h1>
 
-      <Tabs defaultValue="trades" className="w-full">
-        <TabsList className="w-full max-w-xs">
-          <TabsTrigger value="trades">Trade Log</TabsTrigger>
-          <TabsTrigger value="analytics">Performance</TabsTrigger>
-        </TabsList>
+      <SwipeableTabs
+        tabs={tradeTabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      >
+        <div className="glass-card p-4">
+          <TradeTable />
+        </div>
 
-        <TabsContent value="trades" className="mt-5">
-          <div className="glass-card p-4">
-            <TradeTable />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="analytics" className="mt-5">
-          <div className="glass-card p-4">
-            <PerformanceDashboard />
-          </div>
-        </TabsContent>
-      </Tabs>
+        <div className="glass-card p-4">
+          <PerformanceDashboard />
+        </div>
+      </SwipeableTabs>
     </div>
   );
 }

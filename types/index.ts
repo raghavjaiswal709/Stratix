@@ -32,21 +32,59 @@ export interface HabitData {
 
 // ============ TODOS ============
 export type Priority = "low" | "medium" | "high" | "urgent";
+export type TodoStatus = "active" | "completed" | "dropped";
+
+export const TODO_CATEGORIES = [
+  "Work",
+  "Personal",
+  "Health",
+  "Finance",
+  "Learning",
+  "Shopping",
+  "Errands",
+  "Goals",
+  "Other",
+] as const;
+
+export type TodoCategory = (typeof TODO_CATEGORIES)[number];
+
+export interface SubTask {
+  id: string;
+  title: string;
+  completed: boolean;
+}
 
 export interface Todo {
   id: string;
   title: string;
   description: string;
   priority: Priority;
-  dueDate: string; // YYYY-MM-DD
+  dueDate: string; // YYYY-MM-DD or "" for general todos
   dueTime: string;
   completed: boolean;
+  status: TodoStatus;
+  dropReason?: string;
   category: string;
+  subtasks: SubTask[];
+  order: number;
   createdAt: string;
 }
 
 export interface TodoData {
   todos: Todo[];
+}
+
+// ============ DIARY ============
+export interface DiaryEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DiaryData {
+  entries: DiaryEntry[];
 }
 
 // ============ TRADES ============
