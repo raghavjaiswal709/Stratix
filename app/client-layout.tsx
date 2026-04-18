@@ -24,7 +24,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-3">
         <div className="h-5 w-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-        <p className="text-[12px] text-white/25 tracking-wide">Loading…</p>
+        <p className="text-[12px] text-muted-foreground tracking-wide">Loading…</p>
       </div>
     );
   }

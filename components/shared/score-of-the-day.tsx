@@ -35,7 +35,7 @@ export function ScoreOfTheDay() {
       <div className="relative shrink-0">
         <svg width="68" height="68" className="-rotate-90">
           <circle cx="34" cy="34" r={radius} fill="none"
-            stroke="rgba(255,255,255,0.07)" strokeWidth="4" />
+            stroke="var(--border)" strokeWidth="4" />
           <circle cx="34" cy="34" r={radius} fill="none"
             stroke={color} strokeWidth="4" strokeLinecap="round"
             strokeDasharray={circ} strokeDashoffset={offset}
@@ -44,27 +44,27 @@ export function ScoreOfTheDay() {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-[16px] font-bold leading-none" style={{ color }}>{combined}</span>
-          <span className="text-[9px] text-white/25 mt-0.5">%</span>
+          <span className="text-[9px] text-muted-foreground/70 mt-0.5">%</span>
         </div>
       </div>
 
       {/* Main label */}
       <div className="flex-1 min-w-0">
-        <p className="text-[10.5px] uppercase tracking-[0.1em] text-white/28 mb-0.5">Score of the Day</p>
+        <p className="text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground mb-0.5">Score of the Day</p>
         <p className="text-[26px] font-bold leading-tight" style={{ color }}>{combined}%</p>
-        <p className="text-[12px] text-white/35 mt-0.5">{format(new Date(), "EEEE, MMMM d")}</p>
+        <p className="text-[12px] text-muted-foreground mt-0.5">{format(new Date(), "EEEE, MMMM d")}</p>
       </div>
 
       {/* Breakdown */}
       <div className="hidden sm:flex items-center gap-4 shrink-0">
         <div className="text-center">
-          <div className="text-[15px] font-semibold text-white/75">{habitScore}%</div>
-          <div className="text-[11px] text-white/30 mt-0.5">Habits</div>
+          <div className="text-[15px] font-semibold text-foreground/80">{habitScore}%</div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">Habits</div>
         </div>
-        <div className="w-px h-8 bg-white/[0.08]" />
+        <div className="w-px h-8 bg-border" />
         <div className="text-center">
-          <div className="text-[15px] font-semibold text-white/75">{todoScore}%</div>
-          <div className="text-[11px] text-white/30 mt-0.5">Tasks</div>
+          <div className="text-[15px] font-semibold text-foreground/80">{todoScore}%</div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">Tasks</div>
         </div>
       </div>
     </div>

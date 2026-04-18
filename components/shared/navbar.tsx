@@ -56,8 +56,8 @@ export function Navbar() {
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150",
                     isActive
-                      ? "bg-indigo-500/[0.14] text-indigo-300 border border-indigo-500/[0.2]"
-                      : "text-white/45 hover:text-white/75 hover:bg-white/[0.05]"
+                      ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20"
+                      : "text-foreground/50 hover:text-foreground/80 hover:bg-foreground/[0.05]"
                   )}
                 >
                   <link.icon className="h-3.5 w-3.5 shrink-0" />
@@ -74,7 +74,7 @@ export function Navbar() {
           {/* Theme toggle */}
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-white/35 hover:text-white/65 hover:bg-white/[0.06] transition-all duration-150"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-150"
             aria-label="Toggle theme"
           >
             {theme === "dark"
@@ -85,14 +85,14 @@ export function Navbar() {
           {/* User / avatar dropdown */}
           {session?.user && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg hover:bg-white/[0.06] transition-all duration-150">
+              <DropdownMenuTrigger className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg hover:bg-muted transition-all duration-150">
                 <Avatar className="h-6 w-6">
                   <AvatarImage src={session.user.image ?? ""} alt={session.user.name ?? "User"} />
                   <AvatarFallback className="text-[10px] bg-indigo-500/20 text-indigo-300">
                     {session.user.name?.charAt(0)?.toUpperCase() ?? "U"}
                   </AvatarFallback>
                 </Avatar>
-                <ChevronDown style={{ width: 11, height: 11 }} className="text-white/30" />
+                <ChevronDown style={{ width: 11, height: 11 }} className="text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[210px]">
                 <div className="px-3 py-2.5 border-b border-border/40 space-y-0.5">
@@ -112,7 +112,7 @@ export function Navbar() {
 
           {/* Mobile hamburger */}
           <button
-            className="md:hidden flex h-8 w-8 items-center justify-center rounded-lg text-white/35 hover:text-white/65 hover:bg-white/[0.06] transition-all duration-150"
+            className="md:hidden flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-150"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle menu"
           >
@@ -125,7 +125,7 @@ export function Navbar() {
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <div className="md:hidden border-t border-white/[0.06] bg-background/90 backdrop-blur-xl px-3 py-2 space-y-0.5">
+        <div className="md:hidden border-t border-border/40 bg-background/90 backdrop-blur-xl px-3 py-2 space-y-0.5">
           {navLinks.map((link) => {
             const isActive = pathname.startsWith(link.href);
             return (
@@ -136,8 +136,8 @@ export function Navbar() {
                 className={cn(
                   "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors",
                   isActive
-                    ? "bg-indigo-500/[0.12] text-indigo-300"
-                    : "text-white/45 hover:text-white/75 hover:bg-white/[0.05]"
+                    ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300"
+                    : "text-foreground/50 hover:text-foreground/80 hover:bg-muted"
                 )}
               >
                 <link.icon className="h-4 w-4 shrink-0" />

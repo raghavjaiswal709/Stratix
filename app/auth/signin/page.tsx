@@ -35,15 +35,15 @@ export default function SignInPage() {
               <BarChart2 className="h-5.5 w-5.5 text-indigo-400" style={{ width: 22, height: 22 }} />
             </div>
             <div className="text-center space-y-1">
-              <h1 className="text-[22px] font-semibold tracking-tight text-white">Stratix</h1>
-              <p className="text-[13px] leading-relaxed text-white/38">
+              <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Stratix</h1>
+              <p className="text-[13px] leading-relaxed text-muted-foreground">
                 Productivity &amp; Trading Dashboard
               </p>
             </div>
           </div>
 
           {/* Divider */}
-          <div className="h-px bg-white/[0.07] mb-7" />
+          <div className="h-px bg-border/40 mb-7" />
 
           {/* Sign-in */}
           <div className="space-y-3.5">
@@ -67,7 +67,7 @@ export default function SignInPage() {
               )}
               {loading ? "Signing in…" : "Continue with Google"}
             </button>
-            <p className="text-center text-[11.5px] text-white/22">
+            <p className="text-center text-[11.5px] text-muted-foreground/70">
               Secure sign-in via Google OAuth
             </p>
           </div>

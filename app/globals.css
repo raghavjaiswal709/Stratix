@@ -88,6 +88,7 @@
   --table-header-bg: rgba(0, 0, 0, 0.025);
   --glass-border-color: rgba(0, 0, 0, 0.09);
   --glass-surface: rgba(255, 255, 255, 0.75);
+  --glass-nav-bg: rgba(250, 250, 252, 0.88);
 }
 
 /* ===== DARK MODE ===== */
@@ -129,6 +130,7 @@
   --table-header-bg: rgba(255, 255, 255, 0.03);
   --glass-border-color: rgba(255, 255, 255, 0.075);
   --glass-surface: rgba(255, 255, 255, 0.033);
+  --glass-nav-bg: rgba(8, 9, 16, 0.7);
 }
 
 /* ===== GLASS UTILITIES ===== */
@@ -149,22 +151,17 @@
 }
 
 .glass-nav {
-  background: rgba(8, 9, 16, 0.7);
+  background: var(--glass-nav-bg);
   backdrop-filter: blur(24px) saturate(200%);
   -webkit-backdrop-filter: blur(24px) saturate(200%);
   border-bottom: 1px solid var(--glass-border-color);
 }
 
-/* Light mode: opaque card-like surfaces */
-:root .glass,
-:root .glass-card {
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
-}
-
-:root .glass-nav {
+/* Light mode: opaque card-like surfaces (only when NOT dark) */
+:root:not(.dark) .glass,
+:root:not(.dark) .glass-card {
   background: rgba(255, 255, 255, 0.88);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 /* ===== ANIMATIONS ===== */
@@ -198,6 +195,20 @@
 /* ===== TABS — dark glass override ===== */
 /* Placed outside @layer so it wins over Tailwind utilities */
 
+/* Light mode tabs */
+:root:not(.dark) [data-slot="tabs-list"] {
+  background: rgba(0, 0, 0, 0.045);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+}
+
+:root:not(.dark) [data-slot="tabs-trigger"][data-active] {
+  background: rgba(99, 102, 241, 0.12);
+  color: rgb(79, 70, 229); /* indigo-600 */
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+/* Dark mode tabs */
 .dark [data-slot="tabs-list"] {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.065);
