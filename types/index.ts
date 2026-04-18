@@ -1,0 +1,98 @@
+// TypeScript types for the entire application
+
+// ============ USER ============
+export interface UserData {
+  id: string;
+  email: string;
+  name: string;
+  image?: string;
+}
+
+// ============ HABITS ============
+export interface Habit {
+  id: string;
+  name: string;
+  color: string;
+  icon?: string;        // lucide icon key e.g. "Dumbbell"
+  weekDays?: number[];  // 0=Sun..6=Sat; undefined/empty = all days
+  category: string;
+  createdAt: string;
+}
+
+export interface HabitLog {
+  habitId: string;
+  date: string; // YYYY-MM-DD
+  completed: boolean;
+}
+
+export interface HabitData {
+  habits: Habit[];
+  logs: HabitLog[];
+}
+
+// ============ TODOS ============
+export type Priority = "low" | "medium" | "high" | "urgent";
+
+export interface Todo {
+  id: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  dueDate: string; // YYYY-MM-DD
+  dueTime: string;
+  completed: boolean;
+  category: string;
+  createdAt: string;
+}
+
+export interface TodoData {
+  todos: Todo[];
+}
+
+// ============ TRADES ============
+export type TradeType = "long" | "short";
+export type AssetClass = "equity" | "futures" | "options" | "forex" | "crypto" | "commodity";
+export type Timeframe = "1m" | "5m" | "15m" | "1H" | "4H" | "Daily";
+export type EmotionalState = "confident" | "anxious" | "fomo" | "neutral" | "fearful";
+export type TradeResult = "win" | "loss" | "breakeven";
+
+export interface Trade {
+  id: string;
+  symbol: string;
+  tradeType: TradeType;
+  assetClass: AssetClass;
+  entryDate: string;
+  exitDate: string;
+  entryPrice: number;
+  exitPrice: number;
+  quantity: number;
+  stopLoss: number;
+  takeProfit: number;
+  pnl: number;
+  pnlPercent: number;
+  rrr: number;
+  result: TradeResult;
+  strategy: string;
+  setup: string;
+  timeframe: Timeframe;
+  emotionalState: EmotionalState;
+  preTradeNotes: string;
+  postTradeReview: string;
+  tags: string[];
+  images: string[]; // base64 encoded
+  createdAt: string;
+}
+
+export interface TradeData {
+  trades: Trade[];
+  customStrategies: string[];
+}
+
+// ============ SCORE ============
+export interface ScoreWeights {
+  habitWeight: number;
+  todoWeight: number;
+}
+
+// ============ TIME FRAME ============
+export type TimeFrame = "this-week" | "this-month" | "last-3-months" | "last-6-months" | "this-year" | "all-time";
