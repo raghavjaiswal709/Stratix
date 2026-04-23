@@ -25,7 +25,7 @@ interface ChecklistItem {
   checked: boolean;
 }
 
-interface JournalDetailTrade {
+export interface JournalDetailTrade {
   _id: string;
   symbol: string;
   direction: "buy" | "sell";
@@ -37,6 +37,7 @@ interface JournalDetailTrade {
   profit: number;
   status: "open" | "closed";
   journaled: boolean;
+  source?: "manual" | "mt5";
   executionChecklist: ChecklistItem[];
   screenshots: string[];
   preTradeAnalysis: string;
@@ -167,7 +168,7 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Trade header */}
-      <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-[#0c0e14] border-b border-white/[0.07]">
+      <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-[#0c0e14] border-b border-white/7">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-full bg-amber-500/15 flex items-center justify-center text-[10px] font-bold text-amber-400">
             {trade.symbol.slice(0, 2)}
@@ -223,7 +224,7 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
       <div className="px-6 py-5 space-y-6">
         {/* Trade summary bar */}
         {trade.exitPrice && (
-          <div className="flex items-center gap-4 p-4 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-white/3 border border-white/7">
             <div className="flex items-center gap-2">
               <div className="h-7 w-7 rounded-full bg-amber-500/15 flex items-center justify-center text-[9px] font-bold text-amber-400">
                 {trade.symbol.slice(0, 2)}
@@ -256,8 +257,8 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
         )}
 
         {/* Execution Checklist */}
-        <div className="rounded-xl border border-white/[0.07] overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.07]">
+        <div className="rounded-xl border border-white/7 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/7">
             <div className="flex items-center gap-2">
               <CheckSquare className="h-4 w-4 text-blue-400" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Execution Checklist</span>
@@ -273,7 +274,7 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
                     "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition group",
                     c.checked
                       ? "bg-blue-600/10 border-blue-500/25"
-                      : "bg-white/[0.02] border-white/[0.07] hover:border-white/15"
+                      : "bg-white/2 border-white/7 hover:border-white/15"
                   )}
                   onClick={() => toggleCheck(i)}
                 >
@@ -304,7 +305,7 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
                 onChange={(e) => setCustomItem(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addCustomItem()}
                 placeholder="Add custom item..."
-                className="flex-1 rounded-lg bg-white/5 border border-white/[0.08] px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition"
+                className="flex-1 rounded-lg bg-white/5 border border-white/8 px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition"
               />
               <button
                 onClick={addCustomItem}
@@ -317,8 +318,8 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
         </div>
 
         {/* Screenshots */}
-        <div className="rounded-xl border border-white/[0.07] overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07]">
+        <div className="rounded-xl border border-white/7 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
             <Camera className="h-4 w-4 text-blue-400" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Screenshots</span>
           </div>
@@ -355,8 +356,8 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
         </div>
 
         {/* Pre-Trade Analysis */}
-        <div className="rounded-xl border border-white/[0.07] overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07]">
+        <div className="rounded-xl border border-white/7 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
             <FileText className="h-4 w-4 text-blue-400" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Pre-Trade Analysis</span>
           </div>
@@ -372,8 +373,8 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
         </div>
 
         {/* Post-Trade Review */}
-        <div className="rounded-xl border border-white/[0.07] overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07]">
+        <div className="rounded-xl border border-white/7 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
             <BookOpen className="h-4 w-4 text-blue-400" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Post-Trade Review</span>
           </div>
@@ -389,7 +390,7 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
         </div>
 
         {/* Risk : Reward */}
-        <div className="rounded-xl border border-white/[0.07] p-4">
+        <div className="rounded-xl border border-white/7 p-4">
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="h-4 w-4 text-blue-400" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Risk : Reward</span>
@@ -401,7 +402,7 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
               onChange={(e) => setRiskRatio(parseFloat(e.target.value) || 1)}
               min="0.1"
               step="0.1"
-              className="w-20 rounded-lg bg-white/5 border border-white/[0.10] px-3 py-2 text-[14px] font-bold text-white text-center focus:outline-none focus:border-blue-500/40 transition"
+              className="w-20 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[14px] font-bold text-white text-center focus:outline-none focus:border-blue-500/40 transition"
             />
             <span className="text-[18px] font-bold text-white/30">:</span>
             <input
@@ -410,15 +411,15 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
               onChange={(e) => setRewardRatio(parseFloat(e.target.value) || 2)}
               min="0.1"
               step="0.1"
-              className="w-20 rounded-lg bg-white/5 border border-white/[0.10] px-3 py-2 text-[14px] font-bold text-blue-400 text-center focus:outline-none focus:border-blue-500/40 transition"
+              className="w-20 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[14px] font-bold text-blue-400 text-center focus:outline-none focus:border-blue-500/40 transition"
             />
           </div>
         </div>
 
         {/* Emotions + Lessons Learned */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-white/[0.07] overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07]">
+          <div className="rounded-xl border border-white/7 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
               <Brain className="h-4 w-4 text-violet-400" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Emotions</span>
             </div>
@@ -432,8 +433,8 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
               />
             </div>
           </div>
-          <div className="rounded-xl border border-white/[0.07] overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07]">
+          <div className="rounded-xl border border-white/7 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
               <Star className="h-4 w-4 text-amber-400" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Lessons Learned</span>
             </div>
@@ -452,7 +453,7 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
         {/* Tags + Rating */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Tags */}
-          <div className="rounded-xl border border-white/[0.07] p-4">
+          <div className="rounded-xl border border-white/7 p-4">
             <div className="flex items-center gap-2 mb-3">
               <Tag className="h-4 w-4 text-blue-400" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Tags</span>
@@ -476,13 +477,13 @@ export function JournalDetail({ trade, onSaved }: JournalDetailProps) {
                 onChange={(e) => setTagsInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addTag()}
                 placeholder="breakout, trend, news (press Enter)"
-                className="flex-1 rounded-lg bg-white/5 border border-white/[0.08] px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition"
+                className="flex-1 rounded-lg bg-white/5 border border-white/8 px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition"
               />
             </div>
           </div>
 
           {/* Rating */}
-          <div className="rounded-xl border border-white/[0.07] p-4">
+          <div className="rounded-xl border border-white/7 p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Star className="h-4 w-4 text-amber-400" />

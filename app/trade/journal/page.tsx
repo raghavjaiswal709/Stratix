@@ -59,8 +59,8 @@ export default function JournalPage() {
       {/* Right panel — journal detail */}
       {selectedTrade ? (
         <JournalDetail
-          trade={selectedTrade as Parameters<typeof JournalDetail>[0]["trade"]}
-          onSaved={handleSaved as Parameters<typeof JournalDetail>[0]["onSaved"]}
+          trade={selectedTrade}
+          onSaved={handleSaved}
         />
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-white/25">

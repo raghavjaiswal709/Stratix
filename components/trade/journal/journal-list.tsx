@@ -3,21 +3,10 @@
 import { format, parseISO } from "date-fns";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { JournalDetailTrade } from "./journal-detail";
 
-export interface JournalTrade {
-  _id: string;
-  symbol: string;
-  direction: "buy" | "sell";
-  lots: number;
-  entryPrice: number;
-  exitPrice?: number;
-  entryTime: string;
-  exitTime?: string;
-  profit: number;
-  status: "open" | "closed";
-  journaled: boolean;
-  source: "manual" | "mt5";
-}
+// Single source of truth — all fields come from the API
+export type JournalTrade = JournalDetailTrade;
 
 type JournalTab = "all" | "journaled" | "pending";
 
@@ -57,9 +46,9 @@ export function JournalList({
   };
 
   return (
-    <div className="flex flex-col h-full w-[280px] shrink-0 border-r border-white/[0.07]">
+    <div className="flex flex-col h-full w-70 shrink-0 border-r border-white/7">
       {/* Header */}
-      <div className="px-4 py-4 border-b border-white/[0.07]">
+      <div className="px-4 py-4 border-b border-white/7">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-[14px] font-semibold text-white">Trade Journal</h2>
           <span className="text-[11px] text-white/35">{trades.length} entries</span>
@@ -98,7 +87,7 @@ export function JournalList({
               key={trade._id}
               onClick={() => onSelect(trade._id)}
               className={cn(
-                "w-full text-left px-4 py-3.5 border-b border-white/[0.05] transition hover:bg-white/[0.03]",
+                "w-full text-left px-4 py-3.5 border-b border-white/5 transition hover:bg-white/3",
                 selectedId === trade._id && "bg-blue-600/10 border-l-2 border-l-blue-500"
               )}
             >
