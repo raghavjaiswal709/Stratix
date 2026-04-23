@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 
 const navLinks = [
   { href: "/productivity", label: "Life-Os", icon: Activity },
-  { href: "/trading-journal", label: "Tradebook", icon: TrendingUp },
+  { href: "/trade", label: "Tradebook", icon: TrendingUp },
 ];
 
 export function Navbar() {

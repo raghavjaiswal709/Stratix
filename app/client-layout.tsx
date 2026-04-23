@@ -11,12 +11,14 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isAuthPage = pathname.startsWith("/auth");
+  // Trade section has its own full-screen sidebar layout — no global navbar
+  const isTradePage = pathname.startsWith("/trade");
 
   // Client-side safety: redirect authenticated users away from auth pages
   // (server middleware handles the unauthenticated → signIn redirect)
   useEffect(() => {
     if (status === "authenticated" && isAuthPage) {
-      router.replace("/productivity");
+      router.replace("/trade/trades");
     }
   }, [status, isAuthPage, router]);
 
@@ -30,6 +32,11 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (isAuthPage) {
+    return <>{children}</>;
+  }
+
+  // Trade section provides its own full-screen sidebar layout
+  if (isTradePage) {
     return <>{children}</>;
   }
 
