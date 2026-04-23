@@ -46,7 +46,7 @@ export function JournalList({
   };
 
   return (
-    <div className="flex flex-col h-full w-70 shrink-0 border-r border-white/7">
+    <div className="flex flex-col h-full w-full shrink-0 border-r border-white/7 md:w-70">
       {/* Header */}
       <div className="px-4 py-4 border-b border-white/7">
         <div className="flex items-center justify-between mb-3">

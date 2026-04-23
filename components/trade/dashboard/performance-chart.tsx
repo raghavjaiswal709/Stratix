@@ -84,16 +84,16 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
   const isPositive = totalForPeriod >= 0;
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-[#141720] p-5 flex flex-col">
+    <div className="rounded-2xl border border-white/7 bg-[#141720] p-4 md:p-5 flex flex-col">
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between mb-3 md:mb-4 gap-2">
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] text-white/40 uppercase tracking-wider font-medium mb-1">
-            <TrendingUp className="h-3.5 w-3.5" />
+          <div className="flex items-center gap-1.5 text-[10px] md:text-[11px] text-white/40 uppercase tracking-wider font-medium mb-1">
+            <TrendingUp className="h-3 w-3 md:h-3.5 md:w-3.5" />
             Performance
           </div>
           <div className="flex items-center gap-2">
-            <p className={`text-[28px] font-bold ${isPositive ? "text-white" : "text-red-400"}`}>
+            <p className={`text-[20px] md:text-[28px] font-bold leading-tight ${isPositive ? "text-white" : "text-red-400"}`}>
               {isPositive ? "+" : ""}${Math.abs(totalForPeriod).toFixed(2)}
             </p>
           </div>

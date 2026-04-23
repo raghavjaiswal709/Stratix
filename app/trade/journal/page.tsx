@@ -49,7 +49,7 @@ export default function JournalPage() {
   return (
     <div className="flex h-full">
       {/* Left panel — trade list (hidden on mobile when a trade is selected) */}
-      <div className={`${selectedTrade ? "hidden md:flex" : "flex"} w-full md:w-72 shrink-0`}>
+      <div className={`${selectedTrade ? "hidden md:flex" : "flex"} w-full md:w-70 shrink-0 flex-col h-full`}>
         <JournalList
           trades={trades}
           selectedId={selectedId}

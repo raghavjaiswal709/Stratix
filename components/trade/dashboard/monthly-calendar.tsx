@@ -99,32 +99,32 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
   }, [monthStart, monthEnd]);
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-[#141720] p-5">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-[14px] font-semibold text-white">Monthly P&L</h3>
+    <div className="rounded-2xl border border-white/7 bg-[#141720] p-4 md:p-5">
+      {/* Header — stacks on mobile */}
+      <div className="mb-3 md:mb-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[13px] md:text-[14px] font-semibold text-white">Monthly P&L</h3>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setViewDate(subMonths(viewDate, 1))}
+              className="h-6 w-6 flex items-center justify-center rounded text-white/40 hover:text-white/80 hover:bg-white/5 transition"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <span className="text-[11px] md:text-[12px] text-white/50 font-medium min-w-[80px] text-center">
+              {format(viewDate, "MMM yyyy")}
+            </span>
+            <button
+              onClick={() => setViewDate(addMonths(viewDate, 1))}
+              className="h-6 w-6 flex items-center justify-center rounded text-white/40 hover:text-white/80 hover:bg-white/5 transition"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-[12px] font-bold ${monthlyTotal >= 0 ? "text-blue-400" : "text-red-400"}`}>
-            Monthly: {fmt(monthlyTotal)}
-          </span>
-          <span className="text-[12px] text-white/30 font-medium">
-            {format(viewDate, "MMMM yyyy")}
-          </span>
-          <button
-            onClick={() => setViewDate(subMonths(viewDate, 1))}
-            className="h-6 w-6 flex items-center justify-center rounded text-white/40 hover:text-white/80 hover:bg-white/5 transition"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => setViewDate(addMonths(viewDate, 1))}
-            className="h-6 w-6 flex items-center justify-center rounded text-white/40 hover:text-white/80 hover:bg-white/5 transition"
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        <span className={`text-[11px] font-bold mt-0.5 inline-block ${monthlyTotal >= 0 ? "text-blue-400" : "text-red-400"}`}>
+          Monthly: {fmt(monthlyTotal)}
+        </span>
       </div>
 
       {/* Day labels + Weekly label */}
@@ -160,18 +160,18 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
                   <div
                     key={day.toISOString()}
                     className={cn(
-                      "aspect-square min-h-[44px] flex flex-col items-center justify-center rounded-lg text-center p-1 text-[11px] transition",
+                      "aspect-square min-h-[36px] md:min-h-[44px] flex flex-col items-center justify-center rounded-md md:rounded-lg text-center p-0.5 md:p-1 text-[10px] transition",
                       !isCurrentMonth && "opacity-0",
                       hasTraded && pnl! >= 0 && "bg-blue-500/10 border border-blue-500/20",
                       hasTraded && pnl! < 0 && "bg-red-500/10 border border-red-500/20",
                       !hasTraded && isCurrentMonth && "bg-white/[0.025] border border-transparent"
                     )}
                   >
-                    <span className="text-[10px] text-white/30 font-medium">{format(day, "d")}</span>
+                    <span className="text-[9px] md:text-[10px] text-white/30 font-medium">{format(day, "d")}</span>
                     {hasTraded && (
                       <span
                         className={cn(
-                          "text-[10px] font-bold leading-tight",
+                          "text-[8px] md:text-[10px] font-bold leading-tight",
                           pnl! >= 0 ? "text-blue-400" : "text-red-400"
                         )}
                       >
@@ -182,18 +182,18 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
                 );
               })}
               {/* Weekly summary */}
-              <div className="min-h-[44px] flex flex-col items-start justify-center pl-2">
+              <div className="min-h-[36px] md:min-h-[44px] flex flex-col items-start justify-center pl-1 md:pl-2">
                 <span
                   className={cn(
-                    "text-[11px] font-bold",
+                    "text-[9px] md:text-[11px] font-bold",
                     weekPnL >= 0 ? "text-blue-400" : "text-red-400",
                     weekPnL === 0 && "text-white/25"
                   )}
                 >
                   {fmt(weekPnL)}
                 </span>
-                <span className="text-[9px] text-white/25">
-                  traded {weekCount}
+                <span className="text-[8px] md:text-[9px] text-white/25 hidden md:block">
+                  {weekCount}t
                 </span>
               </div>
             </div>
