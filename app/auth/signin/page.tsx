@@ -9,7 +9,7 @@ export default function SignInPage() {
 
   const handleSignIn = async () => {
     setLoading(true);
-    await signIn("google", { callbackUrl: "/productivity" });
+    await signIn("google", { callbackUrl: "/trade/trades" });
   };
 
   return (
