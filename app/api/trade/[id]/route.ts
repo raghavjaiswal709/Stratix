@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
+import { getContractSize } from "@/lib/contract-sizes";
 
 // GET /api/trade/[id]
 export async function GET(
@@ -68,13 +69,15 @@ export async function PUT(
       const lots = (updateData.lots as number) ?? existing.lots;
       const dir = (updateData.direction as string) ?? existing.direction;
       const lev = (updateData.leverage as number) ?? existing.leverage ?? 100;
+      const symForSize = (updateData.symbol as string) ?? existing.symbol;
+      const cs = getContractSize(symForSize);
       if (exit != null) {
         updateData.profit =
-          dir === "buy" ? (exit - entry) * lots : (entry - exit) * lots;
+          dir === "buy" ? (exit - entry) * lots * cs : (entry - exit) * lots * cs;
         updateData.status = "closed";
       }
       // Recompute margin whenever entry price, lots, or leverage changes
-      updateData.margin = (entry * lots) / lev;
+      updateData.margin = (entry * lots * cs) / lev;
     }
   } else if (updateData.leverage != null) {
     // Leverage changed but prices didn't — still recompute margin
@@ -86,7 +89,8 @@ export async function PUT(
       const entry = existing.entryPrice;
       const lots = (updateData.lots as number) ?? existing.lots;
       const lev = updateData.leverage as number;
-      updateData.margin = (entry * lots) / lev;
+      const cs = getContractSize(existing.symbol);
+      updateData.margin = (entry * lots * cs) / lev;
     }
   }
 

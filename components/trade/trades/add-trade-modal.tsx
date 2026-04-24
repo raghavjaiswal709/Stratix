@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { format } from "date-fns";
 import { X, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from "lucide-react";
+import { getContractSize } from "@/lib/contract-sizes";
 
 // ── Symbol presets ───────────────────────────────────────────────────────────
 const KNOWN_SYMBOLS = ["XAUUSD", "XAGUSD", "GBPUSD", "EURUSD", "USDCAD", "USDJPY", "ETHUSD", "BTCUSDT"];
@@ -85,19 +86,17 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
     const ep = parseFloat(entryPrice);
     const l = parseFloat(lots);
     if (isNaN(ep) || isNaN(l) || l <= 0 || ep <= 0) return null;
-    const notional = ep * l;
+    const cs = getContractSize(symbol);
+    const notional = ep * l * cs;
     const margin = notional / leverage;
     const xp = parseFloat(exitPrice);
     if (!isNaN(xp) && exitPrice) {
-      const profit = direction === "buy" ? (xp - ep) * l : (ep - xp) * l;
+      const profit = direction === "buy" ? (xp - ep) * l * cs : (ep - xp) * l * cs;
       const roi = margin > 0 ? (profit / margin) * 100 : 0;
-      return { notional, margin, profit, roi };
+      return { notional, margin, profit, roi, contractSize: cs };
     }
-    return { notional, margin, profit: null, roi: null };
-  }, [direction, entryPrice, exitPrice, lots, leverage]);
-
-  // Keep previewProfit alias for backward compat (used nowhere now but safe)
-  const previewProfit = preview?.profit ?? null;
+    return { notional, margin, profit: null, roi: null, contractSize: cs };
+  }, [direction, entryPrice, exitPrice, lots, leverage, symbol]);
 
   async function handleSave() {
     if (!symbol.trim()) { setError("Symbol is required"); return; }
@@ -144,7 +143,7 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-125 rounded-2xl bg-[#141720] border border-white/10 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-[500px] md:max-w-[780px] rounded-2xl bg-[#141720] border border-white/10 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-white/7">
           <div className="h-8 w-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
@@ -182,6 +181,12 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
               Short
             </button>
           </div>
+
+          {/* ── 2-col layout on desktop ── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 md:gap-x-6 gap-y-4">
+
+            {/* Left: symbol, size, leverage */}
+            <div className="space-y-4">
 
           {/* Symbol + Quantity */}
           <div className="grid grid-cols-2 gap-3">
@@ -308,6 +313,11 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
             </div>
           </div>
 
+            </div>{/* /left col */}
+
+            {/* Right: prices, dates, position overview */}
+            <div className="space-y-4">
+
           {/* Entry + Exit Price */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -337,7 +347,12 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
           {/* Position Overview */}
           {preview && (
             <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
-              <p className="text-[10px] uppercase tracking-wider text-white/30 font-semibold px-4 pt-3 pb-2">Position Overview</p>
+              <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                <p className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">Position Overview</p>
+                {preview.contractSize > 1 && (
+                  <span className="text-[9px] text-white/20">contract: {preview.contractSize.toLocaleString()}/lot</span>
+                )}
+              </div>
               <div className="grid grid-cols-2 divide-x divide-white/5">
                 <div className="px-4 pb-3">
                   <p className="text-[9px] uppercase tracking-wider text-white/30 mb-0.5">Notional Value</p>
@@ -402,6 +417,9 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
               />
             </div>
           </div>
+
+            </div>{/* /right col */}
+          </div>{/* /2-col grid */}
 
           {/* Pre-Trade Checklist (collapsible) */}
           <div className="rounded-xl border border-white/7 overflow-hidden">

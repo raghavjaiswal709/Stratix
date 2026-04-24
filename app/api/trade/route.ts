@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
+import { getContractSize } from "@/lib/contract-sizes";
 
 // GET /api/trade — list all trades for current user
 export async function GET() {
@@ -46,11 +47,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  const contractSize = getContractSize(symbol);
+
   const profit =
     exitPrice != null
       ? direction === "buy"
-        ? (exitPrice - entryPrice) * lots
-        : (entryPrice - exitPrice) * lots
+        ? (exitPrice - entryPrice) * lots * contractSize
+        : (entryPrice - exitPrice) * lots * contractSize
       : 0;
 
   // If exitPrice is provided the trade is closed regardless of whether exitTime was supplied.
@@ -61,7 +64,7 @@ export async function POST(req: NextRequest) {
   const status = exitPrice != null ? "closed" : "open";
 
   const resolvedLeverage = leverage && leverage > 0 ? leverage : 100;
-  const margin = (entryPrice * lots) / resolvedLeverage;
+  const margin = (entryPrice * lots * contractSize) / resolvedLeverage;
 
   await dbConnect();
   const trade = await TradeEntryModel.create({
