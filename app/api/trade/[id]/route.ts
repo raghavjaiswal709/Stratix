@@ -44,7 +44,7 @@ export async function PUT(
   const allowed = [
     "symbol", "direction", "lots", "entryPrice", "exitPrice",
     "entryTime", "exitTime", "stopLoss", "takeProfit", "profit",
-    "status", "journaled", "executionChecklist", "screenshots",
+    "status", "leverage", "margin", "journaled", "executionChecklist", "screenshots",
     "preTradeAnalysis", "postTradeReview", "riskRatio", "rewardRatio",
     "emotions", "lessonsLearned", "tags", "rating",
   ];
@@ -67,11 +67,26 @@ export async function PUT(
       const exit = (updateData.exitPrice as number) ?? existing.exitPrice;
       const lots = (updateData.lots as number) ?? existing.lots;
       const dir = (updateData.direction as string) ?? existing.direction;
+      const lev = (updateData.leverage as number) ?? existing.leverage ?? 100;
       if (exit != null) {
         updateData.profit =
           dir === "buy" ? (exit - entry) * lots : (entry - exit) * lots;
         updateData.status = "closed";
       }
+      // Recompute margin whenever entry price, lots, or leverage changes
+      updateData.margin = (entry * lots) / lev;
+    }
+  } else if (updateData.leverage != null) {
+    // Leverage changed but prices didn't — still recompute margin
+    const existing = await TradeEntryModel.findOne({
+      _id: id,
+      userId: session.user.id,
+    }).lean();
+    if (existing) {
+      const entry = existing.entryPrice;
+      const lots = (updateData.lots as number) ?? existing.lots;
+      const lev = updateData.leverage as number;
+      updateData.margin = (entry * lots) / lev;
     }
   }
 

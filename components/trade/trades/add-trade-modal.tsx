@@ -50,6 +50,7 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [leverage, setLeverage] = useState(100);
 
   // Symbol combo dropdown
   const [symbolDropdownOpen, setSymbolDropdownOpen] = useState(false);
@@ -79,16 +80,24 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
 
   const nowStr = format(new Date(), "yyyy-MM-dd'T'HH:mm");
 
-  // Live P&L preview
-  const previewProfit = useMemo(() => {
+  // Comprehensive position preview
+  const preview = useMemo(() => {
     const ep = parseFloat(entryPrice);
-    const xp = parseFloat(exitPrice);
     const l = parseFloat(lots);
-    if (!isNaN(ep) && !isNaN(xp) && !isNaN(l) && l > 0) {
-      return direction === "buy" ? (xp - ep) * l : (ep - xp) * l;
+    if (isNaN(ep) || isNaN(l) || l <= 0 || ep <= 0) return null;
+    const notional = ep * l;
+    const margin = notional / leverage;
+    const xp = parseFloat(exitPrice);
+    if (!isNaN(xp) && exitPrice) {
+      const profit = direction === "buy" ? (xp - ep) * l : (ep - xp) * l;
+      const roi = margin > 0 ? (profit / margin) * 100 : 0;
+      return { notional, margin, profit, roi };
     }
-    return null;
-  }, [direction, entryPrice, exitPrice, lots]);
+    return { notional, margin, profit: null, roi: null };
+  }, [direction, entryPrice, exitPrice, lots, leverage]);
+
+  // Keep previewProfit alias for backward compat (used nowhere now but safe)
+  const previewProfit = preview?.profit ?? null;
 
   async function handleSave() {
     if (!symbol.trim()) { setError("Symbol is required"); return; }
@@ -117,6 +126,7 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
           exitTime: exitTime || undefined,
           notes,
           executionChecklist: checklist,
+          leverage,
         }),
       });
       if (!res.ok) {
@@ -261,6 +271,43 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
             </div>
           </div>
 
+          {/* Leverage */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">Leverage</label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={leverage}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value);
+                    if (!isNaN(v) && v > 0) setLeverage(v);
+                  }}
+                  type="number"
+                  min="1"
+                  max="3000"
+                  className="w-16 text-right rounded-lg bg-white/5 border border-white/8 px-2 py-1 text-[12px] text-white focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition"
+                />
+                <span className="text-[12px] font-bold text-violet-400">×</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[10, 25, 50, 100, 200, 500].map((lv) => (
+                <button
+                  key={lv}
+                  type="button"
+                  onClick={() => setLeverage(lv)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${
+                    leverage === lv
+                      ? "bg-violet-600 border-violet-500 text-white shadow-sm shadow-violet-500/20"
+                      : "bg-white/5 border-white/10 text-white/50 hover:border-white/25 hover:text-white/80"
+                  }`}
+                >
+                  {lv}×
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Entry + Exit Price */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -287,19 +334,47 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
             </div>
           </div>
 
-          {/* P&L Preview */}
-          {previewProfit !== null && (
-            <div className={`flex items-center justify-between rounded-xl px-4 py-2.5 border ${
-              previewProfit >= 0
-                ? "bg-emerald-600/10 border-emerald-500/20"
-                : "bg-red-600/10 border-red-500/20"
-            }`}>
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-white/40">Estimated P&L</span>
-              <span className={`text-[15px] font-bold ${
-                previewProfit >= 0 ? "text-emerald-400" : "text-red-400"
-              }`}>
-                {previewProfit >= 0 ? "+" : ""}{previewProfit.toFixed(2)}
-              </span>
+          {/* Position Overview */}
+          {preview && (
+            <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
+              <p className="text-[10px] uppercase tracking-wider text-white/30 font-semibold px-4 pt-3 pb-2">Position Overview</p>
+              <div className="grid grid-cols-2 divide-x divide-white/5">
+                <div className="px-4 pb-3">
+                  <p className="text-[9px] uppercase tracking-wider text-white/30 mb-0.5">Notional Value</p>
+                  <p className="text-[14px] font-bold text-white">
+                    ${preview.notional.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="px-4 pb-3">
+                  <p className="text-[9px] uppercase tracking-wider text-white/30 mb-0.5">Margin Required</p>
+                  <p className="text-[14px] font-bold text-amber-400">
+                    ${preview.margin.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-[9px] text-white/25">{leverage}× leverage</p>
+                </div>
+              </div>
+              {preview.profit !== null && (
+                <div className={`grid grid-cols-2 divide-x divide-white/5 border-t border-white/5 ${
+                  preview.profit >= 0 ? "bg-emerald-500/5" : "bg-red-500/5"
+                }`}>
+                  <div className="px-4 py-3">
+                    <p className="text-[9px] uppercase tracking-wider text-white/30 mb-0.5">Est. P&L</p>
+                    <p className={`text-[14px] font-bold ${
+                      preview.profit >= 0 ? "text-emerald-400" : "text-red-400"
+                    }`}>
+                      {preview.profit >= 0 ? "+" : ""}{preview.profit.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="px-4 py-3">
+                    <p className="text-[9px] uppercase tracking-wider text-white/30 mb-0.5">ROI on Margin</p>
+                    <p className={`text-[14px] font-bold ${
+                      preview.roi! >= 0 ? "text-emerald-400" : "text-red-400"
+                    }`}>
+                      {preview.roi! >= 0 ? "+" : ""}{preview.roi!.toFixed(2)}%
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

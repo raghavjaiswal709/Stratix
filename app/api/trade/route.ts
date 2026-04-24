@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
     takeProfit,
     notes,
     executionChecklist,
+    leverage,
   } = body;
 
   if (!symbol || !direction || !lots || !entryPrice || !entryTime) {
@@ -59,6 +60,9 @@ export async function POST(req: NextRequest) {
     : undefined;
   const status = exitPrice != null ? "closed" : "open";
 
+  const resolvedLeverage = leverage && leverage > 0 ? leverage : 100;
+  const margin = (entryPrice * lots) / resolvedLeverage;
+
   await dbConnect();
   const trade = await TradeEntryModel.create({
     userId: session.user.id,
@@ -73,6 +77,8 @@ export async function POST(req: NextRequest) {
     takeProfit: takeProfit ?? undefined,
     profit,
     status,
+    leverage: resolvedLeverage,
+    margin,
     source: "manual",
     preTradeAnalysis: notes ?? "",
     executionChecklist: executionChecklist ?? undefined,

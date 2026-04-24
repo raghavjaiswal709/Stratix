@@ -26,6 +26,8 @@ export interface ITradeEntry extends Document {
   profit: number;        // realized P&L
   swap?: number;
   commission?: number;
+  leverage: number;      // leverage multiplier (e.g. 100)
+  margin: number;        // margin used = (entryPrice * lots) / leverage
 
   // Status & source
   status: TradeStatus;
@@ -73,6 +75,8 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
     profit: { type: Number, default: 0 },
     swap: { type: Number, default: 0 },
     commission: { type: Number, default: 0 },
+    leverage: { type: Number, default: 100 },
+    margin: { type: Number, default: 0 },
 
     status: { type: String, enum: ["open", "closed"], default: "open" },
     source: { type: String, enum: ["manual", "mt5"], default: "manual" },

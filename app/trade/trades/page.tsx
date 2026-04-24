@@ -27,6 +27,8 @@ interface Trade {
   profit: number;
   status: "open" | "closed";
   source: "manual" | "mt5";
+  leverage?: number;
+  margin?: number;
 }
 
 interface MT5Config {
@@ -169,6 +171,7 @@ export default function TradesPage() {
                     </p>
                     <p className="text-[11px] text-white/40">
                       Entry ${trade.entryPrice.toLocaleString()} · {trade.lots} lots
+                      {trade.leverage && <> · <span className="text-violet-400">{trade.leverage}×</span></>}
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -192,7 +195,7 @@ export default function TradesPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/5">
-                    {["Open / Close", "Symbol", "Type", "Entry", "Exit", "Size", "P&L", "Source", ""].map((h) => (
+                    {["Open / Close", "Symbol", "Type", "Entry", "Exit", "Size", "Leverage", "P&L", "Source", ""].map((h) => (
                       <th key={h} className="text-left px-5 py-3 text-[10px] uppercase tracking-wider text-white/30 font-semibold">
                         {h}
                       </th>
@@ -221,6 +224,12 @@ export default function TradesPage() {
                       <td className="px-5 py-3.5 text-[13px] text-white/70">${trade.entryPrice.toLocaleString()}</td>
                       <td className="px-5 py-3.5 text-[13px] text-white/50">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : "—"}</td>
                       <td className="px-5 py-3.5 text-[13px] text-white/60">{trade.lots}</td>
+                      <td className="px-5 py-3.5">
+                        <div className="text-[12px] font-bold text-violet-400">{trade.leverage ?? 100}×</div>
+                        {trade.margin != null && (
+                          <div className="text-[10px] text-white/30">M: ${trade.margin.toFixed(2)}</div>
+                        )}
+                      </td>
                       <td className="px-5 py-3.5">
                         <span className={`text-[13px] font-bold ${trade.profit > 0 ? "text-blue-400" : trade.profit < 0 ? "text-red-400" : "text-white/40"}`}>{fmt(trade.profit)}</span>
                       </td>
