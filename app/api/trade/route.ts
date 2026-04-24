@@ -52,7 +52,12 @@ export async function POST(req: NextRequest) {
         : (entryPrice - exitPrice) * lots
       : 0;
 
-  const status = exitPrice != null && exitTime != null ? "closed" : "open";
+  // If exitPrice is provided the trade is closed regardless of whether exitTime was supplied.
+  // Auto-fill exitTime to now when it's missing but an exit price exists.
+  const resolvedExitTime = exitPrice != null
+    ? (exitTime ? new Date(exitTime) : new Date())
+    : undefined;
+  const status = exitPrice != null ? "closed" : "open";
 
   await dbConnect();
   const trade = await TradeEntryModel.create({
@@ -63,7 +68,7 @@ export async function POST(req: NextRequest) {
     entryPrice,
     exitPrice: exitPrice ?? undefined,
     entryTime: new Date(entryTime),
-    exitTime: exitTime ? new Date(exitTime) : undefined,
+    exitTime: resolvedExitTime,
     stopLoss: stopLoss ?? undefined,
     takeProfit: takeProfit ?? undefined,
     profit,

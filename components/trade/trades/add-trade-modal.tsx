@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { format } from "date-fns";
 import { X, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -77,11 +77,28 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
     );
   };
 
+  const nowStr = format(new Date(), "yyyy-MM-dd'T'HH:mm");
+
+  // Live P&L preview
+  const previewProfit = useMemo(() => {
+    const ep = parseFloat(entryPrice);
+    const xp = parseFloat(exitPrice);
+    const l = parseFloat(lots);
+    if (!isNaN(ep) && !isNaN(xp) && !isNaN(l) && l > 0) {
+      return direction === "buy" ? (xp - ep) * l : (ep - xp) * l;
+    }
+    return null;
+  }, [direction, entryPrice, exitPrice, lots]);
+
   async function handleSave() {
     if (!symbol.trim()) { setError("Symbol is required"); return; }
     if (!lots || isNaN(parseFloat(lots))) { setError("Valid quantity required"); return; }
     if (!entryPrice || isNaN(parseFloat(entryPrice))) { setError("Valid entry price required"); return; }
     if (!entryTime) { setError("Entry date required"); return; }
+    const now = new Date();
+    if (new Date(entryTime) > now) { setError("Entry date cannot be in the future"); return; }
+    if (exitTime && new Date(exitTime) > now) { setError("Exit date cannot be in the future"); return; }
+    if (exitTime && entryTime && new Date(exitTime) < new Date(entryTime)) { setError("Exit date must be after entry date"); return; }
 
     setSaving(true);
     setError("");
@@ -270,6 +287,22 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
             </div>
           </div>
 
+          {/* P&L Preview */}
+          {previewProfit !== null && (
+            <div className={`flex items-center justify-between rounded-xl px-4 py-2.5 border ${
+              previewProfit >= 0
+                ? "bg-emerald-600/10 border-emerald-500/20"
+                : "bg-red-600/10 border-red-500/20"
+            }`}>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-white/40">Estimated P&L</span>
+              <span className={`text-[15px] font-bold ${
+                previewProfit >= 0 ? "text-emerald-400" : "text-red-400"
+              }`}>
+                {previewProfit >= 0 ? "+" : ""}{previewProfit.toFixed(2)}
+              </span>
+            </div>
+          )}
+
           {/* Entry + Exit Date */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -278,6 +311,7 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
                 value={entryTime}
                 onChange={(e) => setEntryTime(e.target.value)}
                 type="datetime-local"
+                max={nowStr}
                 className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition scheme-dark"
               />
             </div>
@@ -288,6 +322,7 @@ export function AddTradeModal({ onClose, onSaved }: AddTradeModalProps) {
                 onChange={(e) => setExitTime(e.target.value)}
                 type="datetime-local"
                 placeholder="Optional"
+                max={nowStr}
                 className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition scheme-dark"
               />
             </div>
