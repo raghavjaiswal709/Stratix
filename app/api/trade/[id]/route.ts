@@ -45,7 +45,7 @@ export async function PUT(
   const allowed = [
     "symbol", "direction", "lots", "entryPrice", "exitPrice",
     "entryTime", "exitTime", "stopLoss", "takeProfit", "profit",
-    "status", "leverage", "margin", "journaled", "executionChecklist", "screenshots",
+    "status", "leverage", "margin", "timeframe", "journaled", "executionChecklist", "screenshots",
     "preTradeAnalysis", "postTradeReview", "riskRatio", "rewardRatio",
     "emotions", "lessonsLearned", "tags", "rating",
   ];

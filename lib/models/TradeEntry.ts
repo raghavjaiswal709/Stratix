@@ -33,6 +33,9 @@ export interface ITradeEntry extends Document {
   status: TradeStatus;
   source: TradeSource;
 
+  // Chart timeframe preference
+  timeframe?: string;
+
   // Journal fields
   journaled: boolean;
   executionChecklist: ChecklistItem[];
@@ -80,6 +83,8 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
 
     status: { type: String, enum: ["open", "closed"], default: "open" },
     source: { type: String, enum: ["manual", "mt5"], default: "manual" },
+
+    timeframe: { type: String, default: "" },
 
     journaled: { type: Boolean, default: false },
     executionChecklist: {

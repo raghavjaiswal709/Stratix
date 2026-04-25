@@ -119,11 +119,30 @@ export const ACCENT_PRESETS = [
   { name: "Pink", value: "#ec4899" },
 ] as const;
 
+export interface TradesSortFilterPrefs {
+  sortBy: "date" | "pnl" | "symbol" | "lots";
+  sortDir: "asc" | "desc";
+  filterSymbol: string;
+  filterDirection: "all" | "buy" | "sell";
+  filterStatus: "all" | "open" | "closed";
+  filterSource: "all" | "manual" | "mt5";
+}
+
+export interface JournalSortFilterPrefs {
+  sortBy: "date" | "pnl" | "symbol";
+  sortDir: "asc" | "desc";
+  filterSymbol: string;
+  filterDirection: "all" | "buy" | "sell";
+  filterOutcome: "all" | "winner" | "loser" | "open";
+}
+
 export interface UserPreferences {
   accentColor: string;       // hex color for primary tint
-  defaultPage: string;       // "/productivity" | "/trading-journal"
+  defaultPage: string;       // e.g. "/trade/trades" | "/productivity"
   defaultTab: string;        // default tab within landing page
   sectionOrder: string[];    // ordered list of tab values
+  tradesSortFilter?: TradesSortFilterPrefs;
+  journalSortFilter?: JournalSortFilterPrefs;
 }
 
 // ============ TRADES ============

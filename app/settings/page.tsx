@@ -16,8 +16,11 @@ import { ACCENT_PRESETS } from "@/types";
 import { cn } from "@/lib/utils";
 
 const PAGE_OPTIONS = [
-  { value: "/productivity", label: "Life-Os (Productivity)" },
-  { value: "/trading-journal", label: "Tradebook (Trading Journal)" },
+  { value: "/trade/trades", label: "Trades" },
+  { value: "/trade/journal", label: "Trading Journal" },
+  { value: "/trade/dashboard", label: "Trade Dashboard" },
+  { value: "/productivity", label: "Life-OS (Productivity)" },
+  { value: "/trading-journal", label: "Tradebook (Legacy)" },
 ];
 
 const TAB_OPTIONS = [

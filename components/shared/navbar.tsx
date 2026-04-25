@@ -24,7 +24,7 @@ const navLinks = [
 export function Navbar() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { theme, setTheme } = useAppContext();
+  const { theme, setTheme, preferences } = useAppContext();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
@@ -33,7 +33,7 @@ export function Navbar() {
 
         {/* Left: Brand + links */}
         <div className="flex items-center gap-5">
-          <Link href="/productivity" className="flex items-center gap-2 shrink-0">
+          <Link href={preferences.defaultPage || "/trade/trades"} className="flex items-center gap-2 shrink-0">
             <div
               className="flex h-7 w-7 items-center justify-center rounded-[8px]"
               style={{
