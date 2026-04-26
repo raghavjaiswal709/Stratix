@@ -76,8 +76,9 @@ function autoInterval(entryTime: string, exitTime?: string): Interval {
   return "4h";
 }
 
+// Use full ISO string so the API route always parses as UTC (no timezone-local ambiguity)
 function toQueryStr(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}T${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}:${String(d.getUTCSeconds()).padStart(2, "0")}`;
+  return d.toISOString();
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -245,7 +246,24 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           candles.map((c) => ({ ...c, time: c.time as UTCTimestamp }))
         );
 
-        // ── Price lines ───────────────────────────────────────────────────────
+        // ── Timezone correction ───────────────────────────────────────────────
+        // lightweight-charts v4 internally strips the UTC offset and renders the
+        // raw UTC hour/minute values as if they were local hours. A candle at
+        // 04:30 UTC therefore shows as "04:30" even for IST users (who expect
+        // "10:00"). Fix: shift every timestamp by the browser's UTC offset so
+        // the "UTC hour" the library reads equals the actual local hour.
+        //   IST offset = getTimezoneOffset() = -330 min → tzOffset = +19800 s
+        //   04:30 UTC + 19800 s = 10:00 UTC → library reads hour=10 → shows "10:00" ✓
+        const tzOffset = -new Date().getTimezoneOffset() * 60; // seconds to ADD
+
+        const shiftedCandles = candles.map((c) => ({
+          ...c,
+          time: (c.time + tzOffset) as UTCTimestamp,
+        }));
+
+        candleSeries.setData(shiftedCandles);
+
+        // ── Price lines (price-only, no timestamp) ────────────────────────────
         candleSeries.createPriceLine({
           price: entryPrice,
           color: "#3b82f6",
@@ -289,10 +307,13 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         }
 
         // ── Entry / Exit markers ──────────────────────────────────────────────
-        const entryTs = Math.floor(parseISO(entryTime).getTime() / 1000);
+        // Snap to nearest candle using original UTC times, then shift the
+        // marker timestamp to match the shifted candle data.
+        const entryTsRaw = Math.floor(parseISO(entryTime).getTime() / 1000);
         const entryCandle = candles.reduce((p, c) =>
-          Math.abs(c.time - entryTs) < Math.abs(p.time - entryTs) ? c : p
+          Math.abs(c.time - entryTsRaw) < Math.abs(p.time - entryTsRaw) ? c : p
         );
+        const entryTs = (entryCandle.time + tzOffset) as UTCTimestamp;
 
         const markers: Array<{
           time: UTCTimestamp;
@@ -302,7 +323,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           text: string;
         }> = [
           {
-            time: entryCandle.time as UTCTimestamp,
+            time: entryTs,
             position: direction === "buy" ? "belowBar" : "aboveBar",
             color: direction === "buy" ? "#3b82f6" : "#ef4444",
             shape: direction === "buy" ? "arrowUp" : "arrowDown",
@@ -311,13 +332,14 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         ];
 
         if (exitPrice != null && exitTime) {
-          const exitTs = Math.floor(parseISO(exitTime).getTime() / 1000);
+          const exitTsRaw = Math.floor(parseISO(exitTime).getTime() / 1000);
           const exitCandle = candles.reduce((p, c) =>
-            Math.abs(c.time - exitTs) < Math.abs(p.time - exitTs) ? c : p
+            Math.abs(c.time - exitTsRaw) < Math.abs(p.time - exitTsRaw) ? c : p
           );
+          const exitTs = (exitCandle.time + tzOffset) as UTCTimestamp;
           if (exitCandle.time !== entryCandle.time) {
             markers.push({
-              time: exitCandle.time as UTCTimestamp,
+              time: exitTs,
               position: direction === "buy" ? "aboveBar" : "belowBar",
               color: "#f59e0b",
               shape: "circle",
@@ -332,11 +354,11 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
 
         // ── Scroll to trade period ────────────────────────────────────────────
         const viewPad = 30 * ivMins * 60;
-        const viewFrom = (entryTs - viewPad) as UTCTimestamp;
+        const viewFrom = (entryTsRaw + tzOffset - viewPad) as UTCTimestamp;
         const viewTo = (
           (exitTime
             ? Math.floor(parseISO(exitTime).getTime() / 1000)
-            : Math.floor(Date.now() / 1000)) + viewPad
+            : Math.floor(Date.now() / 1000)) + tzOffset + viewPad
         ) as UTCTimestamp;
 
         try {
