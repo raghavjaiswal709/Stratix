@@ -82,25 +82,25 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-[560px] rounded-2xl bg-[#141720] border border-white/[0.10] shadow-2xl overflow-y-auto max-h-[90vh]">
+      <div className="w-full max-w-[560px] rounded-2xl bg-card border border-border shadow-2xl overflow-y-auto max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.07]">
-          <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${config?.connected ? "bg-emerald-600/20 border border-emerald-500/30" : "bg-white/5 border border-white/10"}`}>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+          <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${config?.connected ? "bg-emerald-600/20 border border-emerald-500/30" : "bg-muted border border-border"}`}>
             {config?.connected ? (
               <Wifi className="h-4 w-4 text-emerald-400" />
             ) : (
-              <WifiOff className="h-4 w-4 text-white/40" />
+              <WifiOff className="h-4 w-4 text-muted-foreground" />
             )}
           </div>
           <div className="flex-1">
-            <h2 className="text-[15px] font-semibold text-white">Connect MetaTrader 5</h2>
-            <p className="text-[11px] text-white/35">
+            <h2 className="text-[15px] font-semibold text-card-foreground">Connect MetaTrader 5</h2>
+            <p className="text-[11px] text-muted-foreground">
               {config?.connected
                 ? `Connected · Last ping: ${config.lastPingAt ? new Date(config.lastPingAt).toLocaleTimeString() : "—"}`
                 : "Not connected"}
             </p>
           </div>
-          <button onClick={onClose} className="text-white/40 hover:text-white/80 transition">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground/80 transition">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -109,7 +109,7 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
           {/* How it works */}
           <div className="rounded-xl bg-blue-600/10 border border-blue-500/20 p-4">
             <h3 className="text-[12px] font-semibold text-blue-400 mb-2">How it works</h3>
-            <ol className="space-y-1.5 text-[12px] text-white/55 list-none">
+            <ol className="space-y-1.5 text-[12px] text-muted-foreground list-none">
               <li className="flex gap-2"><span className="text-blue-400 font-bold">1.</span> Copy your Webhook URL and Secret below</li>
               <li className="flex gap-2"><span className="text-blue-400 font-bold">2.</span> Download the <span className="text-blue-300 font-medium">StratixEA.mq5</span> Expert Advisor from the Trades page</li>
               <li className="flex gap-2"><span className="text-blue-400 font-bold">3.</span> Open MetaEditor → paste your URL, UserID, and Secret into the EA inputs</li>
@@ -119,14 +119,14 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
 
           {/* Webhook URL */}
           <div>
-            <label className="block text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">Webhook URL</label>
+            <label className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Webhook URL</label>
             <div className="flex gap-2">
-              <div className="flex-1 rounded-xl bg-white/5 border border-white/[0.08] px-3 py-2.5 text-[12px] text-white/70 font-mono truncate">
+              <div className="flex-1 rounded-xl bg-muted border border-border px-3 py-2.5 text-[12px] text-foreground/70 font-mono truncate">
                 {webhookUrl}
               </div>
               <button
                 onClick={() => copy(webhookUrl, "url")}
-                className="px-3 rounded-xl bg-white/5 border border-white/[0.08] text-white/40 hover:text-white/80 transition"
+                className="px-3 rounded-xl bg-muted border border-border text-muted-foreground hover:text-foreground/80 transition"
               >
                 {copied === "url" ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
               </button>
@@ -135,14 +135,14 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
 
           {/* User ID */}
           <div>
-            <label className="block text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">Your User ID</label>
+            <label className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Your User ID</label>
             <div className="flex gap-2">
-              <div className="flex-1 rounded-xl bg-white/5 border border-white/[0.08] px-3 py-2.5 text-[12px] text-white/70 font-mono truncate">
+              <div className="flex-1 rounded-xl bg-muted border border-border px-3 py-2.5 text-[12px] text-foreground/70 font-mono truncate">
                 {userId}
               </div>
               <button
                 onClick={() => copy(userId, "uid")}
-                className="px-3 rounded-xl bg-white/5 border border-white/[0.08] text-white/40 hover:text-white/80 transition"
+                className="px-3 rounded-xl bg-muted border border-border text-muted-foreground hover:text-foreground/80 transition"
               >
                 {copied === "uid" ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
               </button>
@@ -151,15 +151,15 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
 
           {/* Secret */}
           <div>
-            <label className="block text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">Webhook Secret</label>
+            <label className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Webhook Secret</label>
             <div className="flex gap-2">
-              <div className="flex-1 rounded-xl bg-white/5 border border-white/[0.08] px-3 py-2.5 text-[12px] text-white/70 font-mono truncate">
+              <div className="flex-1 rounded-xl bg-muted border border-border px-3 py-2.5 text-[12px] text-foreground/70 font-mono truncate">
                 {secretDisplay}
               </div>
               {fullSecret && (
                 <button
                   onClick={() => copy(fullSecret, "secret")}
-                  className="px-3 rounded-xl bg-white/5 border border-white/[0.08] text-white/40 hover:text-white/80 transition"
+                  className="px-3 rounded-xl bg-muted border border-border text-muted-foreground hover:text-foreground/80 transition"
                 >
                   {copied === "secret" ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
                 </button>
@@ -168,38 +168,38 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
                 onClick={regenerateSecret}
                 disabled={regenerating}
                 title="Regenerate secret"
-                className="px-3 rounded-xl bg-white/5 border border-white/[0.08] text-white/40 hover:text-amber-400 transition disabled:opacity-50"
+                className="px-3 rounded-xl bg-muted border border-border text-muted-foreground hover:text-amber-400 transition disabled:opacity-50"
               >
                 <RefreshCw className={`h-4 w-4 ${regenerating ? "animate-spin" : ""}`} />
               </button>
             </div>
             {!fullSecret && (
-              <p className="text-[10px] text-white/30 mt-1.5">
+              <p className="text-[10px] text-muted-foreground/60 mt-1.5">
                 Click regenerate to reveal the full secret (copy it immediately — it will be masked again).
               </p>
             )}
           </div>
 
           {/* Optional: Account info */}
-          <div className="border-t border-white/[0.07] pt-4">
-            <h3 className="text-[12px] font-semibold text-white/50 mb-3">Account Info (optional)</h3>
+          <div className="border-t border-border pt-4">
+            <h3 className="text-[12px] font-semibold text-muted-foreground mb-3">Account Info (optional)</h3>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">MT5 Account #</label>
+                <label className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">MT5 Account #</label>
                 <input
                   value={accountId}
                   onChange={(e) => setAccountId(e.target.value)}
                   placeholder="e.g. 12345678"
-                  className="w-full rounded-xl bg-white/5 border border-white/[0.08] px-3 py-2 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 transition"
+                  className="w-full rounded-xl bg-muted border border-border px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/50 transition"
                 />
               </div>
               <div>
-                <label className="block text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">Broker</label>
+                <label className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Broker</label>
                 <input
                   value={broker}
                   onChange={(e) => setBroker(e.target.value)}
                   placeholder="e.g. ICMarkets"
-                  className="w-full rounded-xl bg-white/5 border border-white/[0.08] px-3 py-2 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 transition"
+                  className="w-full rounded-xl bg-muted border border-border px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/50 transition"
                 />
               </div>
             </div>
@@ -210,7 +210,7 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
         <div className="flex gap-3 px-5 pb-5">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-white/[0.10] text-[13px] font-medium text-white/50 hover:text-white/80 hover:bg-white/5 transition"
+            className="flex-1 py-2.5 rounded-xl border border-border text-[13px] font-medium text-muted-foreground hover:text-foreground/80 hover:bg-muted transition"
           >
             Close
           </button>

@@ -515,7 +515,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                     className={cn(
                       "h-7 w-7 rounded-full border-2 transition-transform",
                       newHabitColor === c
-                        ? "border-white scale-110"
+                        ? "border-background scale-110"
                         : "border-transparent hover:scale-105"
                     )}
                     style={{ backgroundColor: c }}
