@@ -5,6 +5,7 @@ import { StatsCards } from "@/components/trade/dashboard/stats-cards";
 import { PerformanceChart } from "@/components/trade/dashboard/performance-chart";
 import { MonthlyCalendar } from "@/components/trade/dashboard/monthly-calendar";
 import { OpenPositions } from "@/components/trade/dashboard/open-positions";
+import { TradingQuotesModal } from "@/components/shared/trading-quotes";
 import { format } from "date-fns";
 
 interface Trade {
@@ -66,6 +67,7 @@ export default function DashboardPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-5">
+      <TradingQuotesModal />
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -78,7 +80,7 @@ export default function DashboardPage() {
       <StatsCards {...stats} />
 
       {/* Main content grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-4 md:gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-4 md:gap-5">
         <PerformanceChart trades={trades} />
         <MonthlyCalendar trades={trades} />
       </div>

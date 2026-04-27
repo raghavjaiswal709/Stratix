@@ -19,16 +19,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
 const tradeItems = [
-  { href: "/trade/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/trade/trades",   label: "Trades",    icon: ArrowLeftRight },
-  { href: "/trade/journal",  label: "Journal",   icon: BookOpen },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/trades",   label: "Trades",    icon: ArrowLeftRight },
+  { href: "/journal",  label: "Journal",   icon: BookOpen },
 ];
 
 const lifeItems = [
-  { href: "/trade/todo",   label: "To-Do",   icon: ListTodo },
-  { href: "/trade/habits", label: "Habits",  icon: Activity },
-  { href: "/trade/diary",  label: "Diary",   icon: PenLine },
-  { href: "/trade/notes",  label: "Notes",   icon: StickyNote },
+  { href: "/todo",   label: "To-Do",   icon: ListTodo },
+  { href: "/habits", label: "Habits",  icon: Activity },
+  { href: "/diary",  label: "Diary",   icon: PenLine },
+  { href: "/notes",  label: "Notes",   icon: StickyNote },
 ];
 
 interface TradeSidebarProps {

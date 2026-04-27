@@ -10,7 +10,11 @@ export default function Home() {
 
   useEffect(() => {
     if (!loading) {
-      router.replace(preferences.defaultPage || "/trade/trades");
+      let dest = preferences.defaultPage || "/dashboard";
+      if (dest === "/productivity" || dest === "/trade/trades" || dest === "/trades") {
+        dest = "/dashboard";
+      }
+      router.replace(dest);
     }
   }, [loading, preferences.defaultPage, router]);
 

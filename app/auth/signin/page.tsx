@@ -9,8 +9,7 @@ export default function SignInPage() {
 
   const handleSignIn = async () => {
     setLoading(true);
-    await signIn("google", { callbackUrl: "/trade/trades" });
-  };
+                    await signIn("google", { callbackUrl: "/dashboard" });  };
 
   return (
     <div className="relative min-h-screen flex items-center justify-center bg-background p-4 overflow-hidden">

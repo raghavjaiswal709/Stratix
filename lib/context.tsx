@@ -29,7 +29,7 @@ interface AppContextType extends AppData {
 
 const defaultPreferences: UserPreferences = {
   accentColor: "#6366f1",
-  defaultPage: "/productivity",
+  defaultPage: "/dashboard",
   defaultTab: "todos",
   sectionOrder: ["todos", "habits", "diary", "notes"],
 };

@@ -128,14 +128,14 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
       </div>
 
       {/* Day labels + Weekly label */}
-      <div className="grid grid-cols-[repeat(7,1fr)_auto] gap-px mb-1">
+      <div className="grid gap-px mb-1" style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}>
         {DAY_LABELS.map((d, i) => (
           <div key={i} className="text-center text-[10px] font-semibold text-white/25 uppercase py-1">
             {d}
           </div>
         ))}
-        <div className="text-center text-[10px] font-semibold text-white/25 uppercase py-1 pl-2">
-          Weekly
+        <div className="text-center text-[10px] font-semibold text-white/25 uppercase py-1">
+          WEEKLY
         </div>
       </div>
 
@@ -148,7 +148,7 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
           const weekCount = getTradeCountForWeek(trades, weekStart, weekEnd);
 
           return (
-            <div key={weekStart.toISOString()} className="grid grid-cols-[repeat(7,1fr)_auto] gap-px">
+            <div key={weekStart.toISOString()} className="grid gap-px" style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}>
               {days.map((day) => {
                 const isCurrentMonth =
                   day >= monthStart && day <= monthEnd;
@@ -160,18 +160,18 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
                   <div
                     key={day.toISOString()}
                     className={cn(
-                      "aspect-square min-h-[36px] md:min-h-[44px] flex flex-col items-center justify-center rounded-md md:rounded-lg text-center p-0.5 md:p-1 text-[10px] transition",
-                      !isCurrentMonth && "opacity-0",
+                      "min-h-[42px] flex flex-col items-center justify-center rounded-lg text-center p-1 transition",
+                      !isCurrentMonth && "opacity-0 pointer-events-none",
                       hasTraded && pnl! >= 0 && "bg-blue-500/10 border border-blue-500/20",
                       hasTraded && pnl! < 0 && "bg-red-500/10 border border-red-500/20",
                       !hasTraded && isCurrentMonth && "bg-white/[0.025] border border-transparent"
                     )}
                   >
-                    <span className="text-[9px] md:text-[10px] text-white/30 font-medium">{format(day, "d")}</span>
+                    <span className="text-[10px] text-white/30 font-medium leading-none">{format(day, "d")}</span>
                     {hasTraded && (
                       <span
                         className={cn(
-                          "text-[8px] md:text-[10px] font-bold leading-tight",
+                          "text-[9px] font-bold leading-tight mt-0.5",
                           pnl! >= 0 ? "text-blue-400" : "text-red-400"
                         )}
                       >
@@ -182,19 +182,16 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
                 );
               })}
               {/* Weekly summary */}
-              <div className="min-h-[36px] md:min-h-[44px] flex flex-col items-start justify-center pl-1 md:pl-2">
+              <div className="min-h-[42px] w-[56px] flex flex-col items-center justify-center">
                 <span
                   className={cn(
-                    "text-[9px] md:text-[11px] font-bold",
-                    weekPnL >= 0 ? "text-blue-400" : "text-red-400",
-                    weekPnL === 0 && "text-white/25"
+                    "text-[11px] font-bold",
+                    weekPnL > 0 ? "text-blue-400" : weekPnL < 0 ? "text-red-400" : "text-white/25"
                   )}
                 >
                   {fmt(weekPnL)}
                 </span>
-                <span className="text-[8px] md:text-[9px] text-white/25 hidden md:block">
-                  {weekCount}t
-                </span>
+                <span className="text-[9px] text-white/25">{weekCount}t</span>
               </div>
             </div>
           );

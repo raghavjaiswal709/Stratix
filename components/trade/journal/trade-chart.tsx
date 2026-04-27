@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { IChartApi, UTCTimestamp } from "lightweight-charts";
 import { parseISO, differenceInMinutes, subMinutes, addMinutes } from "date-fns";
-import { RefreshCw, Camera, BarChart2, AlertTriangle, ExternalLink, Clock, Check } from "lucide-react";
+import { RefreshCw, Camera, BarChart2, AlertTriangle, ExternalLink, Clock, Check, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -113,7 +113,8 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
       defaultInterval && TF_TO_INTERVAL[defaultInterval] ? TF_TO_INTERVAL[defaultInterval] : null
     );
     const [retryKey, setRetryKey] = useState(0);
-    const [loading, setLoading] = useState(true);
+    const [loaded, setLoaded] = useState(false); // chart stays hidden until user requests it
+    const [loading, setLoading] = useState(false);
     const [noApiKey, setNoApiKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [justSaved, setJustSaved] = useState(false);
@@ -138,6 +139,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
     }));
 
     useEffect(() => {
+      if (!loaded) return; // wait for user to click Load Chart
       let alive = true;
       let roCleanup: (() => void) | null = null;
 
@@ -392,7 +394,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         }
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction]);
+    }, [loaded, interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction]);
 
     function handleCapture() {
       if (!chartRef.current) return;
@@ -458,7 +460,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
             </div>
 
             {/* Set as default button — shown when current interval differs from saved */}
-            {interval !== savedInterval && !loading && !error && !noApiKey && (
+            {loaded && interval !== savedInterval && !loading && !error && !noApiKey && (
               <button
                 onClick={handleSaveInterval}
                 title="Save this timeframe as default for this trade"
@@ -470,7 +472,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
             )}
 
             {/* Capture button */}
-            {!loading && !error && !noApiKey && (
+            {loaded && !loading && !error && !noApiKey && (
               <button
                 onClick={handleCapture}
                 title="Capture chart screenshot"
@@ -484,7 +486,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         </div>
 
         {/* No default timeframe hint */}
-        {hasNoDefaultSet && !loading && !error && !noApiKey && (
+        {loaded && hasNoDefaultSet && !loading && !error && !noApiKey && (
           <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/5 border-b border-amber-500/10">
             <Clock className="h-3.5 w-3.5 text-amber-400/60 shrink-0" />
             <p className="text-[11px] text-amber-400/60">
@@ -497,14 +499,32 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         <div className="relative" style={{ height: 380 }}>
           <div ref={containerRef} className="w-full h-full" />
 
-          {loading && (
+          {/* Lazy-load gate — shown before user clicks Load Chart */}
+          {!loaded && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0f1117]">
+              <BarChart2 className="h-10 w-10 text-white/8" />
+              <p className="text-[13px] font-semibold text-white/35">Chart not loaded</p>
+              <p className="text-[11px] text-white/20 max-w-xs text-center">
+                Click below to fetch candle data from Twelve Data.
+              </p>
+              <button
+                onClick={() => { setLoaded(true); setLoading(true); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600/20 border border-blue-500/25 text-[13px] font-semibold text-blue-400 hover:bg-blue-600/30 hover:text-blue-300 transition-colors"
+              >
+                <Play className="h-4 w-4" />
+                Load candle data
+              </button>
+            </div>
+          )}
+
+          {loaded && loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0f1117]">
               <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
               <p className="text-[11px] text-white/25">Loading chart data…</p>
             </div>
           )}
 
-          {!loading && noApiKey && (
+          {loaded && !loading && noApiKey && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0f1117] px-6 text-center">
               <BarChart2 className="h-9 w-9 text-white/8" />
               <p className="text-[13px] font-semibold text-white/45">
@@ -533,7 +553,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
             </div>
           )}
 
-          {!loading && error && !noApiKey && (
+          {loaded && !loading && error && !noApiKey && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0f1117] px-6 text-center">
               <AlertTriangle className="h-8 w-8 text-amber-400/30" />
               <p className="text-[12px] text-white/35 max-w-xs">{error}</p>
@@ -549,7 +569,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         </div>
 
         {/* Price-line legend */}
-        {!loading && !error && !noApiKey && (
+        {loaded && !loading && !error && !noApiKey && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 border-t border-white/5">
             <LegendItem
               color={direction === "buy" ? "#3b82f6" : "#ef4444"}
