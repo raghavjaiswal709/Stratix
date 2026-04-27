@@ -14,6 +14,7 @@ import {
   PenLine,
   StickyNote,
   X,
+  Sunrise,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -50,11 +51,11 @@ export function TradeSidebar({ open, onClose }: TradeSidebarProps) {
       {/* Logo + close btn (mobile) */}
       <div className="flex items-center gap-2.5 px-4 py-5 border-b border-white/6">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20 border border-blue-500/30 shrink-0">
-          <TrendingUp className="h-4 w-4 text-blue-400" />
+              <Sunrise className="h-5.5 w-5.5 text-indigo-400" style={{ width: 22, height: 22 }} />
         </div>
         <div className="flex flex-col leading-none flex-1 min-w-0">
-          <span className="text-[13px] font-bold text-white tracking-tight">Stratix</span>
-          <span className="text-[10px] text-white/40 font-medium uppercase tracking-wider">Tradebook</span>
+          <span className="text-[20px] font-bold text-white tracking-tight">Stratix Pro</span>
+          <span className="text-[10px] mt-1 text-white/40 font-medium uppercase tracking-wider">Tradebook & Life OS</span>
         </div>
         {/* Close button — mobile only */}
         <button
