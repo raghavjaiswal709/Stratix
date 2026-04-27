@@ -99,24 +99,24 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
   }, [monthStart, monthEnd]);
 
   return (
-    <div className="rounded-2xl border border-white/7 bg-[#141720] p-4 md:p-5">
+    <div className="rounded-2xl border border-border bg-card p-4 md:p-5">
       {/* Header — stacks on mobile */}
       <div className="mb-3 md:mb-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-[13px] md:text-[14px] font-semibold text-white">Monthly P&L</h3>
+          <h3 className="text-[13px] md:text-[14px] font-semibold text-card-foreground">Monthly P&L</h3>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setViewDate(subMonths(viewDate, 1))}
-              className="h-6 w-6 flex items-center justify-center rounded text-white/40 hover:text-white/80 hover:bg-white/5 transition"
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground/80 hover:bg-muted transition"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <span className="text-[11px] md:text-[12px] text-white/50 font-medium min-w-[80px] text-center">
+            <span className="text-[11px] md:text-[12px] text-muted-foreground font-medium min-w-[80px] text-center">
               {format(viewDate, "MMM yyyy")}
             </span>
             <button
               onClick={() => setViewDate(addMonths(viewDate, 1))}
-              className="h-6 w-6 flex items-center justify-center rounded text-white/40 hover:text-white/80 hover:bg-white/5 transition"
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground/80 hover:bg-muted transition"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -130,11 +130,11 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
       {/* Day labels + Weekly label */}
       <div className="grid gap-px mb-1" style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}>
         {DAY_LABELS.map((d, i) => (
-          <div key={i} className="text-center text-[10px] font-semibold text-white/25 uppercase py-1">
+          <div key={i} className="text-center text-[10px] font-semibold text-muted-foreground uppercase py-1">
             {d}
           </div>
         ))}
-        <div className="text-center text-[10px] font-semibold text-white/25 uppercase py-1">
+        <div className="text-center text-[10px] font-semibold text-muted-foreground uppercase py-1">
           WEEKLY
         </div>
       </div>
@@ -164,10 +164,10 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
                       !isCurrentMonth && "opacity-0 pointer-events-none",
                       hasTraded && pnl! >= 0 && "bg-blue-500/10 border border-blue-500/20",
                       hasTraded && pnl! < 0 && "bg-red-500/10 border border-red-500/20",
-                      !hasTraded && isCurrentMonth && "bg-white/[0.025] border border-transparent"
+                      !hasTraded && isCurrentMonth && "bg-muted/30 border border-transparent"
                     )}
                   >
-                    <span className="text-[10px] text-white/30 font-medium leading-none">{format(day, "d")}</span>
+                    <span className="text-[10px] text-muted-foreground font-medium leading-none">{format(day, "d")}</span>
                     {hasTraded && (
                       <span
                         className={cn(
@@ -186,12 +186,12 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
                 <span
                   className={cn(
                     "text-[11px] font-bold",
-                    weekPnL > 0 ? "text-blue-400" : weekPnL < 0 ? "text-red-400" : "text-white/25"
+                    weekPnL > 0 ? "text-blue-400" : weekPnL < 0 ? "text-red-400" : "text-muted-foreground"
                   )}
                 >
                   {fmt(weekPnL)}
                 </span>
-                <span className="text-[9px] text-white/25">{weekCount}t</span>
+                <span className="text-[9px] text-muted-foreground">{weekCount}t</span>
               </div>
             </div>
           );

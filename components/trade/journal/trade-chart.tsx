@@ -11,6 +11,7 @@ import type { IChartApi, UTCTimestamp } from "lightweight-charts";
 import { parseISO, differenceInMinutes, subMinutes, addMinutes } from "date-fns";
 import { RefreshCw, Camera, BarChart2, AlertTriangle, ExternalLink, Clock, Check, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppContext } from "@/lib/context";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -118,6 +119,8 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
     const [noApiKey, setNoApiKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [justSaved, setJustSaved] = useState(false);
+    const { theme } = useAppContext();
+    const isDark = theme !== "light";
 
     // Sync when defaultInterval prop changes (e.g. after parent saves)
     useEffect(() => {
@@ -207,29 +210,29 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           width: containerRef.current.offsetWidth,
           height: containerRef.current.offsetHeight || 380,
           layout: {
-            background: { type: ColorType.Solid, color: "#0f1117" },
-            textColor: "#ffffff55",
+            background: { type: ColorType.Solid, color: isDark ? "#0f1117" : "#ffffff" },
+            textColor: isDark ? "#ffffff55" : "#00000066",
             fontSize: 11,
             fontFamily: "Inter, ui-sans-serif, sans-serif",
           },
           grid: {
-            vertLines: { color: "#ffffff08" },
-            horzLines: { color: "#ffffff08" },
+            vertLines: { color: isDark ? "#ffffff08" : "#00000010" },
+            horzLines: { color: isDark ? "#ffffff08" : "#00000010" },
           },
           crosshair: { mode: CrosshairMode.Normal },
           timeScale: {
             timeVisible: true,
             secondsVisible: false,
-            borderColor: "#ffffff0f",
+            borderColor: isDark ? "#ffffff0f" : "#0000001a",
             barSpacing: 8,
           },
-          rightPriceScale: { borderColor: "#ffffff0f" },
+          rightPriceScale: { borderColor: isDark ? "#ffffff0f" : "#0000001a" },
           watermark: {
             visible: true,
             fontSize: 28,
             horzAlign: "center",
             vertAlign: "center",
-            color: "#ffffff07",
+            color: isDark ? "#ffffff07" : "#00000009",
             text: symbol,
           },
         });
@@ -394,7 +397,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         }
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loaded, interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction]);
+    }, [loaded, interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction, isDark]);
 
     function handleCapture() {
       if (!chartRef.current) return;
@@ -417,12 +420,12 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
     const hasNoDefaultSet = !savedInterval;
 
     return (
-      <div className="rounded-xl border border-white/7 overflow-hidden bg-[#0f1117]">
+      <div className="rounded-xl border border-border overflow-hidden bg-background">
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/7 flex-wrap gap-2">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <BarChart2 className="h-3.5 w-3.5 text-blue-400" />
-            <span className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
               {symbol} · Live Chart
             </span>
             {hasNoDefaultSet && (
@@ -439,7 +442,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Interval tabs */}
-            <div className="flex rounded-md bg-white/5 p-0.5 gap-px">
+            <div className="flex rounded-md bg-muted p-0.5 gap-px">
               {(Object.keys(INTERVAL_LABELS) as Interval[]).map((iv) => (
                 <button
                   key={iv}
@@ -448,7 +451,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
                     "px-2.5 py-1 rounded text-[11px] font-medium transition-colors relative",
                     interval === iv
                       ? "bg-blue-600 text-white"
-                      : "text-white/35 hover:text-white/65"
+                      : "text-muted-foreground hover:text-foreground/65"
                   )}
                 >
                   {INTERVAL_LABELS[iv]}
@@ -501,10 +504,10 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
 
           {/* Lazy-load gate — shown before user clicks Load Chart */}
           {!loaded && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0f1117]">
-              <BarChart2 className="h-10 w-10 text-white/8" />
-              <p className="text-[13px] font-semibold text-white/35">Chart not loaded</p>
-              <p className="text-[11px] text-white/20 max-w-xs text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background">
+              <BarChart2 className="h-10 w-10 text-muted-foreground/30" />
+              <p className="text-[13px] font-semibold text-muted-foreground">Chart not loaded</p>
+              <p className="text-[11px] text-muted-foreground/60 max-w-xs text-center">
                 Click below to fetch candle data from Twelve Data.
               </p>
               <button
@@ -518,25 +521,25 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           )}
 
           {loaded && loading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0f1117]">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background">
               <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-              <p className="text-[11px] text-white/25">Loading chart data…</p>
+              <p className="text-[11px] text-muted-foreground/60">Loading chart data…</p>
             </div>
           )}
 
           {loaded && !loading && noApiKey && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0f1117] px-6 text-center">
-              <BarChart2 className="h-9 w-9 text-white/8" />
-              <p className="text-[13px] font-semibold text-white/45">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+              <BarChart2 className="h-9 w-9 text-muted-foreground/30" />
+              <p className="text-[13px] font-semibold text-muted-foreground">
                 Chart data not configured
               </p>
-              <p className="text-[11px] text-white/28 max-w-sm">
+              <p className="text-[11px] text-muted-foreground/60 max-w-sm">
                 Add{" "}
-                <code className="bg-white/8 px-1.5 py-0.5 rounded text-white/50">
+                <code className="bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
                   TWELVE_DATA_API_KEY
                 </code>{" "}
                 to your{" "}
-                <code className="bg-white/8 px-1.5 py-0.5 rounded text-white/50">
+                <code className="bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
                   .env.local
                 </code>{" "}
                 to enable live charts.
@@ -554,12 +557,12 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           )}
 
           {loaded && !loading && error && !noApiKey && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0f1117] px-6 text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
               <AlertTriangle className="h-8 w-8 text-amber-400/30" />
-              <p className="text-[12px] text-white/35 max-w-xs">{error}</p>
+              <p className="text-[12px] text-muted-foreground max-w-xs">{error}</p>
               <button
                 onClick={() => setRetryKey((k) => k + 1)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-[12px] text-white/45 hover:text-white/75 hover:bg-white/8 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-[12px] text-muted-foreground hover:text-foreground/75 transition-colors"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Retry
@@ -570,7 +573,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
 
         {/* Price-line legend */}
         {loaded && !loading && !error && !noApiKey && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 border-t border-white/5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 border-t border-border">
             <LegendItem
               color={direction === "buy" ? "#3b82f6" : "#ef4444"}
               label={`${direction === "buy" ? "▲" : "▼"} Entry $${entryPrice}`}
@@ -613,7 +616,7 @@ function LegendItem({
           height: "2px",
         }}
       />
-      <span className="text-[10px] text-white/30">{label}</span>
+      <span className="text-[10px] text-muted-foreground">{label}</span>
     </div>
   );
 }

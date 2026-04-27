@@ -192,3 +192,36 @@ export interface ScoreWeights {
 
 // ============ TIME FRAME ============
 export type TimeFrame = "this-week" | "this-month" | "last-3-months" | "last-6-months" | "this-year" | "all-time";
+
+// ============ API TRADE (MongoDB response shape) ============
+// Shared canonical shape used as the cross-page in-memory cache.
+// Both the trades page's local Trade and journal page's JournalDetailTrade
+// are compatible subsets of this interface.
+export interface ApiTrade {
+  _id: string;
+  symbol: string;
+  direction: "buy" | "sell";
+  lots: number;
+  entryPrice: number;
+  exitPrice?: number;
+  entryTime: string;
+  exitTime?: string;
+  stopLoss?: number;
+  takeProfit?: number;
+  timeframe?: string;
+  profit: number;
+  status: "open" | "closed";
+  journaled?: boolean;
+  source?: "manual" | "mt5";
+  leverage?: number;
+  margin?: number;
+  executionChecklist?: { item: string; checked: boolean }[];
+  screenshots?: string[];
+  preTradeAnalysis?: string;
+  postTradeReview?: string;
+  riskRatio?: number;
+  tags?: string[];
+  rating?: number;
+  mistakes?: string;
+  lessons?: string;
+}

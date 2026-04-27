@@ -4,6 +4,8 @@ import dbConnect from "@/lib/mongodb";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
 import { getContractSize } from "@/lib/contract-sizes";
 
+export const dynamic = 'force-dynamic';
+
 // GET /api/trade/[id]
 export async function GET(
   _req: NextRequest,
@@ -51,59 +53,67 @@ export async function PUT(
   ];
 
   const updateData: Record<string, unknown> = {};
+  const unsetData: Record<string, unknown> = {};
   for (const key of allowed) {
     if (body[key] !== undefined) {
-      updateData[key] = body[key];
-    }
-  }
-
-  // Recalculate profit if prices changed
-  if (updateData.exitPrice != null || updateData.entryPrice != null) {
-    const existing = await TradeEntryModel.findOne({
-      _id: id,
-      userId: session.user.id,
-    }).lean();
-    if (existing) {
-      const entry = (updateData.entryPrice as number) ?? existing.entryPrice;
-      const exit = (updateData.exitPrice as number) ?? existing.exitPrice;
-      const lots = (updateData.lots as number) ?? existing.lots;
-      const dir = (updateData.direction as string) ?? existing.direction;
-      const lev = (updateData.leverage as number) ?? existing.leverage ?? 100;
-      const symForSize = (updateData.symbol as string) ?? existing.symbol;
-      const cs = getContractSize(symForSize);
-      if (exit != null) {
-        updateData.profit =
-          dir === "buy" ? (exit - entry) * lots * cs : (entry - exit) * lots * cs;
-        updateData.status = "closed";
+      if (body[key] === null) {
+        unsetData[key] = 1;
+      } else {
+        updateData[key] = body[key];
       }
-      // Recompute margin whenever entry price, lots, or leverage changes
-      updateData.margin = (entry * lots * cs) / lev;
-    }
-  } else if (updateData.leverage != null) {
-    // Leverage changed but prices didn't — still recompute margin
-    const existing = await TradeEntryModel.findOne({
-      _id: id,
-      userId: session.user.id,
-    }).lean();
-    if (existing) {
-      const entry = existing.entryPrice;
-      const lots = (updateData.lots as number) ?? existing.lots;
-      const lev = updateData.leverage as number;
-      const cs = getContractSize(existing.symbol);
-      updateData.margin = (entry * lots * cs) / lev;
     }
   }
 
   await dbConnect();
-  const trade = await TradeEntryModel.findOneAndUpdate(
-    { _id: id, userId: session.user.id },
-    { $set: updateData },
-    { new: true }
-  );
+  const existing = await TradeEntryModel.findOne({
+    _id: id,
+    userId: session.user.id,
+  }).lean();
 
-  if (!trade) {
+  if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+
+  // Recalculate profit if prices or parameters changed
+  if (
+    "exitPrice" in body ||
+    "entryPrice" in body ||
+    "lots" in body ||
+    "direction" in body ||
+    "symbol" in body ||
+    "leverage" in body
+  ) {
+    const entry = updateData.entryPrice !== undefined ? (updateData.entryPrice as number) : existing.entryPrice;
+    const exit = "exitPrice" in body ? body.exitPrice : existing.exitPrice;
+    const lots = updateData.lots !== undefined ? (updateData.lots as number) : existing.lots;
+    const dir = updateData.direction !== undefined ? (updateData.direction as string) : existing.direction;
+    const lev = updateData.leverage !== undefined ? (updateData.leverage as number) : (existing.leverage ?? 100);
+    const symForSize = updateData.symbol !== undefined ? (updateData.symbol as string) : existing.symbol;
+    const cs = getContractSize(symForSize);
+
+    if (exit !== null && exit !== undefined && exit !== "") {
+      updateData.profit =
+        dir === "buy" ? ((exit as number) - entry) * lots * cs : (entry - (exit as number)) * lots * cs;
+      updateData.status = "closed";
+    } else {
+      updateData.profit = 0;
+      updateData.status = "open";
+      unsetData.exitPrice = 1;
+      delete updateData.exitPrice;
+    }
+    // Recompute margin
+    updateData.margin = (entry * lots * cs) / lev;
+  }
+
+  const updateOp: any = {};
+  if (Object.keys(updateData).length > 0) updateOp.$set = updateData;
+  if (Object.keys(unsetData).length > 0) updateOp.$unset = unsetData;
+
+  const trade = await TradeEntryModel.findOneAndUpdate(
+    { _id: id, userId: session.user.id },
+    updateOp,
+    { new: true }
+  );
 
   return NextResponse.json(trade);
 }

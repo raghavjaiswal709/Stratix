@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAppContext } from "@/lib/context";
+import type { ApiTrade } from "@/types";
 import { JournalList, JournalTrade } from "@/components/trade/journal/journal-list";
 import { JournalDetail } from "@/components/trade/journal/journal-detail";
 import { AlertCircle, BookOpen, X } from "lucide-react";
@@ -18,18 +20,18 @@ function UnsavedDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[#141720] border border-white/10 shadow-2xl overflow-hidden">
-        <div className="flex items-start gap-3 p-5 border-b border-white/7">
+      <div className="w-full max-w-sm rounded-2xl bg-card border border-border shadow-2xl overflow-hidden">
+        <div className="flex items-start gap-3 p-5 border-b border-border">
           <div className="h-9 w-9 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
             <AlertCircle className="h-5 w-5 text-amber-400" />
           </div>
           <div className="flex-1">
-            <h3 className="text-[15px] font-semibold text-white">Unsaved Changes</h3>
-            <p className="text-[12px] text-white/50 mt-1">
+            <h3 className="text-[15px] font-semibold text-card-foreground">Unsaved Changes</h3>
+            <p className="text-[12px] text-muted-foreground mt-1">
               You have unsaved journal changes for this trade. What would you like to do?
             </p>
           </div>
-          <button onClick={onCancel} className="text-white/30 hover:text-white/60 transition">
+          <button onClick={onCancel} className="text-muted-foreground hover:text-foreground/60 transition">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -59,12 +61,24 @@ function UnsavedDialog({
 }
 
 export default function JournalPage() {
-  const [trades, setTrades] = useState<JournalTrade[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { setHasUnsavedChanges, sharedTrades, setSharedTrades } = useAppContext();
+
+  // Pre-populate from the shared cache so navigating trades→journal shows latest data instantly
+  const [trades, setTrades] = useState<JournalTrade[]>(
+    sharedTrades.length > 0 ? (sharedTrades as unknown as JournalTrade[]) : []
+  );
+  const [loading, setLoading] = useState(sharedTrades.length === 0);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    sharedTrades.length > 0 ? (sharedTrades[0] as ApiTrade)._id : null
+  );
   const [tab, setTab] = useState<JournalTab>("all");
   const [isDirty, setIsDirty] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHasUnsavedChanges(isDirty);
+    return () => setHasUnsavedChanges(false);
+  }, [isDirty, setHasUnsavedChanges]);
 
   const load = useCallback(() => {
     fetch("/api/trade")
@@ -72,22 +86,40 @@ export default function JournalPage() {
       .then((data: JournalTrade[]) => {
         const arr = Array.isArray(data) ? data : [];
         setTrades(arr);
+        setSharedTrades(arr as unknown as ApiTrade[]);
         if (!selectedId && arr.length > 0) {
           setSelectedId(arr[0]._id);
         }
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [selectedId]);
+  }, [selectedId, setSharedTrades]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Reactively merge any trade edits made on the trades page into local state.
+  // sharedTrades is updated immediately when a trade is edited, so this keeps
+  // the journal in sync without a network round-trip.
+  useEffect(() => {
+    if (sharedTrades.length === 0) return;
+    setTrades((prev) => {
+      if (prev.length === 0) return prev; // nothing to merge into yet
+      return prev.map((t) => {
+        const fresh = sharedTrades.find((s) => s._id === t._id);
+        return fresh ? ({ ...t, ...fresh } as JournalTrade) : t;
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedTrades]);
 
   const selectedTrade = trades.find((t) => t._id === selectedId);
 
   function handleSaved(updated: JournalTrade) {
-    setTrades((prev) =>
-      prev.map((t) => (t._id === updated._id ? { ...t, ...updated } : t))
-    );
+    setTrades((prev) => {
+      const next = prev.map((t) => (t._id === updated._id ? { ...t, ...updated } : t));
+      setSharedTrades(next as unknown as ApiTrade[]);
+      return next;
+    });
     setIsDirty(false);
   }
 
@@ -160,7 +192,7 @@ export default function JournalPage() {
         {selectedTrade ? (
           <div className="flex-1 flex flex-col min-w-0">
             {/* Mobile back */}
-            <div className="flex md:hidden items-center px-4 py-2 border-b border-white/7 shrink-0">
+            <div className="flex md:hidden items-center px-4 py-2 border-b border-border shrink-0">
               <button
                 onClick={() => {
                   if (isDirty) setPendingId("__back__");

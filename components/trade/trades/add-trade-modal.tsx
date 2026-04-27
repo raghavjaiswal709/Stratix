@@ -47,7 +47,7 @@ export interface EditableTrade {
 
 interface AddTradeModalProps {
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (updated: Record<string, unknown> | null) => void;
   editTrade?: EditableTrade;
 }
 
@@ -137,14 +137,14 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
         direction,
         lots: parseFloat(lots),
         entryPrice: parseFloat(entryPrice),
-        exitPrice: exitPrice ? parseFloat(exitPrice) : undefined,
-        stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
-        takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
+        exitPrice: exitPrice ? parseFloat(exitPrice) : null,
+        stopLoss: stopLoss ? parseFloat(stopLoss) : null,
+        takeProfit: takeProfit ? parseFloat(takeProfit) : null,
         // In edit mode always send timeframe (even "" to clear it).
         // In add mode send only if set (new trades default to no timeframe).
-        timeframe: isEdit ? timeframe : (timeframe || undefined),
+        timeframe: isEdit ? (timeframe || null) : (timeframe || undefined),
         entryTime,
-        exitTime: exitTime || undefined,
+        exitTime: exitTime || null,
         executionChecklist: checklist,
         leverage,
       };
@@ -163,7 +163,9 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
         setError(d.error ?? "Failed to save");
         return;
       }
-      onSaved();
+      const data = await res.json();
+      // For edits pass the updated doc; for new trades pass null (caller does a full reload)
+      onSaved(isEdit ? data : null);
     } catch {
       setError("Network error");
     } finally {

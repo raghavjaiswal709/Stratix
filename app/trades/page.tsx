@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { AddTradeModal, type EditableTrade } from "@/components/trade/trades/add-trade-modal";
 import { MT5ConnectModal } from "@/components/trade/trades/mt5-connect-modal";
-import type { TradesSortFilterPrefs } from "@/types";
+import type { TradesSortFilterPrefs, ApiTrade } from "@/types";
 import { cn } from "@/lib/utils";
 
 interface Trade {
@@ -60,7 +60,7 @@ const DEFAULT_PREFS: TradesSortFilterPrefs = {
 };
 
 export default function TradesPage() {
-  const { preferences, setPreferences } = useAppContext();
+  const { preferences, setPreferences, setSharedTrades } = useAppContext();
   const prefsRef = useRef(preferences);
   prefsRef.current = preferences;
 
@@ -105,12 +105,14 @@ export default function TradesPage() {
       fetch("/api/trade/mt5").then((r) => r.json()),
     ])
       .then(([t, m]) => {
-        setTrades(Array.isArray(t) ? t : []);
+        const tradesArr = Array.isArray(t) ? t : [];
+        setTrades(tradesArr);
+        setSharedTrades(tradesArr);
         setMt5(m);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [setSharedTrades]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -156,7 +158,9 @@ export default function TradesPage() {
     if (!confirm("Delete this trade?")) return;
     setDeleting(id);
     await fetch(`/api/trade/${id}`, { method: "DELETE" });
-    setTrades((prev) => prev.filter((t) => t._id !== id));
+    const updated = trades.filter((t) => t._id !== id);
+    setTrades(updated);
+    setSharedTrades(updated);
     setDeleting(null);
   }
 
@@ -164,6 +168,7 @@ export default function TradesPage() {
     if (!confirm("Delete ALL trades? This cannot be undone.")) return;
     await Promise.all(trades.map((t) => fetch(`/api/trade/${t._id}`, { method: "DELETE" })));
     setTrades([]);
+    setSharedTrades([]);
   }
 
   function startEdit(trade: Trade) {
@@ -191,7 +196,7 @@ export default function TradesPage() {
           "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors",
           sortBy === col
             ? "bg-blue-600/20 text-blue-400 border border-blue-500/20"
-            : "text-white/35 hover:text-white/65 hover:bg-white/5 border border-transparent"
+            : "text-muted-foreground hover:text-foreground/65 hover:bg-muted border border-transparent"
         )}
       >
         {label}
@@ -209,19 +214,19 @@ export default function TradesPage() {
       {/* Page header */}
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-[18px] md:text-[20px] font-bold text-white">Trades</h1>
+          <h1 className="text-[18px] md:text-[20px] font-bold text-foreground">Trades</h1>
           <div className="flex items-center gap-1.5 mt-0.5">
             {mt5?.connected ? (
               <><Wifi className="h-3 w-3 text-emerald-400" /><span className="text-[11px] text-emerald-400">MT5 Connected</span></>
             ) : (
-              <><WifiOff className="h-3 w-3 text-white/30" /><span className="text-[11px] text-white/30">Not connected</span></>
+              <><WifiOff className="h-3 w-3 text-muted-foreground" /><span className="text-[11px] text-muted-foreground">Not connected</span></>
             )}
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowConnect(true)}
-            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-[#1e2536] border border-white/10 text-[13px] font-medium text-white/70 hover:text-white hover:bg-[#252d42] transition"
+            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
             title="Connect MT4/MT5"
           >
             <Wifi className="h-3.5 w-3.5" />
@@ -247,13 +252,13 @@ export default function TradesPage() {
       </div>
 
       {/* Trade History */}
-      <div className="rounded-2xl border border-white/7 bg-[#141720] overflow-hidden">
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
         {/* Card header + sort/filter toolbar */}
-        <div className="border-b border-white/7">
+        <div className="border-b border-border">
           <div className="flex items-center justify-between px-4 md:px-5 py-3.5 gap-2 flex-wrap">
             <div>
-              <h3 className="text-[14px] font-semibold text-white">Trade History</h3>
-              <p className="text-[11px] text-white/35">
+              <h3 className="text-[14px] font-semibold text-foreground">Trade History</h3>
+              <p className="text-[11px] text-muted-foreground">
                 {sorted.length}{trades.length !== sorted.length ? `/${trades.length}` : ""} trade{sorted.length !== 1 ? "s" : ""}
               </p>
             </div>
@@ -272,7 +277,7 @@ export default function TradesPage() {
                     ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
                     : activeFilterCount > 0
                     ? "bg-amber-500/15 text-amber-400 border-amber-500/20"
-                    : "bg-white/5 border-white/8 text-white/50 hover:text-white/80"
+                    : "bg-muted border-border text-muted-foreground hover:text-foreground/80"
                 )}
               >
                 <Filter className="h-3.5 w-3.5" />
@@ -288,20 +293,20 @@ export default function TradesPage() {
 
           {/* Filter panel */}
           {showFilters && (
-            <div className="px-4 md:px-5 pb-4 pt-2 border-t border-white/5 bg-white/[0.01]">
+            <div className="px-4 md:px-5 pb-4 pt-2 border-t border-border/50 bg-muted/10">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* Symbol */}
                 <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">Symbol</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Symbol</p>
                   <div className="relative">
                     <input
                       value={filterSymbol}
                       onChange={(e) => setFilterSymbol(e.target.value)}
                       placeholder="e.g. XAUUSD"
-                      className="w-full bg-white/5 border border-white/8 rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition pr-7"
+                      className="w-full bg-muted border border-border rounded-lg px-3 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-blue-500/40 transition pr-7"
                     />
                     {filterSymbol && (
-                      <button onClick={() => setFilterSymbol("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">
+                      <button onClick={() => setFilterSymbol("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground/70">
                         <X className="h-3 w-3" />
                       </button>
                     )}
@@ -310,7 +315,7 @@ export default function TradesPage() {
 
                 {/* Direction */}
                 <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">Direction</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Direction</p>
                   <div className="flex gap-1">
                     {(["all", "buy", "sell"] as const).map((d) => (
                       <button
@@ -323,8 +328,8 @@ export default function TradesPage() {
                               ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
                               : d === "sell"
                               ? "bg-red-500/20 text-red-400 border-red-500/20"
-                              : "bg-white/10 text-white/70 border-white/15"
-                            : "bg-white/3 text-white/30 hover:text-white/60 border-white/5"
+                              : "bg-muted text-foreground/70 border-border"
+                            : "bg-muted/50 text-muted-foreground hover:text-foreground/60 border-border/50"
                         )}
                       >
                         {d === "all" ? "All" : d === "buy" ? "Long" : "Short"}
@@ -335,7 +340,7 @@ export default function TradesPage() {
 
                 {/* Status */}
                 <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">Status</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Status</p>
                   <div className="flex gap-1">
                     {(["all", "open", "closed"] as const).map((s) => (
                       <button
@@ -345,7 +350,7 @@ export default function TradesPage() {
                           "flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors border",
                           filterStatus === s
                             ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
-                            : "bg-white/3 text-white/30 hover:text-white/60 border-white/5"
+                            : "bg-muted/50 text-muted-foreground hover:text-foreground/60 border-border/50"
                         )}
                       >
                         {s.charAt(0).toUpperCase() + s.slice(1)}
@@ -356,7 +361,7 @@ export default function TradesPage() {
 
                 {/* Source */}
                 <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">Source</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Source</p>
                   <div className="flex gap-1">
                     {(["all", "manual", "mt5"] as const).map((s) => (
                       <button
@@ -366,7 +371,7 @@ export default function TradesPage() {
                           "flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors border",
                           filterSource === s
                             ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
-                            : "bg-white/3 text-white/30 hover:text-white/60 border-white/5"
+                            : "bg-muted/50 text-muted-foreground hover:text-foreground/60 border-border/50"
                         )}
                       >
                         {s === "all" ? "All" : s === "manual" ? "Manual" : "MT5"}
@@ -379,7 +384,7 @@ export default function TradesPage() {
               {activeFilterCount > 0 && (
                 <button
                   onClick={resetFilters}
-                  className="mt-3 flex items-center gap-1.5 text-[11px] text-white/35 hover:text-white/65 transition-colors"
+                  className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground/65 transition-colors"
                 >
                   <X className="h-3 w-3" />
                   Clear all filters
@@ -394,8 +399,8 @@ export default function TradesPage() {
             <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
           </div>
         ) : sorted.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-white/25">
-            <div className="h-10 w-10 rounded-xl bg-white/5 flex items-center justify-center mb-2">
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center mb-2">
               <TrendingUp className="h-5 w-5 opacity-50" />
             </div>
             {trades.length === 0 ? (
@@ -418,7 +423,7 @@ export default function TradesPage() {
         ) : (
           <>
             {/* Mobile: card list */}
-            <div className="md:hidden divide-y divide-white/4">
+            <div className="md:hidden divide-y divide-border">
               {sorted.map((trade) => (
                 <div key={trade._id} className="px-4 py-3.5 flex items-center gap-3">
                   <div className="h-9 w-9 rounded-full bg-amber-500/15 flex items-center justify-center text-[10px] font-bold text-amber-400 shrink-0">
@@ -426,7 +431,7 @@ export default function TradesPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-[13px] font-semibold text-white">{trade.symbol}</span>
+                      <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
                       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-blue-500/15 text-blue-400" : "bg-red-500/15 text-red-400"}`}>
                         {trade.direction === "buy" ? "Long" : "Short"}
                       </span>
@@ -434,27 +439,27 @@ export default function TradesPage() {
                         <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-violet-500/10 border-violet-500/20 text-violet-400">MT5</span>
                       )}
                     </div>
-                    <p className="text-[11px] text-white/40">
+                    <p className="text-[11px] text-muted-foreground">
                       {format(parseISO(trade.entryTime), "MMM d, HH:mm")}
                       {trade.exitTime && <> → {format(parseISO(trade.exitTime), "MMM d, HH:mm")}</>}
                     </p>
-                    <p className="text-[11px] text-white/40">
+                    <p className="text-[11px] text-muted-foreground">
                       Entry ${trade.entryPrice.toLocaleString()} · {trade.lots} lots
                       {trade.leverage && <> · <span className="text-violet-400">{trade.leverage}×</span></>}
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <span className={`text-[14px] font-bold ${trade.profit > 0 ? "text-blue-400" : trade.profit < 0 ? "text-red-400" : "text-white/40"}`}>
-                      {fmt(trade.profit)}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={() => startEdit(trade)} className="text-white/20 hover:text-blue-400 transition">
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => deleteTrade(trade._id)}
-                        disabled={deleting === trade._id}
-                        className="text-white/20 hover:text-red-400 transition"
+                      <span className={`text-[14px] font-bold ${trade.profit > 0 ? "text-blue-400" : trade.profit < 0 ? "text-red-400" : "text-muted-foreground"}`}>
+                        {fmt(trade.profit)}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => startEdit(trade)} className="text-muted-foreground/50 hover:text-blue-400 transition">
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deleteTrade(trade._id)}
+                          disabled={deleting === trade._id}
+                          className="text-muted-foreground/50 hover:text-red-400 transition"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -468,25 +473,25 @@ export default function TradesPage() {
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-white/5">
+                  <tr className="border-b border-border/50">
                     {["Open / Close", "Symbol", "Type", "Entry", "Exit", "Size", "Leverage", "P&L", "Source", ""].map((h) => (
-                      <th key={h} className="text-left px-5 py-3 text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+                      <th key={h} className="text-left px-5 py-3 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/4">
+                <tbody className="divide-y divide-border/50">
                   {sorted.map((trade) => (
-                    <tr key={trade._id} className="hover:bg-white/2 transition-colors group">
+                    <tr key={trade._id} className="hover:bg-muted/20 transition-colors group">
                       <td className="px-5 py-3.5">
-                        <div className="text-[11px] text-white/60">Open: {format(parseISO(trade.entryTime), "MMM d, hh:mm aa")}</div>
-                        {trade.exitTime && <div className="text-[11px] text-white/35">Close: {format(parseISO(trade.exitTime), "MMM d, hh:mm aa")}</div>}
+                        <div className="text-[11px] text-muted-foreground">Open: {format(parseISO(trade.entryTime), "MMM d, hh:mm aa")}</div>
+                        {trade.exitTime && <div className="text-[11px] text-muted-foreground/70">Close: {format(parseISO(trade.exitTime), "MMM d, hh:mm aa")}</div>}
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2">
                           <div className="h-7 w-7 rounded-full bg-amber-500/15 flex items-center justify-center text-[9px] font-bold text-amber-400">{trade.symbol.slice(0, 2)}</div>
-                          <span className="text-[13px] font-semibold text-white">{trade.symbol}</span>
+                          <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
@@ -495,20 +500,20 @@ export default function TradesPage() {
                           {trade.direction === "buy" ? "Long" : "Short"}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-[13px] text-white/70">${trade.entryPrice.toLocaleString()}</td>
-                      <td className="px-5 py-3.5 text-[13px] text-white/50">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : "—"}</td>
-                      <td className="px-5 py-3.5 text-[13px] text-white/60">{trade.lots}</td>
+                      <td className="px-5 py-3.5 text-[13px] text-foreground/70">${trade.entryPrice.toLocaleString()}</td>
+                      <td className="px-5 py-3.5 text-[13px] text-muted-foreground">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : "—"}</td>
+                      <td className="px-5 py-3.5 text-[13px] text-foreground/60">{trade.lots}</td>
                       <td className="px-5 py-3.5">
                         <div className="text-[12px] font-bold text-violet-400">{trade.leverage ?? 100}×</div>
                         {trade.margin != null && (
-                          <div className="text-[10px] text-white/30">M: ${trade.margin.toFixed(2)}</div>
+                          <div className="text-[10px] text-muted-foreground">M: ${trade.margin.toFixed(2)}</div>
                         )}
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className={`text-[13px] font-bold ${trade.profit > 0 ? "text-blue-400" : trade.profit < 0 ? "text-red-400" : "text-white/40"}`}>{fmt(trade.profit)}</span>
+                        <span className={`text-[13px] font-bold ${trade.profit > 0 ? "text-blue-400" : trade.profit < 0 ? "text-red-400" : "text-muted-foreground"}`}>{fmt(trade.profit)}</span>
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${trade.source === "mt5" ? "bg-violet-500/10 border-violet-500/20 text-violet-400" : "bg-white/5 border-white/10 text-white/40"}`}>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${trade.source === "mt5" ? "bg-violet-500/10 border-violet-500/20 text-violet-400" : "bg-muted border-border text-muted-foreground"}`}>
                           {trade.source === "mt5" ? "MT5" : "Manual"}
                         </span>
                       </td>
@@ -516,7 +521,7 @@ export default function TradesPage() {
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => startEdit(trade)}
-                            className="h-7 w-7 flex items-center justify-center rounded-lg text-white/30 hover:text-blue-400 hover:bg-blue-500/10 transition"
+                            className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-blue-400 hover:bg-blue-500/10 transition"
                             title="Edit trade"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
@@ -524,7 +529,7 @@ export default function TradesPage() {
                           <button
                             onClick={() => deleteTrade(trade._id)}
                             disabled={deleting === trade._id}
-                            className="h-7 w-7 flex items-center justify-center rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition"
+                            className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -549,7 +554,21 @@ export default function TradesPage() {
         <AddTradeModal
           editTrade={editingTrade}
           onClose={() => setEditingTrade(null)}
-          onSaved={() => { setEditingTrade(null); load(); }}
+          onSaved={(updated) => {
+            setEditingTrade(null);
+            if (updated && updated._id) {
+              // Patch only the edited trade in-place — no full network round-trip needed
+              setTrades((prev) => {
+                const next = prev.map((t) =>
+                  t._id === updated._id ? ({ ...t, ...updated } as Trade) : t
+                );
+                setSharedTrades(next as unknown as ApiTrade[]);
+                return next;
+              });
+            } else {
+              load();
+            }
+          }}
         />
       )}
       {showConnect && <MT5ConnectModal onClose={() => setShowConnect(false)} />}

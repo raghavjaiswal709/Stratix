@@ -124,7 +124,7 @@ export function JournalList({
           "flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
           sortBy === col
             ? "bg-blue-600/20 text-blue-400"
-            : "text-white/30 hover:text-white/60"
+            : "text-muted-foreground hover:text-foreground/60"
         )}
       >
         {label}
@@ -136,13 +136,13 @@ export function JournalList({
   }
 
   return (
-    <div className="flex flex-col h-full w-full shrink-0 border-r border-white/7 md:w-70">
+    <div className="flex flex-col h-full w-full shrink-0 border-r border-border md:w-70">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-white/7 space-y-2">
+      <div className="px-4 py-3 border-b border-border space-y-2">
         {/* Title row */}
         <div className="flex items-center justify-between">
-          <h2 className="text-[14px] font-semibold text-white">Trade Journal</h2>
-          <span className="text-[11px] text-white/35">{trades.length} entries</span>
+          <h2 className="text-[14px] font-semibold text-foreground">Trade Journal</h2>
+          <span className="text-[11px] text-muted-foreground">{trades.length} entries</span>
         </div>
 
         {/* Tabs */}
@@ -155,11 +155,11 @@ export function JournalList({
                 "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition",
                 tab === t
                   ? "bg-blue-600/20 text-blue-400 border border-blue-500/20"
-                  : "text-white/35 hover:text-white/60 hover:bg-white/5"
+                  : "text-muted-foreground hover:text-foreground/60 hover:bg-muted"
               )}
             >
               {t.charAt(0).toUpperCase() + t.slice(1)}
-              <span className={cn("text-[10px] rounded-full px-1", tab === t ? "text-blue-300" : "text-white/25")}>
+              <span className={cn("text-[10px] rounded-full px-1", tab === t ? "text-blue-300" : "text-muted-foreground")}>
                 {counts[t]}
               </span>
             </button>
@@ -181,7 +181,7 @@ export function JournalList({
                 ? "text-blue-400 bg-blue-600/15"
                 : activeFilterCount > 0
                 ? "text-amber-400 bg-amber-500/10"
-                : "text-white/30 hover:text-white/60"
+                : "text-muted-foreground hover:text-foreground/60"
             )}
           >
             <Filter className="h-3 w-3" />
@@ -203,10 +203,10 @@ export function JournalList({
                 value={filterSymbol}
                 onChange={(e) => setFilterSymbol(e.target.value)}
                 placeholder="Filter by symbol…"
-                className="w-full bg-white/5 border border-white/8 rounded-lg px-3 py-1.5 text-[11px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition pr-6"
+                className="w-full bg-muted border border-border rounded-lg px-3 py-1.5 text-[11px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-blue-500/40 transition pr-6"
               />
               {filterSymbol && (
-                <button onClick={() => setFilterSymbol("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">
+                <button onClick={() => setFilterSymbol("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground/70">
                   <X className="h-2.5 w-2.5" />
                 </button>
               )}
@@ -225,8 +225,8 @@ export function JournalList({
                         ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
                         : d === "sell"
                         ? "bg-red-500/20 text-red-400 border-red-500/20"
-                        : "bg-white/10 text-white/60 border-white/15"
-                      : "bg-white/3 text-white/30 hover:text-white/55 border-white/5"
+                        : "bg-muted text-foreground/60 border-border"
+                      : "bg-muted/30 text-muted-foreground hover:text-foreground/55 border-border/50"
                   )}
                 >
                   {d === "all" ? "All" : d === "buy" ? "Long" : "Short"}
@@ -248,9 +248,9 @@ export function JournalList({
                         : o === "loser"
                         ? "bg-red-500/20 text-red-400 border-red-500/20"
                         : o === "open"
-                        ? "bg-white/10 text-white/60 border-white/15"
+                        ? "bg-muted text-foreground/60 border-border"
                         : "bg-blue-600/20 text-blue-400 border-blue-500/20"
-                      : "bg-white/3 text-white/30 hover:text-white/55 border-white/5"
+                      : "bg-muted/30 text-muted-foreground hover:text-foreground/55 border-border/50"
                   )}
                 >
                   {o.charAt(0).toUpperCase() + o.slice(1)}
@@ -261,7 +261,7 @@ export function JournalList({
             {activeFilterCount > 0 && (
               <button
                 onClick={() => { setFilterSymbol(""); setFilterDirection("all"); setFilterOutcome("all"); }}
-                className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors"
+                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground/60 transition-colors"
               >
                 <X className="h-2.5 w-2.5" /> Clear filters
               </button>
@@ -273,7 +273,7 @@ export function JournalList({
       {/* List */}
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 text-white/25">
+          <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
             <p className="text-[13px]">{trades.length === 0 ? "No trades" : "No matches"}</p>
             {trades.length > 0 && activeFilterCount > 0 && (
               <button
@@ -290,7 +290,7 @@ export function JournalList({
               key={trade._id}
               onClick={() => onSelect(trade._id)}
               className={cn(
-                "w-full text-left px-4 py-3.5 border-b border-white/5 transition hover:bg-white/3",
+                "w-full text-left px-4 py-3.5 border-b border-border/50 transition hover:bg-muted/30",
                 selectedId === trade._id && "bg-blue-600/10 border-l-2 border-l-blue-500"
               )}
             >
@@ -299,13 +299,13 @@ export function JournalList({
                   {/* Symbol badge */}
                   <div className={cn(
                     "h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-[9px] font-bold",
-                    isWinner(trade) ? "bg-amber-500/15 text-amber-400" : "bg-white/10 text-white/50"
+                    isWinner(trade) ? "bg-amber-500/15 text-amber-400" : "bg-muted text-muted-foreground"
                   )}>
                     {trade.symbol.slice(0, 2)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-semibold text-white">{trade.symbol}</span>
+                      <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
                       {isWinner(trade) && (
                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
                           WINNER
@@ -317,7 +317,7 @@ export function JournalList({
                         </span>
                       )}
                       {trade.status === "open" && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/10">
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                           OPEN
                         </span>
                       )}
@@ -334,7 +334,7 @@ export function JournalList({
                       )}>
                         {trade.direction === "buy" ? "Long" : "Short"}
                       </span>
-                      <span className="text-[10px] text-white/30">${trade.entryPrice}</span>
+                      <span className="text-[10px] text-muted-foreground">${trade.entryPrice}</span>
                       <span className={cn(
                         "text-[10px] font-semibold ml-auto",
                         trade.profit >= 0 ? "text-blue-400" : "text-red-400"
@@ -342,7 +342,7 @@ export function JournalList({
                         {fmt(trade.profit)}
                       </span>
                     </div>
-                    <p className="text-[10px] text-white/25 mt-0.5">
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
                       {format(parseISO(trade.entryTime), "MMM d, yyyy, HH:mm")}
                     </p>
                   </div>

@@ -63,8 +63,8 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   if (!active || !payload?.length) return null;
   const val = payload[0].value;
   return (
-    <div className="rounded-lg border border-white/10 bg-[#1a1f2e] px-3 py-2 text-xs shadow-xl">
-      <p className="text-white/50 mb-1">{label}</p>
+    <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs shadow-xl">
+      <p className="text-muted-foreground mb-1">{label}</p>
       <p className={val >= 0 ? "text-blue-400 font-bold" : "text-red-400 font-bold"}>
         {val >= 0 ? "+" : ""}${val.toFixed(2)}
       </p>
@@ -84,22 +84,22 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
   const isPositive = totalForPeriod >= 0;
 
   return (
-    <div className="rounded-2xl border border-white/7 bg-[#141720] p-4 md:p-5 flex flex-col">
+    <div className="rounded-2xl border border-border bg-card p-4 md:p-5 flex flex-col">
       {/* Header */}
       <div className="flex items-start justify-between mb-3 md:mb-4 gap-2">
         <div>
-          <div className="flex items-center gap-1.5 text-[10px] md:text-[11px] text-white/40 uppercase tracking-wider font-medium mb-1">
+          <div className="flex items-center gap-1.5 text-[10px] md:text-[11px] text-muted-foreground uppercase tracking-wider font-medium mb-1">
             <TrendingUp className="h-3 w-3 md:h-3.5 md:w-3.5" />
             Performance
           </div>
           <div className="flex items-center gap-2">
-            <p className={`text-[20px] md:text-[28px] font-bold leading-tight ${isPositive ? "text-white" : "text-red-400"}`}>
+            <p className={`text-[20px] md:text-[28px] font-bold leading-tight ${isPositive ? "text-card-foreground" : "text-red-400"}`}>
               {isPositive ? "+" : ""}${Math.abs(totalForPeriod).toFixed(2)}
             </p>
           </div>
         </div>
         {/* Period buttons */}
-        <div className="flex gap-1 bg-white/5 rounded-lg p-1">
+        <div className="flex gap-1 bg-muted rounded-lg p-1">
           {PERIODS.map((p) => (
             <button
               key={p}
@@ -108,7 +108,7 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
                 "px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150",
                 period === p
                   ? "bg-blue-600 text-white"
-                  : "text-white/40 hover:text-white/70"
+                  : "text-muted-foreground hover:text-foreground/70"
               )}
             >
               {p}
@@ -120,7 +120,7 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
       {/* Chart */}
       <div className="flex-1 h-[200px]">
         {data.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-white/25 text-sm">
+          <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
             No trades taken
           </div>
         ) : (
@@ -134,18 +134,18 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
               </defs>
               <XAxis
                 dataKey="date"
-                tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v) => `$${v}`}
               />
               <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" strokeDasharray="3 3" />
+              <ReferenceLine y={0} stroke="var(--border)" strokeDasharray="3 3" />
               <Area
                 type="monotone"
                 dataKey="pnl"

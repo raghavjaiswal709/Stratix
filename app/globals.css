@@ -255,3 +255,60 @@
     @apply outline-2 outline-offset-2 outline-ring;
   }
 }
+
+/* Light Mode Overrides for Hardcoded Dark Classes */
+:root:not(.dark) .bg-\[\#0c0e14\] { background-color: var(--background) !important; }
+:root:not(.dark) .bg-\[\#0f1117\] { background-color: var(--sidebar) !important; }
+:root:not(.dark) .bg-\[\#141720\] { background-color: var(--card) !important; }
+:root:not(.dark) .bg-\[\#1a1f2e\] { background-color: var(--popover) !important; }
+:root:not(.dark) .bg-\[\#1e2536\] { background-color: var(--muted) !important; }
+
+:root:not(.dark) .text-white { color: var(--foreground) !important; }
+:root:not(.dark) .text-white\/20,
+:root:not(.dark) .text-white\/25,
+:root:not(.dark) .text-white\/30,
+:root:not(.dark) .text-white\/35,
+:root:not(.dark) .text-white\/40,
+:root:not(.dark) .text-white\/45,
+:root:not(.dark) .text-white\/50,
+:root:not(.dark) .text-white\/60,
+:root:not(.dark) .text-white\/70,
+:root:not(.dark) .text-white\/75,
+:root:not(.dark) .text-white\/80,
+:root:not(.dark) .text-white\/90 { color: var(--muted-foreground) !important; }
+
+:root:not(.dark) .border-white\/4,
+:root:not(.dark) .border-white\/5,
+:root:not(.dark) .border-white\/6,
+:root:not(.dark) .border-white\/7,
+:root:not(.dark) .border-white\/8,
+:root:not(.dark) .border-white\/10,
+:root:not(.dark) .border-white\/15,
+:root:not(.dark) .border-white\/20,
+:root:not(.dark) .border-white\/25,
+:root:not(.dark) .border-white\/30 { border-color: var(--border) !important; }
+
+:root:not(.dark) .divide-white\/4 > :not([hidden]) ~ :not([hidden]),
+:root:not(.dark) .divide-white\/5 > :not([hidden]) ~ :not([hidden]),
+:root:not(.dark) .divide-white\/6 > :not([hidden]) ~ :not([hidden]),
+:root:not(.dark) .divide-white\/7 > :not([hidden]) ~ :not([hidden]),
+:root:not(.dark) .divide-white\/10 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border) !important; }
+
+:root:not(.dark) .bg-white\/2,
+:root:not(.dark) .bg-white\/3,
+:root:not(.dark) .bg-white\/4,
+:root:not(.dark) .bg-white\/5,
+:root:not(.dark) .bg-white\/8,
+:root:not(.dark) .bg-white\/10,
+:root:not(.dark) .bg-white\/15,
+:root:not(.dark) .bg-white\/20 { background-color: var(--muted) !important; }
+
+:root:not(.dark) .hover\:bg-white\/3:hover,
+:root:not(.dark) .hover\:bg-white\/5:hover,
+:root:not(.dark) .hover\:bg-white\/8:hover,
+:root:not(.dark) .hover\:bg-white\/10:hover,
+:root:not(.dark) .hover\:bg-white\/20:hover { background-color: rgba(0,0,0,0.05) !important; }
+
+:root:not(.dark) .hover\:text-white:hover,
+:root:not(.dark) .hover\:text-white\/70:hover,
+:root:not(.dark) .hover\:text-white\/80:hover { color: var(--foreground) !important; }

@@ -8,21 +8,30 @@ import { TradeSidebar } from "@/components/trade/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Menu, TrendingUp, LogOut } from "lucide-react";
 
+import { useAppContext } from "@/lib/context";
+
 function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const { data: session } = useSession();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const { hasUnsavedChanges, setHasUnsavedChanges } = useAppContext();
 
   function handleSignOut() {
+    if (hasUnsavedChanges) {
+      if (!window.confirm("You have unsaved changes. Are you sure you want to log out?")) {
+        return;
+      }
+      setHasUnsavedChanges(false);
+    }
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     signOut({ callbackUrl: `${origin}/auth/signin` });
   }
 
   return (
-    <header className="flex md:hidden items-center px-3 py-2.5 bg-[#0f1117] border-b border-white/6 shrink-0">
+    <header className="flex md:hidden items-center px-3 py-2.5 bg-sidebar border-b border-sidebar-border shrink-0">
       {/* Hamburger */}
       <button
         onClick={onMenuOpen}
-        className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition shrink-0"
+        className="p-1.5 rounded-lg text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent transition shrink-0"
         aria-label="Open navigation"
       >
         <Menu className="h-5 w-5" />
@@ -33,14 +42,14 @@ function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-600/20 border border-blue-500/30">
           <TrendingUp className="h-3 w-3 text-blue-400" />
         </div>
-        <span className="text-[13px] font-bold text-white tracking-tight">Stratix</span>
+        <span className="text-[13px] font-bold text-sidebar-foreground tracking-tight">Stratix</span>
       </div>
 
       {/* User avatar + dropdown — always visible */}
       <div className="relative shrink-0">
         <button
           onClick={() => setDropdownOpen((v) => !v)}
-          className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg hover:bg-white/5 active:bg-white/8 transition"
+          className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg hover:bg-sidebar-accent active:bg-sidebar-accent transition"
           aria-label="User menu"
         >
           <Avatar className="h-7 w-7 shrink-0">
@@ -50,7 +59,7 @@ function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
             </AvatarFallback>
           </Avatar>
           {session?.user?.name && (
-            <span className="text-[12px] text-white/60 max-w-[72px] truncate hidden xs:block">
+            <span className="text-[12px] text-sidebar-foreground/60 max-w-[72px] truncate hidden xs:block">
               {session.user.name.split(" ")[0]}
             </span>
           )}
@@ -59,11 +68,11 @@ function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         {dropdownOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-            <div className="absolute right-0 top-full mt-1.5 z-50 w-48 rounded-xl bg-[#1a1f2e] border border-white/10 shadow-2xl overflow-hidden">
+            <div className="absolute right-0 top-full mt-1.5 z-50 w-48 rounded-xl bg-popover border border-border shadow-2xl overflow-hidden">
               {session?.user && (
-                <div className="px-3 py-2.5 border-b border-white/8">
-                  <p className="text-[12px] font-semibold text-white/90 truncate">{session.user.name}</p>
-                  <p className="text-[10px] text-white/40 truncate mt-0.5">{session.user.email}</p>
+                <div className="px-3 py-2.5 border-b border-border/50">
+                  <p className="text-[12px] font-semibold text-popover-foreground truncate">{session.user.name}</p>
+                  <p className="text-[10px] text-muted-foreground truncate mt-0.5">{session.user.email}</p>
                 </div>
               )}
               <button
@@ -98,7 +107,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
   if (status === "loading") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-3 bg-[#0c0e14]">
+      <div className="flex flex-col items-center justify-center min-h-screen gap-3 bg-background">
         <div className="h-5 w-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
         <p className="text-[12px] text-muted-foreground tracking-wide">Loading…</p>
       </div>
@@ -110,7 +119,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#0c0e14]">
+    <div className="flex h-screen w-full overflow-hidden bg-background">
       <TradeSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden relative z-10">
         <MobileTopBar onMenuOpen={() => setSidebarOpen(true)} />

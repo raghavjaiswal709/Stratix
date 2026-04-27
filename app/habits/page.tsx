@@ -32,8 +32,8 @@ export default function HabitsPage() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[22px] font-bold text-white tracking-tight">Habit Tracker</h1>
-          <p className="text-[13px] text-white/40 mt-0.5">Build consistent daily habits</p>
+          <h1 className="text-[22px] font-bold text-foreground tracking-tight">Habit Tracker</h1>
+          <p className="text-[13px] text-muted-foreground mt-0.5">Build consistent daily habits</p>
         </div>
         <Select value={timeFrame} onValueChange={(v) => setTimeFrame(v as TimeFrame)}>
           <SelectTrigger className="w-40 h-8 text-[13px]">
@@ -52,20 +52,20 @@ export default function HabitsPage() {
 
       <ScoreOfTheDay />
 
-      <div className="bg-[#141720] rounded-2xl border border-white/7 p-5">
+      <div className="bg-card rounded-2xl border border-border p-5">
         <HabitGrid timeFrame={timeFrame} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-[#141720] rounded-2xl border border-white/7 p-5">
+        <div className="bg-card rounded-2xl border border-border p-5">
           <ScoreProgress timeFrame={timeFrame} />
         </div>
-        <div className="bg-[#141720] rounded-2xl border border-white/7 p-5">
+        <div className="bg-card rounded-2xl border border-border p-5">
           <DailyScore timeFrame={timeFrame} />
         </div>
       </div>
 
-      <div className="bg-[#141720] rounded-2xl border border-white/7 p-5">
+      <div className="bg-card rounded-2xl border border-border p-5">
         <HabitCharts timeFrame={timeFrame} />
       </div>
 

@@ -71,8 +71,8 @@ export default function DashboardPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[18px] md:text-[20px] font-bold text-white">Dashboard</h1>
-          <p className="text-[11px] md:text-[12px] text-white/35">{format(today, "EEE, MMM d")}</p>
+          <h1 className="text-[18px] md:text-[20px] font-bold text-foreground">Dashboard</h1>
+          <p className="text-[11px] md:text-[12px] text-muted-foreground">{format(today, "EEE, MMM d")}</p>
         </div>
       </div>
 
@@ -80,7 +80,7 @@ export default function DashboardPage() {
       <StatsCards {...stats} />
 
       {/* Main content grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-4 md:gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-4 md:gap-5">
         <PerformanceChart trades={trades} />
         <MonthlyCalendar trades={trades} />
       </div>

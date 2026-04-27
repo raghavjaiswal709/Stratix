@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
-import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences } from "@/types";
+import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences, ApiTrade } from "@/types";
 
 interface AppData {
   habitData: HabitData;
@@ -24,7 +24,12 @@ interface AppContextType extends AppData {
   setPreferences: (prefs: UserPreferences) => void;
   setScoreWeights: (weights: ScoreWeights) => void;
   setTheme: (theme: "light" | "dark") => void;
+  // Shared in-memory trade cache — syncs trades page ↔ journal page within same session
+  sharedTrades: ApiTrade[];
+  setSharedTrades: (t: ApiTrade[]) => void;
   loading: boolean;
+  hasUnsavedChanges: boolean;
+  setHasUnsavedChanges: (val: boolean) => void;
 }
 
 const defaultPreferences: UserPreferences = {
@@ -55,13 +60,19 @@ const AppContext = createContext<AppContextType>({
   setPreferences: () => {},
   setScoreWeights: () => {},
   setTheme: () => {},
+  sharedTrades: [],
+  setSharedTrades: () => {},
   loading: true,
+  hasUnsavedChanges: false,
+  setHasUnsavedChanges: () => {},
 });
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const [data, setData] = useState<AppData>(defaultData);
   const [loading, setLoading] = useState(true);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [sharedTrades, setSharedTrades] = useState<ApiTrade[]>([]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load data from API
@@ -203,7 +214,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setPreferences,
         setScoreWeights,
         setTheme,
+        sharedTrades,
+        setSharedTrades,
         loading,
+        hasUnsavedChanges,
+        setHasUnsavedChanges,
       }}
     >
       {children}

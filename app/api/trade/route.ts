@@ -4,6 +4,8 @@ import dbConnect from "@/lib/mongodb";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
 import { getContractSize } from "@/lib/contract-sizes";
 
+export const dynamic = 'force-dynamic';
+
 // GET /api/trade — list all trades for current user
 export async function GET() {
   const session = await auth();
