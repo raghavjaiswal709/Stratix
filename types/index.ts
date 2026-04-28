@@ -9,6 +9,11 @@ export interface UserData {
 }
 
 // ============ HABITS ============
+export interface SubHabit {
+  id: string;
+  name: string;
+}
+
 export interface Habit {
   id: string;
   name: string;
@@ -17,12 +22,14 @@ export interface Habit {
   weekDays?: number[];  // 0=Sun..6=Sat; undefined/empty = all days
   category: string;
   createdAt: string;
+  subHabits?: SubHabit[];
 }
 
 export interface HabitLog {
   habitId: string;
   date: string; // YYYY-MM-DD
   completed: boolean;
+  completedSubHabits?: string[]; // IDs of completed sub-habits
 }
 
 export interface HabitData {
@@ -179,9 +186,32 @@ export interface Trade {
   createdAt: string;
 }
 
+// ============ TRADING NOTES ============
+export interface TradeNoteCategory {
+  id: string;
+  name: string;
+  color: string;
+  icon: string; // lucide icon key
+}
+
+export interface TradeNote {
+  id: string;
+  title: string;
+  content: string;
+  categoryId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TradeNoteData {
+  notes: TradeNote[];
+  categories: TradeNoteCategory[];
+}
+
 export interface TradeData {
   trades: Trade[];
   customStrategies: string[];
+  tradeNotes?: TradeNoteData;
 }
 
 // ============ SCORE ============

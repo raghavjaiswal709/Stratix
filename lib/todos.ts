@@ -1,5 +1,5 @@
 import type { Todo, TimeFrame } from "@/types";
-import { format, eachDayOfInterval, parseISO } from "date-fns";
+import { format, eachDayOfInterval } from "date-fns";
 import { getDateRange } from "./habits";
 
 export function generateId(): string {
@@ -14,6 +14,16 @@ export function getTodosForDate(todos: Todo[], date: string): Todo[] {
 /** Get general (undated) todos — always shown at bottom */
 export function getGeneralTodos(todos: Todo[]): Todo[] {
   return todos.filter((t) => !t.dueDate || t.dueDate === "");
+}
+
+/** Get undone tasks from previous days */
+export function getPastUndoneTodos(todos: Todo[], date: string): Todo[] {
+  return todos.filter((t) => 
+    t.dueDate && 
+    t.dueDate < date && 
+    !t.completed && 
+    t.status !== "dropped"
+  );
 }
 
 export function getTodoScore(todos: Todo[], date: string): number {

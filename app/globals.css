@@ -256,6 +256,16 @@
   }
 }
 
+/* ===== CALENDAR HEATMAP ===== */
+.rdp-day.score0 { background-color: color-mix(in srgb, var(--destructive) 15%, transparent) !important; color: var(--destructive) !important; }
+.rdp-day.score25 { background-color: color-mix(in srgb, #22c55e 20%, transparent) !important; color: #16a34a !important; }
+.rdp-day.score50 { background-color: color-mix(in srgb, #22c55e 40%, transparent) !important; color: #15803d !important; }
+.rdp-day.score75 { background-color: color-mix(in srgb, #22c55e 65%, transparent) !important; color: white !important; }
+.rdp-day.score100 { background-color: #22c55e !important; color: white !important; }
+
+.dark .rdp-day.score25 { color: #4ade80 !important; }
+.dark .rdp-day.score50 { color: #86efac !important; }
+
 /* Light Mode Overrides for Hardcoded Dark Classes */
 :root:not(.dark) .bg-\[\#0c0e14\] { background-color: var(--background) !important; }
 :root:not(.dark) .bg-\[\#0f1117\] { background-color: var(--sidebar) !important; }

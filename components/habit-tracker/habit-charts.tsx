@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useAppContext } from "@/lib/context";
-import { getDateRange, getFilteredLogs } from "@/lib/habits";
+import { getDateRange, getFilteredLogs, getDailyScore } from "@/lib/habits";
 import { eachDayOfInterval, format } from "date-fns";
 import {
   AreaChart,
@@ -53,16 +53,20 @@ export function HabitCharts({ timeFrame }: HabitChartsProps) {
     [habitData.logs, timeFrame]
   );
 
-  // ── Per-habit rows × per-date columns (binary done/not) ──────────────────
+  // ── Per-habit rows × per-date columns (fractional completion) ──────────
   const heatmapRows = useMemo(() => {
     return habitData.habits.map((habit) => ({
       habit,
       cells: days.map((day) => {
         const dateStr = format(day, "yyyy-MM-dd");
-        const done = filteredLogs.some(
-          (l) => l.habitId === habit.id && l.date === dateStr && l.completed
+        const log = filteredLogs.find(
+          (l) => l.habitId === habit.id && l.date === dateStr
         );
-        return done;
+        if (!log) return 0;
+        if (habit.subHabits && habit.subHabits.length > 0) {
+          return (log.completedSubHabits?.length || 0) / habit.subHabits.length;
+        }
+        return log.completed ? 1 : 0;
       }),
     }));
   }, [habitData.habits, days, filteredLogs]);
@@ -71,13 +75,9 @@ export function HabitCharts({ timeFrame }: HabitChartsProps) {
   const dailyPct = useMemo(() => {
     return days.map((day) => {
       const dateStr = format(day, "yyyy-MM-dd");
-      if (habitData.habits.length === 0) return 0;
-      const done = filteredLogs.filter(
-        (l) => l.date === dateStr && l.completed
-      ).length;
-      return Math.round((done / habitData.habits.length) * 100);
+      return getDailyScore(habitData.habits, habitData.logs, dateStr);
     });
-  }, [days, habitData.habits, filteredLogs]);
+  }, [days, habitData.habits, habitData.logs]);
 
   const areaData = useMemo(
     () =>
@@ -221,7 +221,7 @@ export function HabitCharts({ timeFrame }: HabitChartsProps) {
                     >
                       {habit.name}
                     </div>
-                    {cells.map((done, i) => {
+                    {cells.map((val, i) => {
                       const dayOfWeek = days[i].getDay();
                       const isScheduled =
                         !habit.weekDays?.length ||
@@ -237,13 +237,15 @@ export function HabitCharts({ timeFrame }: HabitChartsProps) {
                             borderRadius: Math.max(2, cellPx * 0.15),
                             backgroundColor: !isScheduled
                               ? "transparent"
-                              : done
+                              : val === 1
+                              ? "#099981"
+                              : val > 0
                               ? "#099981"
                               : "#F23645",
-                            opacity: !isScheduled ? 0.25 : done ? 1 : 0.55,
+                            opacity: !isScheduled ? 0.25 : val > 0 && val < 1 ? 0.3 + val * 0.4 : val === 1 ? 1 : 0.55,
                           }}
                           title={`${habit.name} · ${format(days[i], "MMM d")}: ${
-                            !isScheduled ? "off" : done ? "done" : "missed"
+                            !isScheduled ? "off" : val === 1 ? "done" : val > 0 ? `${Math.round(val * 100)}% done` : "missed"
                           }`}
                         />
                       );

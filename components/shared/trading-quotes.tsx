@@ -117,9 +117,12 @@ export function TradingQuotesModal() {
     const hasSeenQuote = sessionStorage.getItem("hasSeenQuote");
     if (!hasSeenQuote) {
       const randomIndex = Math.floor(Math.random() * quotes.length);
-      setQuote(quotes[randomIndex]);
-      setShow(true);
+      const timer = setTimeout(() => {
+        setQuote(quotes[randomIndex]);
+        setShow(true);
+      }, 0);
       sessionStorage.setItem("hasSeenQuote", "true");
+      return () => clearTimeout(timer);
     }
   }, []);
 
@@ -150,11 +153,11 @@ export function TradingQuotesModal() {
           </button>
           
           <div className="text-white relative">
-            <span className="absolute -top-10 -left-6 text-indigo-500/30 text-8xl font-serif">"</span>
+            <span className="absolute -top-10 -left-6 text-indigo-500/30 text-8xl font-serif">&quot;</span>
             <h1 className="text-4xl md:text-6xl font-bold tracking-tight leading-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
               {quote}
             </h1>
-            <span className="absolute -bottom-10 -right-6 text-violet-500/30 text-8xl font-serif">"</span>
+            <span className="absolute -bottom-10 -right-6 text-violet-500/30 text-8xl font-serif">&quot;</span>
           </div>
           
           <motion.div

@@ -14,6 +14,7 @@ import {
   Activity,
   PenLine,
   StickyNote,
+  FileText,
   X,
   Sunrise,
   Sun,
@@ -26,6 +27,7 @@ const tradeItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/trades",   label: "Trades",    icon: ArrowLeftRight },
   { href: "/journal",  label: "Journal",   icon: BookOpen },
+  { href: "/trade-notes", label: "Trade Notes", icon: FileText },
 ];
 
 const lifeItems = [

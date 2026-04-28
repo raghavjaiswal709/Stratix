@@ -47,8 +47,21 @@ export function getDailyScore(
   date: string
 ): number {
   if (habits.length === 0) return 0;
-  const dayLogs = logs.filter((l) => l.date === date && l.completed);
-  return Math.round((dayLogs.length / habits.length) * 100);
+  
+  let totalPoints = 0;
+  for (const habit of habits) {
+    const log = logs.find((l) => l.habitId === habit.id && l.date === date);
+    if (!log) continue;
+
+    if (habit.subHabits && habit.subHabits.length > 0) {
+      const completedCount = log.completedSubHabits?.length || 0;
+      totalPoints += completedCount / habit.subHabits.length;
+    } else if (log.completed) {
+      totalPoints += 1;
+    }
+  }
+  
+  return Math.round((totalPoints / habits.length) * 100);
 }
 
 /** Average habit score across a timeframe */
@@ -94,8 +107,16 @@ export function getFilteredLogs(
   });
 }
 
+export function isHabitFullyCompleted(habit: Habit, log?: HabitLog): boolean {
+  if (!log) return false;
+  if (habit.subHabits && habit.subHabits.length > 0) {
+    return (log.completedSubHabits?.length || 0) === habit.subHabits.length;
+  }
+  return log.completed;
+}
+
 export function getHabitCompletionRate(
-  habitId: string,
+  habit: Habit,
   logs: HabitLog[],
   timeFrame: TimeFrame
 ): number {
@@ -103,9 +124,8 @@ export function getHabitCompletionRate(
   const days = eachDayOfInterval({ start, end });
   const completedDays = days.filter((day) => {
     const dateStr = format(day, "yyyy-MM-dd");
-    return logs.some(
-      (l) => l.habitId === habitId && l.date === dateStr && l.completed
-    );
+    const log = logs.find((l) => l.habitId === habit.id && l.date === dateStr);
+    return isHabitFullyCompleted(habit, log);
   });
   return days.length > 0
     ? Math.round((completedDays.length / days.length) * 100)
@@ -113,7 +133,7 @@ export function getHabitCompletionRate(
 }
 
 export function getCurrentStreak(
-  habitId: string,
+  habit: Habit,
   logs: HabitLog[]
 ): number {
   const today = new Date();
@@ -122,10 +142,8 @@ export function getCurrentStreak(
 
   while (true) {
     const dateStr = format(currentDate, "yyyy-MM-dd");
-    const isCompleted = logs.some(
-      (l) => l.habitId === habitId && l.date === dateStr && l.completed
-    );
-    if (!isCompleted) break;
+    const log = logs.find((l) => l.habitId === habit.id && l.date === dateStr);
+    if (!isHabitFullyCompleted(habit, log)) break;
     streak++;
     currentDate = new Date(currentDate);
     currentDate.setDate(currentDate.getDate() - 1);
@@ -135,11 +153,11 @@ export function getCurrentStreak(
 }
 
 export function getLongestStreak(
-  habitId: string,
+  habit: Habit,
   logs: HabitLog[]
 ): number {
   const habitLogs = logs
-    .filter((l) => l.habitId === habitId && l.completed)
+    .filter((l) => l.habitId === habit.id && isHabitFullyCompleted(habit, l))
     .map((l) => l.date)
     .sort();
 

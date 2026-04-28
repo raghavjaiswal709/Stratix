@@ -36,6 +36,37 @@ const DEFAULT_PREFS: JournalSortFilterPrefs = {
   filterOutcome: "all",
 };
 
+function SortChip({ 
+  col, 
+  label, 
+  activeCol, 
+  sortDir, 
+  onClick 
+}: { 
+  col: JournalSortFilterPrefs["sortBy"]; 
+  label: string;
+  activeCol: JournalSortFilterPrefs["sortBy"];
+  sortDir: "asc" | "desc";
+  onClick: (col: JournalSortFilterPrefs["sortBy"]) => void;
+}) {
+  return (
+    <button
+      onClick={() => onClick(col)}
+      className={cn(
+        "flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
+        activeCol === col
+          ? "bg-blue-600/20 text-blue-400"
+          : "text-muted-foreground hover:text-foreground/60"
+      )}
+    >
+      {label}
+      {activeCol === col
+        ? sortDir === "asc" ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />
+        : <ArrowUpDown className="h-2.5 w-2.5 opacity-40" />}
+    </button>
+  );
+}
+
 export function JournalList({
   trades,
   selectedId,
@@ -45,7 +76,10 @@ export function JournalList({
 }: JournalListProps) {
   const { preferences, setPreferences } = useAppContext();
   const prefsRef = useRef(preferences);
-  prefsRef.current = preferences;
+  
+  useEffect(() => {
+    prefsRef.current = preferences;
+  }, [preferences]);
 
   const saved = preferences.journalSortFilter ?? DEFAULT_PREFS;
   const [sortBy, setSortBy] = useState<JournalSortFilterPrefs["sortBy"]>(saved.sortBy);
@@ -116,25 +150,6 @@ export function JournalList({
     pending: trades.filter((t) => !t.journaled).length,
   };
 
-  function SortChip({ col, label }: { col: JournalSortFilterPrefs["sortBy"]; label: string }) {
-    return (
-      <button
-        onClick={() => toggleSort(col)}
-        className={cn(
-          "flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
-          sortBy === col
-            ? "bg-blue-600/20 text-blue-400"
-            : "text-muted-foreground hover:text-foreground/60"
-        )}
-      >
-        {label}
-        {sortBy === col
-          ? sortDir === "asc" ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />
-          : <ArrowUpDown className="h-2.5 w-2.5 opacity-40" />}
-      </button>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full w-full shrink-0 border-r border-border md:w-70">
       {/* Header */}
@@ -169,9 +184,9 @@ export function JournalList({
         {/* Sort + filter bar */}
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-0.5">
-            <SortChip col="date" label="Date" />
-            <SortChip col="pnl" label="P&L" />
-            <SortChip col="symbol" label="A-Z" />
+            <SortChip col="date" label="Date" activeCol={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortChip col="pnl" label="P&L" activeCol={sortBy} sortDir={sortDir} onClick={toggleSort} />
+            <SortChip col="symbol" label="A-Z" activeCol={sortBy} sortDir={sortDir} onClick={toggleSort} />
           </div>
           <button
             onClick={() => setShowFilters(!showFilters)}

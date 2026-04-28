@@ -37,6 +37,37 @@ import { cn } from "@/lib/utils";
 type SortField = "entryDate" | "symbol" | "pnl" | "pnlPercent" | "rrr" | "quantity";
 type SortDir = "asc" | "desc";
 
+function SortHeader({ 
+  field, 
+  label, 
+  onSort 
+}: { 
+  field: SortField; 
+  label: string;
+  onSort: (field: SortField) => void;
+}) {
+  return (
+    <TableHead
+      className="cursor-pointer hover:bg-muted/50 transition-colors whitespace-nowrap"
+      onClick={() => onSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <ArrowUpDown className="h-3 w-3" />
+      </div>
+    </TableHead>
+  );
+}
+
+function InfoItem({ label, value, className }: { label: string; value: string; className?: string }) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={cn("text-sm font-medium", className)}>{value}</p>
+    </div>
+  );
+}
+
 export function TradeTable() {
   const { tradeData, setTradeData } = useAppContext();
   const [showForm, setShowForm] = useState(false);
@@ -112,18 +143,6 @@ export function TradeTable() {
     setSelectedTrade(null);
   };
 
-  const SortHeader = ({ field, label }: { field: SortField; label: string }) => (
-    <TableHead
-      className="cursor-pointer hover:bg-muted/50 transition-colors whitespace-nowrap"
-      onClick={() => toggleSort(field)}
-    >
-      <div className="flex items-center gap-1">
-        {label}
-        <ArrowUpDown className="h-3 w-3" />
-      </div>
-    </TableHead>
-  );
-
   return (
     <div className="space-y-4">
       {/* Controls */}
@@ -193,15 +212,15 @@ export function TradeTable() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <SortHeader field="entryDate" label="Date" />
-                  <SortHeader field="symbol" label="Symbol" />
+                  <SortHeader field="entryDate" label="Date" onSort={toggleSort} />
+                  <SortHeader field="symbol" label="Symbol" onSort={toggleSort} />
                   <TableHead>Type</TableHead>
                   <TableHead>Entry</TableHead>
                   <TableHead>Exit</TableHead>
-                  <SortHeader field="quantity" label="Qty" />
-                  <SortHeader field="pnl" label="P&L" />
-                  <SortHeader field="pnlPercent" label="P&L %" />
-                  <SortHeader field="rrr" label="RRR" />
+                  <SortHeader field="quantity" label="Qty" onSort={toggleSort} />
+                  <SortHeader field="pnl" label="P&L" onSort={toggleSort} />
+                  <SortHeader field="pnlPercent" label="P&L %" onSort={toggleSort} />
+                  <SortHeader field="rrr" label="RRR" onSort={toggleSort} />
                   <TableHead>Result</TableHead>
                   <TableHead>Strategy</TableHead>
                   <TableHead></TableHead>
@@ -427,15 +446,6 @@ export function TradeTable() {
         }}
         editTrade={editTrade}
       />
-    </div>
-  );
-}
-
-function InfoItem({ label, value, className }: { label: string; value: string; className?: string }) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("text-sm font-medium", className)}>{value}</p>
     </div>
   );
 }

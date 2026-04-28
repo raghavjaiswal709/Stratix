@@ -59,10 +59,46 @@ const DEFAULT_PREFS: TradesSortFilterPrefs = {
   filterSource: "all",
 };
 
+function SortBtn({ 
+  col, 
+  label, 
+  activeCol, 
+  sortDir, 
+  onClick 
+}: { 
+  col: TradesSortFilterPrefs["sortBy"]; 
+  label: string;
+  activeCol: TradesSortFilterPrefs["sortBy"];
+  sortDir: "asc" | "desc";
+  onClick: (col: TradesSortFilterPrefs["sortBy"]) => void;
+}) {
+  return (
+    <button
+      onClick={() => onClick(col)}
+      className={cn(
+        "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors",
+        activeCol === col
+          ? "bg-blue-600/20 text-blue-400 border border-blue-500/20"
+          : "text-muted-foreground hover:text-foreground/65 hover:bg-muted border border-transparent"
+      )}
+    >
+      {label}
+      {activeCol === col
+        ? sortDir === "asc"
+          ? <ArrowUp className="h-3 w-3" />
+          : <ArrowDown className="h-3 w-3" />
+        : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+    </button>
+  );
+}
+
 export default function TradesPage() {
   const { preferences, setPreferences, setSharedTrades } = useAppContext();
   const prefsRef = useRef(preferences);
-  prefsRef.current = preferences;
+  
+  useEffect(() => {
+    prefsRef.current = preferences;
+  }, [preferences]);
 
   const [trades, setTrades] = useState<Trade[]>([]);
   const [mt5, setMt5] = useState<MT5Config | null>(null);
@@ -106,10 +142,13 @@ export default function TradesPage() {
     ])
       .then(([t, m]) => {
         const tradesArr = Array.isArray(t) ? t : [];
-        setTrades(tradesArr);
-        setSharedTrades(tradesArr);
-        setMt5(m);
-        setLoading(false);
+        const timer = setTimeout(() => {
+          setTrades(tradesArr);
+          setSharedTrades(tradesArr as unknown as ApiTrade[]);
+          setMt5(m);
+          setLoading(false);
+        }, 0);
+        return () => clearTimeout(timer);
       })
       .catch(() => setLoading(false));
   }, [setSharedTrades]);
@@ -160,7 +199,7 @@ export default function TradesPage() {
     await fetch(`/api/trade/${id}`, { method: "DELETE" });
     const updated = trades.filter((t) => t._id !== id);
     setTrades(updated);
-    setSharedTrades(updated);
+    setSharedTrades(updated as unknown as ApiTrade[]);
     setDeleting(null);
   }
 
@@ -186,27 +225,6 @@ export default function TradesPage() {
       timeframe: trade.timeframe,
       leverage: trade.leverage,
     });
-  }
-
-  function SortBtn({ col, label }: { col: TradesSortFilterPrefs["sortBy"]; label: string }) {
-    return (
-      <button
-        onClick={() => toggleSort(col)}
-        className={cn(
-          "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors",
-          sortBy === col
-            ? "bg-blue-600/20 text-blue-400 border border-blue-500/20"
-            : "text-muted-foreground hover:text-foreground/65 hover:bg-muted border border-transparent"
-        )}
-      >
-        {label}
-        {sortBy === col
-          ? sortDir === "asc"
-            ? <ArrowUp className="h-3 w-3" />
-            : <ArrowDown className="h-3 w-3" />
-          : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-      </button>
-    );
   }
 
   return (
@@ -264,10 +282,10 @@ export default function TradesPage() {
             </div>
             {/* Sort + filter controls */}
             <div className="flex items-center gap-1 flex-wrap">
-              <SortBtn col="date" label="Date" />
-              <SortBtn col="pnl" label="P&L" />
-              <SortBtn col="symbol" label="Symbol" />
-              <SortBtn col="lots" label="Lots" />
+              <SortBtn col="date" label="Date" activeCol={sortBy} sortDir={sortDir} onClick={toggleSort} />
+              <SortBtn col="pnl" label="P&L" activeCol={sortBy} sortDir={sortDir} onClick={toggleSort} />
+              <SortBtn col="symbol" label="Symbol" activeCol={sortBy} sortDir={sortDir} onClick={toggleSort} />
+              <SortBtn col="lots" label="Lots" activeCol={sortBy} sortDir={sortDir} onClick={toggleSort} />
               <div className="w-px h-4 bg-white/10 mx-0.5 hidden sm:block" />
               <button
                 onClick={() => setShowFilters(!showFilters)}
@@ -575,5 +593,3 @@ export default function TradesPage() {
     </div>
   );
 }
-
-

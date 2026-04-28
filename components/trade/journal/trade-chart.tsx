@@ -125,7 +125,8 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
     // Sync when defaultInterval prop changes (e.g. after parent saves)
     useEffect(() => {
       if (defaultInterval && TF_TO_INTERVAL[defaultInterval]) {
-        setSavedInterval(TF_TO_INTERVAL[defaultInterval]);
+        const timer = setTimeout(() => setSavedInterval(TF_TO_INTERVAL[defaultInterval]), 0);
+        return () => clearTimeout(timer);
       }
     }, [defaultInterval]);
 
@@ -493,7 +494,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/5 border-b border-amber-500/10">
             <Clock className="h-3.5 w-3.5 text-amber-400/60 shrink-0" />
             <p className="text-[11px] text-amber-400/60">
-              No default timeframe saved for this trade. Select a timeframe above and click <strong className="text-amber-400">Set default</strong> so the chart always opens on your setup's timeframe.
+              No default timeframe saved for this trade. Select a timeframe above and click <strong className="text-amber-400">Set default</strong> so the chart always opens on your setup&apos;s timeframe.
             </p>
           </div>
         )}

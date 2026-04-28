@@ -19,7 +19,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Plus, MoreVertical, Pencil, Trash2, Search } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, MoreVertical, Pencil, Trash2, Search, X, Check } from "lucide-react";
 import {
   HABIT_ICON_MAP,
   HABIT_ICONS_LIST,
@@ -27,8 +33,8 @@ import {
   type HabitIconKey,
   type IconCategory,
 } from "@/lib/habit-icons";
-import type { Habit, TimeFrame } from "@/types";
-import { cn } from "@/lib/utils";
+import type { Habit, TimeFrame, SubHabit } from "@/types";
+import { cn, fireConfetti } from "@/lib/utils";
 
 // ── Icon display helper ────────────────────────────────────────────────────
 
@@ -68,6 +74,8 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
   const [newHabitColor,    setNewHabitColor]    = useState(COLOR_OPTIONS[0]);
   const [newHabitCategory, setNewHabitCategory] = useState("");
   const [newHabitWeekDays, setNewHabitWeekDays] = useState<number[]>(ALL_DAYS);
+  const [newSubHabits,     setNewSubHabits]     = useState<SubHabit[]>([]);
+  const [subHabitInput,    setSubHabitInput]    = useState("");
 
   // Icon picker search / category state
   const [iconSearch,   setIconSearch]   = useState("");
@@ -107,24 +115,94 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
       const existing = habitData.logs.find(
         (l) => l.habitId === habitId && l.date === date
       );
+      
+      const becomingCompleted = existing ? !existing.completed : true;
+      if (becomingCompleted) fireConfetti();
+
       const newLogs = existing
         ? habitData.logs.map((l) =>
             l.habitId === habitId && l.date === date
-              ? { ...l, completed: !l.completed }
+              ? { ...l, completed: !l.completed, completedSubHabits: !l.completed ? (habitData.habits.find(h => h.id === habitId)?.subHabits?.map(sh => sh.id) || []) : [] }
               : l
           )
-        : [...habitData.logs, { habitId, date, completed: true }];
+        : [...habitData.logs, { 
+            habitId, 
+            date, 
+            completed: true, 
+            completedSubHabits: habitData.habits.find(h => h.id === habitId)?.subHabits?.map(sh => sh.id) || [] 
+          }];
       setHabitData({ ...habitData, logs: newLogs });
     },
     [habitData, setHabitData]
   );
 
-  const isChecked = useCallback(
-    (habitId: string, date: string): boolean =>
-      habitData.logs.some(
-        (l) => l.habitId === habitId && l.date === date && l.completed
-      ),
+  const toggleSubHabit = useCallback(
+    (habitId: string, subHabitId: string, date: string) => {
+      const habit = habitData.habits.find(h => h.id === habitId);
+      if (!habit) return;
+
+      const existingLog = habitData.logs.find(
+        (l) => l.habitId === habitId && l.date === date
+      );
+
+      let newLogs;
+      if (existingLog) {
+        const completedSubHabits = existingLog.completedSubHabits || [];
+        const isCurrentlyCompleted = completedSubHabits.includes(subHabitId);
+        
+        const nextSubHabits = isCurrentlyCompleted
+          ? completedSubHabits.filter(id => id !== subHabitId)
+          : [...completedSubHabits, subHabitId];
+        
+        const allDone = !!(habit.subHabits && nextSubHabits.length === habit.subHabits.length);
+        
+        if (allDone && !existingLog.completed) fireConfetti();
+
+        newLogs = habitData.logs.map(l => 
+          l.habitId === habitId && l.date === date
+            ? { ...l, completedSubHabits: nextSubHabits, completed: allDone }
+            : l
+        );
+      } else {
+        const nextSubHabits = [subHabitId];
+        const allDone = !!(habit.subHabits && nextSubHabits.length === habit.subHabits.length);
+        if (allDone) fireConfetti();
+        
+        newLogs = [...habitData.logs, {
+          habitId,
+          date,
+          completed: allDone,
+          completedSubHabits: nextSubHabits
+        }];
+      }
+      setHabitData({ ...habitData, logs: newLogs });
+    },
+    [habitData, setHabitData]
+  );
+
+  const getLog = useCallback(
+    (habitId: string, date: string) => 
+      habitData.logs.find(l => l.habitId === habitId && l.date === date),
     [habitData.logs]
+  );
+
+  const isChecked = useCallback(
+    (habitId: string, date: string): boolean => {
+      const log = getLog(habitId, date);
+      if (!log) return false;
+      return log.completed;
+    },
+    [getLog]
+  );
+
+  const getCompletionRatio = useCallback(
+    (habit: Habit, date: string): number => {
+      const log = getLog(habit.id, date);
+      if (!log) return 0;
+      if (!habit.subHabits || habit.subHabits.length === 0) return log.completed ? 1 : 0;
+      return (log.completedSubHabits?.length || 0) / habit.subHabits.length;
+    },
+    [getLog]
   );
 
   // ── Form helpers ─────────────────────────────────────────────────────────
@@ -134,6 +212,8 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     setNewHabitColor(COLOR_OPTIONS[0]);
     setNewHabitCategory("");
     setNewHabitWeekDays(ALL_DAYS);
+    setNewSubHabits([]);
+    setSubHabitInput("");
     setIconSearch("");
     setIconCategory("All");
   };
@@ -155,6 +235,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
       icon: newHabitIcon,
       weekDays: newHabitWeekDays,
       category: newHabitCategory,
+      subHabits: newSubHabits.length > 0 ? newSubHabits : undefined,
       createdAt: new Date().toISOString(),
     };
     setHabitData({ ...habitData, habits: [...habitData.habits, habit] });
@@ -165,7 +246,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     if (!editingHabit || !newHabitName.trim() || !newHabitIcon) return;
     const updated = habitData.habits.map((h) =>
       h.id === editingHabit.id
-        ? { ...h, name: newHabitName, color: newHabitColor, icon: newHabitIcon, weekDays: newHabitWeekDays, category: newHabitCategory }
+        ? { ...h, name: newHabitName, color: newHabitColor, icon: newHabitIcon, weekDays: newHabitWeekDays, category: newHabitCategory, subHabits: newSubHabits.length > 0 ? newSubHabits : undefined }
         : h
     );
     setHabitData({ ...habitData, habits: updated });
@@ -186,6 +267,17 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     setNewHabitColor(habit.color || COLOR_OPTIONS[0]);
     setNewHabitCategory(habit.category);
     setNewHabitWeekDays(habit.weekDays?.length ? habit.weekDays : ALL_DAYS);
+    setNewSubHabits(habit.subHabits || []);
+  };
+
+  const addSubHabit = () => {
+    if (!subHabitInput.trim()) return;
+    setNewSubHabits([...newSubHabits, { id: generateId(), name: subHabitInput.trim() }]);
+    setSubHabitInput("");
+  };
+
+  const removeSubHabit = (id: string) => {
+    setNewSubHabits(newSubHabits.filter(sh => sh.id !== id));
   };
 
   const toggleWeekDay = (day: number) => {
@@ -267,13 +359,15 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                   {/* Mobile: icon is the dropdown trigger */}
                   <div className="md:hidden flex items-center justify-center py-2.5">
                     <DropdownMenu>
-                      <DropdownMenuTrigger className="flex items-center justify-center h-7 w-7 rounded hover:bg-muted transition-colors">
-                        <HabitIconComp
-                          iconKey={habit.icon}
-                          size={14}
-                          color={habit.color || "#6366f1"}
-                        />
-                      </DropdownMenuTrigger>
+                      <DropdownMenuTrigger render={
+                        <button className="flex items-center justify-center h-7 w-7 rounded hover:bg-muted transition-colors">
+                          <HabitIconComp
+                            iconKey={habit.icon}
+                            size={14}
+                            color={habit.color || "#6366f1"}
+                          />
+                        </button>
+                      } />
                       <DropdownMenuContent align="start">
                         <DropdownMenuItem onClick={() => startEdit(habit)}>
                           <Pencil className="mr-2 h-3 w-3" />
@@ -300,9 +394,11 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                       {habit.name}
                     </span>
                     <DropdownMenu>
-                      <DropdownMenuTrigger className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                        <MoreVertical className="h-3 w-3" />
-                      </DropdownMenuTrigger>
+                      <DropdownMenuTrigger render={
+                        <button className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                          <MoreVertical className="h-3 w-3" />
+                        </button>
+                      } />
                       <DropdownMenuContent align="start">
                         <DropdownMenuItem onClick={() => startEdit(habit)}>
                           <Pencil className="mr-2 h-3 w-3" />
@@ -327,26 +423,91 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                   const isActive  =
                     !habit.weekDays?.length ||
                     habit.weekDays.includes(dayOfWeek);
-                  const checked = isChecked(habit.id, dateStr);
+                  const ratio = getCompletionRatio(habit, dateStr);
                   const cellH = isWideView ? "h-7" : "h-9 md:h-10";
+                  
+                  if (!isActive) {
+                    return (
+                      <td key={i} className="p-0" style={{ border: "1px solid var(--table-border)" }}>
+                        <div className={`w-full ${cellH}`} style={{ background: "var(--table-header-bg)" }} />
+                      </td>
+                    );
+                  }
+
+                  if (habit.subHabits && habit.subHabits.length > 0) {
+                    const log = getLog(habit.id, dateStr);
+                    const completedIds = log?.completedSubHabits || [];
+                    
+                    return (
+                      <td key={i} className="p-0" style={{ border: "1px solid var(--table-border)" }}>
+                        <Popover>
+                          <PopoverTrigger render={
+                            <button
+                              className={`w-full ${cellH} transition-all flex items-center justify-center relative overflow-hidden group`}
+                              style={{
+                                backgroundColor: ratio === 1 ? "#099981" : ratio > 0 ? "#09998120" : "#F2364520",
+                              }}
+                            >
+                              {/* Progress bar background */}
+                              {ratio > 0 && ratio < 1 && (
+                                <div 
+                                  className="absolute left-0 top-0 bottom-0 bg-[#099981] opacity-40 transition-all"
+                                  style={{ width: `${ratio * 100}%` }}
+                                />
+                              )}
+                              
+                              <span className="relative z-10 text-[10px] font-bold text-foreground/70 group-hover:text-foreground">
+                                {ratio === 1 ? <Check className="h-3 w-3" strokeWidth={3} /> : `${Math.round(ratio * 100)}%`}
+                              </span>
+                            </button>
+                          } />
+                          <PopoverContent className="w-56 p-3" align="center">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{habit.name}</p>
+                                <p className="text-[10px] font-medium bg-muted px-1.5 py-0.5 rounded">{format(date, "MMM d")}</p>
+                              </div>
+                              <div className="space-y-2">
+                                {habit.subHabits.map((sh) => (
+                                  <div key={sh.id} className="flex items-center space-x-2">
+                                    <Checkbox 
+                                      id={`sh-${sh.id}-${dateStr}`}
+                                      checked={completedIds.includes(sh.id)}
+                                      onCheckedChange={() => toggleSubHabit(habit.id, sh.id, dateStr)}
+                                    />
+                                    <label
+                                      htmlFor={`sh-${sh.id}-${dateStr}`}
+                                      className={cn(
+                                        "text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer",
+                                        completedIds.includes(sh.id) && "line-through text-muted-foreground"
+                                      )}
+                                    >
+                                      {sh.name}
+                                    </label>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      </td>
+                    );
+                  }
+
                   return (
                     <td
                       key={i}
                       className="p-0"
                       style={{ border: "1px solid var(--table-border)" }}
                     >
-                      {isActive ? (
-                        <button
-                          onClick={() => toggleHabit(habit.id, dateStr)}
-                          className={`w-full ${cellH} transition-opacity hover:opacity-80 active:opacity-60`}
-                          style={{
-                            backgroundColor: checked ? "#099981" : "#F23645",
-                          }}
-                          aria-label={`${habit.name} ${DAY_FULL[dayOfWeek]} ${checked ? "done" : "not done"}`}
-                        />
-                      ) : (
-                        <div className={`w-full ${cellH}`} style={{ background: "var(--table-header-bg)" }} />
-                      )}
+                      <button
+                        onClick={() => toggleHabit(habit.id, dateStr)}
+                        className={`w-full ${cellH} transition-opacity hover:opacity-80 active:opacity-60`}
+                        style={{
+                          backgroundColor: ratio === 1 ? "#099981" : "#F23645",
+                        }}
+                        aria-label={`${habit.name} ${DAY_FULL[dayOfWeek]} ${ratio === 1 ? "done" : "not done"}`}
+                      />
                     </td>
                   );
                 })}
@@ -569,6 +730,45 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                 value={newHabitCategory}
                 onChange={(e) => setNewHabitCategory(e.target.value)}
               />
+            </div>
+
+            {/* ── Sub Habits ── */}
+            <div className="space-y-3 pt-2 border-t border-border">
+              <Label className="text-sm font-semibold">Sub Habits (optional)</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add a sub-habit..."
+                  value={subHabitInput}
+                  onChange={(e) => setSubHabitInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addSubHabit();
+                    }
+                  }}
+                  className="h-8 text-sm"
+                />
+                <Button type="button" size="sm" onClick={addSubHabit} className="h-8 shrink-0">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              
+              {newSubHabits.length > 0 && (
+                <div className="space-y-2 bg-muted/30 p-2 rounded-md border border-border">
+                  {newSubHabits.map((sh) => (
+                    <div key={sh.id} className="flex items-center justify-between gap-2 bg-background p-2 rounded border border-border group">
+                      <span className="text-sm">{sh.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSubHabit(sh.id)}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <Button

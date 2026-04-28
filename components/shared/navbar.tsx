@@ -89,15 +89,17 @@ export function Navbar() {
           {/* User / avatar dropdown */}
           {session?.user && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg hover:bg-muted transition-all duration-150">
-                <Avatar className="h-6 w-6">
-                  <AvatarImage src={session.user.image ?? ""} alt={session.user.name ?? "User"} />
-                  <AvatarFallback className="text-[10px] bg-indigo-500/20 text-indigo-300">
-                    {session.user.name?.charAt(0)?.toUpperCase() ?? "U"}
-                  </AvatarFallback>
-                </Avatar>
-                <ChevronDown style={{ width: 11, height: 11 }} className="text-muted-foreground" />
-              </DropdownMenuTrigger>
+              <DropdownMenuTrigger render={
+                <button className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg hover:bg-muted transition-all duration-150">
+                  <Avatar className="h-6 w-6">
+                    <AvatarImage src={session.user.image ?? ""} alt={session.user.name ?? "User"} />
+                    <AvatarFallback className="text-[10px] bg-indigo-500/20 text-indigo-300">
+                      {session.user.name?.charAt(0)?.toUpperCase() ?? "U"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <ChevronDown style={{ width: 11, height: 11 }} className="text-muted-foreground" />
+                </button>
+              } />
               <DropdownMenuContent align="end" className="w-[210px]">
                 <div className="px-3 py-2.5 border-b border-border/40 space-y-0.5">
                   <p className="text-[13px] font-medium truncate">{session.user.name}</p>

@@ -24,7 +24,8 @@ export default function HabitsPage() {
 
   useEffect(() => {
     if (!loading && habitData.habits.length === 0) {
-      setShowOnboarding(true);
+      const timer = setTimeout(() => setShowOnboarding(true), 0);
+      return () => clearTimeout(timer);
     }
   }, [loading, habitData.habits.length]);
 

@@ -76,8 +76,11 @@ export default function JournalPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   useEffect(() => {
-    setHasUnsavedChanges(isDirty);
-    return () => setHasUnsavedChanges(false);
+    const timer = setTimeout(() => setHasUnsavedChanges(isDirty), 0);
+    return () => {
+      clearTimeout(timer);
+      setHasUnsavedChanges(false);
+    };
   }, [isDirty, setHasUnsavedChanges]);
 
   const load = useCallback(() => {
@@ -85,12 +88,15 @@ export default function JournalPage() {
       .then((r) => r.json())
       .then((data: JournalTrade[]) => {
         const arr = Array.isArray(data) ? data : [];
-        setTrades(arr);
-        setSharedTrades(arr as unknown as ApiTrade[]);
-        if (!selectedId && arr.length > 0) {
-          setSelectedId(arr[0]._id);
-        }
-        setLoading(false);
+        const timer = setTimeout(() => {
+          setTrades(arr);
+          setSharedTrades(arr as unknown as ApiTrade[]);
+          if (!selectedId && arr.length > 0) {
+            setSelectedId(arr[0]._id);
+          }
+          setLoading(false);
+        }, 0);
+        return () => clearTimeout(timer);
       })
       .catch(() => setLoading(false));
   }, [selectedId, setSharedTrades]);
@@ -102,13 +108,16 @@ export default function JournalPage() {
   // the journal in sync without a network round-trip.
   useEffect(() => {
     if (sharedTrades.length === 0) return;
-    setTrades((prev) => {
-      if (prev.length === 0) return prev; // nothing to merge into yet
-      return prev.map((t) => {
-        const fresh = sharedTrades.find((s) => s._id === t._id);
-        return fresh ? ({ ...t, ...fresh } as JournalTrade) : t;
+    const timer = setTimeout(() => {
+      setTrades((prev) => {
+        if (prev.length === 0) return prev; // nothing to merge into yet
+        return prev.map((t) => {
+          const fresh = sharedTrades.find((s) => s._id === t._id);
+          return fresh ? ({ ...t, ...fresh } as JournalTrade) : t;
+        });
       });
-    });
+    }, 0);
+    return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sharedTrades]);
 

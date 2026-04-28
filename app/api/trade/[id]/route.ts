@@ -105,7 +105,7 @@ export async function PUT(
     updateData.margin = (entry * lots * cs) / lev;
   }
 
-  const updateOp: any = {};
+  const updateOp: Record<string, Record<string, unknown>> = {};
   if (Object.keys(updateData).length > 0) updateOp.$set = updateData;
   if (Object.keys(unsetData).length > 0) updateOp.$unset = unsetData;
 

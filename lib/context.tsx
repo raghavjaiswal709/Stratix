@@ -42,7 +42,19 @@ const defaultPreferences: UserPreferences = {
 const defaultData: AppData = {
   habitData: { habits: [], logs: [] },
   todoData: { todos: [], tags: [] },
-  tradeData: { trades: [], customStrategies: [] },
+  tradeData: { 
+    trades: [], 
+    customStrategies: [],
+    tradeNotes: {
+      notes: [],
+      categories: [
+        { id: "1", name: "Strategy", color: "#3b82f6", icon: "Target" },
+        { id: "2", name: "Losses", color: "#ef4444", icon: "TrendingDown" },
+        { id: "3", name: "Psychology", color: "#8b5cf6", icon: "Brain" },
+        { id: "4", name: "Mistakes", color: "#f59e0b", icon: "AlertTriangle" },
+      ]
+    }
+  },
   diaryData: { entries: [] },
   notesData: { notes: [] },
   preferences: defaultPreferences,
@@ -79,27 +91,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === "loading") return;
     if (!session?.user) {
-      setLoading(false);
-      return;
+      const timer = setTimeout(() => setLoading(false), 0);
+      return () => clearTimeout(timer);
     }
 
     fetch("/api/user-data")
       .then((res) => res.json())
       .then((userData) => {
-        setData({
-          habitData: userData.habitData || defaultData.habitData,
-          todoData: userData.todoData || defaultData.todoData,
-          tradeData: userData.tradeData || defaultData.tradeData,
-          diaryData: userData.diaryData || defaultData.diaryData,
-          notesData: userData.notesData || defaultData.notesData,
-          preferences: userData.preferences || defaultPreferences,
-          scoreWeights: userData.scoreWeights || defaultData.scoreWeights,
-          theme: userData.theme || defaultData.theme,
-        });
-        setLoading(false);
+        const timer = setTimeout(() => {
+          setData({
+            habitData: userData.habitData || defaultData.habitData,
+            todoData: userData.todoData || defaultData.todoData,
+            tradeData: userData.tradeData || defaultData.tradeData,
+            diaryData: userData.diaryData || defaultData.diaryData,
+            notesData: userData.notesData || defaultData.notesData,
+            preferences: userData.preferences || defaultPreferences,
+            scoreWeights: userData.scoreWeights || defaultData.scoreWeights,
+            theme: userData.theme || defaultData.theme,
+          });
+          setLoading(false);
+        }, 0);
+        return () => clearTimeout(timer);
       })
       .catch(() => {
-        setLoading(false);
+        const timer = setTimeout(() => setLoading(false), 0);
+        return () => clearTimeout(timer);
       });
   }, [session, status]);
 

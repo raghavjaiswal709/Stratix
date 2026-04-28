@@ -6,6 +6,7 @@ import {
   getTodosForDate,
   getTodoScore,
   getGeneralTodos,
+  getPastUndoneTodos,
   migrateTodo,
 } from "@/lib/todos";
 import { generateId } from "@/lib/habits";
@@ -47,11 +48,12 @@ import {
   Tag,
   X,
   Clock,
+  History,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import type { Todo, Priority, SubTask, TodoStatus } from "@/types";
 import { TODO_CATEGORIES } from "@/types";
-import { cn } from "@/lib/utils";
+import { cn, fireConfetti } from "@/lib/utils";
 
 const PRIORITY_STYLE: Record<Priority, { bg: string; text: string; border: string }> = {
   urgent: { bg: "#F2364522", text: "#F23645", border: "#F2364544" },
@@ -232,7 +234,18 @@ function TodoRow({
               </span>
             ))}
             {todo.dueTime && <span className="text-[10px] text-muted-foreground/60">{todo.dueTime}</span>}
-            {todo.dueDate && <span className="text-[10px] text-muted-foreground/60">{format(parseISO(todo.dueDate), "MMM d")}</span>}
+            {todo.dueDate && (
+              <span 
+                className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded",
+                  !todo.completed && todo.dueDate < format(new Date(), "yyyy-MM-dd") 
+                    ? "bg-red-500/10 text-red-500 font-medium" 
+                    : "text-muted-foreground/60 bg-muted/50"
+                )}
+              >
+                {format(parseISO(todo.dueDate), "MMM d")}
+              </span>
+            )}
             {totalSubtasks > 0 && (
               <button onClick={() => setShowSubtasks(!showSubtasks)} className="text-[10px] text-indigo-400 flex items-center gap-0.5">
                 {showSubtasks ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -388,7 +401,41 @@ export function TodoList() {
     () => applySort(applyFilters(getGeneralTodos(todos))),
     [todos, applyFilters, applySort]
   );
+  const pastUndoneTodos = useMemo(
+    () => applySort(applyFilters(getPastUndoneTodos(todos, format(new Date(), "yyyy-MM-dd"))))
+      .filter(t => t.dueDate !== dateStr), // Don't show if it's already in today's list
+    [todos, applyFilters, applySort, dateStr]
+  );
+  
   const score = useMemo(() => getTodoScore(todos, dateStr), [todos, dateStr]);
+
+  // Heatmap modifiers
+  const heatmapModifiers = useMemo(() => {
+    const modifiers: Record<string, Date[]> = {
+      score0: [],
+      score25: [],
+      score50: [],
+      score75: [],
+      score100: [],
+    };
+
+    const uniqueDates = Array.from(new Set(todos.filter(t => t.dueDate).map(t => t.dueDate)));
+    
+    uniqueDates.forEach(d => {
+      const dayTodos = getTodosForDate(todos, d).filter((t) => t.status !== "dropped");
+      if (dayTodos.length === 0) return;
+
+      const s = getTodoScore(todos, d);
+      const date = parseISO(d);
+      if (s === 0) modifiers.score0.push(date);
+      else if (s <= 25) modifiers.score25.push(date);
+      else if (s <= 50) modifiers.score50.push(date);
+      else if (s <= 75) modifiers.score75.push(date);
+      else modifiers.score100.push(date);
+    });
+
+    return modifiers;
+  }, [todos]);
 
   const activeDayTodos = dayTodos.filter((t) => t.status !== "dropped");
   const completedCount = activeDayTodos.filter((t) => t.completed).length;
@@ -459,14 +506,19 @@ export function TodoList() {
 
   const toggleTodo = useCallback((id: string) => {
     const now = new Date().toISOString();
-    const updated = todos.map((t) =>
-      t.id === id ? {
-        ...t,
-        completed: !t.completed,
-        status: (!t.completed ? "completed" : "active") as TodoStatus,
-        completedAt: !t.completed ? now : undefined,
-      } : t
-    );
+    const updated = todos.map((t) => {
+      if (t.id === id) {
+        const becomingCompleted = !t.completed;
+        if (becomingCompleted) fireConfetti();
+        return {
+          ...t,
+          completed: becomingCompleted,
+          status: (becomingCompleted ? "completed" : "active") as TodoStatus,
+          completedAt: becomingCompleted ? now : undefined,
+        };
+      }
+      return t;
+    });
     saveTodos(updated);
   }, [todos, saveTodos]);
 
@@ -521,11 +573,6 @@ export function TodoList() {
     setDueDate(todo.dueDate); setIsGeneral(!todo.dueDate); setTodoColor(todo.color || "");
     setTodoTags(todo.tags || []); setShowAddDialog(true);
   };
-
-  const todoDates = useMemo(() => {
-    const dates = new Set(todos.filter((t) => t.dueDate).map((t) => t.dueDate));
-    return Array.from(dates).map((d) => parseISO(d));
-  }, [todos]);
 
   const hasActiveFilters = filterPriority !== "all" || filterTag !== "all" || sortMode !== "manual";
 
@@ -681,6 +728,35 @@ export function TodoList() {
         <div className="space-y-4">
           {renderTodoList(dayTodos, "dated")}
 
+          {pastUndoneTodos.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
+                <span className="h-px flex-1 bg-border/60" /> 
+                <History className="h-3 w-3" />
+                Past Undone Tasks 
+                <span className="h-px flex-1 bg-border/60" />
+              </h4>
+              <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--table-border)" }}>
+                {pastUndoneTodos.map((todo) => (
+                  <TodoRow
+                    key={todo.id}
+                    todo={todo}
+                    onToggle={() => toggleTodo(todo.id)}
+                    onEdit={() => startEdit(todo)}
+                    onDelete={() => deleteTodo(todo.id)}
+                    onDrop={() => { setDropTargetId(todo.id); setShowDropDialog(true); }}
+                    onUpdateTitle={(t) => updateTitle(todo.id, t)}
+                    onToggleSubtask={(sid) => toggleSubtask(todo.id, sid)}
+                    onAddSubtask={(t) => addSubtask(todo.id, t)}
+                    onDeleteSubtask={(sid) => deleteSubtask(todo.id, sid)}
+                    onMoveUp={() => moveTodo(todo.id, "up", pastUndoneTodos)}
+                    onMoveDown={() => moveTodo(todo.id, "down", pastUndoneTodos)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           {generalTodos.length > 0 && (
             <div className="space-y-2">
               <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
@@ -696,8 +772,14 @@ export function TodoList() {
             mode="single"
             selected={selectedDate}
             onSelect={(d) => d && setSelectedDate(d)}
-            modifiers={{ hasTodos: todoDates }}
-            modifiersClassNames={{ hasTodos: "border-2 border-indigo-500" }}
+            modifiers={heatmapModifiers}
+            modifiersClassNames={{
+              score0: "score0",
+              score25: "score25",
+              score50: "score50",
+              score75: "score75",
+              score100: "score100",
+            }}
             className="w-full"
           />
         </div>
@@ -711,8 +793,14 @@ export function TodoList() {
             mode="single"
             selected={selectedDate}
             onSelect={(d) => { if (d) { setSelectedDate(d); setShowMobileCalendar(false); } }}
-            modifiers={{ hasTodos: todoDates }}
-            modifiersClassNames={{ hasTodos: "border-2 border-indigo-500" }}
+            modifiers={heatmapModifiers}
+            modifiersClassNames={{
+              score0: "score0",
+              score25: "score25",
+              score50: "score50",
+              score75: "score75",
+              score100: "score100",
+            }}
             className="w-full"
           />
         </DialogContent>

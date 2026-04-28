@@ -17,7 +17,19 @@ export async function GET() {
       userId: session.user.id,
       habitData: { habits: [], logs: [] },
       todoData: { todos: [], tags: [] },
-      tradeData: { trades: [], customStrategies: [] },
+      tradeData: { 
+        trades: [], 
+        customStrategies: [],
+        tradeNotes: {
+          notes: [],
+          categories: [
+            { id: "1", name: "Strategy", color: "#3b82f6", icon: "Target" },
+            { id: "2", name: "Losses", color: "#ef4444", icon: "TrendingDown" },
+            { id: "3", name: "Psychology", color: "#8b5cf6", icon: "Brain" },
+            { id: "4", name: "Mistakes", color: "#f59e0b", icon: "AlertTriangle" },
+          ]
+        }
+      },
       diaryData: { entries: [] },
       notesData: { notes: [] },
                   preferences: { accentColor: "#6366f1", defaultPage: "/dashboard", defaultTab: "todos", sectionOrder: ["todos", "habits", "diary", "notes"] },      scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },

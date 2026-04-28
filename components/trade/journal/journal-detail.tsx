@@ -70,31 +70,31 @@ function fmt(n: number) {
 
 export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailProps) {
   // Journal state
-  const [checklist, setChecklist] = useState<ChecklistItem[]>(trade.executionChecklist ?? []);
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [customItem, setCustomItem] = useState("");
-  const [screenshots, setScreenshots] = useState<string[]>(trade.screenshots ?? []);
-  const [preTradeAnalysis, setPreTradeAnalysis] = useState(trade.preTradeAnalysis ?? "");
-  const [postTradeReview, setPostTradeReview] = useState(trade.postTradeReview ?? "");
-  const [riskRatio, setRiskRatio] = useState(trade.riskRatio ?? 1);
-  const [rewardRatio, setRewardRatio] = useState(trade.rewardRatio ?? 2);
-  const [emotions, setEmotions] = useState(trade.emotions ?? "");
-  const [lessonsLearned, setLessonsLearned] = useState(trade.lessonsLearned ?? "");
+  const [screenshots, setScreenshots] = useState<string[]>([]);
+  const [preTradeAnalysis, setPreTradeAnalysis] = useState("");
+  const [postTradeReview, setPostTradeReview] = useState("");
+  const [riskRatio, setRiskRatio] = useState(1);
+  const [rewardRatio, setRewardRatio] = useState(2);
+  const [emotions, setEmotions] = useState("");
+  const [lessonsLearned, setLessonsLearned] = useState("");
   const [tagsInput, setTagsInput] = useState("");
-  const [tags, setTags] = useState<string[]>(trade.tags ?? []);
-  const [rating, setRating] = useState(trade.rating ?? 5);
+  const [tags, setTags] = useState<string[]>([]);
+  const [rating, setRating] = useState(5);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
   // Edit trade state
   const [editOpen, setEditOpen] = useState(false);
-  const [editDirection, setEditDirection] = useState<"buy" | "sell">(trade.direction);
-  const [editEntryPrice, setEditEntryPrice] = useState(String(trade.entryPrice));
-  const [editExitPrice, setEditExitPrice] = useState(trade.exitPrice ? String(trade.exitPrice) : "");
-  const [editSL, setEditSL] = useState(trade.stopLoss ? String(trade.stopLoss) : "");
-  const [editTP, setEditTP] = useState(trade.takeProfit ? String(trade.takeProfit) : "");
-  const [editLots, setEditLots] = useState(String(trade.lots));
-  const [editTimeframe, setEditTimeframe] = useState(trade.timeframe ?? "");
+  const [editDirection, setEditDirection] = useState<"buy" | "sell">("buy");
+  const [editEntryPrice, setEditEntryPrice] = useState("");
+  const [editExitPrice, setEditExitPrice] = useState("");
+  const [editSL, setEditSL] = useState("");
+  const [editTP, setEditTP] = useState("");
+  const [editLots, setEditLots] = useState("");
+  const [editTimeframe, setEditTimeframe] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
   // Screenshot lightbox
@@ -102,8 +102,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
 
   const fileRef = useRef<HTMLInputElement>(null);
   const chartRef = useRef<TradeChartRef>(null);
-  const handleSaveRef = useRef<() => void>(() => {});
-
+  
   const markDirty = useCallback(() => {
     setIsDirty(true);
     onDirtyChange?.(true);
@@ -137,10 +136,9 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     setEditLots(String(trade.lots));
     setEditTimeframe(trade.timeframe ?? "");
     setLightboxIndex(null);
-  }, [trade._id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [trade, onDirtyChange]);
 
   // Keep editTimeframe in sync when timeframe changes via chart's "Set default"
-  // (trade._id stays the same, only timeframe changes)
   useEffect(() => {
     setEditTimeframe(trade.timeframe ?? "");
   }, [trade.timeframe]);
@@ -156,6 +154,44 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/trade/${trade._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          journaled: true,
+          executionChecklist: checklist,
+          screenshots,
+          preTradeAnalysis,
+          postTradeReview,
+          riskRatio,
+          rewardRatio,
+          emotions,
+          lessonsLearned,
+          tags,
+          rating,
+        }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        onSaved(updated);
+        clearDirty();
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const handleSaveRef = useRef<() => void>(handleSave);
+  
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  }, [handleSave]);
 
   // Force-save event from parent (when switching trades with unsaved changes)
   useEffect(() => {
@@ -228,41 +264,6 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     markDirty();
   };
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/trade/${trade._id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          journaled: true,
-          executionChecklist: checklist,
-          screenshots,
-          preTradeAnalysis,
-          postTradeReview,
-          riskRatio,
-          rewardRatio,
-          emotions,
-          lessonsLearned,
-          tags,
-          rating,
-        }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        onSaved(updated);
-        clearDirty();
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2500);
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // Keep ref current every render so event listener always calls latest save
-  handleSaveRef.current = handleSave;
-
   async function handleApplyEdit() {
     setEditSaving(true);
     try {
@@ -270,7 +271,6 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         direction: editDirection,
         lots: parseFloat(editLots) || trade.lots,
         entryPrice: parseFloat(editEntryPrice) || trade.entryPrice,
-        // Always include timeframe so user can set or clear it explicitly
         timeframe: editTimeframe,
       };
       if (editExitPrice) body.exitPrice = parseFloat(editExitPrice);
@@ -304,7 +304,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         onSaved(updated);
       }
     } catch {
-      // Save failed silently — chart's local state still shows it but DB didn't save
+      // Save failed silently
     }
   }
 
@@ -340,6 +340,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
               ›
             </button>
           )}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={screenshots[lightboxIndex]}
             alt={`Screenshot ${lightboxIndex + 1}`}
@@ -662,6 +663,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                   className="relative group w-28 h-20 rounded-lg overflow-hidden border border-border cursor-pointer"
                   onClick={() => setLightboxIndex(i)}
                 >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={src} alt={`Screenshot ${i + 1}`} className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center">
                     <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-semibold transition">View</span>
