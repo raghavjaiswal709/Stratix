@@ -48,20 +48,44 @@ export function getDailyScore(
 ): number {
   if (habits.length === 0) return 0;
   
-  let totalPoints = 0;
+  let totalWeightedPoints = 0;
+  let totalPossibleWeight = 0;
+
   for (const habit of habits) {
+    const dayOfWeek = parseISO(date).getDay();
+    const isActive = !habit.weekDays?.length || habit.weekDays.includes(dayOfWeek);
+    if (!isActive) continue;
+
+    const weight = habit.weight || 1;
+    totalPossibleWeight += weight;
+
     const log = logs.find((l) => l.habitId === habit.id && l.date === date);
-    if (!log) continue;
 
     if (habit.subHabits && habit.subHabits.length > 0) {
-      const completedCount = log.completedSubHabits?.length || 0;
-      totalPoints += completedCount / habit.subHabits.length;
-    } else if (log.completed) {
-      totalPoints += 1;
+      const activeSubHabits = habit.subHabits.filter(sh => !sh.weekDays?.length || sh.weekDays.includes(dayOfWeek));
+      if (activeSubHabits.length === 0) {
+        if (log?.completed) totalWeightedPoints += weight;
+      } else {
+        let subHabitPoints = 0;
+        let subHabitMax = 0;
+        for (const sh of activeSubHabits) {
+          const shWeight = sh.weight || 1;
+          subHabitMax += shWeight;
+          if (log?.completedSubHabits?.includes(sh.id)) {
+            subHabitPoints += shWeight;
+          }
+        }
+        if (subHabitMax > 0) {
+          totalWeightedPoints += (subHabitPoints / subHabitMax) * weight;
+        }
+      }
+    } else if (log?.completed) {
+      totalWeightedPoints += weight;
     }
   }
   
-  return Math.round((totalPoints / habits.length) * 100);
+  if (totalPossibleWeight === 0) return 0;
+  return Math.round((totalWeightedPoints / totalPossibleWeight) * 100);
 }
 
 /** Average habit score across a timeframe */
@@ -107,10 +131,14 @@ export function getFilteredLogs(
   });
 }
 
-export function isHabitFullyCompleted(habit: Habit, log?: HabitLog): boolean {
+export function isHabitFullyCompleted(habit: Habit, log?: HabitLog, dateStr?: string): boolean {
   if (!log) return false;
   if (habit.subHabits && habit.subHabits.length > 0) {
-    return (log.completedSubHabits?.length || 0) === habit.subHabits.length;
+    const dayOfWeek = parseISO(dateStr || log.date).getDay();
+    const activeSubHabits = habit.subHabits.filter(sh => !sh.weekDays?.length || sh.weekDays.includes(dayOfWeek));
+    if (activeSubHabits.length > 0) {
+      return activeSubHabits.every(sh => log.completedSubHabits?.includes(sh.id));
+    }
   }
   return log.completed;
 }
@@ -125,7 +153,7 @@ export function getHabitCompletionRate(
   const completedDays = days.filter((day) => {
     const dateStr = format(day, "yyyy-MM-dd");
     const log = logs.find((l) => l.habitId === habit.id && l.date === dateStr);
-    return isHabitFullyCompleted(habit, log);
+    return isHabitFullyCompleted(habit, log, dateStr);
   });
   return days.length > 0
     ? Math.round((completedDays.length / days.length) * 100)
@@ -143,7 +171,7 @@ export function getCurrentStreak(
   while (true) {
     const dateStr = format(currentDate, "yyyy-MM-dd");
     const log = logs.find((l) => l.habitId === habit.id && l.date === dateStr);
-    if (!isHabitFullyCompleted(habit, log)) break;
+    if (!isHabitFullyCompleted(habit, log, dateStr)) break;
     streak++;
     currentDate = new Date(currentDate);
     currentDate.setDate(currentDate.getDate() - 1);
@@ -157,7 +185,7 @@ export function getLongestStreak(
   logs: HabitLog[]
 ): number {
   const habitLogs = logs
-    .filter((l) => l.habitId === habit.id && isHabitFullyCompleted(habit, l))
+    .filter((l) => l.habitId === habit.id && isHabitFullyCompleted(habit, l, l.date))
     .map((l) => l.date)
     .sort();
 

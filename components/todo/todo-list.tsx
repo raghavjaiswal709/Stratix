@@ -174,14 +174,17 @@ function TodoRow({
         <button
           onClick={isDropped ? undefined : onToggle}
           disabled={isDropped}
-          className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center shrink-0 transition-transform hover:scale-110 active:scale-95"
-          style={{
-            backgroundColor: isDropped ? "#666" : todo.completed ? "#099981" : "#F23645",
-            border: `2px solid ${isDropped ? "#666" : todo.completed ? "#099981" : "#F23645"}`,
-          }}
+          className={cn(
+            "mt-0.5 h-5 w-5 rounded-full flex items-center justify-center shrink-0 transition-transform hover:scale-110 active:scale-95 border-[1.5px]",
+            isDropped 
+              ? "border-muted bg-muted" 
+              : todo.completed 
+                ? "border-primary bg-transparent" 
+                : "border-muted-foreground/30 bg-transparent hover:border-primary/50"
+          )}
         >
-          {todo.completed && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
-          {isDropped && <Ban className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+          {todo.completed && <div className="h-2.5 w-2.5 rounded-full bg-primary" />}
+          {isDropped && <Ban className="h-3 w-3 text-muted-foreground" strokeWidth={3} />}
         </button>
 
         {/* Content */}
@@ -272,10 +275,12 @@ function TodoRow({
                 <div key={sub.id} className="flex items-center gap-2 group/sub">
                   <button
                     onClick={() => onToggleSubtask(sub.id)}
-                    className="h-3.5 w-3.5 rounded-sm border border-muted-foreground/30 flex items-center justify-center shrink-0"
-                    style={sub.completed ? { backgroundColor: "#099981", borderColor: "#099981" } : {}}
+                    className={cn(
+                      "h-3.5 w-3.5 rounded-sm flex items-center justify-center shrink-0 border",
+                      sub.completed ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/30 bg-transparent"
+                    )}
                   >
-                    {sub.completed && <Check className="h-2 w-2 text-white" strokeWidth={3} />}
+                    {sub.completed && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
                   </button>
                   <span className={cn("text-[12px]", sub.completed && "line-through text-muted-foreground/50")}>{sub.title}</span>
                   <button onClick={() => onDeleteSubtask(sub.id)} className="h-4 w-4 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hidden group-hover/sub:flex">

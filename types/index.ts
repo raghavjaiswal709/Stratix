@@ -12,6 +12,10 @@ export interface UserData {
 export interface SubHabit {
   id: string;
   name: string;
+  color?: string;
+  icon?: string;
+  weekDays?: number[];
+  weight?: number;
 }
 
 export interface Habit {
@@ -21,6 +25,7 @@ export interface Habit {
   icon?: string;        // lucide icon key e.g. "Dumbbell"
   weekDays?: number[];  // 0=Sun..6=Sat; undefined/empty = all days
   category: string;
+  weight: number;       // 1-5 stars
   createdAt: string;
   subHabits?: SubHabit[];
 }

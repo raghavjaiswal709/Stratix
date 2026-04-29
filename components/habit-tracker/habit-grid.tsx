@@ -1,8 +1,8 @@
 ﻿"use client";
 
-import { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState, Fragment } from "react";
 import { useAppContext } from "@/lib/context";
-import { getWeekDates, generateId, getDateRange } from "@/lib/habits";
+import { getWeekDates, generateId, getDateRange, getDailyScore } from "@/lib/habits";
 import { format, eachDayOfInterval } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,13 +19,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreVertical, Pencil, Trash2, Search, X, Check } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Plus, MoreVertical, Pencil, Trash2, Search, X, ChevronDown, ChevronRight, Star } from "lucide-react";
 import {
   HABIT_ICON_MAP,
   HABIT_ICONS_LIST,
@@ -68,14 +63,20 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
   const { habitData, setHabitData } = useAppContext();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [editingSubHabitObj, setEditingSubHabitObj] = useState<{parent: Habit, subHabit: SubHabit} | null>(null);
 
   const [newHabitName,     setNewHabitName]     = useState("");
   const [newHabitIcon,     setNewHabitIcon]     = useState<HabitIconKey | "">("");
   const [newHabitColor,    setNewHabitColor]    = useState(COLOR_OPTIONS[0]);
   const [newHabitCategory, setNewHabitCategory] = useState("");
+  const [newHabitWeight,   setNewHabitWeight]   = useState(1);
   const [newHabitWeekDays, setNewHabitWeekDays] = useState<number[]>(ALL_DAYS);
   const [newSubHabits,     setNewSubHabits]     = useState<SubHabit[]>([]);
   const [subHabitInput,    setSubHabitInput]    = useState("");
+  const [editingSubHabitId, setEditingSubHabitId] = useState<string | null>(null);
+  const [expandedHabits,   setExpandedHabits]   = useState<Record<string, boolean>>({});
+
+  const [showAll,          setShowAll]          = useState(false);
 
   // Icon picker search / category state
   const [iconSearch,   setIconSearch]   = useState("");
@@ -119,17 +120,22 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
       const becomingCompleted = existing ? !existing.completed : true;
       if (becomingCompleted) fireConfetti();
 
+      const getActiveSh = (h) => {
+        const d = new Date(date).getDay();
+        return h.subHabits?.filter(sh => !sh.weekDays?.length || sh.weekDays.includes(d)) || [];
+      };
+
       const newLogs = existing
         ? habitData.logs.map((l) =>
             l.habitId === habitId && l.date === date
-              ? { ...l, completed: !l.completed, completedSubHabits: !l.completed ? (habitData.habits.find(h => h.id === habitId)?.subHabits?.map(sh => sh.id) || []) : [] }
+              ? { ...l, completed: !l.completed, completedSubHabits: !l.completed ? getActiveSh(habitData.habits.find(h => h.id === habitId)).map(sh => sh.id) : [] }
               : l
           )
         : [...habitData.logs, { 
             habitId, 
             date, 
             completed: true, 
-            completedSubHabits: habitData.habits.find(h => h.id === habitId)?.subHabits?.map(sh => sh.id) || [] 
+            completedSubHabits: getActiveSh(habitData.habits.find(h => h.id === habitId)).map(sh => sh.id) 
           }];
       setHabitData({ ...habitData, logs: newLogs });
     },
@@ -154,7 +160,9 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
           ? completedSubHabits.filter(id => id !== subHabitId)
           : [...completedSubHabits, subHabitId];
         
-        const allDone = !!(habit.subHabits && nextSubHabits.length === habit.subHabits.length);
+        const dayOfWeek = new Date(date).getDay();
+        const activeSubHabits = habit.subHabits?.filter(sh => !sh.weekDays?.length || sh.weekDays.includes(dayOfWeek)) || [];
+        const allDone = activeSubHabits.length > 0 && activeSubHabits.every(sh => nextSubHabits.includes(sh.id));
         
         if (allDone && !existingLog.completed) fireConfetti();
 
@@ -165,7 +173,9 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
         );
       } else {
         const nextSubHabits = [subHabitId];
-        const allDone = !!(habit.subHabits && nextSubHabits.length === habit.subHabits.length);
+        const dayOfWeek = new Date(date).getDay();
+        const activeSubHabits = habit.subHabits?.filter(sh => !sh.weekDays?.length || sh.weekDays.includes(dayOfWeek)) || [];
+        const allDone = activeSubHabits.length > 0 && activeSubHabits.every(sh => nextSubHabits.includes(sh.id));
         if (allDone) fireConfetti();
         
         newLogs = [...habitData.logs, {
@@ -186,21 +196,22 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     [habitData.logs]
   );
 
-  const isChecked = useCallback(
-    (habitId: string, date: string): boolean => {
-      const log = getLog(habitId, date);
-      if (!log) return false;
-      return log.completed;
-    },
-    [getLog]
-  );
-
   const getCompletionRatio = useCallback(
     (habit: Habit, date: string): number => {
       const log = getLog(habit.id, date);
       if (!log) return 0;
-      if (!habit.subHabits || habit.subHabits.length === 0) return log.completed ? 1 : 0;
-      return (log.completedSubHabits?.length || 0) / habit.subHabits.length;
+      const dayOfWeek = new Date(date).getDay();
+      const activeSubHabits = habit.subHabits?.filter(sh => !sh.weekDays?.length || sh.weekDays.includes(dayOfWeek)) || [];
+      if (activeSubHabits.length === 0) return log.completed ? 1 : 0;
+      
+      let points = 0;
+      let maxPoints = 0;
+      activeSubHabits.forEach(sh => {
+        const w = sh.weight || 1;
+        maxPoints += w;
+        if (log.completedSubHabits?.includes(sh.id)) points += w;
+      });
+      return maxPoints > 0 ? points / maxPoints : 0;
     },
     [getLog]
   );
@@ -211,9 +222,11 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     setNewHabitIcon("");
     setNewHabitColor(COLOR_OPTIONS[0]);
     setNewHabitCategory("");
+    setNewHabitWeight(1);
     setNewHabitWeekDays(ALL_DAYS);
     setNewSubHabits([]);
     setSubHabitInput("");
+    setEditingSubHabitId(null);
     setIconSearch("");
     setIconCategory("All");
   };
@@ -223,6 +236,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
   const closeDialog = () => {
     setShowAddDialog(false);
     setEditingHabit(null);
+    setEditingSubHabitObj(null);
     resetForm();
   };
 
@@ -235,6 +249,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
       icon: newHabitIcon,
       weekDays: newHabitWeekDays,
       category: newHabitCategory,
+      weight: newHabitWeight,
       subHabits: newSubHabits.length > 0 ? newSubHabits : undefined,
       createdAt: new Date().toISOString(),
     };
@@ -246,7 +261,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     if (!editingHabit || !newHabitName.trim() || !newHabitIcon) return;
     const updated = habitData.habits.map((h) =>
       h.id === editingHabit.id
-        ? { ...h, name: newHabitName, color: newHabitColor, icon: newHabitIcon, weekDays: newHabitWeekDays, category: newHabitCategory, subHabits: newSubHabits.length > 0 ? newSubHabits : undefined }
+        ? { ...h, name: newHabitName, color: newHabitColor, icon: newHabitIcon, weekDays: newHabitWeekDays, category: newHabitCategory, weight: newHabitWeight, subHabits: newSubHabits.length > 0 ? newSubHabits : undefined }
         : h
     );
     setHabitData({ ...habitData, habits: updated });
@@ -260,12 +275,52 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     });
   };
 
+  const updateSubHabitObj = () => {
+    if (!editingSubHabitObj || !newHabitName.trim() || !newHabitIcon) return;
+    const { parent, subHabit } = editingSubHabitObj;
+    const updated = habitData.habits.map((h) => {
+      if (h.id === parent.id && h.subHabits) {
+        return {
+          ...h,
+          subHabits: h.subHabits.map((sh) =>
+            sh.id === subHabit.id
+              ? { ...sh, name: newHabitName, icon: newHabitIcon, color: newHabitColor, weight: newHabitWeight, weekDays: newHabitWeekDays }
+              : sh
+          )
+        };
+      }
+      return h;
+    });
+    setHabitData({ ...habitData, habits: updated });
+    closeDialog();
+  };
+
+  const startEditSubHabit = (parent: Habit, subHabit: SubHabit) => {
+    setEditingSubHabitObj({ parent, subHabit });
+    setNewHabitName(subHabit.name);
+    setNewHabitIcon((subHabit.icon as HabitIconKey) || parent.icon || "");
+    setNewHabitColor(subHabit.color || parent.color || COLOR_OPTIONS[0]);
+    setNewHabitWeight(subHabit.weight || 1);
+    setNewHabitWeekDays(subHabit.weekDays?.length ? subHabit.weekDays : ALL_DAYS);
+  };
+
+  const deleteSubHabitDirect = (parent: Habit, subHabitId: string) => {
+    const updated = habitData.habits.map((h) => {
+      if (h.id === parent.id && h.subHabits) {
+        return { ...h, subHabits: h.subHabits.filter(sh => sh.id !== subHabitId) };
+      }
+      return h;
+    });
+    setHabitData({ ...habitData, habits: updated });
+  };
+
   const startEdit = (habit: Habit) => {
     setEditingHabit(habit);
     setNewHabitName(habit.name);
     setNewHabitIcon((habit.icon as HabitIconKey) || "");
     setNewHabitColor(habit.color || COLOR_OPTIONS[0]);
     setNewHabitCategory(habit.category);
+    setNewHabitWeight(habit.weight || 1);
     setNewHabitWeekDays(habit.weekDays?.length ? habit.weekDays : ALL_DAYS);
     setNewSubHabits(habit.subHabits || []);
   };
@@ -292,16 +347,54 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     !!newHabitName.trim() && !!newHabitIcon && newHabitWeekDays.length > 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const getDayRating = useCallback(
+    (dateStr: string): number => {
+      const score = getDailyScore(habitData.habits, habitData.logs, dateStr);
+      // Score is 0-100, we want 0-5 stars
+      return (score / 100) * 5;
+    },
+    [habitData]
+  );
+
+  const renderStars = (rating: number) => {
+    return (
+      <div className="flex items-center justify-center">
+        {[1, 2, 3, 4, 5].map((s) => {
+          const fillAmount = Math.max(0, Math.min(1, rating - (s - 1)));
+          return (
+            <div key={s} className="relative h-3 w-3">
+              <Star className="h-3 w-3 text-muted-foreground/30 absolute inset-0" />
+              {fillAmount > 0 && (
+                <div
+                  className="absolute inset-0 overflow-hidden"
+                  style={{ width: `${fillAmount * 100}%` }}
+                >
+                  <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   const isWideView = displayDates.length > 7;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Habit Grid</h2>
-        <Button size="sm" onClick={openAdd} className="gap-1">
-          <Plus className="h-4 w-4" />
-          Add Habit
-        </Button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="show-all" className="text-xs text-muted-foreground cursor-pointer leading-none m-0 pt-0.5">Show All</Label>
+            <Switch id="show-all" checked={showAll} onCheckedChange={setShowAll} className="scale-75 origin-right m-0" />
+          </div>
+          <Button size="sm" onClick={openAdd} className="gap-1">
+            <Plus className="h-4 w-4" />
+            Add Habit
+          </Button>
+        </div>
       </div>
 
       {/* Responsive table — horizontal scroll for wide timeframes */}
@@ -349,170 +442,256 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
             </tr>
           </thead>
           <tbody>
-            {habitData.habits.map((habit) => (
-              <tr key={habit.id}>
-                {/* Name / icon cell */}
+            {/* Day Rating Row */}
+            {habitData.habits.length > 0 && (
+              <tr style={{ background: "var(--table-header-bg)" }}>
                 <td
-                  className="p-0"
+                  className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
                   style={{ border: "1px solid var(--table-border)" }}
                 >
-                  {/* Mobile: icon is the dropdown trigger */}
-                  <div className="md:hidden flex items-center justify-center py-2.5">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger render={
-                        <button className="flex items-center justify-center h-7 w-7 rounded hover:bg-muted transition-colors">
-                          <HabitIconComp
-                            iconKey={habit.icon}
-                            size={14}
-                            color={habit.color || "#6366f1"}
-                          />
-                        </button>
-                      } />
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuItem onClick={() => startEdit(habit)}>
-                          <Pencil className="mr-2 h-3 w-3" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => deleteHabit(habit.id)}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-3 w-3" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {/* Desktop: icon + name + menu button */}
-                  <div className="hidden md:flex items-center gap-2 px-3 py-2">
-                    <HabitIconComp
-                      iconKey={habit.icon}
-                      size={14}
-                      color={habit.color || "#6366f1"}
-                    />
-                    <span className="text-sm font-medium truncate flex-1">
-                      {habit.name}
-                    </span>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger render={
-                        <button className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                          <MoreVertical className="h-3 w-3" />
-                        </button>
-                      } />
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuItem onClick={() => startEdit(habit)}>
-                          <Pencil className="mr-2 h-3 w-3" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => deleteHabit(habit.id)}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-3 w-3" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                  Day Rating
                 </td>
-
-                {/* Day cells */}
                 {displayDates.map((date, i) => {
-                  const dateStr   = format(date, "yyyy-MM-dd");
-                  const dayOfWeek = date.getDay();
-                  const isActive  =
-                    !habit.weekDays?.length ||
-                    habit.weekDays.includes(dayOfWeek);
-                  const ratio = getCompletionRatio(habit, dateStr);
-                  const cellH = isWideView ? "h-7" : "h-9 md:h-10";
-                  
-                  if (!isActive) {
-                    return (
-                      <td key={i} className="p-0" style={{ border: "1px solid var(--table-border)" }}>
-                        <div className={`w-full ${cellH}`} style={{ background: "var(--table-header-bg)" }} />
-                      </td>
-                    );
-                  }
-
-                  if (habit.subHabits && habit.subHabits.length > 0) {
-                    const log = getLog(habit.id, dateStr);
-                    const completedIds = log?.completedSubHabits || [];
-                    
-                    return (
-                      <td key={i} className="p-0" style={{ border: "1px solid var(--table-border)" }}>
-                        <Popover>
-                          <PopoverTrigger render={
-                            <button
-                              className={`w-full ${cellH} transition-all flex items-center justify-center relative overflow-hidden group`}
-                              style={{
-                                backgroundColor: ratio === 1 ? "#099981" : ratio > 0 ? "#09998120" : "#F2364520",
-                              }}
-                            >
-                              {/* Progress bar background */}
-                              {ratio > 0 && ratio < 1 && (
-                                <div 
-                                  className="absolute left-0 top-0 bottom-0 bg-[#099981] opacity-40 transition-all"
-                                  style={{ width: `${ratio * 100}%` }}
-                                />
-                              )}
-                              
-                              <span className="relative z-10 text-[10px] font-bold text-foreground/70 group-hover:text-foreground">
-                                {ratio === 1 ? <Check className="h-3 w-3" strokeWidth={3} /> : `${Math.round(ratio * 100)}%`}
-                              </span>
-                            </button>
-                          } />
-                          <PopoverContent className="w-56 p-3" align="center">
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{habit.name}</p>
-                                <p className="text-[10px] font-medium bg-muted px-1.5 py-0.5 rounded">{format(date, "MMM d")}</p>
-                              </div>
-                              <div className="space-y-2">
-                                {habit.subHabits.map((sh) => (
-                                  <div key={sh.id} className="flex items-center space-x-2">
-                                    <Checkbox 
-                                      id={`sh-${sh.id}-${dateStr}`}
-                                      checked={completedIds.includes(sh.id)}
-                                      onCheckedChange={() => toggleSubHabit(habit.id, sh.id, dateStr)}
-                                    />
-                                    <label
-                                      htmlFor={`sh-${sh.id}-${dateStr}`}
-                                      className={cn(
-                                        "text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer",
-                                        completedIds.includes(sh.id) && "line-through text-muted-foreground"
-                                      )}
-                                    >
-                                      {sh.name}
-                                    </label>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                      </td>
-                    );
-                  }
-
+                  const dateStr = format(date, "yyyy-MM-dd");
+                  const rating = getDayRating(dateStr);
                   return (
                     <td
                       key={i}
-                      className="p-0"
+                      className="p-1 text-center"
                       style={{ border: "1px solid var(--table-border)" }}
                     >
-                      <button
-                        onClick={() => toggleHabit(habit.id, dateStr)}
-                        className={`w-full ${cellH} transition-opacity hover:opacity-80 active:opacity-60`}
-                        style={{
-                          backgroundColor: ratio === 1 ? "#099981" : "#F23645",
-                        }}
-                        aria-label={`${habit.name} ${DAY_FULL[dayOfWeek]} ${ratio === 1 ? "done" : "not done"}`}
-                      />
+                      {renderStars(rating)}
                     </td>
                   );
                 })}
               </tr>
-            ))}
+            )}
+
+            {habitData.habits.map((habit) => {
+              if (!showAll) {
+                const todayDayOfWeek = new Date().getDay();
+                const isHabitActiveToday = !habit.weekDays?.length || habit.weekDays.includes(todayDayOfWeek);
+                if (!isHabitActiveToday) return null;
+              }
+
+              const hasSubHabits = habit.subHabits && habit.subHabits.length > 0;
+              const isExpanded = expandedHabits[habit.id];
+              return (
+              <Fragment key={habit.id}>
+                <tr>
+                  {/* Name / icon cell */}
+                  <td
+                    className="p-0"
+                    style={{ border: "1px solid var(--table-border)" }}
+                  >
+                    {/* Mobile: icon is the dropdown trigger */}
+                    <div className="md:hidden flex items-center py-2.5 px-1">
+                      {hasSubHabits && (
+                        <button
+                          onClick={() => setExpandedHabits(prev => ({ ...prev, [habit.id]: !prev[habit.id] }))}
+                          className="mr-1 text-muted-foreground hover:text-foreground"
+                        >
+                          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </button>
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger render={
+                          <button className="flex items-center justify-center h-7 w-7 rounded hover:bg-muted transition-colors">
+                            <HabitIconComp
+                              iconKey={habit.icon}
+                              size={14}
+                              color={habit.color || "#6366f1"}
+                            />
+                          </button>
+                        } />
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuItem onClick={() => startEdit(habit)}>
+                            <Pencil className="mr-2 h-3 w-3" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => deleteHabit(habit.id)}
+                            className="text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-3 w-3" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    {/* Desktop: icon + name + menu button */}
+                    <div className="hidden md:flex flex-col gap-0.5 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        {hasSubHabits ? (
+                          <button
+                            onClick={() => setExpandedHabits(prev => ({ ...prev, [habit.id]: !prev[habit.id] }))}
+                            className="text-muted-foreground hover:text-foreground -ml-1"
+                          >
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </button>
+                        ) : (
+                          <div className="w-4 ml-1" />
+                        )}
+                        <HabitIconComp
+                          iconKey={habit.icon}
+                          size={14}
+                          color={habit.color || "#6366f1"}
+                        />
+                        <span className="text-sm font-medium truncate flex-1">
+                          {habit.name}
+                        </span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger render={
+                            <button className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                              <MoreVertical className="h-3 w-3" />
+                            </button>
+                          } />
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => startEdit(habit)}>
+                              <Pencil className="mr-2 h-3 w-3" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => deleteHabit(habit.id)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-3 w-3" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      <div className="flex gap-0.5 ml-7">
+                        {Array.from({ length: habit.weight || 1 }).map((_, i) => (
+                          <Star key={i} className="h-2.5 w-2.5 fill-yellow-400/60 text-yellow-400/60" />
+                        ))}
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Day cells */}
+                  {displayDates.map((date, i) => {
+                    const dateStr   = format(date, "yyyy-MM-dd");
+                    const dayOfWeek = date.getDay();
+                    const isActive  =
+                      !habit.weekDays?.length ||
+                      habit.weekDays.includes(dayOfWeek);
+                    const ratio = getCompletionRatio(habit, dateStr);
+                    const cellH = isWideView ? "h-7" : "h-9 md:h-10";
+                    
+                    if (!isActive) {
+                      return (
+                        <td key={i} className="p-0" style={{ border: "1px solid var(--table-border)" }}>
+                          <div className={`w-full ${cellH}`} style={{ background: "var(--table-header-bg)" }} />
+                        </td>
+                      );
+                    }
+
+                    return (
+                      <td
+                        key={i}
+                        className="p-0"
+                        style={{ border: "1px solid var(--table-border)", background: "var(--background)" }}
+                      >
+                        <button
+                          onClick={() => toggleHabit(habit.id, dateStr)}
+                          className={cn(
+                            `w-full ${cellH} transition-all relative overflow-hidden flex items-center justify-center`,
+                            ratio === 1 ? "bg-foreground hover:opacity-90" : "hover:bg-muted/50"
+                          )}
+                          aria-label={`${habit.name} ${DAY_FULL[dayOfWeek]}`}
+                        >
+                          {ratio > 0 && ratio < 1 && (
+                            <div
+                              className="absolute left-0 top-0 bottom-0 bg-foreground opacity-40 transition-all"
+                              style={{ width: `${ratio * 100}%` }}
+                            />
+                          )}
+                        </button>
+                      </td>                    );
+                  })}
+                </tr>
+                
+                {/* Expanded Sub-habits */}
+                {hasSubHabits && isExpanded && habit.subHabits.map((sh) => {
+                  if (!showAll) {
+                    const todayDayOfWeek = new Date().getDay();
+                    const shActive = !sh.weekDays?.length || sh.weekDays.includes(todayDayOfWeek);
+                    if (!shActive) return null;
+                  }
+                  return (
+                  <tr key={sh.id} className="bg-muted/10">
+                    <td
+                      className="p-0"
+                      style={{ border: "1px solid var(--table-border)" }}
+                    >
+                      <div className="flex items-center gap-2 pl-10 md:pl-12 pr-3 py-2">
+                        <HabitIconComp iconKey={sh.icon || habit.icon} size={12} color={sh.color || habit.color} />
+                        <span className="text-xs text-muted-foreground truncate flex-1">
+                          {sh.name}
+                        </span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger render={
+                            <button className="h-5 w-5 shrink-0 inline-flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors ml-1">
+                              <MoreVertical className="h-3 w-3" />
+                            </button>
+                          } />
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => startEditSubHabit(habit, sh)}>
+                              <Pencil className="mr-2 h-3 w-3" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => deleteSubHabitDirect(habit, sh.id)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-3 w-3" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </td>
+                    {displayDates.map((date, i) => {
+                      const dateStr   = format(date, "yyyy-MM-dd");
+                      const dayOfWeek = date.getDay();
+                      const parentActive = !habit.weekDays?.length || habit.weekDays.includes(dayOfWeek);
+                      const shActive = !sh.weekDays?.length || sh.weekDays.includes(dayOfWeek);
+                      const isActive = parentActive && shActive;
+                      const cellH = isWideView ? "h-7" : "h-9 md:h-10";
+                      
+                      if (!isActive) {
+                        return (
+                          <td key={i} className="p-0" style={{ border: "1px solid var(--table-border)" }}>
+                            <div className={`w-full ${cellH}`} style={{ background: "var(--table-header-bg)" }} />
+                          </td>
+                        );
+                      }
+
+                      const log = getLog(habit.id, dateStr);
+                      const isCompleted = log?.completedSubHabits?.includes(sh.id) || false;
+
+                      return (
+                        <td
+                          key={i}
+                          className="p-0"
+                          style={{ border: "1px solid var(--table-border)", background: "var(--background)" }}
+                        >
+                          <button
+                            onClick={() => toggleSubHabit(habit.id, sh.id, dateStr)}
+                            className={cn(
+                              `w-full ${cellH} transition-all`,
+                              isCompleted ? "bg-foreground hover:opacity-90" : "hover:bg-muted/50"
+                            )}
+                            aria-label={`${sh.name} ${DAY_FULL[dayOfWeek]}`}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )})}
+              </Fragment>
+            )})}
             {habitData.habits.length === 0 && (
               <tr>
                 <td
@@ -530,13 +709,13 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
 
       {/* Add / Edit Dialog */}
       <Dialog
-        open={showAddDialog || !!editingHabit}
+        open={showAddDialog || !!editingHabit || !!editingSubHabitObj}
         onOpenChange={(o) => !o && closeDialog()}
       >
         <DialogContent className="max-w-md max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingHabit ? "Edit Habit" : "Add New Habit"}
+              {editingSubHabitObj ? "Edit Sub-Habit" : editingHabit ? "Edit Habit" : "Add New Habit"}
             </DialogTitle>
           </DialogHeader>
 
@@ -661,7 +840,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                 placeholder="e.g., Read 30 minutes"
                 value={newHabitName}
                 onChange={(e) => setNewHabitName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && canSubmit && (editingHabit ? updateHabit() : addHabit())}
+                onKeyDown={(e) => e.key === "Enter" && canSubmit && (editingSubHabitObj ? updateSubHabitObj() : editingHabit ? updateHabit() : addHabit())}
               />
             </div>
 
@@ -722,6 +901,33 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
               </p>
             </div>
 
+            {/* ── Habit Weight ── */}
+            <div className="space-y-2">
+              <Label>Habit Weight (Importance)</Label>
+              <div className="flex gap-2">
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setNewHabitWeight(s)}
+                    className="transition-transform hover:scale-110"
+                  >
+                    <Star
+                      className={cn(
+                        "h-6 w-6",
+                        s <= newHabitWeight ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"
+                      )}
+                    />
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Higher weight makes this habit more significant for your daily score.
+              </p>
+            </div>
+
+            {!editingSubHabitObj && (
+            <>
             {/* ── Category ── */}
             <div className="space-y-2">
               <Label>Category (optional)</Label>
@@ -756,27 +962,102 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
               {newSubHabits.length > 0 && (
                 <div className="space-y-2 bg-muted/30 p-2 rounded-md border border-border">
                   {newSubHabits.map((sh) => (
-                    <div key={sh.id} className="flex items-center justify-between gap-2 bg-background p-2 rounded border border-border group">
-                      <span className="text-sm">{sh.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeSubHabit(sh.id)}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
+                    <div key={sh.id} className="flex flex-col gap-2 bg-background p-2 rounded border border-border">
+                      <div className="flex items-center justify-between group">
+                        <div className="flex items-center gap-2">
+                          <HabitIconComp iconKey={sh.icon || newHabitIcon} size={14} color={sh.color || newHabitColor} />
+                          <span className="text-sm font-medium">{sh.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={() => setEditingSubHabitId(editingSubHabitId === sh.id ? null : sh.id)}
+                            className="p-1 text-muted-foreground hover:text-foreground transition-colors rounded"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeSubHabit(sh.id)}
+                            className="p-1 text-muted-foreground hover:text-destructive transition-colors rounded"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {editingSubHabitId === sh.id && (
+                        <div className="space-y-3 pt-2 border-t border-border mt-1">
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Sub-Habit Name</Label>
+                            <Input 
+                              value={sh.name}
+                              onChange={(e) => setNewSubHabits(newSubHabits.map(x => x.id === sh.id ? { ...x, name: e.target.value } : x))}
+                              className="h-7 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Active Days (Different every day?)</Label>
+                            <div className="flex gap-1">
+                              {DAY_LETTERS.map((letter, i) => {
+                                const active = !sh.weekDays?.length || sh.weekDays.includes(i);
+                                return (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    onClick={() => {
+                                      const current = sh.weekDays || ALL_DAYS;
+                                      const next = current.includes(i) ? current.filter(d => d !== i) : [...current, i].sort((a,b) => a-b);
+                                      setNewSubHabits(newSubHabits.map(x => x.id === sh.id ? { ...x, weekDays: next.length === 7 ? undefined : next } : x));
+                                    }}
+                                    className={cn(
+                                      "flex-1 h-6 rounded-md text-[10px] font-semibold transition-all",
+                                      !active && "bg-muted text-muted-foreground"
+                                    )}
+                                    style={active ? { backgroundColor: newHabitColor, color: "#fff" } : undefined}
+                                  >
+                                    {letter}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Weight (Importance)</Label>
+                            <div className="flex gap-1">
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  onClick={() => setNewSubHabits(newSubHabits.map(x => x.id === sh.id ? { ...x, weight: s } : x))}
+                                  className="transition-transform hover:scale-110"
+                                >
+                                  <Star
+                                    className={cn(
+                                      "h-4 w-4",
+                                      s <= (sh.weight || 1) ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"
+                                    )}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
             </div>
+            </>
+          )}
 
             <Button
-              onClick={editingHabit ? updateHabit : addHabit}
+              onClick={editingSubHabitObj ? updateSubHabitObj : editingHabit ? updateHabit : addHabit}
               className="w-full"
               disabled={!canSubmit}
             >
-              {editingHabit ? "Update Habit" : "Add Habit"}
+              {editingSubHabitObj ? "Update Sub-Habit" : editingHabit ? "Update Habit" : "Add Habit"}
             </Button>
           </div>
         </DialogContent>
