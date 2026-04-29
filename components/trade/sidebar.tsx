@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useAppContext } from "@/lib/context";
 import {
@@ -9,7 +9,6 @@ import {
   ArrowLeftRight,
   BookOpen,
   LogOut,
-  TrendingUp,
   ListTodo,
   Activity,
   PenLine,
@@ -44,7 +43,6 @@ interface TradeSidebarProps {
 
 export function TradeSidebar({ open, onClose }: TradeSidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const { data: session } = useSession();
   const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme } = useAppContext();
 

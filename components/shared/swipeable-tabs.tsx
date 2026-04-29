@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback, type ReactNode } from "react";
+import { useRef, useCallback, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface SwipeableTabsProps {
@@ -21,7 +21,6 @@ export function SwipeableTabs({
   className,
 }: SwipeableTabsProps) {
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-  const [swiping, setSwiping] = useState(false);
 
   const activeIndex = tabs.findIndex((t) => t.value === activeTab);
 
@@ -31,7 +30,6 @@ export function SwipeableTabs({
       y: e.touches[0].clientY,
       time: Date.now(),
     };
-    setSwiping(false);
   }, []);
 
   const handleTouchEnd = useCallback(
@@ -50,7 +48,6 @@ export function SwipeableTabs({
         }
       }
       touchStartRef.current = null;
-      setSwiping(false);
     },
     [activeIndex, tabs, onTabChange]
   );

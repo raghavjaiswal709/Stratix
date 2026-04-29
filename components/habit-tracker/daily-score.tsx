@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useAppContext } from "@/lib/context";
 import { getDailyScore, getScoreColor, getScoreTextColor, getWeekDates, getDateRange } from "@/lib/habits";
-import { format, eachDayOfInterval, eachWeekOfInterval, startOfWeek, endOfWeek, eachMonthOfInterval, startOfMonth, endOfMonth } from "date-fns";
+import { format, eachDayOfInterval, eachWeekOfInterval, endOfWeek, eachMonthOfInterval, endOfMonth } from "date-fns";
 import type { TimeFrame } from "@/types";
 
 interface DailyScoreProps {

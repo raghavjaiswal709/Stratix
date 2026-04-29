@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Image from "next/image";
 import { useAppContext } from "@/lib/context";
 import {
   Table,
@@ -398,12 +399,15 @@ export function TradeTable() {
                     <p className="text-xs text-muted-foreground mb-2">Screenshots</p>
                     <div className="grid grid-cols-2 gap-2">
                       {selectedTrade.images.map((img, i) => (
-                        <img
-                          key={i}
-                          src={img}
-                          alt={`Trade screenshot ${i + 1}`}
-                          className="rounded-md border w-full object-cover"
-                        />
+                        <div key={i} className="relative aspect-video w-full">
+                          <Image
+                            src={img}
+                            alt={`Trade screenshot ${i + 1}`}
+                            fill
+                            className="rounded-md border object-cover"
+                            unoptimized
+                          />
+                        </div>
                       ))}
                     </div>
                   </div>

@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Plus,
-  Pencil,
   Trash2,
   MoreVertical,
   Pin,

@@ -89,6 +89,7 @@ export function OnboardingModal({ open, onClose }: OnboardingModalProps) {
         icon: h.icon,
         weekDays: [0, 1, 2, 3, 4, 5, 6],
         category: h.category || "",
+        weight: 1,
         createdAt: new Date().toISOString(),
       }));
 

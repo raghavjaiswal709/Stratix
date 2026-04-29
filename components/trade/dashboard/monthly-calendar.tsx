@@ -6,12 +6,10 @@ import {
   startOfMonth,
   endOfMonth,
   eachDayOfInterval,
-  getDay,
   addMonths,
   subMonths,
   parseISO,
   isSameDay,
-  startOfWeek,
   endOfWeek,
   eachWeekOfInterval,
 } from "date-fns";

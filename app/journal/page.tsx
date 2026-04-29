@@ -118,7 +118,7 @@ export default function JournalPage() {
       });
     }, 0);
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [sharedTrades]);
 
   const selectedTrade = trades.find((t) => t._id === selectedId);

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
+import Image from "next/image";
 import { useAppContext } from "@/lib/context";
 import { generateId, calculatePnL, calculatePnLPercent, calculateRRR, determineResult } from "@/lib/trades";
 import {
@@ -21,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, X, ImagePlus, Trash2 } from "lucide-react";
+import { Plus, X, ImagePlus } from "lucide-react";
 import type { Trade, TradeType, AssetClass, Timeframe, EmotionalState } from "@/types";
 
 interface TradeFormProps {
@@ -471,7 +472,7 @@ export function TradeForm({ open, onClose, editTrade }: TradeFormProps) {
               <div className="flex flex-wrap gap-2">
                 {(formData.images || []).map((img, i) => (
                   <div key={i} className="relative h-20 w-20 rounded-md overflow-hidden border group">
-                    <img src={img} alt={`Screenshot ${i + 1}`} className="h-full w-full object-cover" />
+                    <Image src={img} alt={`Screenshot ${i + 1}`} fill className="object-cover" unoptimized />
                     <button
                       onClick={() => removeImage(i)}
                       className="absolute top-0.5 right-0.5 h-5 w-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"

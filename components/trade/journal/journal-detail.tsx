@@ -115,32 +115,38 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
 
   // Reset all state when trade switches
   useEffect(() => {
-    setChecklist(trade.executionChecklist ?? []);
-    setScreenshots(trade.screenshots ?? []);
-    setPreTradeAnalysis(trade.preTradeAnalysis ?? "");
-    setPostTradeReview(trade.postTradeReview ?? "");
-    setRiskRatio(trade.riskRatio ?? 1);
-    setRewardRatio(trade.rewardRatio ?? 2);
-    setEmotions(trade.emotions ?? "");
-    setLessonsLearned(trade.lessonsLearned ?? "");
-    setTags(trade.tags ?? []);
-    setRating(trade.rating ?? 5);
-    setIsDirty(false);
-    onDirtyChange?.(false);
-    setEditOpen(false);
-    setEditDirection(trade.direction);
-    setEditEntryPrice(String(trade.entryPrice));
-    setEditExitPrice(trade.exitPrice ? String(trade.exitPrice) : "");
-    setEditSL(trade.stopLoss ? String(trade.stopLoss) : "");
-    setEditTP(trade.takeProfit ? String(trade.takeProfit) : "");
-    setEditLots(String(trade.lots));
-    setEditTimeframe(trade.timeframe ?? "");
-    setLightboxIndex(null);
+    const timer = setTimeout(() => {
+      setChecklist(trade.executionChecklist ?? []);
+      setScreenshots(trade.screenshots ?? []);
+      setPreTradeAnalysis(trade.preTradeAnalysis ?? "");
+      setPostTradeReview(trade.postTradeReview ?? "");
+      setRiskRatio(trade.riskRatio ?? 1);
+      setRewardRatio(trade.rewardRatio ?? 2);
+      setEmotions(trade.emotions ?? "");
+      setLessonsLearned(trade.lessonsLearned ?? "");
+      setTags(trade.tags ?? []);
+      setRating(trade.rating ?? 5);
+      setIsDirty(false);
+      onDirtyChange?.(false);
+      setEditOpen(false);
+      setEditDirection(trade.direction);
+      setEditEntryPrice(String(trade.entryPrice));
+      setEditExitPrice(trade.exitPrice ? String(trade.exitPrice) : "");
+      setEditSL(trade.stopLoss ? String(trade.stopLoss) : "");
+      setEditTP(trade.takeProfit ? String(trade.takeProfit) : "");
+      setEditLots(String(trade.lots));
+      setEditTimeframe(trade.timeframe ?? "");
+      setLightboxIndex(null);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [trade, onDirtyChange]);
 
   // Keep editTimeframe in sync when timeframe changes via chart's "Set default"
   useEffect(() => {
-    setEditTimeframe(trade.timeframe ?? "");
+    const timer = setTimeout(() => {
+      setEditTimeframe(trade.timeframe ?? "");
+    }, 0);
+    return () => clearTimeout(timer);
   }, [trade.timeframe]);
 
   // beforeunload guard
@@ -155,7 +161,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
-  async function handleSave() {
+  const handleSave = useCallback(async () => {
     setSaving(true);
     try {
       const res = await fetch(`/api/trade/${trade._id}`, {
@@ -185,7 +191,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     } finally {
       setSaving(false);
     }
-  }
+  }, [trade._id, checklist, screenshots, preTradeAnalysis, postTradeReview, riskRatio, rewardRatio, emotions, lessonsLearned, tags, rating, onSaved, clearDirty]);
 
   const handleSaveRef = useRef<() => void>(handleSave);
   

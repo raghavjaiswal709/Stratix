@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown, Filter, X } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Filter, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/context";
 import type { JournalDetailTrade } from "./journal-detail";

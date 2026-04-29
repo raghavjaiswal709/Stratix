@@ -9,7 +9,6 @@ import { useEffect, useState, useRef } from "react";
 import { 
   Heading1, 
   Heading2, 
-  Heading3, 
   List, 
   ListOrdered, 
   Quote, 
@@ -221,7 +220,7 @@ export function RichEditor({ content, onChange, editable }: RichEditorProps) {
   );
 }
 
-function ToolbarButton({ active, onClick, icon: Icon }: { active: boolean, onClick: () => void, icon: any }) {
+function ToolbarButton({ active, onClick, icon: Icon }: { active: boolean, onClick: () => void, icon: React.ElementType }) {
   return (
     <button
       onClick={onClick}

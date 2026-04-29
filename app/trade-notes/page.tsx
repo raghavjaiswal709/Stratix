@@ -114,16 +114,19 @@ export default function TradeNotesPage() {
 
   // Effect: sync local edit state when selected note changes
   useEffect(() => {
-    if (selectedNote) {
-      setEditTitle(selectedNote.title);
-      setEditContent(selectedNote.content);
-      setIsEditing(false);
-      setIsPreview(false);
-    } else {
-      setEditTitle("");
-      setEditContent("");
-      setIsEditing(false);
-    }
+    const timer = setTimeout(() => {
+      if (selectedNote) {
+        setEditTitle(selectedNote.title);
+        setEditContent(selectedNote.content);
+        setIsEditing(false);
+        setIsPreview(false);
+      } else {
+        setEditTitle("");
+        setEditContent("");
+        setIsEditing(false);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [selectedNoteId, selectedNote]);
 
   const handleSave = () => {

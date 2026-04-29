@@ -3,7 +3,6 @@
 import { useState, useMemo } from "react";
 import { useAppContext } from "@/lib/context";
 import { generateId } from "@/lib/habits";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {

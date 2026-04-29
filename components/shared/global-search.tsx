@@ -3,7 +3,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAppContext } from "@/lib/context";
 import { Search, X, CheckSquare, StickyNote, Tag, FileText } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface SearchResult {
   type: "todo" | "note" | "diary";

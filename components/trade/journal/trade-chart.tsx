@@ -397,7 +397,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           chartRef.current = null;
         }
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+       
     }, [loaded, interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction, isDark]);
 
     function handleCapture() {

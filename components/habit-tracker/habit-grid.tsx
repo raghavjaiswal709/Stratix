@@ -120,7 +120,8 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
       const becomingCompleted = existing ? !existing.completed : true;
       if (becomingCompleted) fireConfetti();
 
-      const getActiveSh = (h) => {
+      const getActiveSh = (h: Habit | undefined) => {
+        if (!h) return [];
         const d = new Date(date).getDay();
         return h.subHabits?.filter(sh => !sh.weekDays?.length || sh.weekDays.includes(d)) || [];
       };
@@ -613,7 +614,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                 </tr>
                 
                 {/* Expanded Sub-habits */}
-                {hasSubHabits && isExpanded && habit.subHabits.map((sh) => {
+                {hasSubHabits && isExpanded && habit.subHabits?.map((sh) => {
                   if (!showAll) {
                     const todayDayOfWeek = new Date().getDay();
                     const shActive = !sh.weekDays?.length || sh.weekDays.includes(todayDayOfWeek);

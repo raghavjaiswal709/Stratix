@@ -153,7 +153,12 @@ export default function TradesPage() {
       .catch(() => setLoading(false));
   }, [setSharedTrades]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      load();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [load]);
 
   // Apply filter
   const filtered = trades.filter((t) => {
