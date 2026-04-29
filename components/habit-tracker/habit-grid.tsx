@@ -598,13 +598,13 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                           onClick={() => toggleHabit(habit.id, dateStr)}
                           className={cn(
                             `w-full ${cellH} transition-all relative overflow-hidden flex items-center justify-center`,
-                            ratio === 1 ? "bg-green-500/50 hover:bg-green-500/60" : "bg-red-500/50 hover:bg-red-500/60"
+                            ratio === 1 ? "bg-[#989BA5]/50 hover:bg-[#989BA5]/60" : "bg-[#D53939]/50 hover:bg-[#D53939]/60"
                           )}
                           aria-label={`${habit.name} ${DAY_FULL[dayOfWeek]}`}
                         >
                           {ratio > 0 && ratio < 1 && (
                             <div
-                              className="absolute left-0 top-0 bottom-0 bg-green-500/50 transition-all"
+                              className="absolute left-0 top-0 bottom-0 bg-[#989BA5]/50 transition-all"
                               style={{ width: `${ratio * 100}%` }}
                             />
                           )}
@@ -682,7 +682,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                             onClick={() => toggleSubHabit(habit.id, sh.id, dateStr)}
                             className={cn(
                               `w-full ${cellH} transition-all`,
-                              isCompleted ? "bg-green-500/50 hover:bg-green-500/60" : "bg-red-500/50 hover:bg-red-500/60"
+                              isCompleted ? "bg-[#989BA5]/50 hover:bg-[#989BA5]/60" : "bg-[#D53939]/50 hover:bg-[#D53939]/60"
                             )}
                             aria-label={`${sh.name} ${DAY_FULL[dayOfWeek]}`}
                           />
