@@ -561,10 +561,18 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                         minWidth: "16px",
                         maxWidth: "16px",
                         background: "var(--table-header-bg)",
+                        position: "relative",
+                        overflow: "hidden",
                       }}
                     >
+                      {/* position:absolute removes this div from flow so it cannot push row height */}
                       <div
                         style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
                           writingMode: "vertical-rl",
                           transform: "rotate(180deg)",
                           whiteSpace: "nowrap",
@@ -576,8 +584,6 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          height: "100%",
-                          padding: "6px 0",
                         }}
                       >
                         {category}
