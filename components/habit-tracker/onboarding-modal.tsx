@@ -20,6 +20,7 @@ import {
   type HabitIconKey,
 } from "@/lib/habit-icons";
 import type { Habit } from "@/types";
+import { HABIT_CATEGORIES } from "@/types";
 import { cn } from "@/lib/utils";
 
 // ── Icon display helper ────────────────────────────────────────────────────
@@ -224,7 +225,7 @@ export function OnboardingModal({ open, onClose }: OnboardingModalProps) {
                 </div>
 
                 {/* Color + Category */}
-                <div className="flex items-end gap-3">
+                <div className="flex items-start gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Color</Label>
                     <div className="flex flex-wrap gap-1.5">
@@ -246,12 +247,26 @@ export function OnboardingModal({ open, onClose }: OnboardingModalProps) {
                   </div>
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs text-muted-foreground">Category</Label>
-                    <Input
-                      placeholder="Health, Work…"
-                      value={habit.category}
-                      onChange={(e) => updateRow(index, { category: e.target.value })}
-                      className="h-8 text-xs"
-                    />
+                    <div className="flex flex-wrap gap-1">
+                      {HABIT_CATEGORIES.map((cat) => {
+                        const selected = habit.category === cat;
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => updateRow(index, { category: selected ? "" : cat })}
+                            className="px-2 py-0.5 rounded-full text-[11px] font-medium transition-all"
+                            style={
+                              selected
+                                ? { backgroundColor: habit.color + "30", color: habit.color, border: `1px solid ${habit.color}60` }
+                                : { background: "var(--background)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }
+                            }
+                          >
+                            {cat}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>

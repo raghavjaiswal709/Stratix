@@ -29,6 +29,7 @@ import {
   type IconCategory,
 } from "@/lib/habit-icons";
 import type { Habit, TimeFrame, SubHabit } from "@/types";
+import { HABIT_CATEGORIES, UNCATEGORIZED_CATEGORY } from "@/types";
 import { cn, fireConfetti } from "@/lib/utils";
 
 // ── Icon display helper ────────────────────────────────────────────────────
@@ -382,6 +383,26 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
 
   const isWideView = displayDates.length > 7;
 
+  // ── Category grouping ─────────────────────────────────────────────────────
+  const { habitsByCategory, sortedCategories } = useMemo(() => {
+    const grouped: Record<string, Habit[]> = {};
+    for (const habit of habitData.habits) {
+      const cat = habit.category?.trim() || UNCATEGORIZED_CATEGORY;
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(habit);
+    }
+    const order: string[] = [...HABIT_CATEGORIES, UNCATEGORIZED_CATEGORY];
+    const sorted = Object.keys(grouped).sort((a, b) => {
+      const ai = order.indexOf(a);
+      const bi = order.indexOf(b);
+      if (ai === -1 && bi === -1) return a.localeCompare(b);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+    return { habitsByCategory: grouped, sortedCategories: sorted };
+  }, [habitData.habits]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -468,13 +489,30 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
               </tr>
             )}
 
-            {habitData.habits.map((habit) => {
-              if (!showAll) {
-                const todayDayOfWeek = new Date().getDay();
-                const isHabitActiveToday = !habit.weekDays?.length || habit.weekDays.includes(todayDayOfWeek);
-                if (!isHabitActiveToday) return null;
-              }
-
+            {sortedCategories.map((category) => {
+              const cHabits = habitsByCategory[category].filter((habit) => {
+                if (!showAll) {
+                  const todayDayOfWeek = new Date().getDay();
+                  return !habit.weekDays?.length || habit.weekDays.includes(todayDayOfWeek);
+                }
+                return true;
+              });
+              if (cHabits.length === 0) return null;
+              return (
+                <Fragment key={category}>
+                  {/* Category header row */}
+                  <tr style={{ background: "var(--table-header-bg)" }}>
+                    <td
+                      colSpan={displayDates.length + 1}
+                      className="px-3 py-1"
+                      style={{ border: "1px solid var(--table-border)", borderTop: "2px solid var(--table-border)" }}
+                    >
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">
+                        {category}
+                      </span>
+                    </td>
+                  </tr>
+                  {cHabits.map((habit) => {
               const hasSubHabits = habit.subHabits && habit.subHabits.length > 0;
               const isExpanded = expandedHabits[habit.id];
               return (
@@ -692,7 +730,11 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                   </tr>
                 )})}
               </Fragment>
-            )})}
+                  );
+                })}
+                </Fragment>
+              );
+            })}
             {habitData.habits.length === 0 && (
               <tr>
                 <td
@@ -931,12 +973,27 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
             <>
             {/* ── Category ── */}
             <div className="space-y-2">
-              <Label>Category (optional)</Label>
-              <Input
-                placeholder="e.g., Health, Fitness"
-                value={newHabitCategory}
-                onChange={(e) => setNewHabitCategory(e.target.value)}
-              />
+              <Label>Category <span className="text-[11px] text-muted-foreground font-normal">(optional)</span></Label>
+              <div className="flex flex-wrap gap-1.5">
+                {HABIT_CATEGORIES.map((cat) => {
+                  const selected = newHabitCategory === cat;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setNewHabitCategory(selected ? "" : cat)}
+                      className="px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                      style={
+                        selected
+                          ? { backgroundColor: newHabitColor + "30", color: newHabitColor, border: `1px solid ${newHabitColor}60` }
+                          : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid transparent" }
+                      }
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* ── Sub Habits ── */}

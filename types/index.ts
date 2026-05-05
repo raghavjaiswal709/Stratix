@@ -37,6 +37,24 @@ export interface HabitLog {
   completedSubHabits?: string[]; // IDs of completed sub-habits
 }
 
+export const HABIT_CATEGORIES = [
+  "Health",
+  "Fitness",
+  "Mind",
+  "Work",
+  "Learning",
+  "Sleep",
+  "Social",
+  "Finance",
+  "Creativity",
+  "Spiritual",
+] as const;
+
+export type HabitCategory = (typeof HABIT_CATEGORIES)[number];
+
+/** Uncategorized habits fall under this label */
+export const UNCATEGORIZED_CATEGORY = "General";
+
 export interface HabitData {
   habits: Habit[];
   logs: HabitLog[];
