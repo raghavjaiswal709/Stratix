@@ -590,7 +590,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                     style={{ border: "1px solid var(--table-border)" }}
                   >
                     {/* Mobile: icon is the dropdown trigger */}
-                    <div className="md:hidden flex items-center py-2 px-1 min-h-9">
+                    <div className="md:hidden flex items-center px-1" style={{ height: '40px' }}>
                       {hasSubHabits && (
                         <button
                           onClick={() => setExpandedHabits(prev => ({ ...prev, [habit.id]: !prev[habit.id] }))}
@@ -625,52 +625,50 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                       </DropdownMenu>
                     </div>
                     {/* Desktop: icon + name + menu button */}
-                    <div className="hidden md:flex flex-col gap-0.5 px-3 py-2 min-h-9 justify-center">
-                      <div className="flex items-center gap-2">
-                        {hasSubHabits ? (
-                          <button
-                            onClick={() => setExpandedHabits(prev => ({ ...prev, [habit.id]: !prev[habit.id] }))}
-                            className="text-muted-foreground hover:text-foreground -ml-1"
-                          >
-                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                          </button>
-                        ) : (
-                          <div className="w-4 ml-1" />
-                        )}
-                        <HabitIconComp
-                          iconKey={habit.icon}
-                          size={14}
-                          color={habit.color || "#6366f1"}
-                        />
-                        <span className="text-sm font-medium truncate flex-1">
-                          {habit.name}
-                        </span>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger render={
-                            <button className="h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                              <MoreVertical className="h-3 w-3" />
-                            </button>
-                          } />
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => startEdit(habit)}>
-                              <Pencil className="mr-2 h-3 w-3" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => confirmDeleteHabit(habit.id)}
-                              className="text-destructive"
-                            >
-                              <Trash2 className="mr-2 h-3 w-3" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                      <div className="flex gap-0.5 ml-7">
+                    <div className="hidden md:flex items-center gap-1.5 px-2" style={{ height: '40px' }}>
+                      {hasSubHabits ? (
+                        <button
+                          onClick={() => setExpandedHabits(prev => ({ ...prev, [habit.id]: !prev[habit.id] }))}
+                          className="text-muted-foreground hover:text-foreground shrink-0"
+                        >
+                          {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                        </button>
+                      ) : (
+                        <div className="w-3.5 shrink-0" />
+                      )}
+                      <HabitIconComp
+                        iconKey={habit.icon}
+                        size={13}
+                        color={habit.color || "#6366f1"}
+                      />
+                      <span className="text-xs font-medium truncate flex-1">
+                        {habit.name}
+                      </span>
+                      <div className="flex gap-0.5 shrink-0">
                         {Array.from({ length: habit.weight || 1 }).map((_, i) => (
-                          <Star key={i} className="h-2.5 w-2.5 fill-yellow-400/60 text-yellow-400/60" />
+                          <Star key={i} className="h-2 w-2 fill-yellow-400/60 text-yellow-400/60" />
                         ))}
                       </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger render={
+                          <button className="h-5 w-5 shrink-0 inline-flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                            <MoreVertical className="h-3 w-3" />
+                          </button>
+                        } />
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuItem onClick={() => startEdit(habit)}>
+                            <Pencil className="mr-2 h-3 w-3" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => confirmDeleteHabit(habit.id)}
+                            className="text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-3 w-3" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </td>
 
@@ -688,7 +686,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                         <td
                           key={i}
                           className="p-0"
-                          style={{ border: "1px solid var(--table-border)", background: "var(--table-header-bg)" }}
+                          style={{ border: "1px solid var(--table-border)", background: "var(--table-header-bg)", height: '40px' }}
                         />
                       );
                     }
@@ -697,44 +695,48 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                     return (
                       <td
                         key={i}
-                        className="p-0 relative group"
+                        className="p-0 group"
                         style={{ border: "1px solid var(--table-border)" }}
                       >
-                        {/* Bar button — fills entire cell height */}
-                        <button
-                          onClick={() => toggleHabit(habit.id, dateStr)}
-                          className={cn(
-                            "absolute inset-0 transition-all overflow-hidden",
-                            ratio === 1 ? "bg-[#989BA5]/50 hover:bg-[#989BA5]/60" : "bg-[#D53939]/50 hover:bg-[#D53939]/60"
+                        {/* Wrapper div establishes containing block for note overlays */}
+                        <div className="relative w-full" style={{ height: '40px' }}>
+                          <button
+                            onClick={() => toggleHabit(habit.id, dateStr)}
+                            className={cn(
+                              "w-full h-full block transition-all relative overflow-hidden",
+                              ratio === 1 ? "bg-[#989BA5]/50 hover:bg-[#989BA5]/60" : "bg-[#D53939]/50 hover:bg-[#D53939]/60"
+                            )}
+                            aria-label={`${habit.name} ${DAY_FULL[dayOfWeek]}`}
+                          >
+                            {ratio > 0 && ratio < 1 && (
+                              <div
+                                className="absolute left-0 top-0 bottom-0 bg-[#989BA5]/50 transition-all"
+                                style={{ width: `${ratio * 100}%` }}
+                              />
+                            )}
+                          </button>
+                          {/* Note text — always visible on the bar when a note exists */}
+                          {cellNote && (
+                            <span className="absolute bottom-0.5 left-1 right-7 text-[9px] leading-tight text-white/80 truncate pointer-events-none z-10">
+                              {cellNote}
+                            </span>
                           )}
-                          aria-label={`${habit.name} ${DAY_FULL[dayOfWeek]}`}
-                        >
-                          {ratio > 0 && ratio < 1 && (
-                            <div
-                              className="absolute left-0 top-0 bottom-0 bg-[#989BA5]/50 transition-all"
-                              style={{ width: `${ratio * 100}%` }}
+                          {/* Note edit button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setNoteDialog({ habitId: habit.id, date: dateStr, note: cellNote || "" });
+                            }}
+                            className="absolute top-0.5 right-0.5 z-10 opacity-30 group-hover:opacity-100 transition-opacity"
+                            aria-label="Edit note"
+                            title="Edit note"
+                          >
+                            <StickyNote
+                              size={10}
+                              className={cellNote ? "text-yellow-300" : "text-white/70"}
                             />
-                          )}
-                        </button>
-                        {/* Note indicator dot — always visible when note exists */}
-                        {cellNote && (
-                          <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-yellow-400 pointer-events-none z-20" />
-                        )}
-                        {/* Note button — always slightly visible, full on hover */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setNoteDialog({ habitId: habit.id, date: dateStr, note: cellNote || "" });
-                          }}
-                          className="absolute bottom-1 right-1 z-20 opacity-50 group-hover:opacity-100 transition-opacity"
-                          aria-label="Add note"
-                          title="Add note"
-                        >
-                          <StickyNote
-                            size={11}
-                            className={cellNote ? "text-yellow-400" : "text-white/80"}
-                          />
-                        </button>
+                          </button>
+                        </div>
                       </td>                    );
                   })}
                 </tr>
@@ -752,7 +754,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                       className="p-0"
                       style={{ border: "1px solid var(--table-border)" }}
                     >
-                      <div className="flex items-center gap-2 pl-10 md:pl-12 pr-3 py-2">
+                      <div className="flex items-center gap-2 pl-8 md:pl-10 pr-2" style={{ height: '34px' }}>
                         <HabitIconComp iconKey={sh.icon || habit.icon} size={12} color={sh.color || habit.color} />
                         <span className="text-xs text-muted-foreground truncate flex-1">
                           {sh.name}
@@ -791,7 +793,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                           <td
                             key={i}
                             className="p-0"
-                            style={{ border: "1px solid var(--table-border)", background: "var(--table-header-bg)" }}
+                            style={{ border: "1px solid var(--table-border)", background: "var(--table-header-bg)", height: '34px' }}
                           />
                         );
                       }
@@ -802,15 +804,16 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                       return (
                         <td
                           key={i}
-                          className="p-0 relative"
+                          className="p-0"
                           style={{ border: "1px solid var(--table-border)" }}
                         >
                           <button
                             onClick={() => toggleSubHabit(habit.id, sh.id, dateStr)}
                             className={cn(
-                              "absolute inset-0 transition-all",
+                              "w-full block transition-all",
                               isCompleted ? "bg-[#989BA5]/50 hover:bg-[#989BA5]/60" : "bg-[#D53939]/50 hover:bg-[#D53939]/60"
                             )}
+                            style={{ height: '34px' }}
                             aria-label={`${sh.name} ${DAY_FULL[dayOfWeek]}`}
                           />
                         </td>
