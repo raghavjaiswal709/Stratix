@@ -6,6 +6,7 @@ import { getWeekDates, generateId, getDateRange, getDailyScore } from "@/lib/hab
 import { format, eachDayOfInterval } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Plus, MoreVertical, Pencil, Trash2, Search, X, ChevronDown, ChevronRight, Star } from "lucide-react";
+import { Plus, MoreVertical, Pencil, Trash2, Search, X, ChevronDown, ChevronRight, Star, StickyNote, AlertTriangle } from "lucide-react";
 import {
   HABIT_ICON_MAP,
   HABIT_ICONS_LIST,
@@ -78,6 +79,8 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
   const [expandedHabits,   setExpandedHabits]   = useState<Record<string, boolean>>({});
 
   const [showAll,          setShowAll]          = useState(false);
+  const [deletingHabitId,  setDeletingHabitId]  = useState<string | null>(null);
+  const [noteDialog,       setNoteDialog]       = useState<{ habitId: string; date: string; note: string } | null>(null);
 
   // Icon picker search / category state
   const [iconSearch,   setIconSearch]   = useState("");
@@ -270,11 +273,32 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     closeDialog();
   };
 
-  const deleteHabit = (id: string) => {
+  const confirmDeleteHabit = (id: string) => setDeletingHabitId(id);
+
+  const executeDelete = () => {
+    if (!deletingHabitId) return;
     setHabitData({
-      habits: habitData.habits.filter((h) => h.id !== id),
-      logs:   habitData.logs.filter((l) => l.habitId !== id),
+      habits: habitData.habits.filter((h) => h.id !== deletingHabitId),
+      logs:   habitData.logs.filter((l) => l.habitId !== deletingHabitId),
     });
+    setDeletingHabitId(null);
+  };
+
+  const saveNote = (habitId: string, date: string, note: string) => {
+    const existing = habitData.logs.find(l => l.habitId === habitId && l.date === date);
+    if (existing) {
+      const newLogs = habitData.logs.map(l =>
+        l.habitId === habitId && l.date === date
+          ? { ...l, note: note.trim() || undefined }
+          : l
+      );
+      setHabitData({ ...habitData, logs: newLogs });
+    } else if (note.trim()) {
+      setHabitData({
+        ...habitData,
+        logs: [...habitData.logs, { habitId, date, completed: false, note: note.trim() }],
+      });
+    }
   };
 
   const updateSubHabitObj = () => {
@@ -433,6 +457,11 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
         >
           <thead>
             <tr style={{ background: "var(--table-header-bg)" }}>
+              {/* Category column — narrow, reserved for vertical rowSpan labels */}
+              <th
+                className="w-4 p-0"
+                style={{ border: "1px solid var(--table-border)", minWidth: "16px", maxWidth: "16px" }}
+              />
               {/* Name column */}
               <th
                 className="w-11 md:w-48 px-1 md:px-3 py-2 text-left"
@@ -467,6 +496,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
             {/* Day Rating Row */}
             {habitData.habits.length > 0 && (
               <tr style={{ background: "var(--table-header-bg)" }}>
+                <td className="p-0" style={{ border: "1px solid var(--table-border)" }} />
                 <td
                   className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
                   style={{ border: "1px solid var(--table-border)" }}
@@ -498,26 +528,62 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                 return true;
               });
               if (cHabits.length === 0) return null;
+
+              // Total rows this category occupies (habit rows + visible expanded sub-habit rows)
+              const today = new Date().getDay();
+              const rowSpan = cHabits.reduce((total, habit) => {
+                let rows = 1;
+                if (expandedHabits[habit.id] && habit.subHabits?.length) {
+                  rows += habit.subHabits.filter(sh =>
+                    showAll || !sh.weekDays?.length || sh.weekDays.includes(today)
+                  ).length;
+                }
+                return total + rows;
+              }, 0);
+
               return (
                 <Fragment key={category}>
-                  {/* Category header row */}
-                  <tr style={{ background: "var(--table-header-bg)" }}>
-                    <td
-                      colSpan={displayDates.length + 1}
-                      className="px-3 py-1"
-                      style={{ border: "1px solid var(--table-border)", borderTop: "2px solid var(--table-border)" }}
-                    >
-                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">
-                        {category}
-                      </span>
-                    </td>
-                  </tr>
-                  {cHabits.map((habit) => {
+                  {cHabits.map((habit, habitIdx) => {
               const hasSubHabits = habit.subHabits && habit.subHabits.length > 0;
               const isExpanded = expandedHabits[habit.id];
               return (
               <Fragment key={habit.id}>
                 <tr>
+                  {/* Vertical category label — only on first habit row, spans all rows in this category */}
+                  {habitIdx === 0 && (
+                    <td
+                      rowSpan={rowSpan}
+                      className="p-0 select-none"
+                      style={{
+                        border: "1px solid var(--table-border)",
+                        borderTop: "2px solid var(--table-border)",
+                        width: "16px",
+                        minWidth: "16px",
+                        maxWidth: "16px",
+                        background: "var(--table-header-bg)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          writingMode: "vertical-rl",
+                          transform: "rotate(180deg)",
+                          whiteSpace: "nowrap",
+                          fontSize: "9px",
+                          fontWeight: 700,
+                          letterSpacing: "0.12em",
+                          textTransform: "uppercase",
+                          color: "var(--muted-foreground)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          height: "100%",
+                          padding: "6px 0",
+                        }}
+                      >
+                        {category}
+                      </div>
+                    </td>
+                  )}
                   {/* Name / icon cell */}
                   <td
                     className="p-0"
@@ -549,7 +615,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => deleteHabit(habit.id)}
+                            onClick={() => confirmDeleteHabit(habit.id)}
                             className="text-destructive"
                           >
                             <Trash2 className="mr-2 h-3 w-3" />
@@ -591,7 +657,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                               Edit
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => deleteHabit(habit.id)}
+                              onClick={() => confirmDeleteHabit(habit.id)}
                               className="text-destructive"
                             >
                               <Trash2 className="mr-2 h-3 w-3" />
@@ -626,10 +692,11 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                       );
                     }
 
+                    const cellNote = getLog(habit.id, dateStr)?.note;
                     return (
                       <td
                         key={i}
-                        className="p-0"
+                        className="p-0 relative group"
                         style={{ border: "1px solid var(--table-border)", background: "var(--background)" }}
                       >
                         <button
@@ -646,6 +713,22 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
                               style={{ width: `${ratio * 100}%` }}
                             />
                           )}
+                        </button>
+                        {/* Note indicator dot */}
+                        {cellNote && (
+                          <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-yellow-400/90 pointer-events-none z-10" />
+                        )}
+                        {/* Note button — visible on hover */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNoteDialog({ habitId: habit.id, date: dateStr, note: cellNote || "" });
+                          }}
+                          className="absolute bottom-0.5 left-0.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+                          aria-label="Add note"
+                          title="Add note"
+                        >
+                          <StickyNote size={8} className="text-white/60 hover:text-white" />
                         </button>
                       </td>                    );
                   })}
@@ -738,7 +821,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
             {habitData.habits.length === 0 && (
               <tr>
                 <td
-                  colSpan={displayDates.length + 1}
+                  colSpan={displayDates.length + 2}
                   className="py-8 text-center text-sm text-muted-foreground"
                   style={{ border: "1px solid var(--table-border)" }}
                 >
@@ -1116,6 +1199,74 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
               disabled={!canSubmit}
             >
               {editingSubHabitObj ? "Update Sub-Habit" : editingHabit ? "Update Habit" : "Add Habit"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Confirmation Dialog ── */}
+      <Dialog open={!!deletingHabitId} onOpenChange={(o) => !o && setDeletingHabitId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Delete Habit?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mt-1">
+            {(() => {
+              const h = habitData.habits.find(x => x.id === deletingHabitId);
+              return h
+                ? <>This will permanently delete <span className="font-semibold text-foreground">{h.name}</span> and all its logs.</>
+                : "This will permanently delete the habit and all its logs.";
+            })()}
+          </p>
+          <div className="flex gap-2 justify-end mt-4">
+            <Button variant="outline" size="sm" onClick={() => setDeletingHabitId(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" size="sm" onClick={executeDelete}>
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Note Dialog ── */}
+      <Dialog open={!!noteDialog} onOpenChange={(o) => !o && setNoteDialog(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {(() => {
+                if (!noteDialog) return "Note";
+                const h = habitData.habits.find(x => x.id === noteDialog.habitId);
+                return `${h?.name ?? "Habit"} · ${noteDialog.date}`;
+              })()}
+            </DialogTitle>
+          </DialogHeader>
+          <Textarea
+            placeholder="Write anything about today's session… (e.g. walked 6K steps instead of 10K)"
+            value={noteDialog?.note ?? ""}
+            onChange={(e) =>
+              setNoteDialog((prev) => prev ? { ...prev, note: e.target.value } : prev)
+            }
+            rows={4}
+            className="mt-2 text-sm resize-none"
+          />
+          <div className="flex gap-2 justify-end mt-3">
+            <Button variant="outline" size="sm" onClick={() => setNoteDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (noteDialog) {
+                  saveNote(noteDialog.habitId, noteDialog.date, noteDialog.note);
+                  setNoteDialog(null);
+                }
+              }}
+            >
+              Save Note
             </Button>
           </div>
         </DialogContent>

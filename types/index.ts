@@ -35,6 +35,7 @@ export interface HabitLog {
   date: string; // YYYY-MM-DD
   completed: boolean;
   completedSubHabits?: string[]; // IDs of completed sub-habits
+  note?: string; // Optional free-text note for this habit on this day
 }
 
 export const HABIT_CATEGORIES = [
