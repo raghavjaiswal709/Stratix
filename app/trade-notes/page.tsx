@@ -695,7 +695,7 @@ export default function TradeNotesPage() {
               {/* Editor */}
               <RichEditor
                 key={selectedNoteId}
-                content={editContent}
+                content={selectedNote?.content ?? ""}
                 onChange={handleContentChange}
               />
             </div>
