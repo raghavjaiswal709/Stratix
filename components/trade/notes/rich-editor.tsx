@@ -1,6 +1,7 @@
 "use client";
 
 import { Node, mergeAttributes } from "@tiptap/core";
+import { NodeSelection } from "@tiptap/pm/state";
 import {
   ReactNodeViewRenderer,
   NodeViewWrapper,
@@ -126,47 +127,47 @@ function DrawingCanvas({
   const isDrawing = useRef(false);
   const startPt = useRef<{ x: number; y: number } | null>(null);
   const historyRef = useRef<string[]>([]);
-  const initialized = useRef(false);
 
-  // Initialize canvas
+  // Initialize canvas — no initialized-guard so React 18 StrictMode's
+  // double-invocation works correctly: cleanup sets cancelled=true so the
+  // stale async load aborts, and the second (real) mount re-initializes fresh.
   useLayoutEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
     const canvas = mainRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    let cancelled = false;
+
+    const loadImg = (src: string) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
 
     const load = async () => {
       ctx.fillStyle = "#1a1a2e";
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
       if (backgroundSrc) {
-        await new Promise<void>((res) => {
-          const img = new Image();
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
-            res();
-          };
-          img.onerror = () => res();
-          img.src = backgroundSrc;
-        });
+        try {
+          const img = await loadImg(backgroundSrc);
+          if (!cancelled) ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+        } catch { /* ignore */ }
       }
 
-      if (initialDataUrl) {
-        await new Promise<void>((res) => {
-          const img = new Image();
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0);
-            res();
-          };
-          img.onerror = () => res();
-          img.src = initialDataUrl;
-        });
+      if (initialDataUrl && !cancelled) {
+        try {
+          const img = await loadImg(initialDataUrl);
+          if (!cancelled) ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+        } catch { /* ignore */ }
       }
     };
 
     load();
+    return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getCoords = useCallback(
@@ -1088,6 +1089,62 @@ function TBtn({
   );
 }
 
+// ── InsertConflictModal ───────────────────────────────────────────────────
+type InsertPlacement = "replace" | "above" | "below";
+
+interface InsertConflictModalProps {
+  mediaType: "image" | "drawing";
+  onChoose: (placement: InsertPlacement) => void;
+  onCancel: () => void;
+}
+
+function InsertConflictModal({ mediaType, onChoose, onCancel }: InsertConflictModalProps) {
+  const label = mediaType === "image" ? "image" : "drawing";
+  const modal = (
+    <div
+      className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div className="bg-card border border-border rounded-2xl shadow-2xl p-5 w-80">
+        <h3 className="text-sm font-semibold text-foreground mb-1">
+          Insert {label}
+        </h3>
+        <p className="text-[12px] text-muted-foreground mb-4">
+          A selected {label === "image" ? "image or drawing" : "drawing or image"} is already selected.
+          Where would you like to place the new {label}?
+        </p>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => onChoose("above")}
+            className="w-full text-left px-3 py-2.5 rounded-xl bg-muted/50 hover:bg-muted text-sm font-medium text-foreground transition-colors"
+          >
+            Add above selected
+          </button>
+          <button
+            onClick={() => onChoose("below")}
+            className="w-full text-left px-3 py-2.5 rounded-xl bg-muted/50 hover:bg-muted text-sm font-medium text-foreground transition-colors"
+          >
+            Add below selected
+          </button>
+          <button
+            onClick={() => onChoose("replace")}
+            className="w-full text-left px-3 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-sm font-medium text-red-400 transition-colors"
+          >
+            Replace selected
+          </button>
+          <button
+            onClick={onCancel}
+            className="w-full text-center px-3 py-2 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mt-1"
+          >
+            Cancel — I&apos;ll reposition and try again
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+  return ReactDOM.createPortal(modal, document.body);
+}
+
 // ── RichEditor ────────────────────────────────────────────────────────────
 interface RichEditorProps {
   content: string;
@@ -1096,6 +1153,23 @@ interface RichEditorProps {
 
 export function RichEditor({ content, onChange }: RichEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Conflict-resolution state: set when user tries to insert while a
+  // figure/drawing node is selected — stores the node's position range.
+  const [conflictModal, setConflictModal] = useState<{
+    mediaType: "image" | "drawing";
+    from: number;
+    to: number;
+  } | null>(null);
+
+  // After user picks placement from conflict modal, store it here so the
+  // async file-upload handler can read it without stale closure risk.
+  const pendingPlacementRef = useRef<{
+    placement: InsertPlacement;
+    from: number;
+    to: number;
+  } | null>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
@@ -1122,7 +1196,44 @@ export function RichEditor({ content, onChange }: RichEditorProps) {
   // setContent() → onUpdate → onChange → persistSave on every view, which
   // would falsely update updatedAt and re-sort notes the user didn't edit.
 
-  // Image upload handler
+  // ── Conflict detection helper ───────────────────────────────────────────
+  const getConflict = useCallback(
+    (mediaType: "image" | "drawing") => {
+      if (!editor) return null;
+      const { selection } = editor.state;
+      if (
+        selection instanceof NodeSelection &&
+        (selection.node.type.name === "figure" ||
+          selection.node.type.name === "drawing")
+      ) {
+        return { mediaType, from: selection.from, to: selection.to };
+      }
+      return null;
+    },
+    [editor]
+  );
+
+  // ── Do the actual node insertion at a resolved position ─────────────────
+  const doInsertNode = useCallback(
+    (
+      nodeDesc: Record<string, unknown>,
+      placement: InsertPlacement,
+      from: number,
+      to: number
+    ) => {
+      if (!editor) return;
+      if (placement === "replace") {
+        editor.chain().focus().deleteRange({ from, to }).insertContentAt(from, nodeDesc).run();
+      } else if (placement === "above") {
+        editor.chain().focus().insertContentAt(from, nodeDesc).run();
+      } else {
+        editor.chain().focus().insertContentAt(to, nodeDesc).run();
+      }
+    },
+    [editor]
+  );
+
+  // ── Image upload handler ─────────────────────────────────────────────────
   const handleFileUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -1131,29 +1242,75 @@ export function RichEditor({ content, onChange }: RichEditorProps) {
       reader.onload = (ev) => {
         const src = ev.target?.result as string;
         if (!src) return;
-        editor
-          .chain()
-          .focus()
-          .insertContent({ type: "figure", attrs: { src, caption: "" } })
-          .run();
+        const nodeDesc = { type: "figure", attrs: { src, caption: "" } };
+        const pending = pendingPlacementRef.current;
+        if (pending) {
+          doInsertNode(nodeDesc, pending.placement, pending.from, pending.to);
+          pendingPlacementRef.current = null;
+        } else {
+          editor.chain().focus().insertContent(nodeDesc).run();
+        }
       };
       reader.readAsDataURL(file);
       e.target.value = "";
     },
-    [editor]
+    [editor, doInsertNode]
   );
 
-  const insertDrawing = useCallback(() => {
-    if (!editor) return;
-    editor
-      .chain()
-      .focus()
-      .insertContent({
+  // ── Image button click: check conflict first ─────────────────────────────
+  const handleImageButtonClick = useCallback(() => {
+    const conflict = getConflict("image");
+    if (conflict) {
+      setConflictModal(conflict);
+    } else {
+      fileInputRef.current?.click();
+    }
+  }, [getConflict]);
+
+  // ── Drawing insertion ────────────────────────────────────────────────────
+  const doInsertDrawing = useCallback(
+    (placement?: InsertPlacement, from?: number, to?: number) => {
+      if (!editor) return;
+      const nodeDesc = {
         type: "drawing",
         attrs: { data: "", canvasWidth: 800, canvasHeight: 400 },
-      })
-      .run();
-  }, [editor]);
+      };
+      if (placement && from !== undefined && to !== undefined) {
+        doInsertNode(nodeDesc, placement, from, to);
+      } else {
+        editor.chain().focus().insertContent(nodeDesc).run();
+      }
+    },
+    [editor, doInsertNode]
+  );
+
+  // ── Drawing button click: check conflict first ───────────────────────────
+  const handleDrawingButtonClick = useCallback(() => {
+    const conflict = getConflict("drawing");
+    if (conflict) {
+      setConflictModal(conflict);
+    } else {
+      doInsertDrawing();
+    }
+  }, [getConflict, doInsertDrawing]);
+
+  // ── Conflict modal resolution ────────────────────────────────────────────
+  const handleConflictChoose = useCallback(
+    (placement: InsertPlacement) => {
+      if (!conflictModal) return;
+      const { mediaType, from, to } = conflictModal;
+      setConflictModal(null);
+
+      if (mediaType === "image") {
+        // Store placement so handleFileUpload can use it
+        pendingPlacementRef.current = { placement, from, to };
+        fileInputRef.current?.click();
+      } else {
+        doInsertDrawing(placement, from, to);
+      }
+    },
+    [conflictModal, doInsertDrawing]
+  );
 
   if (!editor) return null;
 
@@ -1168,11 +1325,20 @@ export function RichEditor({ content, onChange }: RichEditorProps) {
         onChange={handleFileUpload}
       />
 
+      {/* Conflict resolution modal */}
+      {conflictModal && (
+        <InsertConflictModal
+          mediaType={conflictModal.mediaType}
+          onChoose={handleConflictChoose}
+          onCancel={() => setConflictModal(null)}
+        />
+      )}
+
       {/* Always-visible toolbar */}
       <EditorToolbar
         editor={editor}
-        onImageUpload={() => fileInputRef.current?.click()}
-        onInsertDrawing={insertDrawing}
+        onImageUpload={handleImageButtonClick}
+        onInsertDrawing={handleDrawingButtonClick}
       />
 
       {/* Editor content */}

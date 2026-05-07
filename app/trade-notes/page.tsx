@@ -85,8 +85,52 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
+// ── Loading skeleton ───────────────────────────────────────────────────────
+function NotesSkeleton() {
+  return (
+    <div className="flex h-[calc(100vh-3.5rem)] bg-background overflow-hidden">
+      {/* Categories col */}
+      <div className="w-52 shrink-0 border-r border-border bg-card/20 flex flex-col">
+        <div className="px-3 py-3 border-b border-border">
+          <div className="h-4 w-24 bg-muted/50 rounded animate-pulse" />
+        </div>
+        <div className="p-3 space-y-2">
+          {[80, 65, 90, 70, 55].map((w, i) => (
+            <div key={i} className={`h-8 bg-muted/40 rounded-lg animate-pulse`} style={{ width: `${w}%` }} />
+          ))}
+        </div>
+      </div>
+      {/* Notes col */}
+      <div className="w-64 shrink-0 border-r border-border bg-card/10 flex flex-col">
+        <div className="p-2.5 border-b border-border space-y-2">
+          <div className="h-4 w-20 bg-muted/50 rounded animate-pulse" />
+          <div className="h-7 bg-muted/40 rounded-lg animate-pulse" />
+          <div className="h-7 bg-muted/40 rounded-lg animate-pulse" />
+        </div>
+        <div className="p-2 space-y-2 pt-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-14 bg-muted/30 rounded-lg animate-pulse" />
+          ))}
+        </div>
+      </div>
+      {/* Editor col */}
+      <div className="flex-1 p-6 space-y-4">
+        <div className="h-10 w-1/2 bg-muted/40 rounded-lg animate-pulse" />
+        <div className="h-4 w-1/4 bg-muted/30 rounded animate-pulse" />
+        <div className="h-8 bg-muted/20 rounded-lg animate-pulse mt-4" />
+        <div className="space-y-2 mt-4">
+          {[90, 75, 85, 60, 80, 70].map((w, i) => (
+            <div key={i} className="h-4 bg-muted/20 rounded animate-pulse" style={{ width: `${w}%` }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────
 export default function TradeNotesPage() {
-  const { tradeData, setTradeData } = useAppContext();
+  const { tradeData, setTradeData, loading } = useAppContext();
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -105,15 +149,21 @@ export default function TradeNotesPage() {
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Always-current snapshot of tradeData — prevents stale-closure overwrites
+  // when the debounced save fires after other data has changed.
+  const tradeDataRef = useRef(tradeData);
+  useEffect(() => { tradeDataRef.current = tradeData; }, [tradeData]);
+
   const tradeNotes = tradeData.tradeNotes || { notes: [], categories: [] };
   const { notes, categories } = tradeNotes;
 
-  // Auto-select first category if none selected
+  // Auto-select first category once real data loads (after loading completes)
   useEffect(() => {
+    if (loading) return; // don't select from hardcoded defaults
     if (!selectedCategoryId && categories.length > 0) {
       setSelectedCategoryId(categories[0].id);
     }
-  }, [categories, selectedCategoryId]);
+  }, [categories, selectedCategoryId, loading]);
 
   // Notes for selected category + search filter
   const visibleNotes = useMemo(
@@ -135,10 +185,13 @@ export default function TradeNotesPage() {
     [notes, selectedCategoryId, searchQuery]
   );
 
-  // Sync local state when selected note changes
+  // Sync local editor state immediately when selected note changes.
+  // Reads directly from tradeDataRef so it's always fresh even if a pending
+  // save just updated tradeData in the same render cycle.
   useEffect(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    const note = notes.find((n) => n.id === selectedNoteId);
+    const allNotes = tradeDataRef.current.tradeNotes?.notes ?? [];
+    const note = allNotes.find((n) => n.id === selectedNoteId);
     if (note) {
       setEditTitle(note.title);
       setEditContent(note.content);
@@ -148,19 +201,25 @@ export default function TradeNotesPage() {
       setEditContent("");
       setSaveStatus("saved");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNoteId]);
 
-  // ── Persist save ──────────────────────────────────────────────────────────
+  // ── Persist save — uses ref so closure is never stale ─────────────────────
   const persistSave = useCallback(
     (id: string, title: string, content: string) => {
       setSaveStatus("saving");
       const now = new Date().toISOString();
+      // Read the LATEST tradeData from the ref, not from a captured closure.
+      // This prevents debounced saves from overwriting category/note changes
+      // that happened between when the timer was set and when it fires.
+      const latest = tradeDataRef.current;
+      const latestNotes = latest.tradeNotes?.notes ?? [];
+      const latestTN = latest.tradeNotes ?? { notes: [], categories: [] };
       setTradeData({
-        ...tradeData,
+        ...latest,
         tradeNotes: {
-          ...tradeNotes,
-          notes: notes.map((n) =>
+          ...latestTN,
+          notes: latestNotes.map((n) =>
             n.id === id
               ? { ...n, title: title.trim() || "Untitled", content, updatedAt: now }
               : n
@@ -169,8 +228,7 @@ export default function TradeNotesPage() {
       });
       setSaveStatus("saved");
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tradeData, tradeNotes, notes]
+    [setTradeData] // setTradeData is stable; all data read from tradeDataRef
   );
 
   const handleTitleChange = (v: string) => {
@@ -271,6 +329,10 @@ export default function TradeNotesPage() {
   const selectedCat = categories.find((c) => c.id === selectedNote?.categoryId);
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // Show skeleton while data is loading from API — prevents flash of hardcoded
+  // default categories and empty note list before real data arrives.
+  if (loading) return <NotesSkeleton />;
+
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-background overflow-hidden">
 
