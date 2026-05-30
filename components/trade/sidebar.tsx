@@ -24,6 +24,7 @@ import {
   Pin,
   PinOff,
   ChartCandlestick,
+  Radio,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -34,6 +35,8 @@ const tradeItems = [
   { href: "/trades",      label: "Trades",      icon: ArrowLeftRight },
   { href: "/journal",     label: "Journal",     icon: BookOpen },
   { href: "/trade-notes", label: "Trade Notes", icon: FileText },
+  { href: "/live-data",   label: "Live Data",   icon: Radio },
+  { href: "/chart",       label: "Chart",       icon: ChartCandlestick },
 ];
 
 const adminTradeItems = [
