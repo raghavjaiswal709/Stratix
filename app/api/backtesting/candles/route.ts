@@ -63,7 +63,10 @@ export async function GET(request: Request) {
       dates: { from: fromDate, to: toDate },
       timeframe: timeframe as typeof Timeframe.m1,
       format: "json",
-      useCache: true,
+      // Disable cache: /tmp is ephemeral per-invocation on Vercel so caching
+      // gives no benefit, and the default path (/var/task) is read-only.
+      useCache: false,
+      cacheFolderPath: "/tmp/.dukascopy-cache",
     }) as { timestamp: number; open: number; high: number; low: number; close: number; volume: number }[];
 
     // Convert to lightweight-charts-compatible OHLCV (timestamp in seconds)

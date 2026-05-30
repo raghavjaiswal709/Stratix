@@ -22,18 +22,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ candle: null }, { status: 400 });
   }
 
-  // Fetch the last 10 minutes of 1m data and return the most recent candle
+  // Dukascopy data has a ~1-day publication delay.
+  // Fetch the last 60 minutes to ensure we find the most recent available candle.
   const to   = new Date();
-  const from = new Date(to.getTime() - 10 * 60 * 1000);
+  const from = new Date(to.getTime() - 60 * 60 * 1000);
+
+  // Wrap in a race so the serverless function never hangs past 20s.
+  const fetchPromise = getHistoricRates({
+    instrument: instrument as typeof Instrument.xauusd,
+    dates: { from, to },
+    timeframe: Timeframe.m1,
+    format: "json",
+    useCache: false,
+    cacheFolderPath: "/tmp/.dukascopy-cache",
+  }) as Promise<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }[]>;
+
+  const timeoutPromise = new Promise<null>((resolve) =>
+    setTimeout(() => resolve(null), 20_000)
+  );
 
   try {
-    const raw = await getHistoricRates({
-      instrument: instrument as typeof Instrument.xauusd,
-      dates: { from, to },
-      timeframe: Timeframe.m1,
-      format: "json",
-      useCache: false, // always get fresh data for live feed
-    }) as { timestamp: number; open: number; high: number; low: number; close: number; volume: number }[];
+    const result = await Promise.race([fetchPromise, timeoutPromise]);
+    const raw = result ?? [];
 
     if (!raw.length) {
       return NextResponse.json({ candle: null });
