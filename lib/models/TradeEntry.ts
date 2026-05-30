@@ -9,8 +9,7 @@ export interface ChecklistItem {
   checked: boolean;
 }
 
-export interface ITradeEntry extends Document {
-  _id: string;
+export interface ITradeEntry extends Document<string> {
   userId: string;
 
   // Core trade fields

@@ -294,7 +294,7 @@ export default function AdminPage() {
                               <span className="text-[12px] font-medium">{String(entry.date ?? "—")}</span>
                               <span className="text-[11px] text-muted-foreground">mood: {String(entry.mood ?? "—")}</span>
                             </div>
-                            {entry.content && (
+                            {!!entry.content && (
                               <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
                                 {String(entry.content).replace(/<[^>]*>/g, "")}
                               </p>
@@ -315,7 +315,7 @@ export default function AdminPage() {
                         return (
                           <div key={String(note.id)} className="py-1.5 border-b border-border/30 last:border-0">
                             <p className="text-[12px] font-medium">{String(note.title ?? "Untitled")}</p>
-                            {note.content && (
+                            {!!note.content && (
                               <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
                                 {String(note.content).replace(/<[^>]*>/g, "")}
                               </p>

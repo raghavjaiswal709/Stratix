@@ -34,7 +34,8 @@ export default function HabitsPage() {
     }
   }, [loading, habitData.habits.length]);
 
-  const handleTimeFrameChange = useCallback((v: string) => {
+  const handleTimeFrameChange = useCallback((v: string | null) => {
+    if (!v) return;
     setTimeFrame(v as TimeFrame);
     if (v === "this-week") setReferenceDate(new Date());
   }, []);

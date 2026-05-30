@@ -1,4 +1,4 @@
-// ─── Shared TypeScript interfaces for the backtesting engine ─────────────────
+// ─── Shared TypeScript interfaces for the backtesting / replay engine ─────────
 
 export interface Candle {
   time: number; // Unix timestamp in seconds (UTC)
@@ -11,93 +11,70 @@ export interface Candle {
 
 export type Timeframe = "1m" | "5m" | "15m" | "1H" | "4H" | "1D";
 
-export type StrategyName = "SMA_CROSSOVER" | "RSI_REVERSAL" | "BREAKOUT";
+export type InstrumentKey = "xauusd" | "btcusd";
 
-// ─── Strategy parameter shapes ────────────────────────────────────────────────
-
-export interface SMAParams {
-  fastPeriod: number;
-  slowPeriod: number;
+export interface InstrumentInfo {
+  key: InstrumentKey;
+  label: string;
+  description: string;
 }
 
-export interface RSIParams {
-  period: number;
-  oversold: number;
-  overbought: number;
-}
+export const INSTRUMENTS: InstrumentInfo[] = [
+  { key: "xauusd", label: "XAUUSD", description: "Gold / US Dollar" },
+  { key: "btcusd", label: "BTCUSD", description: "Bitcoin / US Dollar" },
+];
 
-export interface BreakoutParams {
-  lookback: number;
-}
+// ─── Manual replay trade ──────────────────────────────────────────────────────
 
-export type StrategyParams = SMAParams | RSIParams | BreakoutParams;
-
-// ─── Trade & signal types ─────────────────────────────────────────────────────
-
-export interface Trade {
+export interface ManualTrade {
   id: number;
-  type: "LONG" | "SHORT";
+  direction: "LONG" | "SHORT";
   entryTime: number;
   entryPrice: number;
-  exitTime: number;
-  exitPrice: number;
-  pnl: number;      // USD P&L
-  pnlPct: number;   // % P&L
+  lotSize: number;
+  exitTime?: number;
+  exitPrice?: number;
+  pnl?: number;     // absolute USD
+  pnlPct?: number;  // percentage
 }
 
-export interface Signal {
-  time: number;
-  type: "BUY" | "SELL";
-  price: number;
+// ─── Replay engine state ──────────────────────────────────────────────────────
+
+export type ReplaySpeed = 0.5 | 1 | 2 | 5 | 10 | "max";
+
+export interface ReplayState {
+  active: boolean;
+  playing: boolean;
+  startIdx: number;    // candle index where replay begins
+  currentIdx: number;  // index of last visible candle
+  speed: ReplaySpeed;
+  selectingStart: boolean;
 }
 
-export interface IndicatorLine {
-  name: string;
-  color: string;
-  data: { time: number; value: number }[];
-}
+// ─── Live feed status ─────────────────────────────────────────────────────────
 
-// ─── Backtest result types ────────────────────────────────────────────────────
-
-export interface BacktestMetrics {
-  totalReturn: number;
-  totalTrades: number;
-  winRate: number;
-  profitFactor: number;
-  maxDrawdown: number;
-  sharpeRatio: number;
-  avgWin: number;
-  avgLoss: number;
-  bestTrade: number;
-  worstTrade: number;
-}
-
-export interface BacktestResult {
-  trades: Trade[];
-  equityCurve: { time: number; value: number }[];
-  signals: Signal[];
-  indicators: IndicatorLine[];
-  metrics: BacktestMetrics;
-}
-
-// ─── Backtest config ──────────────────────────────────────────────────────────
-
-export interface BacktestConfig {
-  candles: Candle[];
-  strategy: StrategyName;
-  params: StrategyParams;
-  initialCapital: number;
-  lotSize: number; // fixed USD amount per trade
-}
+export type LiveStatus = "live" | "reconnecting" | "stopped";
 
 // ─── Controls form state ─────────────────────────────────────────────────────
 
 export interface ControlsState {
-  fromDate: string;       // YYYY-MM-DD
-  toDate: string;         // YYYY-MM-DD
+  instrument: InstrumentKey;
+  fromDate: string;  // YYYY-MM-DD
+  toDate: string;    // YYYY-MM-DD
   timeframe: Timeframe;
-  strategy: StrategyName;
-  params: StrategyParams;
-  initialCapital: number;
   lotSize: number;
+}
+
+// ─── Metrics computed from manual trades ─────────────────────────────────────
+
+export interface ReplayMetrics {
+  totalTrades: number;
+  winRate: number;
+  totalPnl: number;
+  profitFactor: number;
+  avgWin: number;
+  avgLoss: number;
+  bestTrade: number;
+  worstTrade: number;
+  equityCurve: { time: number; value: number }[];
 }

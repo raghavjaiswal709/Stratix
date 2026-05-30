@@ -7,6 +7,12 @@ export const dynamic = "force-dynamic";
 
 const METAAPI_BASE = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai";
 
+function metaApiHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = process.env.METAAPI_TOKEN;
+  if (!token) throw new Error("METAAPI_TOKEN not configured");
+  return { "auth-token": token, "Content-Type": "application/json", ...extra };
+}
+
 /**
  * POST /api/mt5/connect
  * Registers an MT5 account with MetaApi and stores the returned accountId.

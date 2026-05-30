@@ -23,16 +23,21 @@ import {
   ChevronUp,
   Pin,
   PinOff,
+  ChartCandlestick,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const tradeItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/trades",    label: "Trades",    icon: ArrowLeftRight },
-  { href: "/journal",   label: "Journal",   icon: BookOpen },
+  { href: "/dashboard",   label: "Dashboard",   icon: LayoutDashboard },
+  { href: "/trades",      label: "Trades",      icon: ArrowLeftRight },
+  { href: "/journal",     label: "Journal",     icon: BookOpen },
   { href: "/trade-notes", label: "Trade Notes", icon: FileText },
+];
+
+const adminTradeItems = [
+  { href: "/backtesting", label: "Backtesting", icon: ChartCandlestick },
 ];
 
 const lifeItems = [
@@ -119,6 +124,32 @@ function CollapsedSidebar({
                       "flex items-center justify-center w-10 h-10 rounded-lg transition-all",
                       active
                         ? "bg-blue-600/15 text-blue-400 border border-blue-500/20"
+                        : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
+                    )}
+                  />
+                }
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+              </TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+
+        {/* Admin-only items */}
+        {session?.user?.role === "admin" && adminTradeItems.map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || pathname.startsWith(href + "/");
+          return (
+            <Tooltip key={href}>
+              <TooltipTrigger
+                render={
+                  <Link
+                    href={href}
+                    onClick={(e) => handleNav(e, href)}
+                    className={cn(
+                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all",
+                      active
+                        ? "bg-amber-600/15 text-amber-400 border border-amber-500/20"
                         : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
                     )}
                   />
@@ -316,6 +347,28 @@ function ExpandedSidebar({
               <Icon className="h-4 w-4 shrink-0" />
               {label}
               {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-400" />}
+            </Link>
+          );
+        })}
+
+        {/* Admin-only items */}
+        {session?.user?.role === "admin" && adminTradeItems.map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || pathname.startsWith(href + "/");
+          return (
+            <Link
+              key={href}
+              href={href}
+              onClick={(e) => handleNav(e, href)}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150",
+                active
+                  ? "bg-amber-600/15 text-amber-400 border border-amber-500/20"
+                  : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {label}
+              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400" />}
             </Link>
           );
         })}
