@@ -30,6 +30,18 @@ import {
   AArrowDown, AArrowUp, ALargeSmall, Accessibility, ActivitySquare, AirVent, Airplay, AlarmCheck, AlarmClockCheck, AlarmClockMinus, AlarmClockOff, AlarmClockPlus, AlarmMinus, AlarmPlus, AlarmSmoke, Album, AlertCircle, AlertOctagon, AlertTriangle, AlignCenter, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignHorizontalDistributeEnd, AlignHorizontalDistributeStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd, AlignHorizontalJustifyStart, AlignHorizontalSpaceAround, AlignHorizontalSpaceBetween, AlignJustify, AlignLeft, AlignRight, AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, AlignVerticalDistributeEnd, AlignVerticalDistributeStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, AlignVerticalSpaceAround, AlignVerticalSpaceBetween, Ambulance, Ampersand, Ampersands, Amphora, Anchor, Angry, Annoyed, Antenna, Anvil, Aperture, AppWindow, AppWindowMac, Archive, ArchiveRestore, ArchiveX, AreaChart, Armchair, ArrowBigDown, ArrowBigDownDash, ArrowBigLeft, ArrowBigLeftDash, ArrowBigRight, ArrowBigRightDash, ArrowBigUp, ArrowBigUpDash, ArrowDown, ArrowDown01, ArrowDown10, ArrowDownAZ, ArrowDownAz, ArrowDownCircle, ArrowDownFromLine, ArrowDownLeft, ArrowDownLeftFromCircle, ArrowDownLeftFromSquare, ArrowDownLeftSquare, ArrowDownNarrowWide, ArrowDownRight, ArrowDownRightFromCircle, ArrowDownRightFromSquare, ArrowDownRightSquare, ArrowDownSquare, ArrowDownToDot, ArrowDownToLine, ArrowDownUp, ArrowDownWideNarrow, ArrowDownZA, ArrowDownZa, ArrowLeft, ArrowLeftCircle, ArrowLeftFromLine, ArrowLeftRight, ArrowLeftSquare, ArrowLeftToLine, ArrowRight, ArrowRightCircle, ArrowRightFromLine, ArrowRightLeft, ArrowRightSquare, ArrowRightToLine, ArrowUp, ArrowUp01, ArrowUp10, ArrowUpAZ, ArrowUpAz, ArrowUpCircle, ArrowUpDown, ArrowUpFromDot, ArrowUpFromLine, ArrowUpLeft, ArrowUpLeftFromCircle, ArrowUpLeftFromSquare, ArrowUpLeftSquare, ArrowUpNarrowWide, ArrowUpRight, ArrowUpRightFromCircle, ArrowUpRightFromSquare, ArrowUpRightSquare, ArrowUpSquare, ArrowUpToLine, ArrowUpWideNarrow, ArrowUpZA, ArrowUpZa, ArrowsUpFromLine, Asterisk, AsteriskSquare, AtSign, Atom, AudioLines, AudioWaveform, Award, Axe, Axis3D, Axis3d, Baby, Backpack, Badge, BadgeAlert, BadgeCent, BadgeCheck, BadgeDollarSign, BadgeEuro, BadgeHelp, BadgeIndianRupee, BadgeInfo, BadgeJapaneseYen, BadgeMinus, BadgePercent, BadgePlus, BadgePoundSterling, BadgeQuestionMark, BadgeRussianRuble, BadgeSwissFranc, BadgeTurkishLira, BadgeX, BaggageClaim, Balloon, Ban, Banana, Bandage, Banknote, BanknoteArrowDown, BanknoteArrowUp, BanknoteX, BarChart, BarChart2, BarChart3, BarChart4, BarChartBig, BarChartHorizontal, BarChartHorizontalBig, Barcode, Barrel, Baseline, Bath, Battery, BatteryCharging, BatteryFull, BatteryLow, BatteryMedium, BatteryPlus, BatteryWarning, Beaker, Bean, BeanOff, BedSingle, Beef, BeefOff, Beer, BeerOff, BellDot, BellElectric, BellMinus, BellOff, BellPlus, BellRing, BetweenHorizonalEnd, BetweenHorizonalStart, BetweenHorizontalEnd, BetweenHorizontalStart, BetweenVerticalEnd, BetweenVerticalStart, BicepsFlexed, Binary, Binoculars, Biohazard, Bird, Birdhouse, Bitcoin, Blend, Blinds, Blocks, Bluetooth, BluetoothConnected, BluetoothOff, BluetoothSearching, Bold, Bolt, Bomb, Bone, Book, BookA, BookAlert, BookAudio, BookCheck, BookCopy, BookDashed, BookDown, BookHeadphones, BookHeart, BookImage, BookKey, BookLock, BookMinus, BookOpenCheck, BookOpenText, BookPlus, BookSearch, BookTemplate, BookText, BookType, BookUp, BookUp2, BookUser, BookX, Bookmark, BookmarkCheck, BookmarkMinus, BookmarkOff, BookmarkPlus, BookmarkX, BoomBox, Bot, BotMessageSquare, BotOff, BottleWine, BowArrow, Box, BoxSelect, Boxes, Braces, Brackets, BrainCircuit, BrainCog, BrickWall, BrickWallFire, BrickWallShield, BriefcaseBusiness, BriefcaseConveyorBelt, BriefcaseMedical, BringToFront, BrushCleaning, Bubbles, Bug, BugOff, BugPlay, Building, Building2, Bus, BusFront, Cable, CableCar, Cake, CakeSlice, Calendar, Calendar1, CalendarArrowDown, CalendarArrowUp, CalendarCheck, CalendarCheck2, CalendarClock, CalendarCog, CalendarDays, CalendarFold, CalendarHeart, CalendarMinus, CalendarMinus2, CalendarOff, CalendarPlus, CalendarPlus2, CalendarRange, CalendarSearch, CalendarSync, CalendarX, CalendarX2, Calendars, CameraOff, CandlestickChart, Candy, CandyCane, CandyOff, Cannabis, CannabisOff, Captions, CaptionsOff, CarFront, CarTaxiFront, Caravan, CardSim, CaseLower, CaseSensitive, CaseUpper, CassetteTape, Cast, Castle, Cat, Cctv, CctvOff, ChartArea, ChartBarBig, ChartBarDecreasing, ChartBarIncreasing, ChartBarStacked, ChartCandlestick, ChartColumn, ChartColumnBig, ChartColumnDecreasing, ChartColumnIncreasing, ChartColumnStacked, ChartGantt, ChartNetwork, ChartNoAxesColumn, ChartNoAxesColumnDecreasing, ChartNoAxesColumnIncreasing, ChartNoAxesCombined, ChartNoAxesGantt, ChartPie, ChartScatter, ChartSpline, Check, CheckCheck, CheckCircle, CheckCircle2, CheckLine, CheckSquare, CheckSquare2, ChefHat, Cherry, ChessBishop, ChessKing, ChessKnight, ChessPawn, ChessQueen, ChessRook, ChevronDown, ChevronDownCircle, ChevronDownSquare, ChevronFirst, ChevronLast, ChevronLeft, ChevronLeftCircle, ChevronLeftSquare, ChevronRight, ChevronRightCircle, ChevronRightSquare, ChevronUp, ChevronUpCircle, ChevronUpSquare, ChevronsDown, ChevronsDownUp, ChevronsLeft, ChevronsLeftRight, ChevronsLeftRightEllipsis, ChevronsRight, ChevronsRightLeft, ChevronsUp, ChevronsUpDown, Church, Cigarette, CigaretteOff, Circle, CircleAlert, CircleArrowDown, CircleArrowLeft, CircleArrowOutDownLeft, CircleArrowOutDownRight, CircleArrowOutUpLeft, CircleArrowOutUpRight, CircleArrowRight, CircleArrowUp, CircleCheck, CircleCheckBig, CircleChevronDown, CircleChevronLeft, CircleChevronRight, CircleChevronUp, CircleDashed, CircleDivide, CircleDollarSign, CircleDot, CircleDotDashed, CircleEllipsis, CircleEqual, CircleFadingArrowUp, CircleFadingPlus, CircleGauge, CircleHelp, CircleMinus, CircleOff, CircleParking, CircleParkingOff, CirclePause, CirclePercent, CirclePile, CirclePlay, CirclePlus, CirclePoundSterling, CirclePower, CircleQuestionMark, CircleSlash, CircleSlash2, CircleSlashed, CircleSmall, CircleStar, CircleStop, CircleUser, CircleUserRound, CircleX, CircuitBoard, Clapperboard, Clipboard, ClipboardCheck, ClipboardClock, ClipboardCopy, ClipboardEdit, ClipboardMinus, ClipboardPaste, ClipboardPen, ClipboardPenLine, ClipboardPlus, ClipboardSignature, ClipboardType, ClipboardX, Clock, Clock1, Clock10, Clock11, Clock12, Clock2, Clock3, Clock4, Clock5, Clock6, Clock7, Clock8, Clock9, ClockAlert, ClockArrowDown, ClockArrowUp, ClockCheck, ClockFading, ClockPlus, ClosedCaption, Cloud, CloudAlert, CloudBackup, CloudCheck, CloudCog, CloudDownload, CloudDrizzle, CloudFog, CloudHail, CloudLightning, CloudMoonRain, CloudOff, CloudRain, CloudRainWind, CloudSnow, CloudSun, CloudSunRain, CloudSync, CloudUpload, Cloudy, Clover, Club
 } from "lucide-react";
 
+// ── Phosphor Icons ────────────────────────────────────────────────────────
+import {
+  Barbell, PersonSimpleRun, PersonSimpleWalk, PersonSimpleSwim,
+  PersonSimpleBike, PersonSimpleTaiChi, PersonSimpleHike, Heartbeat,
+  FirstAidKit, ForkKnife, CookingPot, Orange, OrangeSlice, BowlFood, TeaBag,
+  MoonStars, SunHorizon, YinYang, Flower, FlowerLotus, HandsPraying, HandHeart,
+  Butterfly, Scales, HandCoins, Vault, ChartLineUp, Stack, LightbulbFilament,
+  Exam, PencilSimple, UsersThree, ChatTeardrop, SealCheck, CheckFat, Medal,
+  ShootingStar, Basketball, SoccerBall, Volleyball, TennisBall, BowlingBall,
+  Football, Baseball, Golf, Hockey,
+} from "@phosphor-icons/react";
+
 // ── Icon component map ────────────────────────────────────────────────────
 
 export const HABIT_ICON_MAP = {
@@ -64,7 +76,67 @@ export const HABIT_ICON_MAP = {
   AArrowDown, AArrowUp, ALargeSmall, Accessibility, ActivitySquare, AirVent, Airplay, AlarmCheck, AlarmClockCheck, AlarmClockMinus, AlarmClockOff, AlarmClockPlus, AlarmMinus, AlarmPlus, AlarmSmoke, Album, AlertCircle, AlertOctagon, AlertTriangle, AlignCenter, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignHorizontalDistributeEnd, AlignHorizontalDistributeStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd, AlignHorizontalJustifyStart, AlignHorizontalSpaceAround, AlignHorizontalSpaceBetween, AlignJustify, AlignLeft, AlignRight, AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, AlignVerticalDistributeEnd, AlignVerticalDistributeStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, AlignVerticalSpaceAround, AlignVerticalSpaceBetween, Ambulance, Ampersand, Ampersands, Amphora, Anchor, Angry, Annoyed, Antenna, Anvil, Aperture, AppWindow, AppWindowMac, Archive, ArchiveRestore, ArchiveX, AreaChart, Armchair, ArrowBigDown, ArrowBigDownDash, ArrowBigLeft, ArrowBigLeftDash, ArrowBigRight, ArrowBigRightDash, ArrowBigUp, ArrowBigUpDash, ArrowDown, ArrowDown01, ArrowDown10, ArrowDownAZ, ArrowDownAz, ArrowDownCircle, ArrowDownFromLine, ArrowDownLeft, ArrowDownLeftFromCircle, ArrowDownLeftFromSquare, ArrowDownLeftSquare, ArrowDownNarrowWide, ArrowDownRight, ArrowDownRightFromCircle, ArrowDownRightFromSquare, ArrowDownRightSquare, ArrowDownSquare, ArrowDownToDot, ArrowDownToLine, ArrowDownUp, ArrowDownWideNarrow, ArrowDownZA, ArrowDownZa, ArrowLeft, ArrowLeftCircle, ArrowLeftFromLine, ArrowLeftRight, ArrowLeftSquare, ArrowLeftToLine, ArrowRight, ArrowRightCircle, ArrowRightFromLine, ArrowRightLeft, ArrowRightSquare, ArrowRightToLine, ArrowUp, ArrowUp01, ArrowUp10, ArrowUpAZ, ArrowUpAz, ArrowUpCircle, ArrowUpDown, ArrowUpFromDot, ArrowUpFromLine, ArrowUpLeft, ArrowUpLeftFromCircle, ArrowUpLeftFromSquare, ArrowUpLeftSquare, ArrowUpNarrowWide, ArrowUpRight, ArrowUpRightFromCircle, ArrowUpRightFromSquare, ArrowUpRightSquare, ArrowUpSquare, ArrowUpToLine, ArrowUpWideNarrow, ArrowUpZA, ArrowUpZa, ArrowsUpFromLine, Asterisk, AsteriskSquare, AtSign, Atom, AudioLines, AudioWaveform, Award, Axe, Axis3D, Axis3d, Baby, Backpack, Badge, BadgeAlert, BadgeCent, BadgeCheck, BadgeDollarSign, BadgeEuro, BadgeHelp, BadgeIndianRupee, BadgeInfo, BadgeJapaneseYen, BadgeMinus, BadgePercent, BadgePlus, BadgePoundSterling, BadgeQuestionMark, BadgeRussianRuble, BadgeSwissFranc, BadgeTurkishLira, BadgeX, BaggageClaim, Balloon, Ban, Banana, Bandage, Banknote, BanknoteArrowDown, BanknoteArrowUp, BanknoteX, BarChart, BarChart2, BarChart3, BarChart4, BarChartBig, BarChartHorizontal, BarChartHorizontalBig, Barcode, Barrel, Baseline, Bath, Battery, BatteryCharging, BatteryFull, BatteryLow, BatteryMedium, BatteryPlus, BatteryWarning, Beaker, Bean, BeanOff, BedSingle, Beef, BeefOff, Beer, BeerOff, BellDot, BellElectric, BellMinus, BellOff, BellPlus, BellRing, BetweenHorizonalEnd, BetweenHorizonalStart, BetweenHorizontalEnd, BetweenHorizontalStart, BetweenVerticalEnd, BetweenVerticalStart, BicepsFlexed, Binary, Binoculars, Biohazard, Bird, Birdhouse, Bitcoin, Blend, Blinds, Blocks, Bluetooth, BluetoothConnected, BluetoothOff, BluetoothSearching, Bold, Bolt, Bomb, Bone, Book, BookA, BookAlert, BookAudio, BookCheck, BookCopy, BookDashed, BookDown, BookHeadphones, BookHeart, BookImage, BookKey, BookLock, BookMinus, BookOpenCheck, BookOpenText, BookPlus, BookSearch, BookTemplate, BookText, BookType, BookUp, BookUp2, BookUser, BookX, Bookmark, BookmarkCheck, BookmarkMinus, BookmarkOff, BookmarkPlus, BookmarkX, BoomBox, Bot, BotMessageSquare, BotOff, BottleWine, BowArrow, Box, BoxSelect, Boxes, Braces, Brackets, BrainCircuit, BrainCog, BrickWall, BrickWallFire, BrickWallShield, BriefcaseBusiness, BriefcaseConveyorBelt, BriefcaseMedical, BringToFront, BrushCleaning, Bubbles, Bug, BugOff, BugPlay, Building, Building2, Bus, BusFront, Cable, CableCar, Cake, CakeSlice, Calendar, Calendar1, CalendarArrowDown, CalendarArrowUp, CalendarCheck, CalendarCheck2, CalendarClock, CalendarCog, CalendarDays, CalendarFold, CalendarHeart, CalendarMinus, CalendarMinus2, CalendarOff, CalendarPlus, CalendarPlus2, CalendarRange, CalendarSearch, CalendarSync, CalendarX, CalendarX2, Calendars, CameraOff, CandlestickChart, Candy, CandyCane, CandyOff, Cannabis, CannabisOff, Captions, CaptionsOff, CarFront, CarTaxiFront, Caravan, CardSim, CaseLower, CaseSensitive, CaseUpper, CassetteTape, Cast, Castle, Cat, Cctv, CctvOff, ChartArea, ChartBarBig, ChartBarDecreasing, ChartBarIncreasing, ChartBarStacked, ChartCandlestick, ChartColumn, ChartColumnBig, ChartColumnDecreasing, ChartColumnIncreasing, ChartColumnStacked, ChartGantt, ChartNetwork, ChartNoAxesColumn, ChartNoAxesColumnDecreasing, ChartNoAxesColumnIncreasing, ChartNoAxesCombined, ChartNoAxesGantt, ChartPie, ChartScatter, ChartSpline, Check, CheckCheck, CheckCircle, CheckCircle2, CheckLine, CheckSquare, CheckSquare2, ChefHat, Cherry, ChessBishop, ChessKing, ChessKnight, ChessPawn, ChessQueen, ChessRook, ChevronDown, ChevronDownCircle, ChevronDownSquare, ChevronFirst, ChevronLast, ChevronLeft, ChevronLeftCircle, ChevronLeftSquare, ChevronRight, ChevronRightCircle, ChevronRightSquare, ChevronUp, ChevronUpCircle, ChevronUpSquare, ChevronsDown, ChevronsDownUp, ChevronsLeft, ChevronsLeftRight, ChevronsLeftRightEllipsis, ChevronsRight, ChevronsRightLeft, ChevronsUp, ChevronsUpDown, Church, Cigarette, CigaretteOff, Circle, CircleAlert, CircleArrowDown, CircleArrowLeft, CircleArrowOutDownLeft, CircleArrowOutDownRight, CircleArrowOutUpLeft, CircleArrowOutUpRight, CircleArrowRight, CircleArrowUp, CircleCheck, CircleCheckBig, CircleChevronDown, CircleChevronLeft, CircleChevronRight, CircleChevronUp, CircleDashed, CircleDivide, CircleDollarSign, CircleDot, CircleDotDashed, CircleEllipsis, CircleEqual, CircleFadingArrowUp, CircleFadingPlus, CircleGauge, CircleHelp, CircleMinus, CircleOff, CircleParking, CircleParkingOff, CirclePause, CirclePercent, CirclePile, CirclePlay, CirclePlus, CirclePoundSterling, CirclePower, CircleQuestionMark, CircleSlash, CircleSlash2, CircleSlashed, CircleSmall, CircleStar, CircleStop, CircleUser, CircleUserRound, CircleX, CircuitBoard, Clapperboard, Clipboard, ClipboardCheck, ClipboardClock, ClipboardCopy, ClipboardEdit, ClipboardMinus, ClipboardPaste, ClipboardPen, ClipboardPenLine, ClipboardPlus, ClipboardSignature, ClipboardType, ClipboardX, Clock, Clock1, Clock10, Clock11, Clock12, Clock2, Clock3, Clock4, Clock5, Clock6, Clock7, Clock8, Clock9, ClockAlert, ClockArrowDown, ClockArrowUp, ClockCheck, ClockFading, ClockPlus, ClosedCaption, Cloud, CloudAlert, CloudBackup, CloudCheck, CloudCog, CloudDownload, CloudDrizzle, CloudFog, CloudHail, CloudLightning, CloudMoonRain, CloudOff, CloudRain, CloudRainWind, CloudSnow, CloudSun, CloudSunRain, CloudSync, CloudUpload, Cloudy, Clover, Club
 } as const;
 
-export type HabitIconKey = keyof typeof HABIT_ICON_MAP;
+// ── Phosphor icon map (keys use "ph:" prefix) ──────────────────────────────
+export const PHOSPHOR_HABIT_ICON_MAP = {
+  // Fitness
+  "ph:Barbell":           Barbell,
+  "ph:PersonSimpleRun":   PersonSimpleRun,
+  "ph:PersonSimpleWalk":  PersonSimpleWalk,
+  "ph:PersonSimpleSwim":  PersonSimpleSwim,
+  "ph:PersonSimpleBike":  PersonSimpleBike,
+  "ph:PersonSimpleTaiChi": PersonSimpleTaiChi,
+  "ph:PersonSimpleHike":  PersonSimpleHike,
+  "ph:Heartbeat":         Heartbeat,
+  // Health
+  "ph:FirstAidKit":       FirstAidKit,
+  // Food
+  "ph:ForkKnife":         ForkKnife,
+  "ph:CookingPot":        CookingPot,
+  "ph:Orange":            Orange,
+  "ph:OrangeSlice":       OrangeSlice,
+  "ph:BowlFood":          BowlFood,
+  "ph:TeaBag":            TeaBag,
+  // Sleep
+  "ph:MoonStars":         MoonStars,
+  "ph:SunHorizon":        SunHorizon,
+  // Mind
+  "ph:YinYang":           YinYang,
+  "ph:Flower":            Flower,
+  "ph:FlowerLotus":       FlowerLotus,
+  "ph:HandsPraying":      HandsPraying,
+  "ph:HandHeart":         HandHeart,
+  "ph:Butterfly":         Butterfly,
+  "ph:Scales":            Scales,
+  // Finance
+  "ph:HandCoins":         HandCoins,
+  "ph:Vault":             Vault,
+  "ph:ChartLineUp":       ChartLineUp,
+  "ph:Stack":             Stack,
+  // Learning
+  "ph:LightbulbFilament": LightbulbFilament,
+  "ph:Exam":              Exam,
+  "ph:PencilSimple":      PencilSimple,
+  // Social
+  "ph:UsersThree":        UsersThree,
+  "ph:ChatTeardrop":      ChatTeardrop,
+  // Productivity
+  "ph:SealCheck":         SealCheck,
+  "ph:CheckFat":          CheckFat,
+  "ph:Medal":             Medal,
+  "ph:ShootingStar":      ShootingStar,
+  // Sports
+  "ph:Basketball":        Basketball,
+  "ph:SoccerBall":        SoccerBall,
+  "ph:Volleyball":        Volleyball,
+  "ph:TennisBall":        TennisBall,
+  "ph:BowlingBall":       BowlingBall,
+  "ph:Football":          Football,
+  "ph:Baseball":          Baseball,
+  "ph:Golf":              Golf,
+  "ph:Hockey":            Hockey,
+} as const;
+
+export type HabitIconKey = keyof typeof HABIT_ICON_MAP | keyof typeof PHOSPHOR_HABIT_ICON_MAP;
 
 // ── Metadata ─────────────────────────────────────────────────────────────
 
@@ -87,6 +159,7 @@ export const ICON_CATEGORIES = [
   "Social",
   "Productivity",
   "Lifestyle",
+  "Sports",
 ] as const;
 
 export type IconCategory = (typeof ICON_CATEGORIES)[number];
@@ -232,6 +305,73 @@ export const HABIT_ICONS_LIST: IconEntry[] = [
   { key: "Watch",           label: "Time",        category: "Lifestyle",    tags: ["schedule", "punctual", "track", "manage"] },
   { key: "Trees",           label: "Nature Walk", category: "Lifestyle",    tags: ["outdoors", "forest", "hiking", "green"] },
   { key: "Mountain",        label: "Hiking",      category: "Lifestyle",    tags: ["climb", "outdoor", "adventure", "peak"] },
+
+  // ── Phosphor: Fitness ─────────────────────────────────────────────────────
+  { key: "ph:Barbell",           label: "Barbell",        category: "Fitness",  tags: ["weights", "gym", "strength", "lift", "powerlifting"] },
+  { key: "ph:PersonSimpleRun",   label: "Running",        category: "Fitness",  tags: ["run", "jog", "cardio", "sprint", "marathon"] },
+  { key: "ph:PersonSimpleWalk",  label: "Walking",        category: "Fitness",  tags: ["walk", "steps", "stroll", "pace", "outdoors"] },
+  { key: "ph:PersonSimpleSwim",  label: "Swimming",       category: "Fitness",  tags: ["swim", "pool", "laps", "cardio", "water"] },
+  { key: "ph:PersonSimpleBike",  label: "Cycling",        category: "Fitness",  tags: ["bike", "cycle", "ride", "cardio", "outdoor"] },
+  { key: "ph:PersonSimpleTaiChi",label: "Yoga",           category: "Fitness",  tags: ["yoga", "tai chi", "stretch", "mindful", "pose"] },
+  { key: "ph:PersonSimpleHike",  label: "Hiking",         category: "Fitness",  tags: ["hike", "trail", "trek", "nature", "mountain"] },
+  { key: "ph:Heartbeat",         label: "Heartbeat",      category: "Fitness",  tags: ["pulse", "cardio", "heart rate", "fitness", "monitor"] },
+
+  // ── Phosphor: Health ──────────────────────────────────────────────────────
+  { key: "ph:FirstAidKit",       label: "First Aid",      category: "Health",   tags: ["kit", "medical", "emergency", "health", "bandage"] },
+
+  // ── Phosphor: Food ────────────────────────────────────────────────────────
+  { key: "ph:ForkKnife",         label: "Fork & Knife",   category: "Food",     tags: ["eat", "meal", "dining", "restaurant", "utensils"] },
+  { key: "ph:CookingPot",        label: "Cooking Pot",    category: "Food",     tags: ["cook", "pot", "stew", "recipe", "homemade"] },
+  { key: "ph:Orange",            label: "Orange",         category: "Food",     tags: ["fruit", "vitamin c", "citrus", "healthy", "snack"] },
+  { key: "ph:OrangeSlice",       label: "Orange Slice",   category: "Food",     tags: ["fruit", "citrus", "slice", "nutrition", "snack"] },
+  { key: "ph:BowlFood",          label: "Bowl",           category: "Food",     tags: ["bowl", "meal", "healthy", "rice", "soup"] },
+  { key: "ph:TeaBag",            label: "Tea",            category: "Food",     tags: ["tea", "herbal", "hot drink", "relaxation", "cup"] },
+
+  // ── Phosphor: Sleep ───────────────────────────────────────────────────────
+  { key: "ph:MoonStars",         label: "Moon & Stars",   category: "Sleep",    tags: ["night sky", "sleep", "stars", "rest", "bedtime"] },
+  { key: "ph:SunHorizon",        label: "Sunrise",        category: "Sleep",    tags: ["sunrise", "dawn", "morning", "wake up", "horizon"] },
+
+  // ── Phosphor: Mind ────────────────────────────────────────────────────────
+  { key: "ph:YinYang",           label: "Yin Yang",       category: "Mind",     tags: ["balance", "harmony", "duality", "peace", "zen"] },
+  { key: "ph:Flower",            label: "Flower",         category: "Mind",     tags: ["bloom", "nature", "beauty", "grow", "calm"] },
+  { key: "ph:FlowerLotus",       label: "Lotus",          category: "Mind",     tags: ["lotus", "meditation", "zen", "spiritual", "peace"] },
+  { key: "ph:HandsPraying",      label: "Gratitude",      category: "Mind",     tags: ["pray", "gratitude", "thankful", "spiritual", "mindful"] },
+  { key: "ph:HandHeart",         label: "Compassion",     category: "Mind",     tags: ["care", "love", "kindness", "compassion", "help"] },
+  { key: "ph:Butterfly",         label: "Transform",      category: "Mind",     tags: ["change", "transform", "growth", "butterfly", "new"] },
+  { key: "ph:Scales",            label: "Balance",        category: "Mind",     tags: ["balance", "justice", "weigh", "decision", "fair"] },
+
+  // ── Phosphor: Finance ─────────────────────────────────────────────────────
+  { key: "ph:HandCoins",         label: "Receive",        category: "Finance",  tags: ["coins", "receive", "income", "earn", "payment"] },
+  { key: "ph:Vault",             label: "Vault",          category: "Finance",  tags: ["vault", "savings", "secure", "safe", "store"] },
+  { key: "ph:ChartLineUp",       label: "Growth Chart",   category: "Finance",  tags: ["growth", "invest", "portfolio", "gain", "trending up"] },
+  { key: "ph:Stack",             label: "Stack",          category: "Finance",  tags: ["stack", "accumulate", "layers", "save", "build"] },
+
+  // ── Phosphor: Learning ────────────────────────────────────────────────────
+  { key: "ph:LightbulbFilament", label: "Insight",        category: "Learning", tags: ["idea", "lightbulb", "insight", "innovation", "spark"] },
+  { key: "ph:Exam",              label: "Exam",           category: "Learning", tags: ["test", "exam", "study", "quiz", "school"] },
+  { key: "ph:PencilSimple",      label: "Pencil",         category: "Learning", tags: ["write", "sketch", "notes", "draw", "edit"] },
+
+  // ── Phosphor: Social ──────────────────────────────────────────────────────
+  { key: "ph:UsersThree",        label: "Group",          category: "Social",   tags: ["group", "team", "people", "community", "friends"] },
+  { key: "ph:ChatTeardrop",      label: "Chat",           category: "Social",   tags: ["chat", "message", "talk", "conversation", "bubble"] },
+
+  // ── Phosphor: Productivity ────────────────────────────────────────────────
+  { key: "ph:SealCheck",         label: "Verified",       category: "Productivity", tags: ["check", "verified", "seal", "approved", "done"] },
+  { key: "ph:CheckFat",          label: "Check",          category: "Productivity", tags: ["tick", "done", "complete", "yes", "confirm"] },
+  { key: "ph:Medal",             label: "Medal",          category: "Productivity", tags: ["medal", "award", "honor", "achievement", "win"] },
+  { key: "ph:ShootingStar",      label: "Shooting Star",  category: "Productivity", tags: ["star", "wish", "goal", "dream", "inspire"] },
+
+  // ── Phosphor: Sports ──────────────────────────────────────────────────────
+  { key: "ph:Basketball",        label: "Basketball",     category: "Sports",   tags: ["basketball", "nba", "court", "hoop", "sport"] },
+  { key: "ph:SoccerBall",        label: "Soccer",         category: "Sports",   tags: ["soccer", "football", "kick", "pitch", "sport"] },
+  { key: "ph:Volleyball",        label: "Volleyball",     category: "Sports",   tags: ["volleyball", "beach", "net", "serve", "sport"] },
+  { key: "ph:TennisBall",        label: "Tennis",         category: "Sports",   tags: ["tennis", "racket", "court", "match", "sport"] },
+  { key: "ph:BowlingBall",       label: "Bowling",        category: "Sports",   tags: ["bowling", "strike", "pins", "lane", "sport"] },
+  { key: "ph:Football",          label: "Football",       category: "Sports",   tags: ["football", "nfl", "touchdown", "field", "sport"] },
+  { key: "ph:Baseball",          label: "Baseball",       category: "Sports",   tags: ["baseball", "mlb", "pitch", "bat", "sport"] },
+  { key: "ph:Golf",              label: "Golf",           category: "Sports",   tags: ["golf", "course", "club", "hole", "sport"] },
+  { key: "ph:Hockey",            label: "Hockey",         category: "Sports",   tags: ["hockey", "puck", "stick", "ice", "sport"] },
+
   // ── 500 Additional Icons ──────────────────────────────────────────────────
   { key: "AArrowDown", label: "A Arrow Down", category: "All", tags: [] },
   { key: "AArrowUp", label: "A Arrow Up", category: "All", tags: [] },
@@ -736,4 +876,7 @@ export const HABIT_ICONS_LIST: IconEntry[] = [
 
 ];
 
-export const ICON_KEYS = Object.keys(HABIT_ICON_MAP) as HabitIconKey[];
+export const ICON_KEYS = [
+  ...Object.keys(HABIT_ICON_MAP),
+  ...Object.keys(PHOSPHOR_HABIT_ICON_MAP),
+] as HabitIconKey[];

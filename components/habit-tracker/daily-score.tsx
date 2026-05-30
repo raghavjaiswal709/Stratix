@@ -8,6 +8,7 @@ import type { TimeFrame } from "@/types";
 
 interface DailyScoreProps {
   timeFrame?: TimeFrame;
+  referenceDate?: Date;
 }
 
 interface ScoreBucket {
@@ -15,15 +16,15 @@ interface ScoreBucket {
   score: number;
 }
 
-export function DailyScore({ timeFrame = "this-week" }: DailyScoreProps) {
+export function DailyScore({ timeFrame = "this-week", referenceDate }: DailyScoreProps) {
   const { habitData } = useAppContext();
 
   const buckets = useMemo((): ScoreBucket[] => {
-    const { start, end } = getDateRange(timeFrame);
+    const { start, end } = getDateRange(timeFrame, referenceDate);
     const clampedEnd = end > new Date() ? new Date() : end;
 
     if (timeFrame === "this-week") {
-      const weekDates = getWeekDates();
+      const weekDates = getWeekDates(referenceDate ?? new Date());
       const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       return weekDates.map((date, i) => ({
         label: dayLabels[i],
@@ -63,7 +64,7 @@ export function DailyScore({ timeFrame = "this-week" }: DailyScoreProps) {
         : 0;
       return { label: format(monthStart, "MMM"), score: avg };
     });
-  }, [timeFrame, habitData]);
+  }, [timeFrame, habitData, referenceDate]);
 
   const isCompact = buckets.length > 14;
 

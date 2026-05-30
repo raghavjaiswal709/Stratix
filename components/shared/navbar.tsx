@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useAppContext } from "@/lib/context";
-import { Sun, Activity, TrendingUp, Moon, LogOut, Menu, X, ChevronDown, Settings } from "lucide-react";
+import { Sun, Activity, TrendingUp, Moon, LogOut, Menu, X, ChevronDown, Settings, Shield } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GlobalSearch } from "@/components/shared/global-search";
 import {
@@ -118,6 +118,12 @@ export function Navbar() {
                     <Settings className="mr-2 h-3.5 w-3.5" />
                     Settings
                 </DropdownMenuItem>
+                {session.user.role === "admin" && (
+                  <DropdownMenuItem onClick={() => { window.location.href = "/admin"; }} className="mt-1 text-indigo-400 focus:text-indigo-300 focus:bg-indigo-500/10">
+                    <Shield className="mr-2 h-3.5 w-3.5" />
+                    Admin Panel
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   onClick={() => signOut({ callbackUrl: "/auth/signin" })}
                   className="mt-1 text-red-400 focus:text-red-300 focus:bg-red-500/10"

@@ -1,9 +1,7 @@
 "use client";
 
 import { useAppContext } from "@/lib/context";
-import { getScoreOfTheDay } from "@/lib/score";
 import { getDailyScore } from "@/lib/habits";
-import { getTodoScore } from "@/lib/todos";
 import { format } from "date-fns";
 
 function scoreColor(n: number) {
@@ -14,20 +12,14 @@ function scoreColor(n: number) {
 }
 
 export function ScoreOfTheDay() {
-  const { habitData, todoData, scoreWeights } = useAppContext();
+  const { habitData } = useAppContext();
   const today = format(new Date(), "yyyy-MM-dd");
 
   const habitScore = getDailyScore(habitData.habits, habitData.logs, today);
-  const todoScore  = getTodoScore(todoData.todos, today);
-  const combined   = getScoreOfTheDay(
-    habitData.habits, habitData.logs,
-    todoData.todos, scoreWeights, today
-  );
-
-  const color = scoreColor(combined);
+  const color = scoreColor(habitScore);
   const radius = 26;
   const circ = 2 * Math.PI * radius;
-  const offset = circ - (combined / 100) * circ;
+  const offset = circ - (habitScore / 100) * circ;
 
   return (
     <div className="glass-card px-5 py-4 flex items-center gap-5">
@@ -43,7 +35,7 @@ export function ScoreOfTheDay() {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-[16px] font-bold leading-none" style={{ color }}>{combined}</span>
+          <span className="text-[16px] font-bold leading-none" style={{ color }}>{habitScore}</span>
           <span className="text-[9px] text-muted-foreground/70 mt-0.5">%</span>
         </div>
       </div>
@@ -51,21 +43,8 @@ export function ScoreOfTheDay() {
       {/* Main label */}
       <div className="flex-1 min-w-0">
         <p className="text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground mb-0.5">Score of the Day</p>
-        <p className="text-[26px] font-bold leading-tight" style={{ color }}>{combined}%</p>
+        <p className="text-[26px] font-bold leading-tight" style={{ color }}>{habitScore}%</p>
         <p className="text-[12px] text-muted-foreground mt-0.5">{format(new Date(), "EEEE, MMMM d")}</p>
-      </div>
-
-      {/* Breakdown */}
-      <div className="hidden sm:flex items-center gap-4 shrink-0">
-        <div className="text-center">
-          <div className="text-[15px] font-semibold text-foreground/80">{habitScore}%</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">Habits</div>
-        </div>
-        <div className="w-px h-8 bg-border" />
-        <div className="text-center">
-          <div className="text-[15px] font-semibold text-foreground/80">{todoScore}%</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">Tasks</div>
-        </div>
       </div>
     </div>
   );

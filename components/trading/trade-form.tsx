@@ -23,6 +23,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, X, ImagePlus } from "lucide-react";
+import {
+  SmileyWink,
+  SmileyNervous,
+  SmileyXEyes,
+  SmileyMeh,
+  SmileySad,
+} from "@phosphor-icons/react";
 import type { Trade, TradeType, AssetClass, Timeframe, EmotionalState } from "@/types";
 
 interface TradeFormProps {
@@ -421,11 +428,36 @@ export function TradeForm({ open, onClose, editTrade }: TradeFormProps) {
               >
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="confident">😎 Confident</SelectItem>
-                  <SelectItem value="anxious">😰 Anxious</SelectItem>
-                  <SelectItem value="fomo">😱 FOMO</SelectItem>
-                  <SelectItem value="neutral">😐 Neutral</SelectItem>
-                  <SelectItem value="fearful">😨 Fearful</SelectItem>
+                  <SelectItem value="confident">
+                    <span className="flex items-center gap-2">
+                      <SmileyWink size={16} weight="fill" style={{ color: "#22c55e" }} />
+                      Confident
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="anxious">
+                    <span className="flex items-center gap-2">
+                      <SmileyNervous size={16} weight="fill" style={{ color: "#f97316" }} />
+                      Anxious
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="fomo">
+                    <span className="flex items-center gap-2">
+                      <SmileyXEyes size={16} weight="fill" style={{ color: "#a855f7" }} />
+                      FOMO
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="neutral">
+                    <span className="flex items-center gap-2">
+                      <SmileyMeh size={16} weight="fill" style={{ color: "#94a3b8" }} />
+                      Neutral
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="fearful">
+                    <span className="flex items-center gap-2">
+                      <SmileySad size={16} weight="fill" style={{ color: "#ef4444" }} />
+                      Fearful
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

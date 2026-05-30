@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useAppContext } from "@/lib/context";
 import { generateId } from "@/lib/habits";
 import {
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Plus, Trash2, ArrowRight, Search } from "lucide-react";
 import {
   HABIT_ICON_MAP,
+  PHOSPHOR_HABIT_ICON_MAP,
   HABIT_ICONS_LIST,
   type HabitIconKey,
 } from "@/lib/habit-icons";
@@ -33,7 +34,12 @@ function HabitIconComp({
   size?: number;
   color?: string;
 }) {
-  const Icon = (HABIT_ICON_MAP[(iconKey as HabitIconKey) || "Target"] ??
+  if (iconKey?.startsWith("ph:")) {
+    const PhIcon = PHOSPHOR_HABIT_ICON_MAP[iconKey as keyof typeof PHOSPHOR_HABIT_ICON_MAP] as
+      React.FC<{ size?: number; color?: string; weight?: string }> | undefined;
+    if (PhIcon) return <PhIcon size={size} color={color} weight="fill" />;
+  }
+  const Icon = (HABIT_ICON_MAP[(iconKey as keyof typeof HABIT_ICON_MAP) || "Target"] ??
     HABIT_ICON_MAP["Target"]) as React.FC<{ size?: number; color?: string }>;
   return <Icon size={size} color={color} />;
 }

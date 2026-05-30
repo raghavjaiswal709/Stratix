@@ -17,11 +17,11 @@ export function generateId(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-export function getDateRange(timeFrame: TimeFrame): { start: Date; end: Date } {
+export function getDateRange(timeFrame: TimeFrame, referenceDate: Date = new Date()): { start: Date; end: Date } {
   const now = new Date();
   switch (timeFrame) {
     case "this-week":
-      return { start: startOfWeek(now, { weekStartsOn: 0 }), end: endOfWeek(now, { weekStartsOn: 0 }) };
+      return { start: startOfWeek(referenceDate, { weekStartsOn: 0 }), end: endOfWeek(referenceDate, { weekStartsOn: 0 }) };
     case "this-month":
       return { start: startOfMonth(now), end: endOfMonth(now) };
     case "last-3-months":
@@ -92,10 +92,11 @@ export function getDailyScore(
 export function getAverageHabitScore(
   habits: Habit[],
   logs: HabitLog[],
-  timeFrame: TimeFrame
+  timeFrame: TimeFrame,
+  referenceDate?: Date
 ): number {
   if (habits.length === 0) return 0;
-  const { start, end } = getDateRange(timeFrame);
+  const { start, end } = getDateRange(timeFrame, referenceDate);
   const days = eachDayOfInterval({ start, end: end > new Date() ? new Date() : end });
   if (days.length === 0) return 0;
   let total = 0;
@@ -122,9 +123,10 @@ export function getScoreTextColor(score: number): string {
 
 export function getFilteredLogs(
   logs: HabitLog[],
-  timeFrame: TimeFrame
+  timeFrame: TimeFrame,
+  referenceDate?: Date
 ): HabitLog[] {
-  const { start, end } = getDateRange(timeFrame);
+  const { start, end } = getDateRange(timeFrame, referenceDate);
   return logs.filter((log) => {
     const logDate = parseISO(log.date);
     return isWithinInterval(logDate, { start, end });

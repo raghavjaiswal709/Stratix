@@ -34,8 +34,8 @@ export function getTodoScore(todos: Todo[], date: string): number {
 }
 
 /** Average todo score across a timeframe */
-export function getAverageTodoScore(todos: Todo[], timeFrame: TimeFrame): number {
-  const { start, end } = getDateRange(timeFrame);
+export function getAverageTodoScore(todos: Todo[], timeFrame: TimeFrame, referenceDate?: Date): number {
+  const { start, end } = getDateRange(timeFrame, referenceDate);
   const days = eachDayOfInterval({ start, end: end > new Date() ? new Date() : end });
   if (days.length === 0) return 0;
   let totalScore = 0;

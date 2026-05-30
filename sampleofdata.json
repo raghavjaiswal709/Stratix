@@ -1,0 +1,90 @@
+{
+  "exportedAt": "2026-05-30T15:06:30.054Z",
+  "source": "MT5 Trade Extractor",
+  "totalTrades": 3,
+  "trades": [
+    {
+      "openTime": "2026.05.29 15:52:19",
+      "closeTime": "2026.05.29 16:00:11",
+      "ticket": "7231260",
+      "type": "buy",
+      "symbol": "SYMBOL",
+      "volume": 0.05,
+      "openPrice": 0.99023,
+      "sl": 0.99178,
+      "tp": 0,
+      "profit": 23.13
+    },
+    {
+      "openTime": "2026.05.29 14:30:09",
+      "closeTime": "2026.05.29 15:20:20",
+      "ticket": "7227871",
+      "type": "buy",
+      "symbol": "XAUUSD.",
+      "volume": 0.05,
+      "openPrice": 4527.87,
+      "sl": 4524.758,
+      "tp": 4538.875,
+      "profit": 3.83
+    },
+    {
+      "openTime": "2026.05.28 17:22:06",
+      "closeTime": "2026.05.28 17:35:28",
+      "ticket": "7200696",
+      "type": "sell",
+      "symbol": "XAUUSD.",
+      "volume": 0.02,
+      "openPrice": 4457.66,
+      "sl": 4476.05,
+      "tp": 4417.345,
+      "profit": 0.8
+    }
+  ]
+}
+
+{
+  "exportedAt": "2026-05-30T15:10:53.549Z",
+  "source": "MT5 Trade Extractor",
+  "totalTrades": 3,
+  "trades": [
+    {
+      "openTime": "2026.05.29 15:52:19",
+      "closeTime": "2026.05.29 16:00:11",
+      "ticket": "7231260",
+      "type": "buy",
+      "symbol": "XAUUSD.",
+      "volume": 0.05,
+      "openPrice": 4520.18,
+      "sl": 4512.656,
+      "tp": 4531.649,
+      "closePrice": 4523.88,
+      "profit": 18.5
+    },
+    {
+      "openTime": "2026.05.29 14:30:09",
+      "closeTime": "2026.05.29 15:20:20",
+      "ticket": "7227871",
+      "type": "buy",
+      "symbol": "XAUUSD.",
+      "volume": 0.05,
+      "openPrice": 4527.87,
+      "sl": 4524.758,
+      "tp": 4538.875,
+      "closePrice": 4528.635,
+      "profit": 3.83
+    },
+    {
+      "openTime": "2026.05.28 17:22:06",
+      "closeTime": "2026.05.28 17:35:28",
+      "ticket": "7200696",
+      "type": "sell",
+      "symbol": "XAUUSD.",
+      "volume": 0.02,
+      "openPrice": 4457.66,
+      "sl": 4476.05,
+      "tp": 4417.345,
+      "closePrice": 4457.26,
+      "profit": 0.8
+    }
+  ]
+}

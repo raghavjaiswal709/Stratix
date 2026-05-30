@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, MoreVertical, Pencil, Trash2, Search, X, ChevronDown, ChevronRight, Star, StickyNote, AlertTriangle } from "lucide-react";
 import {
   HABIT_ICON_MAP,
+  PHOSPHOR_HABIT_ICON_MAP,
   HABIT_ICONS_LIST,
   ICON_CATEGORIES,
   type HabitIconKey,
@@ -44,7 +45,12 @@ function HabitIconComp({
   size?: number;
   color?: string;
 }) {
-  const Icon = (HABIT_ICON_MAP[(iconKey as HabitIconKey) || "Target"] ??
+  if (iconKey?.startsWith("ph:")) {
+    const PhIcon = PHOSPHOR_HABIT_ICON_MAP[iconKey as keyof typeof PHOSPHOR_HABIT_ICON_MAP] as
+      React.FC<{ size?: number; color?: string; weight?: string }> | undefined;
+    if (PhIcon) return <PhIcon size={size} color={color} weight="fill" />;
+  }
+  const Icon = (HABIT_ICON_MAP[(iconKey as keyof typeof HABIT_ICON_MAP) || "Target"] ??
     HABIT_ICON_MAP["Target"]) as React.FC<{ size?: number; color?: string }>;
   return <Icon size={size} color={color} />;
 }
@@ -61,7 +67,7 @@ const DAY_FULL   = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS   = [0, 1, 2, 3, 4, 5, 6];
 
 // ── Component ─────────────────────────────────────────────────────────────
-export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
+export function HabitGrid({ timeFrame, referenceDate }: { timeFrame?: TimeFrame; referenceDate?: Date }) {
   const { habitData, setHabitData } = useAppContext();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
@@ -88,7 +94,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
 
   // ── Date columns based on timeFrame ──────────────────────────────────────
   const displayDates = useMemo(() => {
-    if (!timeFrame || timeFrame === "this-week") return getWeekDates();
+    if (!timeFrame || timeFrame === "this-week") return getWeekDates(referenceDate ?? new Date());
     if (timeFrame === "this-month") {
       const { start, end } = getDateRange("this-month");
       return eachDayOfInterval({ start, end });
@@ -98,9 +104,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
     const start = new Date(end);
     start.setDate(start.getDate() - 30);
     return eachDayOfInterval({ start, end });
-  }, [timeFrame]);
-
-  // ── Filtered icon list for picker ────────────────────────────────────────
+  }, [timeFrame, referenceDate]);
   const filteredIcons = useMemo(() => {
     const q = iconSearch.toLowerCase().trim();
     return HABIT_ICONS_LIST.filter((entry) => {
@@ -853,7 +857,7 @@ export function HabitGrid({ timeFrame }: { timeFrame?: TimeFrame }) {
         open={showAddDialog || !!editingHabit || !!editingSubHabitObj}
         onOpenChange={(o) => !o && closeDialog()}
       >
-        <DialogContent className="max-w-md max-h-[88vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingSubHabitObj ? "Edit Sub-Habit" : editingHabit ? "Edit Habit" : "Add New Habit"}

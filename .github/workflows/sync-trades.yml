@@ -1,0 +1,35 @@
+name: Sync MT5 Trades
+
+on:
+  workflow_dispatch:
+    inputs:
+      account_id:
+        description: "MetaApi account ID to sync (leave blank for scheduled all-users run)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 */6 * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install metaapi-cloud-sdk pymongo
+
+      - name: Sync MT5 trades
+        env:
+          METAAPI_TOKEN: ${{ secrets.METAAPI_TOKEN }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          # Passed as empty string for scheduled runs; Python handles looping all users.
+          ACCOUNT_ID: ${{ github.event.inputs.account_id || '' }}
+        run: python scripts/sync_trades.py

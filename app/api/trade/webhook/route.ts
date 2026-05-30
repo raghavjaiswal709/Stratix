@@ -1,185 +1,210 @@
-/**
- * POST /api/trade/webhook
- *
- * Receives trade events from the MT5 Expert Advisor (EA).
- *
- * Security: Each request must carry an X-Webhook-Secret header
- * that matches the user's stored webhookSecret (stored in MT5Config).
- *
- * Payload shape (sent by StratixEA.mq5):
- * {
- *   "userId":    "...",          // required: the Stratix user ID
- *   "secret":    "...",          // required: HMAC secret
- *   "action":    "trade_open" | "trade_close" | "trade_modify" | "ping",
- *   "ticket":    12345678,       // MT5 order ticket
- *   "symbol":    "XAUUSD",
- *   "type":      "buy" | "sell",
- *   "lots":      0.1,
- *   "openPrice": 2300.50,
- *   "closePrice": 2320.00,       // only on close
- *   "openTime":  "2025-04-22T09:45:00",
- *   "closeTime": "2025-04-22T15:15:00", // only on close
- *   "profit":    100.00,
- *   "stopLoss":  2280.00,
- *   "takeProfit":2350.00,
- *   "swap":      -0.50,
- *   "commission": -1.00
- * }
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import dbConnect from "@/lib/mongodb";
-import { MT5ConfigModel } from "@/lib/models/MT5Config";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
+import { getContractSize } from "@/lib/contract-sizes";
+import { UserDataModel } from "@/lib/models/UserData";
 
-interface MT5Payload {
-  userId: string;
-  secret: string;
-  action: "trade_open" | "trade_close" | "trade_modify" | "ping";
-  ticket?: number;
+export const dynamic = "force-dynamic";
+
+const secret = process.env.WEBHOOK_SECRET;
+
+interface WebhookBody {
+  userId?: string;
+  secret?: string;
+  action?: string;
+  ticket?: number | string;
   symbol?: string;
-  type?: "buy" | "sell";
-  lots?: number;
-  openPrice?: number;
-  closePrice?: number;
+  type?: string;
+  lots?: number | string;
+  openPrice?: number | string;
+  closePrice?: number | string;
   openTime?: string;
   closeTime?: string;
-  profit?: number;
-  stopLoss?: number;
-  takeProfit?: number;
-  swap?: number;
-  commission?: number;
+  profit?: number | string;
+  stopLoss?: number | string;
+  takeProfit?: number | string;
+  swap?: number | string;
+  commission?: number | string;
+}
+
+function num(v: unknown, fallback = 0): number {
+  const n = parseFloat(String(v));
+  return isNaN(n) ? fallback : n;
 }
 
 export async function POST(req: NextRequest) {
-  let body: MT5Payload;
-
+  let body: WebhookBody;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { userId, secret, action } = body;
-
-  if (!userId || !secret || !action) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-  }
-
-  await dbConnect();
-
-  // Verify secret
-  const config = await MT5ConfigModel.findOne({ userId });
-  if (!config || config.webhookSecret !== secret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  // Handle ping (connection test from EA)
-  if (action === "ping") {
-    await MT5ConfigModel.updateOne(
-      { userId },
-      { $set: { connected: true, lastPingAt: new Date() } }
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  if (!secret) {
+    return NextResponse.json(
+      { error: "WEBHOOK_SECRET not configured on server" },
+      { status: 500 }
     );
-    return NextResponse.json({ success: true, message: "pong" });
+  }
+  if (body.secret !== secret) {
+    return NextResponse.json({ error: "Invalid secret" }, { status: 401 });
   }
 
-  const ticket = String(body.ticket);
+  const { action, userId } = body;
+  if (!userId) {
+    return NextResponse.json({ error: "userId required" }, { status: 400 });
+  }
 
+  // ── Verify userId exists ────────────────────────────────────────────────────
+  await dbConnect();
+  const user = await UserDataModel.findOne({ userId }).lean();
+  if (!user) {
+    return NextResponse.json({ error: "Unknown userId" }, { status: 404 });
+  }
+
+  // ── Ping ────────────────────────────────────────────────────────────────────
+  if (action === "ping") {
+    return NextResponse.json({ ok: true, message: "Stratix webhook online" });
+  }
+
+  // ── Trade open ──────────────────────────────────────────────────────────────
   if (action === "trade_open") {
-    // Check if trade already exists (idempotent)
-    const existing = await TradeEntryModel.findOne({ userId, ticket });
-    if (existing) {
-      return NextResponse.json({ success: true, tradeId: existing._id });
+    const ticket = String(body.ticket ?? "");
+    const symbol = String(body.symbol ?? "").toUpperCase();
+    const direction = body.type === "buy" || body.type === "sell" ? body.type : "buy";
+    const lots = num(body.lots);
+    const entryPrice = num(body.openPrice);
+    const entryTime = body.openTime ? new Date(body.openTime) : new Date();
+    const stopLoss = body.stopLoss != null ? num(body.stopLoss) : undefined;
+    const takeProfit = body.takeProfit != null ? num(body.takeProfit) : undefined;
+    const contractSize = getContractSize(symbol);
+    const leverage = 100;
+    const margin = (entryPrice * lots * contractSize) / leverage;
+
+    // Upsert by ticket — avoid duplicates if EA fires twice
+    await TradeEntryModel.findOneAndUpdate(
+      { userId, ticket },
+      {
+        $setOnInsert: {
+          userId,
+          ticket,
+          symbol,
+          direction,
+          lots,
+          entryPrice,
+          entryTime,
+          stopLoss,
+          takeProfit,
+          profit: 0,
+          swap: num(body.swap),
+          commission: num(body.commission),
+          leverage,
+          margin,
+          status: "open",
+          source: "mt5",
+          timeframe: "",
+          journaled: false,
+          executionChecklist: [
+            { item: "Checked higher timeframe", checked: false },
+            { item: "Risk within limits", checked: false },
+            { item: "Fits my trading plan", checked: false },
+            { item: "Key levels identified", checked: false },
+            { item: "Economic calendar checked", checked: false },
+          ],
+          screenshots: [],
+          preTradeAnalysis: "",
+          postTradeReview: "",
+          riskRatio: 1,
+          rewardRatio: 2,
+          emotions: "",
+          lessonsLearned: "",
+          tags: [],
+          rating: 5,
+        },
+      },
+      { upsert: true }
+    );
+
+    return NextResponse.json({ ok: true, action: "trade_open", ticket });
+  }
+
+  // ── Trade close ─────────────────────────────────────────────────────────────
+  if (action === "trade_close") {
+    const ticket = String(body.ticket ?? "");
+    const symbol = String(body.symbol ?? "").toUpperCase();
+    const direction = body.type === "buy" || body.type === "sell" ? body.type : "buy";
+    const lots = num(body.lots);
+    const entryPrice = num(body.openPrice);
+    const exitPrice = num(body.closePrice);
+    const entryTime = body.openTime ? new Date(body.openTime) : new Date();
+    const exitTime = body.closeTime ? new Date(body.closeTime) : new Date();
+    const contractSize = getContractSize(symbol);
+    const leverage = 100;
+    const margin = (entryPrice * lots * contractSize) / leverage;
+
+    // Prefer the EA-computed profit; re-compute as fallback
+    let profit = num(body.profit);
+    if (profit === 0 && exitPrice && entryPrice) {
+      profit =
+        direction === "buy"
+          ? (exitPrice - entryPrice) * lots * contractSize
+          : (entryPrice - exitPrice) * lots * contractSize;
     }
 
-    const trade = await TradeEntryModel.create({
-      userId,
-      ticket,
-      symbol: (body.symbol ?? "").toUpperCase(),
-      direction: body.type ?? "buy",
-      lots: body.lots ?? 0,
-      entryPrice: body.openPrice ?? 0,
-      entryTime: body.openTime ? new Date(body.openTime) : new Date(),
-      stopLoss: body.stopLoss,
-      takeProfit: body.takeProfit,
-      profit: 0,
-      swap: body.swap ?? 0,
-      commission: body.commission ?? 0,
-      status: "open",
-      source: "mt5",
-    });
-
-    await MT5ConfigModel.updateOne(
-      { userId },
-      { $set: { connected: true, lastPingAt: new Date() } }
-    );
-
-    return NextResponse.json({ success: true, tradeId: trade._id }, { status: 201 });
-  }
-
-  if (action === "trade_close") {
-    const exitPrice = body.closePrice ?? 0;
-    const profit = body.profit ?? 0;
-
-    const trade = await TradeEntryModel.findOneAndUpdate(
+    // Try to close an existing open trade first; fall back to upsert
+    const updated = await TradeEntryModel.findOneAndUpdate(
       { userId, ticket },
       {
         $set: {
           exitPrice,
-          exitTime: body.closeTime ? new Date(body.closeTime) : new Date(),
+          exitTime,
           profit,
-          swap: body.swap ?? 0,
-          commission: body.commission ?? 0,
+          swap: num(body.swap),
+          commission: num(body.commission),
           status: "closed",
-        },
-      },
-      { new: true, upsert: false }
-    );
-
-    if (!trade) {
-      // Trade not found — create it as already-closed (imported history)
-      const created = await TradeEntryModel.create({
-        userId,
-        ticket,
-        symbol: (body.symbol ?? "").toUpperCase(),
-        direction: body.type ?? "buy",
-        lots: body.lots ?? 0,
-        entryPrice: body.openPrice ?? 0,
-        exitPrice,
-        entryTime: body.openTime ? new Date(body.openTime) : new Date(),
-        exitTime: body.closeTime ? new Date(body.closeTime) : new Date(),
-        stopLoss: body.stopLoss,
-        takeProfit: body.takeProfit,
-        profit,
-        swap: body.swap ?? 0,
-        commission: body.commission ?? 0,
-        status: "closed",
-        source: "mt5",
-      });
-      return NextResponse.json({ success: true, tradeId: created._id });
-    }
-
-    await MT5ConfigModel.updateOne(
-      { userId },
-      { $set: { connected: true, lastPingAt: new Date() } }
-    );
-
-    return NextResponse.json({ success: true, tradeId: trade._id });
-  }
-
-  if (action === "trade_modify") {
-    await TradeEntryModel.findOneAndUpdate(
-      { userId, ticket },
-      {
-        $set: {
-          stopLoss: body.stopLoss,
-          takeProfit: body.takeProfit,
-          lots: body.lots,
+          updatedAt: new Date(),
         },
       }
     );
-    return NextResponse.json({ success: true });
+
+    if (!updated) {
+      // EA sent close without a prior open event — create the complete record
+      await TradeEntryModel.create({
+        userId,
+        ticket,
+        symbol,
+        direction,
+        lots,
+        entryPrice,
+        exitPrice,
+        entryTime,
+        exitTime,
+        profit,
+        swap: num(body.swap),
+        commission: num(body.commission),
+        leverage,
+        margin,
+        status: "closed",
+        source: "mt5",
+        timeframe: "",
+        journaled: false,
+        executionChecklist: [
+          { item: "Checked higher timeframe", checked: false },
+          { item: "Risk within limits", checked: false },
+          { item: "Fits my trading plan", checked: false },
+          { item: "Key levels identified", checked: false },
+          { item: "Economic calendar checked", checked: false },
+        ],
+        screenshots: [],
+        tags: [],
+        rating: 5,
+      });
+    }
+
+    return NextResponse.json({ ok: true, action: "trade_close", ticket });
   }
 
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
 }
+

@@ -106,6 +106,7 @@ export default function JournalPage() {
   // Reactively merge any trade edits made on the trades page into local state.
   // sharedTrades is updated immediately when a trade is edited, so this keeps
   // the journal in sync without a network round-trip.
+  // Also marks trades as _deleted when they've been removed from sharedTrades.
   useEffect(() => {
     if (sharedTrades.length === 0) return;
     const timer = setTimeout(() => {
@@ -113,7 +114,9 @@ export default function JournalPage() {
         if (prev.length === 0) return prev; // nothing to merge into yet
         return prev.map((t) => {
           const fresh = sharedTrades.find((s) => s._id === t._id);
-          return fresh ? ({ ...t, ...fresh } as JournalTrade) : t;
+          if (fresh) return { ...t, ...fresh, _deleted: false } as JournalTrade;
+          // Trade was in journal but no longer in sharedTrades → it was deleted
+          return { ...t, _deleted: true } as JournalTrade;
         });
       });
     }, 0);

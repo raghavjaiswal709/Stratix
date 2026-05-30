@@ -2,11 +2,16 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IMT5Config extends Document {
   userId: string;
-  webhookSecret: string;  // HMAC-SHA256 secret for signature verification
-  accountId?: string;     // MT5 account number (for display only)
-  broker?: string;
+  /** MetaApi-assigned account ID, stored after successful registration. */
+  mt5AccountId?: string;
+  /** MT5 login number (account number) — stored for display only, NOT the password. */
+  mt5Login?: string;
+  /** Broker server name, e.g. "ICMarkets-Demo". */
+  mt5Server?: string;
+  /** True once MetaApi reports state === "DEPLOYED". */
   connected: boolean;
-  lastPingAt?: Date;
+  /** Timestamp when connected was first set to true. */
+  mt5ConnectedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -14,11 +19,11 @@ export interface IMT5Config extends Document {
 const MT5ConfigSchema = new Schema<IMT5Config>(
   {
     userId: { type: String, required: true, unique: true, index: true },
-    webhookSecret: { type: String, required: true },
-    accountId: { type: String, default: undefined },
-    broker: { type: String, default: undefined },
+    mt5AccountId: { type: String, default: undefined },
+    mt5Login: { type: String, default: undefined },
+    mt5Server: { type: String, default: undefined },
     connected: { type: Boolean, default: false },
-    lastPingAt: { type: Date, default: undefined },
+    mt5ConnectedAt: { type: Date, default: undefined },
   },
   { timestamps: true }
 );

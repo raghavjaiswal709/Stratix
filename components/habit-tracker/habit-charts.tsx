@@ -37,20 +37,21 @@ function getHeatLevel(pct: number): number {
 
 interface HabitChartsProps {
   timeFrame: TimeFrame;
+  referenceDate?: Date;
 }
 
-export function HabitCharts({ timeFrame }: HabitChartsProps) {
+export function HabitCharts({ timeFrame, referenceDate }: HabitChartsProps) {
   const { habitData } = useAppContext();
   const [activeTab, setActiveTab] = useState<"heatmap" | "area">("heatmap");
 
-  const { start, end } = useMemo(() => getDateRange(timeFrame), [timeFrame]);
+  const { start, end } = useMemo(() => getDateRange(timeFrame, referenceDate), [timeFrame, referenceDate]);
   const days = useMemo(
     () => eachDayOfInterval({ start, end }),
     [start, end]
   );
   const filteredLogs = useMemo(
-    () => getFilteredLogs(habitData.logs, timeFrame),
-    [habitData.logs, timeFrame]
+    () => getFilteredLogs(habitData.logs, timeFrame, referenceDate),
+    [habitData.logs, timeFrame, referenceDate]
   );
 
   // ── Per-habit rows × per-date columns (fractional completion) ──────────

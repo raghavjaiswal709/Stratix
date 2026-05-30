@@ -10,6 +10,7 @@ export interface ChecklistItem {
 }
 
 export interface ITradeEntry extends Document {
+  _id: string;
   userId: string;
 
   // Core trade fields
@@ -63,6 +64,7 @@ const ChecklistItemSchema = new Schema<ChecklistItem>(
 
 const TradeEntrySchema = new Schema<ITradeEntry>(
   {
+    _id: { type: String, default: () => new mongoose.Types.ObjectId().toHexString() },
     userId: { type: String, required: true, index: true },
 
     ticket: { type: String, default: undefined },

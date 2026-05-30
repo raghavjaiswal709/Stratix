@@ -16,9 +16,13 @@ import {
   ArrowUp,
   ArrowDown,
   X,
+  Copy,
+  Check,
+  Terminal,
 } from "lucide-react";
 import { AddTradeModal, type EditableTrade } from "@/components/trade/trades/add-trade-modal";
-import { MT5ConnectModal } from "@/components/trade/trades/mt5-connect-modal";
+import { ConnectMT5Form } from "@/components/trade/mt5/connect-form";
+import { ImportModal } from "@/components/trade/trades/import-modal";
 import type { TradesSortFilterPrefs, ApiTrade } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +47,10 @@ interface Trade {
 
 interface MT5Config {
   connected: boolean;
+  state: string;
+  mt5Login?: string;
+  mt5Server?: string;
+  mt5AccountId?: string;
 }
 
 function fmt(n: number) {
@@ -105,7 +113,28 @@ export default function TradesPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [connectTab, setConnectTab] = useState<"metaapi" | "ea">("ea");
+  const [eaUserId, setEaUserId] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  useEffect(() => {
+    if (showConnect && connectTab === "ea" && !eaUserId) {
+      fetch("/api/me")
+        .then((r) => r.json())
+        .then((d) => setEaUserId(d.id ?? null))
+        .catch(() => null);
+    }
+  }, [showConnect, connectTab, eaUserId]);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
   const [editingTrade, setEditingTrade] = useState<EditableTrade | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -138,7 +167,7 @@ export default function TradesPage() {
     setLoading(true);
     Promise.all([
       fetch("/api/trade").then((r) => r.json()),
-      fetch("/api/trade/mt5").then((r) => r.json()),
+      fetch("/api/mt5/status").then((r) => r.json()),
     ])
       .then(([t, m]) => {
         const tradesArr = Array.isArray(t) ? t : [];
@@ -198,18 +227,20 @@ export default function TradesPage() {
     setFilterSource("all");
   }
 
-  async function deleteTrade(id: string) {
-    if (!confirm("Delete this trade?")) return;
+  async function confirmDelete(id: string) {
     setDeleting(id);
-    await fetch(`/api/trade/${id}`, { method: "DELETE" });
-    const updated = trades.filter((t) => t._id !== id);
-    setTrades(updated);
-    setSharedTrades(updated as unknown as ApiTrade[]);
+    setDeleteConfirmId(null);
+    const res = await fetch(`/api/trade/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      const updated = trades.filter((t) => t._id !== id);
+      setTrades(updated);
+      setSharedTrades(updated as unknown as ApiTrade[]);
+    }
     setDeleting(null);
   }
 
-  async function clearAll() {
-    if (!confirm("Delete ALL trades? This cannot be undone.")) return;
+  async function confirmClearAll() {
+    setClearConfirm(false);
     await Promise.all(trades.map((t) => fetch(`/api/trade/${t._id}`, { method: "DELETE" })));
     setTrades([]);
     setSharedTrades([]);
@@ -248,6 +279,14 @@ export default function TradesPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
+            title="Import trades from JSON / CSV"
+          >
+            <ArrowUp className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Import</span>
+          </button>
+          <button
             onClick={() => setShowConnect(true)}
             className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
             title="Connect MT4/MT5"
@@ -256,7 +295,7 @@ export default function TradesPage() {
             <span className="hidden sm:inline">Connect MT5</span>
           </button>
           <button
-            onClick={clearAll}
+            onClick={() => setClearConfirm(true)}
             disabled={trades.length === 0}
             className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-red-600/10 border border-red-500/20 text-[13px] font-medium text-red-400 hover:bg-red-600/20 transition disabled:opacity-30 disabled:cursor-not-allowed"
             title="Clear All"
@@ -480,7 +519,7 @@ export default function TradesPage() {
                           <Edit2 className="h-3.5 w-3.5" />
                         </button>
                         <button
-                          onClick={() => deleteTrade(trade._id)}
+                          onClick={() => setDeleteConfirmId(trade._id)}
                           disabled={deleting === trade._id}
                           className="text-muted-foreground/50 hover:text-red-400 transition"
                       >
@@ -550,7 +589,7 @@ export default function TradesPage() {
                             <Edit2 className="h-3.5 w-3.5" />
                           </button>
                           <button
-                            onClick={() => deleteTrade(trade._id)}
+                            onClick={() => setDeleteConfirmId(trade._id)}
                             disabled={deleting === trade._id}
                             className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
                           >
@@ -566,6 +605,66 @@ export default function TradesPage() {
           </>
         )}
       </div>
+
+      {/* ── Delete single trade confirm ── */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setDeleteConfirmId(null)}>
+          <div className="rounded-xl border border-border bg-card p-5 w-full max-w-xs space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5 text-red-400" />
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold text-foreground">Delete Trade?</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  The trade and all its journal data will be permanently removed. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setDeleteConfirmId(null)} className="flex-1 py-2 rounded-lg border border-border text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted transition">
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmDelete(deleteConfirmId)}
+                className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[13px] font-semibold transition"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Clear all confirm ── */}
+      {clearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setClearConfirm(false)}>
+          <div className="rounded-xl border border-border bg-card p-5 w-full max-w-xs space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5 text-red-400" />
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold text-foreground">Delete ALL Trades?</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  This will permanently delete all {trades.length} trade{trades.length !== 1 ? "s" : ""} and their journal data. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setClearConfirm(false)} className="flex-1 py-2 rounded-lg border border-border text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted transition">
+                Cancel
+              </button>
+              <button
+                onClick={confirmClearAll}
+                className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[13px] font-semibold transition"
+              >
+                Delete All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <AddTradeModal
@@ -594,7 +693,124 @@ export default function TradesPage() {
           }}
         />
       )}
-      {showConnect && <MT5ConnectModal onClose={() => setShowConnect(false)} />}
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          onImported={() => { setShowImport(false); load(); }}
+        />
+      )}
+
+      {showConnect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowConnect(false)}>
+          <div className="rounded-xl border border-border bg-card p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold">Connect MT5 Account</h2>
+              <button onClick={() => setShowConnect(false)} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Tab switcher */}
+            <div className="flex gap-1 mb-5 rounded-lg bg-muted p-1">
+              <button
+                onClick={() => setConnectTab("ea")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                  connectTab === "ea" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Terminal className="h-3.5 w-3.5" />
+                EA Webhook <span className="text-[10px] text-emerald-400 font-semibold">FREE</span>
+              </button>
+              <button
+                onClick={() => setConnectTab("metaapi")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                  connectTab === "metaapi" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Wifi className="h-3.5 w-3.5" />
+                MetaApi Cloud
+              </button>
+            </div>
+
+            {connectTab === "metaapi" && (
+              <ConnectMT5Form
+                onConnected={(info) => {
+                  setMt5({ state: "DEPLOYED", connected: true, ...info });
+                  setShowConnect(false);
+                }}
+              />
+            )}
+
+            {connectTab === "ea" && (
+              <div className="space-y-4 text-sm">
+                <p className="text-muted-foreground text-[13px]">
+                  Run a free Expert Advisor in your MT5 desktop app. Trades sync instantly every time you open or close a position — no subscriptions needed.
+                </p>
+
+                <div className="space-y-3">
+                  <h3 className="text-[12px] font-semibold text-foreground uppercase tracking-wide">Setup steps</h3>
+
+                  <ol className="space-y-2.5 text-[12px] text-muted-foreground list-decimal list-inside">
+                    <li>Download <a href="/mt5/StratixEA.mq5" download className="text-blue-400 underline">StratixEA.mq5</a> and open it in MetaEditor (press <kbd className="px-1 py-0.5 rounded bg-muted text-foreground text-[10px]">F4</kbd> in MT5).</li>
+                    <li>Set the three input values shown below and compile (<kbd className="px-1 py-0.5 rounded bg-muted text-foreground text-[10px]">F7</kbd>).</li>
+                    <li>In MT5: <strong className="text-foreground">Tools → Options → Expert Advisors</strong> → tick <em>Allow WebRequest</em> → add your app URL.</li>
+                    <li>Drag the EA onto any chart. It monitors <em>all</em> trades automatically.</li>
+                  </ol>
+
+                  {/* Config values */}
+                  <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border">
+                    {([
+                      {
+                        label: "STRATIX_WEBHOOK_URL",
+                        value: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/trade/webhook`,
+                        key: "url",
+                      },
+                      {
+                        label: "STRATIX_USER_ID",
+                        value: eaUserId ?? "loading…",
+                        key: "uid",
+                      },
+                      {
+                        label: "WEBHOOK_SECRET",
+                        value: "(copy from your .env.local WEBHOOK_SECRET)",
+                        key: "secret",
+                        muted: true,
+                      },
+                    ] as { label: string; value: string; key: string; muted?: boolean }[]).map((row) => (
+                      <div key={row.key} className="flex items-center justify-between px-3 py-2 gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-muted-foreground font-mono">{row.label}</p>
+                          <p className={`text-[12px] font-mono truncate ${row.muted ? "text-muted-foreground italic" : "text-foreground"}`}>{row.value}</p>
+                        </div>
+                        {!row.muted && (
+                          <button
+                            onClick={() => copyToClipboard(row.value, row.key)}
+                            className="shrink-0 p-1.5 rounded hover:bg-muted transition-colors"
+                            title="Copy"
+                          >
+                            {copied === row.key ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    Your <code className="bg-muted px-1 rounded text-[10px]">WEBHOOK_SECRET</code> is in <code className="bg-muted px-1 rounded text-[10px]">.env.local</code>. Use the same value as the EA input — it prevents unauthorized trade submissions.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setShowConnect(false)}
+                  className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-semibold transition"
+                >
+                  Done — EA is set up
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

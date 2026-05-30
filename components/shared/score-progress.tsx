@@ -30,17 +30,17 @@ function Bar({ label, value, color }: { label: string; value: number; color: str
   );
 }
 
-export function ScoreProgress({ timeFrame }: { timeFrame: TimeFrame }) {
+export function ScoreProgress({ timeFrame, referenceDate }: { timeFrame: TimeFrame; referenceDate?: Date }) {
   const { habitData, todoData, scoreWeights } = useAppContext();
 
   const habitScore = useMemo(
-    () => getAverageHabitScore(habitData.habits, habitData.logs, timeFrame),
-    [habitData, timeFrame]
+    () => getAverageHabitScore(habitData.habits, habitData.logs, timeFrame, referenceDate),
+    [habitData, timeFrame, referenceDate]
   );
 
   const todoScore = useMemo(
-    () => getAverageTodoScore(todoData.todos, timeFrame),
-    [todoData.todos, timeFrame]
+    () => getAverageTodoScore(todoData.todos, timeFrame, referenceDate),
+    [todoData.todos, timeFrame, referenceDate]
   );
 
   const combined = useMemo(
