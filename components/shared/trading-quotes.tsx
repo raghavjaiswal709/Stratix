@@ -153,11 +153,11 @@ export function TradingQuotesModal() {
           </button>
           
           <div className="text-white relative">
-            <span className="absolute -top-10 -left-6 text-indigo-500/30 text-8xl font-serif">&quot;</span>
+            <span className="absolute -top-10 -left-6 text-white/[0.08] text-8xl font-serif">&quot;</span>
             <h1 className="text-4xl md:text-6xl font-bold tracking-tight leading-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
               {quote}
             </h1>
-            <span className="absolute -bottom-10 -right-6 text-violet-500/30 text-8xl font-serif">&quot;</span>
+            <span className="absolute -bottom-10 -right-6 text-white/[0.06] text-8xl font-serif">&quot;</span>
           </div>
           
           <motion.div

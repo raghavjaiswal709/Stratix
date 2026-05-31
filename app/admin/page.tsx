@@ -73,7 +73,7 @@ export default function AdminPage() {
   if (status === "loading" || loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="h-5 w-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+        <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
       </div>
     );
   }
@@ -92,8 +92,8 @@ export default function AdminPage() {
     <div className="p-4 md:p-6 space-y-5 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-          <Shield className="h-4.5 w-4.5 text-indigo-400" />
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06] border border-white/[0.10]">
+          <Shield className="h-4.5 w-4.5 text-white/60" />
         </div>
         <div>
           <h1 className="text-[18px] font-bold">Admin Panel</h1>
@@ -141,7 +141,7 @@ export default function AdminPage() {
               >
                 <Avatar className="h-8 w-8 shrink-0">
                   <AvatarImage src={user.image ?? ""} alt={user.name} />
-                  <AvatarFallback className="text-[11px] bg-indigo-500/20 text-indigo-300">
+                  <AvatarFallback className="text-[11px] bg-white/[0.08] text-white/60">
                     {user.name?.charAt(0)?.toUpperCase() ?? "?"}
                   </AvatarFallback>
                 </Avatar>
@@ -150,7 +150,7 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-semibold truncate">{user.name}</span>
                     {user.role === "admin" && (
-                      <Badge className="text-[9px] px-1.5 py-0 bg-indigo-500/15 text-indigo-400 border-indigo-500/30">
+                      <Badge className="text-[9px] px-1.5 py-0 bg-white/[0.08] text-white/55 border-white/[0.12]">
                         ADMIN
                       </Badge>
                     )}
@@ -187,7 +187,7 @@ export default function AdminPage() {
                         onClick={() => setTab(user._id, id)}
                         className={`px-3 py-1 rounded-lg transition-colors ${
                           tab(user._id) === id
-                            ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/25"
+                            ? "bg-white/[0.08] text-white border border-white/[0.10]"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted"
                         }`}
                       >

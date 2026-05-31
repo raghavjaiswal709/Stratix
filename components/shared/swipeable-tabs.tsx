@@ -63,7 +63,7 @@ export function SwipeableTabs({
             className={cn(
               "px-4 py-1.5 text-[13px] font-medium rounded-md transition-all duration-150",
               activeTab === tab.value
-                ? "bg-indigo-500/12 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20"
+                ? "bg-white/[0.08]/12 text-white/65 dark:text-white/70 border border-white/[0.10]"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
             )}
           >

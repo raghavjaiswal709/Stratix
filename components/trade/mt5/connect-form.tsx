@@ -209,7 +209,7 @@ export function ConnectMT5Form({ onConnected, deployingAccountId }: ConnectMT5Fo
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-400" />
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white/65" />
           <span>
             Connecting to MetaApi —{" "}
             <strong className="text-foreground">this typically takes 1–3 minutes</strong>…

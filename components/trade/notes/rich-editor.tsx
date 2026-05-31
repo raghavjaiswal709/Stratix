@@ -404,7 +404,7 @@ function DrawingCanvas({
               className={cn(
                 "p-1.5 rounded-md transition-all",
                 tool === id
-                  ? "bg-blue-500/20 text-blue-400"
+                  ? "bg-white/[0.08]/20 text-white/65"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
             >
@@ -425,7 +425,7 @@ function DrawingCanvas({
               className={cn(
                 "w-5 h-5 rounded-full transition-all border-2",
                 c === color && tool !== "eraser"
-                  ? "border-blue-400 scale-125"
+                  ? "border-white/80 scale-125"
                   : "border-transparent hover:scale-110"
               )}
               style={{ backgroundColor: c, outline: c === "#ffffff" ? "1px solid #aaa" : undefined }}
@@ -445,7 +445,7 @@ function DrawingCanvas({
               className={cn(
                 "flex items-center justify-center w-7 h-7 rounded-md transition-all",
                 lineWidth === w
-                  ? "bg-blue-500/20 text-blue-400"
+                  ? "bg-white/[0.08]/20 text-white/65"
                   : "text-muted-foreground hover:bg-muted"
               )}
             >
@@ -479,7 +479,7 @@ function DrawingCanvas({
         {onSave && (
           <button
             onClick={handleSave}
-            className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1 bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white text-xs font-semibold rounded-lg transition-colors"
           >
             <Check className="h-3 w-3" />
             Save
@@ -917,7 +917,7 @@ function EditorToolbar({
               e.preventDefault();
               applyLink();
             }}
-            className="text-xs text-blue-400 font-semibold hover:text-blue-300"
+            className="text-xs text-white/65 font-semibold hover:text-white/70"
           >
             Apply
           </button>
@@ -1080,7 +1080,7 @@ function TBtn({
       className={cn(
         "p-1.5 rounded-md transition-all",
         active
-          ? "bg-blue-500/20 text-blue-400"
+          ? "bg-white/[0.08]/20 text-white/65"
           : "hover:bg-muted text-muted-foreground hover:text-foreground"
       )}
     >

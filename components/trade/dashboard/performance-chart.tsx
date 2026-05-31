@@ -65,7 +65,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   return (
     <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs shadow-xl">
       <p className="text-muted-foreground mb-1">{label}</p>
-      <p className={val >= 0 ? "text-blue-400 font-bold" : "text-red-400 font-bold"}>
+      <p className={val >= 0 ? "text-white/65 font-bold" : "text-red-400 font-bold"}>
         {val >= 0 ? "+" : ""}${val.toFixed(2)}
       </p>
     </div>
@@ -107,7 +107,7 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
               className={cn(
                 "px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150",
                 period === p
-                  ? "bg-blue-600 text-white"
+                  ? "bg-white/[0.09] text-white"
                   : "text-muted-foreground hover:text-foreground/70"
               )}
             >

@@ -84,7 +84,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full min-h-[60vh]">
-        <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+        <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
       </div>
     );
   }
@@ -135,7 +135,7 @@ export default function DashboardPage() {
 
         {mt5Loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <div className="h-3.5 w-3.5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+            <div className="h-3.5 w-3.5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
             <span>Checking MT5 status…</span>
           </div>
         ) : mt5Connected && mt5Info ? (

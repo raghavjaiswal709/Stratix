@@ -148,7 +148,7 @@ export function CategoryModal({ isOpen, onClose }: CategoryModalProps) {
               Add Category
             </Button>
           ) : (
-            <div className="space-y-4 p-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
+            <div className="space-y-4 p-4 rounded-xl border border-white/[0.10] bg-white/[0.08]/5">
               <div className="space-y-2">
                 <Label htmlFor="cat-name">Category Name</Label>
                 <Input 
@@ -189,7 +189,7 @@ export function CategoryModal({ isOpen, onClose }: CategoryModalProps) {
                       className={cn(
                         "p-2 rounded-lg border transition-all",
                         newIcon === name 
-                          ? "bg-blue-600 text-white border-blue-600" 
+                          ? "bg-white/[0.09] text-white border-white/30" 
                           : "bg-card border-border text-muted-foreground hover:bg-muted"
                       )}
                       onClick={() => setNewIcon(name)}
@@ -202,7 +202,7 @@ export function CategoryModal({ isOpen, onClose }: CategoryModalProps) {
 
               <div className="flex gap-2 pt-2">
                 <Button variant="outline" size="sm" className="flex-1 border-border" onClick={() => setIsAdding(false)}>Cancel</Button>
-                <Button size="sm" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold" onClick={addCategory}>Save Category</Button>
+                <Button size="sm" className="flex-1 bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white font-semibold" onClick={addCategory}>Save Category</Button>
               </div>
             </div>
           )}

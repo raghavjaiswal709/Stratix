@@ -38,7 +38,7 @@ function UnsavedDialog({
         <div className="flex flex-col gap-2 p-4">
           <button
             onClick={onSave}
-            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-[13px] font-semibold text-white transition"
+            className="w-full py-2.5 rounded-xl bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-[13px] font-semibold text-white transition"
           >
             Save &amp; Continue
           </button>
@@ -173,7 +173,7 @@ export default function JournalPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+        <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
       </div>
     );
   }

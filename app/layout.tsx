@@ -39,11 +39,6 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        {/* Ambient glow orbs — provide the liquid-glass depth effect */}
-        <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
-          <div className="glow-orb-1 absolute -top-[25%] -left-[10%] h-[700px] w-[700px] rounded-full bg-indigo-500/[0.08] blur-[140px]" />
-          <div className="glow-orb-2 absolute -bottom-[20%] right-[0%] h-[500px] w-[500px] rounded-full bg-violet-500/[0.055] blur-[110px]" />
-        </div>
         <AuthProvider>
           <AppProvider>
             <TooltipProvider>

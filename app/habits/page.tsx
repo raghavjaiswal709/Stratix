@@ -123,7 +123,7 @@ export default function HabitsPage() {
               {!isCurrentWeek && (
                 <button
                   onClick={() => setReferenceDate(new Date())}
-                  className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                  className="text-[11px] text-white/65 hover:text-white/80 transition-colors"
                 >
                   Today
                 </button>

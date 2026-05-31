@@ -86,7 +86,7 @@ function SortBtn({
       className={cn(
         "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors",
         activeCol === col
-          ? "bg-blue-600/20 text-blue-400 border border-blue-500/20"
+          ? "bg-white/[0.08] text-white border border-white/[0.10]"
           : "text-muted-foreground hover:text-foreground/65 hover:bg-muted border border-transparent"
       )}
     >
@@ -305,7 +305,7 @@ export default function TradesPage() {
           </button>
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-[13px] font-semibold text-white transition shadow-lg shadow-blue-500/20"
+            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-[13px] font-semibold text-white transition shadow-lg "
           >
             <Plus className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Add Trade</span>
@@ -336,7 +336,7 @@ export default function TradesPage() {
                 className={cn(
                   "relative flex items-center gap-1.5 px-3 py-1 rounded-lg text-[12px] font-medium transition-colors border",
                   showFilters
-                    ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
+                    ? "bg-white/[0.08] text-white border-white/[0.10]"
                     : activeFilterCount > 0
                     ? "bg-amber-500/15 text-amber-400 border-amber-500/20"
                     : "bg-muted border-border text-muted-foreground hover:text-foreground/80"
@@ -365,7 +365,7 @@ export default function TradesPage() {
                       value={filterSymbol}
                       onChange={(e) => setFilterSymbol(e.target.value)}
                       placeholder="e.g. XAUUSD"
-                      className="w-full bg-muted border border-border rounded-lg px-3 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-blue-500/40 transition pr-7"
+                      className="w-full bg-muted border border-border rounded-lg px-3 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-white/[0.25] transition pr-7"
                     />
                     {filterSymbol && (
                       <button onClick={() => setFilterSymbol("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground/70">
@@ -387,7 +387,7 @@ export default function TradesPage() {
                           "flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors border",
                           filterDirection === d
                             ? d === "buy"
-                              ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
+                              ? "bg-white/[0.08] text-white border-white/[0.10]"
                               : d === "sell"
                               ? "bg-red-500/20 text-red-400 border-red-500/20"
                               : "bg-muted text-foreground/70 border-border"
@@ -411,7 +411,7 @@ export default function TradesPage() {
                         className={cn(
                           "flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors border",
                           filterStatus === s
-                            ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
+                            ? "bg-white/[0.08] text-white border-white/[0.10]"
                             : "bg-muted/50 text-muted-foreground hover:text-foreground/60 border-border/50"
                         )}
                       >
@@ -432,7 +432,7 @@ export default function TradesPage() {
                         className={cn(
                           "flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors border",
                           filterSource === s
-                            ? "bg-blue-600/20 text-blue-400 border-blue-500/20"
+                            ? "bg-white/[0.08] text-white border-white/[0.10]"
                             : "bg-muted/50 text-muted-foreground hover:text-foreground/60 border-border/50"
                         )}
                       >
@@ -458,7 +458,7 @@ export default function TradesPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+            <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
           </div>
         ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -475,7 +475,7 @@ export default function TradesPage() {
                 <p className="text-[13px]">No trades match your filters</p>
                 <button
                   onClick={resetFilters}
-                  className="text-[11px] mt-1.5 text-blue-400/60 hover:text-blue-400 transition-colors"
+                  className="text-[11px] mt-1.5 text-white/35 hover:text-white/80 transition-colors"
                 >
                   Clear filters
                 </button>
@@ -494,11 +494,11 @@ export default function TradesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-blue-500/15 text-blue-400" : "bg-red-500/15 text-red-400"}`}>
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
                         {trade.direction === "buy" ? "Long" : "Short"}
                       </span>
                       {trade.source === "mt5" && (
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-violet-500/10 border-violet-500/20 text-violet-400">MT5</span>
+                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-white/[0.06] border-white/[0.10] text-white/55">MT5</span>
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground">
@@ -507,15 +507,15 @@ export default function TradesPage() {
                     </p>
                     <p className="text-[11px] text-muted-foreground">
                       Entry ${trade.entryPrice.toLocaleString()} · {trade.lots} lots
-                      {trade.leverage && <> · <span className="text-violet-400">{trade.leverage}×</span></>}
+                      {trade.leverage && <> · <span className="text-white/55">{trade.leverage}×</span></>}
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <span className={`text-[14px] font-bold ${trade.profit > 0 ? "text-blue-400" : trade.profit < 0 ? "text-red-400" : "text-muted-foreground"}`}>
+                      <span className={`text-[14px] font-bold ${trade.profit > 0 ? "text-emerald-400" : trade.profit < 0 ? "text-red-400" : "text-muted-foreground"}`}>
                         {fmt(trade.profit)}
                       </span>
                       <div className="flex items-center gap-1.5">
-                        <button onClick={() => startEdit(trade)} className="text-muted-foreground/50 hover:text-blue-400 transition">
+                        <button onClick={() => startEdit(trade)} className="text-muted-foreground/50 hover:text-white/80 transition">
                           <Edit2 className="h-3.5 w-3.5" />
                         </button>
                         <button
@@ -557,7 +557,7 @@ export default function TradesPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-blue-500/15 text-blue-400" : "bg-red-500/15 text-red-400"}`}>
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
                           {trade.direction === "buy" ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                           {trade.direction === "buy" ? "Long" : "Short"}
                         </span>
@@ -566,16 +566,16 @@ export default function TradesPage() {
                       <td className="px-5 py-3.5 text-[13px] text-muted-foreground">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : "—"}</td>
                       <td className="px-5 py-3.5 text-[13px] text-foreground/60">{trade.lots}</td>
                       <td className="px-5 py-3.5">
-                        <div className="text-[12px] font-bold text-violet-400">{trade.leverage ?? 100}×</div>
+                        <div className="text-[12px] font-bold text-white/55">{trade.leverage ?? 100}×</div>
                         {trade.margin != null && (
                           <div className="text-[10px] text-muted-foreground">M: ${trade.margin.toFixed(2)}</div>
                         )}
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className={`text-[13px] font-bold ${trade.profit > 0 ? "text-blue-400" : trade.profit < 0 ? "text-red-400" : "text-muted-foreground"}`}>{fmt(trade.profit)}</span>
+                        <span className={`text-[13px] font-bold ${trade.profit > 0 ? "text-emerald-400" : trade.profit < 0 ? "text-red-400" : "text-muted-foreground"}`}>{fmt(trade.profit)}</span>
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${trade.source === "mt5" ? "bg-violet-500/10 border-violet-500/20 text-violet-400" : "bg-muted border-border text-muted-foreground"}`}>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${trade.source === "mt5" ? "bg-white/[0.06] border-white/[0.10] text-white/55" : "bg-muted border-border text-muted-foreground"}`}>
                           {trade.source === "mt5" ? "MT5" : "Manual"}
                         </span>
                       </td>
@@ -583,7 +583,7 @@ export default function TradesPage() {
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => startEdit(trade)}
-                            className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-blue-400 hover:bg-blue-500/10 transition"
+                            className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
                             title="Edit trade"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
@@ -751,7 +751,7 @@ export default function TradesPage() {
                   <h3 className="text-[12px] font-semibold text-foreground uppercase tracking-wide">Setup steps</h3>
 
                   <ol className="space-y-2.5 text-[12px] text-muted-foreground list-decimal list-inside">
-                    <li>Download <a href="/mt5/StratixEA.mq5" download className="text-blue-400 underline">StratixEA.mq5</a> and open it in MetaEditor (press <kbd className="px-1 py-0.5 rounded bg-muted text-foreground text-[10px]">F4</kbd> in MT5).</li>
+                    <li>Download <a href="/mt5/StratixEA.mq5" download className="text-white/65 underline">StratixEA.mq5</a> and open it in MetaEditor (press <kbd className="px-1 py-0.5 rounded bg-muted text-foreground text-[10px]">F4</kbd> in MT5).</li>
                     <li>Set the three input values shown below and compile (<kbd className="px-1 py-0.5 rounded bg-muted text-foreground text-[10px]">F7</kbd>).</li>
                     <li>In MT5: <strong className="text-foreground">Tools → Options → Expert Advisors</strong> → tick <em>Allow WebRequest</em> → add your app URL.</li>
                     <li>Drag the EA onto any chart. It monitors <em>all</em> trades automatically.</li>

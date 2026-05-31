@@ -196,7 +196,7 @@ export function BacktestChart({
     });
     chartRef.current = chart;
 
-    const up = settings.upColor || "#2563eb";
+    const up = settings.upColor || "#10b981";
     const dn = settings.downColor || "#ef4444";
 
     const candleSeries = chart.addCandlestickSeries({
@@ -239,10 +239,10 @@ export function BacktestChart({
       tooltip.style.display = "block";
       tooltip.innerHTML = [
         `<span style="color:#5e6673">${d.toISOString().replace("T", " ").slice(0, 16)} UTC</span>`,
-        `O <b style="color:#2563eb">${cData.open.toFixed(3)}</b>  ` +
-        `H <b style="color:#2563eb">${cData.high.toFixed(3)}</b>  ` +
+        `O <b style="color:rgba(255,255,255,0.85)">${cData.open.toFixed(3)}</b>  ` +
+        `H <b style="color:rgba(255,255,255,0.85)">${cData.high.toFixed(3)}</b>  ` +
         `L <b style="color:#ef4444">${cData.low.toFixed(3)}</b>  ` +
-        `C <b style="color:#2563eb">${cData.close.toFixed(3)}</b>`,
+        `C <b style="color:rgba(255,255,255,0.85)">${cData.close.toFixed(3)}</b>`,
       ].join("<br>");
     });
 
@@ -967,7 +967,7 @@ export function BacktestChart({
 
     const targetIdx = replayIndex != null ? replayIndex : candles.length - 1;
     const lastIdx   = lastRenderedIdxRef.current;
-    const up        = settings.upColor || "#2563eb";
+    const up        = settings.upColor || "#10b981";
     const dn        = settings.downColor || "#ef4444";
     const isStep    = lastIdx !== null && targetIdx === lastIdx + 1;
 
@@ -1008,7 +1008,7 @@ export function BacktestChart({
     if (!cs) return;
     const markers: SeriesMarker<Time>[] = [];
     if (replayStartIndex != null && candles[replayStartIndex]) {
-      markers.push({ time: candles[replayStartIndex].time as Time, position: "belowBar", color: "#2563eb", shape: "arrowUp", text: "START" });
+      markers.push({ time: candles[replayStartIndex].time as Time, position: "belowBar", color: "#10b981", shape: "arrowUp", text: "START" });
     }
     manualTrades.forEach(t => {
       markers.push({ time: t.entryTime as Time, position: t.direction === "LONG" ? "belowBar" : "aboveBar", color: t.direction === "LONG" ? "#22c55e" : "#ef4444", shape: t.direction === "LONG" ? "arrowUp" : "arrowDown", text: t.direction === "LONG" ? "BUY" : "SELL" });
@@ -1535,52 +1535,84 @@ export function BacktestChart({
     <div className="relative w-full h-full flex transition-colors duration-200" style={{ backgroundColor: settings.bgColor || "#0f0f0f" }}>
 
       {/* ── Toolbar ── */}
-      <div className="w-11 border-r border-[#23262f] flex flex-col items-center py-2 gap-0 shrink-0 z-20 select-none overflow-y-auto"
+      <div className="group/panel w-11 border-r border-white/[0.08] flex flex-col items-center py-2 gap-0 shrink-0 z-20 select-none overflow-y-auto opacity-40 hover:opacity-100 transition-opacity duration-300"
         style={{ backgroundColor: settings.bgColor || "#0f0f0f" }}>
 
         {/* Cursor */}
-        <TB active={activeTool === "cursor"} onClick={() => setActiveTool("cursor")} icon={<MousePointer className="w-4 h-4" />} label="Crosshair / Cursor" />
+        <TB active={activeTool === "cursor"} onClick={() => setActiveTool("cursor")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 2L3 12.5L5.8 9.5L7.5 14L9.3 13.2L7.6 9H12L3 2Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round"/></svg>
+        } label="Crosshair / Cursor" />
 
         <Sep />
 
         {/* Lines group */}
-        <TB active={activeTool === "trendline"} onClick={() => setActiveTool("trendline")} icon={<Slash className="w-4 h-4" />} label="Trend Line" isFavorited={settings.favoriteTools?.includes("trendline")} onStarClick={() => handleToggleFavorite("trendline")} />
-        <TB active={activeTool === "ray"} onClick={() => setActiveTool("ray")} icon={<ArrowRight className="w-4 h-4" />} label="Ray (extends right)" isFavorited={settings.favoriteTools?.includes("ray")} onStarClick={() => handleToggleFavorite("ray")} />
-        <TB active={activeTool === "hline"} onClick={() => setActiveTool("hline")} icon={<Minus className="w-4 h-4" />} label="Horizontal Line" isFavorited={settings.favoriteTools?.includes("hline")} onStarClick={() => handleToggleFavorite("hline")} />
-        <TB active={activeTool === "vline"} onClick={() => setActiveTool("vline")}
-          icon={<span className="inline-block rotate-90"><Minus className="w-4 h-4" /></span>} label="Vertical Line" isFavorited={settings.favoriteTools?.includes("vline")} onStarClick={() => handleToggleFavorite("vline")} />
-        <TB active={activeTool === "arrow"} onClick={() => setActiveTool("arrow")} icon={<ArrowUpRight className="w-4 h-4" />} label="Arrow" isFavorited={settings.favoriteTools?.includes("arrow")} onStarClick={() => handleToggleFavorite("arrow")} />
+        <TB active={activeTool === "trendline"} onClick={() => setActiveTool("trendline")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="2" y1="13.5" x2="14" y2="2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><circle cx="2" cy="13.5" r="1.4" fill="currentColor"/><circle cx="14" cy="2.5" r="1.4" fill="currentColor"/></svg>
+        } label="Trend Line" isFavorited={settings.favoriteTools?.includes("trendline")} onStarClick={() => handleToggleFavorite("trendline")} />
+        <TB active={activeTool === "ray"} onClick={() => setActiveTool("ray")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="2.5" cy="11" r="1.3" fill="currentColor"/><line x1="3.7" y1="10.4" x2="11" y2="5.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M11 5.5L14 3.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeDasharray="1.8 1.5" strokeOpacity="0.6"/></svg>
+        } label="Ray (extends right)" isFavorited={settings.favoriteTools?.includes("ray")} onStarClick={() => handleToggleFavorite("ray")} />
+        <TB active={activeTool === "hline"} onClick={() => setActiveTool("hline")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="1.5" y1="8" x2="14.5" y2="8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><line x1="1.5" y1="5.5" x2="1.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.45"/><line x1="14.5" y1="5.5" x2="14.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.45"/></svg>
+        } label="Horizontal Line" isFavorited={settings.favoriteTools?.includes("hline")} onStarClick={() => handleToggleFavorite("hline")} />
+        <TB active={activeTool === "vline"} onClick={() => setActiveTool("vline")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="8" y1="1.5" x2="8" y2="14.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><line x1="5.5" y1="1.5" x2="10.5" y2="1.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.45"/><line x1="5.5" y1="14.5" x2="10.5" y2="14.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.45"/></svg>
+        } label="Vertical Line" isFavorited={settings.favoriteTools?.includes("vline")} onStarClick={() => handleToggleFavorite("vline")} />
+        <TB active={activeTool === "arrow"} onClick={() => setActiveTool("arrow")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="3.5" y1="12.5" x2="12" y2="4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M7 4H12V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        } label="Arrow" isFavorited={settings.favoriteTools?.includes("arrow")} onStarClick={() => handleToggleFavorite("arrow")} />
 
         <Sep />
 
         {/* Shapes group */}
-        <TB active={activeTool === "rectangle"} onClick={() => setActiveTool("rectangle")} icon={<Square className="w-4 h-4" />} label="Rectangle" isFavorited={settings.favoriteTools?.includes("rectangle")} onStarClick={() => handleToggleFavorite("rectangle")} />
-        <TB active={activeTool === "circle"} onClick={() => setActiveTool("circle")} icon={<Circle className="w-4 h-4" />} label="Circle / Ellipse" isFavorited={settings.favoriteTools?.includes("circle")} onStarClick={() => handleToggleFavorite("circle")} />
-        <TB active={activeTool === "triangle"} onClick={() => setActiveTool("triangle")} icon={<Triangle className="w-4 h-4" />} label="Triangle (3 clicks)" isFavorited={settings.favoriteTools?.includes("triangle")} onStarClick={() => handleToggleFavorite("triangle")} />
-        <TB active={activeTool === "channel"} onClick={() => setActiveTool("channel")} icon={<Layers className="w-4 h-4" />} label="Parallel Channel (3 clicks)" isFavorited={settings.favoriteTools?.includes("channel")} onStarClick={() => handleToggleFavorite("channel")} />
+        <TB active={activeTool === "rectangle"} onClick={() => setActiveTool("rectangle")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4.5" width="12" height="7" stroke="currentColor" strokeWidth="1.4"/></svg>
+        } label="Rectangle" isFavorited={settings.favoriteTools?.includes("rectangle")} onStarClick={() => handleToggleFavorite("rectangle")} />
+        <TB active={activeTool === "circle"} onClick={() => setActiveTool("circle")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><ellipse cx="8" cy="8" rx="5.5" ry="4" stroke="currentColor" strokeWidth="1.4"/></svg>
+        } label="Circle / Ellipse" isFavorited={settings.favoriteTools?.includes("circle")} onStarClick={() => handleToggleFavorite("circle")} />
+        <TB active={activeTool === "triangle"} onClick={() => setActiveTool("triangle")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2L14.5 13.5H1.5L8 2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>
+        } label="Triangle (3 clicks)" isFavorited={settings.favoriteTools?.includes("triangle")} onStarClick={() => handleToggleFavorite("triangle")} />
+        <TB active={activeTool === "channel"} onClick={() => setActiveTool("channel")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5L14 9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M2 9.5L14 14" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.5"/></svg>
+        } label="Parallel Channel (3 clicks)" isFavorited={settings.favoriteTools?.includes("channel")} onStarClick={() => handleToggleFavorite("channel")} />
 
         <Sep />
 
         {/* Fib */}
-        <TB active={activeTool === "fib"} onClick={() => setActiveTool("fib")} icon={<Grid className="w-4 h-4" />} label="Fibonacci Retracement" isFavorited={settings.favoriteTools?.includes("fib")} onStarClick={() => handleToggleFavorite("fib")} />
+        <TB active={activeTool === "fib"} onClick={() => setActiveTool("fib")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><line x1="2" y1="7" x2="14" y2="7" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.65"/><line x1="2" y1="9.5" x2="14" y2="9.5" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" strokeOpacity="0.45"/><line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" strokeOpacity="0.3"/><path d="M3 4L13 12" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" strokeDasharray="2 1.5" strokeOpacity="0.5"/></svg>
+        } label="Fibonacci Retracement" isFavorited={settings.favoriteTools?.includes("fib")} onStarClick={() => handleToggleFavorite("fib")} />
 
         <Sep />
 
         {/* Risk positions */}
-        <TB active={activeTool === "long"} onClick={() => setActiveTool("long")}
-          icon={<TrendingUp className="w-4 h-4 text-green-500" />} label="Long Position (Risk/Reward)" isFavorited={settings.favoriteTools?.includes("long")} onStarClick={() => handleToggleFavorite("long")} />
-        <TB active={activeTool === "short"} onClick={() => setActiveTool("short")}
-          icon={<TrendingUp className="w-4 h-4 text-red-500 rotate-180 scale-x-[-1]" />} label="Short Position (Risk/Reward)" isFavorited={settings.favoriteTools?.includes("short")} onStarClick={() => handleToggleFavorite("short")} />
-        <TB active={activeTool === "patterns"} onClick={() => setActiveTool("patterns")}
-          icon={<Workflow className="w-4 h-4 text-[#8b5cf6]" />} label="Harmonic XABCD Pattern" isFavorited={settings.favoriteTools?.includes("patterns")} onStarClick={() => handleToggleFavorite("patterns")} />
+        <TB active={activeTool === "long"} onClick={() => setActiveTool("long")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="9" height="5" stroke="#10b981" strokeWidth="1.1" fill="rgba(16,185,129,0.15)"/><rect x="2" y="8.5" width="9" height="4" stroke="#ef4444" strokeWidth="1.1" fill="rgba(239,68,68,0.1)"/><path d="M13 6.5L13 2M11.5 3.5L13 2L14.5 3.5" stroke="#10b981" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        } label="Long Position (Risk/Reward)" isFavorited={settings.favoriteTools?.includes("long")} onStarClick={() => handleToggleFavorite("long")} />
+        <TB active={activeTool === "short"} onClick={() => setActiveTool("short")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="9" height="4" stroke="#10b981" strokeWidth="1.1" fill="rgba(16,185,129,0.1)"/><rect x="2" y="7.5" width="9" height="5" stroke="#ef4444" strokeWidth="1.1" fill="rgba(239,68,68,0.15)"/><path d="M13 9.5L13 14M11.5 12.5L13 14L14.5 12.5" stroke="#ef4444" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        } label="Short Position (Risk/Reward)" isFavorited={settings.favoriteTools?.includes("short")} onStarClick={() => handleToggleFavorite("short")} />
+        <TB active={activeTool === "patterns"} onClick={() => setActiveTool("patterns")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 12L5 4.5L8.5 9L11.5 3L14 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><circle cx="2" cy="12" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="5" cy="4.5" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="8.5" cy="9" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="11.5" cy="3" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="14" cy="7" r="1" fill="currentColor" fillOpacity="0.7"/></svg>
+        } label="Harmonic XABCD Pattern" isFavorited={settings.favoriteTools?.includes("patterns")} onStarClick={() => handleToggleFavorite("patterns")} />
 
         <Sep />
 
         {/* Annotations */}
-        <TB active={activeTool === "text"} onClick={() => setActiveTool("text")} icon={<Type className="w-4 h-4" />} label="Text Annotation" isFavorited={settings.favoriteTools?.includes("text")} onStarClick={() => handleToggleFavorite("text")} />
-        <TB active={activeTool === "brush"} onClick={() => setActiveTool("brush")} icon={<Paintbrush className="w-4 h-4" />} label="Highlighter Brush" isFavorited={settings.favoriteTools?.includes("brush")} onStarClick={() => handleToggleFavorite("brush")} />
-        <TB active={activeTool === "ruler"} onClick={() => setActiveTool("ruler")} icon={<Ruler className="w-4 h-4 text-amber-500" />} label="Ruler (Pips & Bars)" isFavorited={settings.favoriteTools?.includes("ruler")} onStarClick={() => handleToggleFavorite("ruler")} />
-        <TB active={activeTool === "smiley"} onClick={() => setActiveTool("smiley")} icon={<Smile className="w-4 h-4 text-yellow-500" />} label="Emoji Marker" isFavorited={settings.favoriteTools?.includes("smiley")} onStarClick={() => handleToggleFavorite("smiley")} />
+        <TB active={activeTool === "text"} onClick={() => setActiveTool("text")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 4H12.5M8 4V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M5.5 13H10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeOpacity="0.5"/></svg>
+        } label="Text Annotation" isFavorited={settings.favoriteTools?.includes("text")} onStarClick={() => handleToggleFavorite("text")} />
+        <TB active={activeTool === "brush"} onClick={() => setActiveTool("brush")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 12Q6 8 9 9Q12 10 14 6" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeOpacity="0.18"/><path d="M3 12Q6 8 9 9Q12 10 14 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+        } label="Highlighter Brush" isFavorited={settings.favoriteTools?.includes("brush")} onStarClick={() => handleToggleFavorite("brush")} />
+        <TB active={activeTool === "ruler"} onClick={() => setActiveTool("ruler")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="5.5" width="13" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3"/><line x1="4" y1="5.5" x2="4" y2="8" stroke="currentColor" strokeWidth="1"/><line x1="6.5" y1="5.5" x2="6.5" y2="9.5" stroke="currentColor" strokeWidth="1"/><line x1="9" y1="5.5" x2="9" y2="8" stroke="currentColor" strokeWidth="1"/><line x1="11.5" y1="5.5" x2="11.5" y2="9.5" stroke="currentColor" strokeWidth="1"/></svg>
+        } label="Ruler (Pips & Bars)" isFavorited={settings.favoriteTools?.includes("ruler")} onStarClick={() => handleToggleFavorite("ruler")} />
+        <TB active={activeTool === "smiley"} onClick={() => setActiveTool("smiley")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5.5 9.5Q8 11.5 10.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="6.2" cy="7" r="0.9" fill="currentColor"/><circle cx="9.8" cy="7" r="0.9" fill="currentColor"/></svg>
+        } label="Emoji Marker" isFavorited={settings.favoriteTools?.includes("smiley")} onStarClick={() => handleToggleFavorite("smiley")} />
 
         <Sep />
 
@@ -1588,18 +1620,18 @@ export function BacktestChart({
         <TB active={false} onClick={() => chartRef.current?.timeScale().fitContent()}
           icon={<Search className="w-4 h-4" />} label="Fit / Reset Zoom" />
         <TB active={settings.isMagnetActive} onClick={() => onSettingsChange({ isMagnetActive: !settings.isMagnetActive })}
-          icon={<Magnet className={`w-4 h-4 ${settings.isMagnetActive ? "text-blue-400" : ""}`} />} label="Magnet Mode (snap OHLC)" />
+          icon={<Magnet className={`w-4 h-4 ${settings.isMagnetActive ? "text-white/65" : ""}`} />} label="Magnet Mode (snap OHLC)" />
         <TB active={stayInDrawingMode} onClick={() => setStayInDrawingMode(p => !p)}
-          icon={<PenTool className={`w-4 h-4 ${stayInDrawingMode ? "text-blue-400" : ""}`} />} label="Stay in Drawing Mode" />
+          icon={<PenTool className={`w-4 h-4 ${stayInDrawingMode ? "text-white/65" : ""}`} />} label="Stay in Drawing Mode" />
         <TB active={isLocked} onClick={() => setIsLocked(p => !p)}
           icon={isLocked ? <Lock className="w-4 h-4 text-red-400" /> : <Unlock className="w-4 h-4" />} label={isLocked ? "Unlock Drawings" : "Lock Drawings"} />
         <TB active={areDrawingsHidden} onClick={() => setAreDrawingsHidden(p => !p)}
-          icon={areDrawingsHidden ? <EyeOff className="w-4 h-4 text-yellow-500" /> : <Eye className="w-4 h-4" />} label={areDrawingsHidden ? "Show Drawings" : "Hide Drawings"} />
+          icon={areDrawingsHidden ? <EyeOff className="w-4 h-4 text-white/55" /> : <Eye className="w-4 h-4" />} label={areDrawingsHidden ? "Show Drawings" : "Hide Drawings"} />
 
         <Sep />
 
         <button onClick={handleClearAllDrawings}
-          className="p-2 rounded-lg text-gray-600 hover:text-red-500 hover:bg-red-500/10 transition-all active:scale-90 cursor-pointer"
+          className="p-2 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-90 cursor-pointer"
           title="Clear All Drawings">
           <Trash2 className="w-4 h-4" />
         </button>
@@ -1612,7 +1644,7 @@ export function BacktestChart({
         {/* ── Floating Favorites Toolbar ── */}
         {settings.favoriteTools && settings.favoriteTools.length > 0 && (
           <div
-            className="absolute flex items-center gap-1 bg-[#141720]/95 backdrop-blur-md border border-[#23262f] rounded-lg p-1 z-20 shadow-xl select-none font-mono text-[9px] pointer-events-auto transition-shadow duration-150"
+            className="absolute flex items-center gap-1 bg-black/80 backdrop-blur-xl border border-white/[0.10] rounded-lg p-1 z-20 shadow-xl select-none font-mono text-[9px] pointer-events-auto transition-shadow duration-150"
             style={{
               left: favsPos.x !== null ? `${favsPos.x}px` : "50%",
               top: `${favsPos.y}px`,
@@ -1624,19 +1656,19 @@ export function BacktestChart({
             {/* Draggable Grip Handle */}
             <div
               onMouseDown={handleFavsMouseDown}
-              className="p-1 text-gray-500 hover:text-gray-300 cursor-grab active:cursor-grabbing flex items-center justify-center rounded hover:bg-[#1c1e26] transition-colors shrink-0"
+              className="p-1 text-white/30 hover:text-white/70 cursor-grab active:cursor-grabbing flex items-center justify-center rounded hover:bg-white/[0.06] transition-colors shrink-0"
               title="Drag Favorites Toolbar"
             >
               <GripVertical className="w-3.5 h-3.5" />
             </div>
 
             {/* Star Icon Indicator */}
-            <div className="pl-0.5 pr-0.5 flex items-center justify-center text-yellow-500 shrink-0">
-              <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" />
+            <div className="pl-0.5 pr-0.5 flex items-center justify-center text-white/40 shrink-0">
+              <Star className="w-3.5 h-3.5 fill-white/55 text-white/55" />
             </div>
 
             {/* Vertical Divider */}
-            <div className="w-px h-4.5 bg-[#23262f] mx-1 shrink-0" />
+            <div className="w-px h-4.5 bg-white/[0.08] mx-1 shrink-0" />
 
             <div className="flex items-center gap-0.5">
               {settings.favoriteTools.map((tool) => {
@@ -1648,8 +1680,8 @@ export function BacktestChart({
                     onClick={() => setActiveTool(tool as DrawingType)}
                     className={`p-1.5 rounded transition-all active:scale-90 cursor-pointer ${
                       activeTool === tool
-                        ? "bg-[#2563eb] text-white"
-                        : "text-gray-400 hover:text-white hover:bg-[#1c1e26]"
+                        ? "bg-white/[0.10] text-white"
+                        : "text-white/40 hover:text-white hover:bg-white/[0.06]"
                     }`}
                     title={label}
                   >
@@ -1683,8 +1715,8 @@ export function BacktestChart({
                 y={Math.min(lassoBox.y1, lassoBox.y2)}
                 width={Math.abs(lassoBox.x2 - lassoBox.x1)}
                 height={Math.abs(lassoBox.y2 - lassoBox.y1)}
-                fill="rgba(37,99,235,0.06)"
-                stroke="#2563eb"
+                fill="rgba(255,255,255,0.04)"
+                stroke="rgba(255,255,255,0.7)"
                 strokeWidth={1.2}
                 strokeDasharray="4 3"
                 pointerEvents="none"
@@ -1696,7 +1728,7 @@ export function BacktestChart({
         {/* ── Floating Multi-Selection Panel ── */}
         {selectedDrawingIds.length > 1 && (
           <div
-            className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-3.5 px-4.5 py-2.5 bg-[#141720]/95 backdrop-blur-md border border-red-500/35 rounded-full z-45 shadow-2xl font-mono text-[9px] text-gray-200 pointer-events-auto select-none"
+            className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-3.5 px-4.5 py-2.5 bg-black/85 backdrop-blur-md border border-red-500/35 rounded-full z-45 shadow-2xl font-mono text-[9px] text-gray-200 pointer-events-auto select-none"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <span className="font-bold text-red-400 flex items-center gap-1.5">
@@ -1741,16 +1773,16 @@ export function BacktestChart({
               }}
               onBlur={() => { if (textInputVal.trim()) textOverlay.onSubmit(textInputVal); else { setTextOverlay(null); setTextInputVal(""); } }}
               placeholder="Type text…"
-              className="bg-[#141720] border border-[#eab308] rounded px-2 py-1 text-white text-xs font-mono focus:outline-none w-36 shadow-lg"
+              className="bg-black/90 border border-white/[0.10] backdrop-blur-xl rounded px-2 py-1 text-white text-xs font-mono focus:outline-none w-36 shadow-lg"
             />
-            <button onClick={() => textOverlay.onSubmit(textInputVal)} className="p-1 bg-blue-600 rounded text-white text-xs">✓</button>
-            <button onClick={() => { setTextOverlay(null); setTextInputVal(""); }} className="p-1 bg-[#23262f] rounded text-gray-400 text-xs">✗</button>
+            <button onClick={() => textOverlay.onSubmit(textInputVal)} className="p-1 bg-white/[0.09] rounded text-white text-xs">✓</button>
+            <button onClick={() => { setTextOverlay(null); setTextInputVal(""); }} className="p-1 bg-white/[0.08] rounded text-gray-400 text-xs">✗</button>
           </div>
         )}
 
         {/* ── Multi-point hint ── */}
         {multiCreating && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-[#141720] border border-[#eab308] rounded-lg px-3 py-1.5 text-[10px] font-mono text-yellow-400 pointer-events-none">
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-lg px-3 py-1.5 text-[10px] font-mono text-white/50 pointer-events-none">
             {multiCreating.points.length === 1
               ? `Click to set 2nd point (${multiCreating.type})`
               : `Click to set 3rd point and finalize`}
@@ -1759,21 +1791,21 @@ export function BacktestChart({
 
         {/* ── Replay / Live badge ── */}
         {replayIndex == null && (
-          <div className="absolute top-3 right-3 flex items-center gap-1.5 text-[9px] font-bold bg-[#141720] border border-[#23262f] rounded px-2 py-1 select-none font-mono z-20">
+          <div className="absolute top-3 right-3 flex items-center gap-1.5 text-[9px] font-bold bg-black/80 border border-white/[0.08] rounded px-2 py-1 select-none font-mono z-20">
             {liveStatus === "live" && <><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /><span className="text-green-500 tracking-wider">LIVE FEED</span></>}
-            {liveStatus === "reconnecting" && <><span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" /><span className="text-yellow-500 tracking-wider">RECONNECTING</span></>}
-            {liveStatus === "stopped" && <span className="text-gray-500 tracking-wider">REPLAY DOCKED</span>}
+            {liveStatus === "reconnecting" && <><span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" /><span className="text-white/55 tracking-wider">RECONNECTING</span></>}
+            {liveStatus === "stopped" && <span className="text-white/40 tracking-wider">REPLAY DOCKED</span>}
           </div>
         )}
 
         {/* ── Open trade P&L ── */}
         {openTrade && (
-          <div className="absolute top-3 left-3 bg-[#141720]/90 border border-[#23262f] rounded-lg px-3 py-2 text-[10px] font-mono z-20 flex items-center gap-2">
+          <div className="absolute top-3 left-3 bg-black/80 border border-white/[0.08] rounded-lg px-3 py-2 text-[10px] font-mono z-20 flex items-center gap-2">
             <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${openTrade.direction === "LONG" ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
               {openTrade.direction}
             </span>
             <span className="text-gray-500">Entry <b className="text-white">{openTrade.entryPrice.toFixed(3)}</b></span>
-            <span className="w-px h-3 bg-[#23262f]" />
+            <span className="w-px h-3 bg-white/[0.08]" />
             <span className={`font-bold ${openTradeUnrealised >= 0 ? "text-green-500" : "text-red-500"}`}>
               {openTradeUnrealised >= 0 ? "+" : ""}${openTradeUnrealised.toFixed(2)}
             </span>
@@ -1791,13 +1823,13 @@ export function BacktestChart({
           const applicableTemplates = (settings.drawingTemplates || []).filter(t => t.type === sel.type);
 
           return (
-            <div className="absolute z-30 flex flex-col bg-[#141720] border border-[#eab308] rounded-lg p-2 shadow-2xl select-none font-mono text-[9px] min-w-[220px]"
+            <div className="absolute z-30 flex flex-col bg-black/80 border border-white/[0.10] rounded-lg p-2 shadow-2xl select-none font-mono text-[9px] min-w-[220px]"
               style={{ left: `${Math.max(10, xy.x - 40)}px`, top: `${Math.max(10, xy.y - 65)}px`, transform: "translateY(-50%)" }}>
               
               <div className="flex items-center gap-2">
-                <span className="font-bold text-[#eab308] uppercase tracking-wider">{sel.type}</span>
+                <span className="font-bold text-white/80 uppercase tracking-wider">{sel.type}</span>
                 
-                <div className="w-px h-3.5 bg-[#23262f]" />
+                <div className="w-px h-3.5 bg-white/[0.08]" />
                 
                 {/* Palette color dots */}
                 <div className="flex items-center gap-1">
@@ -1823,22 +1855,22 @@ export function BacktestChart({
                   </div>
                 </div>
 
-                <div className="w-px h-3.5 bg-[#23262f]" />
+                <div className="w-px h-3.5 bg-white/[0.08]" />
 
                 {/* Templates trigger */}
                 <button
                   onClick={() => setIsTemplateMenuOpen(!isTemplateMenuOpen)}
                   className={`px-1.5 py-0.5 rounded font-bold border transition-colors flex items-center gap-1 cursor-pointer ${
                     isTemplateMenuOpen
-                      ? "bg-blue-600/15 border-blue-600/30 text-blue-400"
-                      : "bg-[#1c1e26] border-[#23262f] text-gray-400 hover:text-white"
+                      ? "bg-white/[0.07] border-white/[0.12] text-white/65"
+                      : "bg-white/[0.06] border-white/[0.08] text-gray-400 hover:text-white"
                   }`}
                   title="Templates menu"
                 >
                   TEMPLATES
                 </button>
 
-                <div className="w-px h-3.5 bg-[#23262f]" />
+                <div className="w-px h-3.5 bg-white/[0.08]" />
 
                 {/* Delete button */}
                 <button onClick={e => { e.stopPropagation(); handleDeleteDrawing(selectedDrawingId); }}
@@ -1849,7 +1881,7 @@ export function BacktestChart({
 
               {/* Templates Popover */}
               {isTemplateMenuOpen && (
-                <div className="absolute left-0 top-full mt-1.5 z-40 bg-[#0f0f0f] border border-[#23262f] rounded-lg p-2 shadow-2xl flex flex-col gap-1.5 min-w-[150px]">
+                <div className="absolute left-0 top-full mt-1.5 z-40 bg-black/90 backdrop-blur-xl border border-white/[0.10] rounded-lg p-2 shadow-2xl flex flex-col gap-1.5 min-w-[150px]">
                   <button
                     onClick={() => {
                       const name = prompt("Enter template name:");
@@ -1865,16 +1897,16 @@ export function BacktestChart({
                       }
                       setIsTemplateMenuOpen(false);
                     }}
-                    className="w-full text-left px-2 py-1 hover:bg-blue-600 hover:text-white rounded transition-colors text-[8px] font-bold text-blue-400"
+                    className="w-full text-left px-2 py-1 hover:bg-white/[0.09] hover:text-white rounded transition-colors text-[8px] font-bold text-white/65"
                   >
                     + SAVE AS TEMPLATE...
                   </button>
                   {applicableTemplates.length > 0 && (
                     <>
-                      <div className="h-px bg-[#23262f] my-0.5" />
+                      <div className="h-px bg-white/[0.08] my-0.5" />
                       <span className="px-2 text-[7px] text-gray-500 font-bold uppercase tracking-wider">APPLY TEMPLATE:</span>
                       {applicableTemplates.map((t) => (
-                        <div key={t.id} className="flex items-center justify-between hover:bg-[#1c1e26] rounded px-2 py-0.5 group/item">
+                        <div key={t.id} className="flex items-center justify-between hover:bg-white/[0.06] rounded px-2 py-0.5 group/item">
                           <button
                             onClick={() => {
                               handleUpdateDrawingColor(t.color);
@@ -1907,18 +1939,18 @@ export function BacktestChart({
         })()}
 
         {/* ── Bottom-right controls ── */}
-        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-[#141720] border border-[#23262f] rounded-lg p-1 z-20 select-none font-mono text-[9px]">
+        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-lg p-1 z-20 select-none font-mono text-[9px]">
           <button
             onClick={() => onSettingsChange({ isYAxisLocked: !settings.isYAxisLocked })}
             className={`px-2 py-1 rounded font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer border ${
-              settings.isYAxisLocked ? "bg-[#eab308]/15 border-[#eab308]/30 text-[#eab308]" : "bg-[#2563eb]/10 border-[#2563eb]/20 text-[#2563eb] hover:bg-[#2563eb]/20"
+              settings.isYAxisLocked ? "bg-white/[0.08] border-white/[0.12] text-white/80" : "bg-white/[0.04] border-white/[0.12] text-white/60 hover:bg-white/[0.08]"
             }`} title={settings.isYAxisLocked ? "Y-Axis LOCKED" : "Y-Axis AUTO"}>
             {settings.isYAxisLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
             <span>{settings.isYAxisLocked ? "LOCKED SCALE" : "AUTO SCALE"}</span>
           </button>
-          <div className="w-px h-4 bg-[#23262f]" />
+          <div className="w-px h-4 bg-white/[0.08]" />
           <button onClick={() => setIsSettingsModalOpen(true)}
-            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-[#1c1e26] transition-all active:scale-90 cursor-pointer flex items-center"
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-white/[0.06] transition-all active:scale-90 cursor-pointer flex items-center"
             title="Chart Settings">
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -1926,23 +1958,23 @@ export function BacktestChart({
 
         {/* ── Settings Modal ── */}
         {isSettingsModalOpen && (
-          <div className="absolute inset-0 bg-[#06080c]/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             onClick={() => setIsSettingsModalOpen(false)}>
-            <div className="w-full max-w-md bg-[#0f0f0f] border border-[#23262f] rounded-xl shadow-2xl overflow-hidden"
+            <div className="w-full max-w-md bg-[#0f0f0f]/95 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden"
               onClick={e => e.stopPropagation()}>
-              <div className="px-5 py-4 border-b border-[#23262f] flex items-center justify-between bg-[#141720]">
+              <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between bg-black/80">
                 <div className="flex items-center gap-2">
-                  <Settings className="w-4 h-4 text-blue-500" />
+                  <Settings className="w-4 h-4 text-white/55" />
                   <span className="font-bold text-white text-sm tracking-tight font-mono">CHART SETTINGS</span>
                 </div>
-                <button onClick={() => setIsSettingsModalOpen(false)} className="p-1.5 rounded-lg hover:bg-[#1c1e26] text-gray-500 hover:text-white transition-colors cursor-pointer">
+                <button onClick={() => setIsSettingsModalOpen(false)} className="p-1.5 rounded-lg hover:bg-white/[0.06] text-gray-500 hover:text-white transition-colors cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="p-5 flex flex-col gap-5 text-xs font-mono">
                 <div className="flex flex-col gap-2">
-                  <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">Candlestick Theme</label>
+                  <label className="text-white/40 uppercase tracking-widest font-semibold text-[9px]">Candlestick Theme</label>
                   <select value={settings.themeName}
                     onChange={e => {
                       const v = e.target.value;
@@ -1956,7 +1988,7 @@ export function BacktestChart({
                       };
                       onSettingsChange({ themeName: v, ...(themes[v] || {}) });
                     }}
-                    className="w-full bg-[#141720] border border-[#23262f] rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 cursor-pointer">
+                    className="w-full bg-black/80 border border-white/[0.08] rounded-lg px-3 py-2 text-white focus:outline-none focus:border-white/[0.25] cursor-pointer">
                     <option>Emerald Bull</option>
                     <option>Classic Blue</option>
                     <option>Slate & Crimson</option>
@@ -1972,8 +2004,8 @@ export function BacktestChart({
                     { label: "Bear Color", key: "downColor" as const },
                   ].map(({ label, key }) => (
                     <div key={key} className="flex flex-col gap-2">
-                      <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">{label}</label>
-                      <div className="flex items-center gap-2 bg-[#141720] border border-[#23262f] rounded-lg px-3 py-1.5">
+                      <label className="text-white/40 uppercase tracking-widest font-semibold text-[9px]">{label}</label>
+                      <div className="flex items-center gap-2 bg-black/80 border border-white/[0.08] rounded-lg px-3 py-1.5">
                         <input type="color" value={settings[key]} onChange={e => onSettingsChange({ [key]: e.target.value, themeName: "Custom" })} className="w-6 h-6 border-0 bg-transparent cursor-pointer shrink-0 rounded" />
                         <input type="text" value={settings[key]} onChange={e => onSettingsChange({ [key]: e.target.value, themeName: "Custom" })} className="bg-transparent border-0 text-white w-full text-center focus:outline-none uppercase font-bold" />
                       </div>
@@ -1982,21 +2014,21 @@ export function BacktestChart({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">Canvas Background</label>
-                  <div className="flex items-center gap-2 bg-[#141720] border border-[#23262f] rounded-lg px-3 py-1.5">
+                  <label className="text-white/40 uppercase tracking-widest font-semibold text-[9px]">Canvas Background</label>
+                  <div className="flex items-center gap-2 bg-black/80 border border-white/[0.08] rounded-lg px-3 py-1.5">
                     <input type="color" value={settings.bgColor || "#0f0f0f"} onChange={e => onSettingsChange({ bgColor: e.target.value })} className="w-6 h-6 border-0 bg-transparent cursor-pointer shrink-0 rounded" />
                     <input type="text" value={settings.bgColor || "#0f0f0f"} onChange={e => onSettingsChange({ bgColor: e.target.value })} className="bg-transparent border-0 text-white w-20 text-center focus:outline-none uppercase font-bold" />
                     <div className="flex gap-1.5 ml-auto">
                       {["#0f0f0f", "#0c0e14", "#141720", "#000000"].map(bg => (
                         <button key={bg} type="button" onClick={() => onSettingsChange({ bgColor: bg })}
-                          className="w-4 h-4 rounded-full border border-[#23262f] cursor-pointer hover:scale-110 transition-all"
+                          className="w-4 h-4 rounded-full border border-white/[0.08] cursor-pointer hover:scale-110 transition-all"
                           style={{ backgroundColor: bg }} title={bg} />
                       ))}
                     </div>
                   </div>
                 </div>
 
-                <div className="w-full h-px bg-[#23262f]" />
+                <div className="w-full h-px bg-white/[0.08]" />
 
                 {[
                   { label: "Show Grid Lines", desc: "Vertical & horizontal grid lines", key: "showGrid" as const, color: "blue" },
@@ -2004,22 +2036,22 @@ export function BacktestChart({
                   { label: "Lock Y-Axis",     desc: "Fix price scale for free panning",  key: "isYAxisLocked" as const, color: "yellow" },
                   { label: "Magnet Mode",     desc: "Snap drawings to OHLC levels",      key: "isMagnetActive" as const, color: "blue" },
                 ].map(({ label, desc, key, color }) => (
-                  <div key={key} className="flex items-center justify-between bg-[#141720]/30 rounded-lg px-3.5 py-2.5 border border-[#23262f]/60 hover:bg-[#141720]/60 transition-colors">
+                  <div key={key} className="flex items-center justify-between bg-black/80/30 rounded-lg px-3.5 py-2.5 border border-white/[0.08]/60 hover:bg-black/80/60 transition-colors">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-white font-bold tracking-tight">{label}</span>
                       <span className="text-[9px] text-gray-500">{desc}</span>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer select-none">
                       <input type="checkbox" checked={settings[key]} onChange={e => onSettingsChange({ [key]: e.target.checked })} className="sr-only peer" />
-                      <div className={`w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${color === "yellow" ? "peer-checked:bg-yellow-500" : "peer-checked:bg-blue-600"} peer-checked:after:bg-white`} />
+                      <div className={`w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${color === "yellow" ? "peer-checked:bg-white/[0.16]" : "peer-checked:bg-white/[0.12]"} peer-checked:after:bg-white`} />
                     </label>
                   </div>
                 ))}
               </div>
 
-              <div className="px-5 py-3 border-t border-[#23262f] bg-[#141720] flex justify-end">
+              <div className="px-5 py-3 border-t border-white/[0.08] bg-black/80 flex justify-end">
                 <button onClick={() => setIsSettingsModalOpen(false)}
-                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold font-mono text-xs transition-all active:scale-95 cursor-pointer">
+                  className="px-4 py-1.5 rounded-lg bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white font-bold font-mono text-xs transition-all active:scale-95 cursor-pointer">
                   SAVE & CLOSE
                 </button>
               </div>
@@ -2051,7 +2083,7 @@ function TB({
     <div className="relative group select-none">
       <button onClick={onClick}
         className={`p-2 rounded-lg transition-all active:scale-90 cursor-pointer ${
-          active ? "bg-[#2563eb] text-white shadow-md shadow-blue-900/20" : "text-gray-500 hover:text-white hover:bg-[#1c1e26]"
+          active ? "bg-white/[0.10] text-white shadow-md " : "text-white/35 hover:text-white hover:bg-white/[0.06]"
         }`} title={label}>
         {icon}
       </button>
@@ -2061,15 +2093,17 @@ function TB({
             e.stopPropagation();
             onStarClick(e);
           }}
-          className={`absolute -top-1 -right-1 p-0.5 rounded-full bg-[#141720] border border-[#23262f] hover:scale-110 active:scale-90 transition-all cursor-pointer opacity-0 group-hover:opacity-100 z-30 ${
-            isFavorited ? "opacity-100 text-yellow-500" : "text-gray-500 hover:text-yellow-500"
+          className={`absolute -top-1 -right-1 p-0.5 rounded-full bg-black/80 border border-white/[0.10] hover:scale-110 active:scale-90 transition-all cursor-pointer z-30 ${
+            isFavorited
+              ? "opacity-100 text-white/70"
+              : "opacity-0 group-hover:opacity-100 group-hover/panel:opacity-100 text-white/30 hover:text-white/70"
           }`}
           title={isFavorited ? "Remove from Favorites" : "Add to Favorites"}
         >
-          <Star className={`w-2.5 h-2.5 ${isFavorited ? "fill-yellow-500" : ""}`} />
+          <Star className={`w-2.5 h-2.5 ${isFavorited ? "fill-white/70" : ""}`} />
         </button>
       )}
-      <span className="absolute left-12 top-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black border border-[#23262f] text-[9px] font-bold text-gray-200 px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none uppercase tracking-wide">
+      <span className="absolute left-12 top-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 border border-white/[0.08] text-[9px] font-bold text-white/70 px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none uppercase tracking-wide">
         {label}
       </span>
     </div>
@@ -2078,29 +2112,29 @@ function TB({
 
 // ── Separator ──────────────────────────────────────────────────────────────────
 function Sep() {
-  return <div className="w-6 h-px bg-[#23262f] my-1.5 shrink-0" />;
+  return <div className="w-6 h-px bg-white/[0.08] my-1.5 shrink-0" />;
 }
 
 // ── Favorites Helpers ─────────────────────────────────────────────────────────
 function getToolIcon(tool: DrawingType) {
   switch (tool) {
-    case "trendline": return <Slash className="w-3.5 h-3.5" />;
-    case "ray": return <ArrowRight className="w-3.5 h-3.5" />;
-    case "hline": return <Minus className="w-3.5 h-3.5" />;
-    case "vline": return <span className="inline-block rotate-90"><Minus className="w-3.5 h-3.5" /></span>;
-    case "arrow": return <ArrowUpRight className="w-3.5 h-3.5" />;
-    case "rectangle": return <Square className="w-3.5 h-3.5" />;
-    case "circle": return <Circle className="w-3.5 h-3.5" />;
-    case "triangle": return <Triangle className="w-3.5 h-3.5" />;
-    case "channel": return <Layers className="w-3.5 h-3.5" />;
-    case "fib": return <Grid className="w-3.5 h-3.5" />;
-    case "long": return <TrendingUp className="w-3.5 h-3.5 text-green-500" />;
-    case "short": return <TrendingUp className="w-3.5 h-3.5 text-red-500 rotate-180 scale-x-[-1]" />;
-    case "patterns": return <Workflow className="w-3.5 h-3.5 text-[#8b5cf6]" />;
-    case "text": return <Type className="w-3.5 h-3.5" />;
-    case "brush": return <Paintbrush className="w-3.5 h-3.5" />;
-    case "ruler": return <Ruler className="w-3.5 h-3.5 text-amber-500" />;
-    case "smiley": return <Smile className="w-3.5 h-3.5 text-yellow-500" />;
+    case "trendline": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><line x1="2" y1="13.5" x2="14" y2="2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><circle cx="2" cy="13.5" r="1.4" fill="currentColor"/><circle cx="14" cy="2.5" r="1.4" fill="currentColor"/></svg>;
+    case "ray": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="2.5" cy="11" r="1.3" fill="currentColor"/><line x1="3.7" y1="10.4" x2="11" y2="5.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M11 5.5L14 3.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeDasharray="1.8 1.5" strokeOpacity="0.6"/></svg>;
+    case "hline": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><line x1="1.5" y1="8" x2="14.5" y2="8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><line x1="1.5" y1="5.5" x2="1.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.45"/><line x1="14.5" y1="5.5" x2="14.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.45"/></svg>;
+    case "vline": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><line x1="8" y1="1.5" x2="8" y2="14.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><line x1="5.5" y1="1.5" x2="10.5" y2="1.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.45"/><line x1="5.5" y1="14.5" x2="10.5" y2="14.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.45"/></svg>;
+    case "arrow": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><line x1="3.5" y1="12.5" x2="12" y2="4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M7 4H12V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+    case "rectangle": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="4.5" width="12" height="7" stroke="currentColor" strokeWidth="1.4"/></svg>;
+    case "circle": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><ellipse cx="8" cy="8" rx="5.5" ry="4" stroke="currentColor" strokeWidth="1.4"/></svg>;
+    case "triangle": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2L14.5 13.5H1.5L8 2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>;
+    case "channel": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 5L14 9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M2 9.5L14 14" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.5"/></svg>;
+    case "fib": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><line x1="2" y1="7" x2="14" y2="7" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.65"/><line x1="2" y1="9.5" x2="14" y2="9.5" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" strokeOpacity="0.45"/><line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" strokeOpacity="0.3"/></svg>;
+    case "long": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="9" height="5" stroke="#10b981" strokeWidth="1.1" fill="rgba(16,185,129,0.15)"/><rect x="2" y="8.5" width="9" height="4" stroke="#ef4444" strokeWidth="1.1" fill="rgba(239,68,68,0.1)"/><path d="M13 6.5L13 2M11.5 3.5L13 2L14.5 3.5" stroke="#10b981" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+    case "short": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="9" height="4" stroke="#10b981" strokeWidth="1.1" fill="rgba(16,185,129,0.1)"/><rect x="2" y="7.5" width="9" height="5" stroke="#ef4444" strokeWidth="1.1" fill="rgba(239,68,68,0.15)"/><path d="M13 9.5L13 14M11.5 12.5L13 14L14.5 12.5" stroke="#ef4444" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+    case "patterns": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 12L5 4.5L8.5 9L11.5 3L14 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><circle cx="2" cy="12" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="5" cy="4.5" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="8.5" cy="9" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="11.5" cy="3" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="14" cy="7" r="1" fill="currentColor" fillOpacity="0.7"/></svg>;
+    case "text": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3.5 4H12.5M8 4V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M5.5 13H10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeOpacity="0.5"/></svg>;
+    case "brush": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 12Q6 8 9 9Q12 10 14 6" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeOpacity="0.18"/><path d="M3 12Q6 8 9 9Q12 10 14 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>;
+    case "ruler": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="5.5" width="13" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3"/><line x1="4" y1="5.5" x2="4" y2="8" stroke="currentColor" strokeWidth="1"/><line x1="6.5" y1="5.5" x2="6.5" y2="9.5" stroke="currentColor" strokeWidth="1"/><line x1="9" y1="5.5" x2="9" y2="8" stroke="currentColor" strokeWidth="1"/><line x1="11.5" y1="5.5" x2="11.5" y2="9.5" stroke="currentColor" strokeWidth="1"/></svg>;
+    case "smiley": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5.5 9.5Q8 11.5 10.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="6.2" cy="7" r="0.9" fill="currentColor"/><circle cx="9.8" cy="7" r="0.9" fill="currentColor"/></svg>;
     default: return null;
   }
 }

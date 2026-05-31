@@ -41,7 +41,7 @@ export function Navbar() {
                 border: "1px solid rgba(99,102,241,0.3)",
               }}
             >
-              <Sun style={{ width: 15, height: 15 }} className="text-indigo-400" />
+              <Sun style={{ width: 15, height: 15 }} className="text-white/65" />
             </div>
             <span className="text-[18px] font-bold tracking-tight">Stratix</span>
           </Link>
@@ -57,7 +57,7 @@ export function Navbar() {
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150",
                     isActive
-                      ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20"
+                      ? "bg-white/[0.06] text-white/65 dark:text-white/70 border border-white/[0.10]"
                       : "text-foreground/50 hover:text-foreground/80 hover:bg-foreground/[0.05]"
                   )}
                 >
@@ -93,7 +93,7 @@ export function Navbar() {
                 <button className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg hover:bg-muted transition-all duration-150">
                   <Avatar className="h-6 w-6">
                     <AvatarImage src={session.user.image ?? ""} alt={session.user.name ?? "User"} />
-                    <AvatarFallback className="text-[10px] bg-indigo-500/20 text-indigo-300">
+                    <AvatarFallback className="text-[10px] bg-white/[0.08] text-white/60">
                       {session.user.name?.charAt(0)?.toUpperCase() ?? "U"}
                     </AvatarFallback>
                   </Avatar>
@@ -119,7 +119,7 @@ export function Navbar() {
                     Settings
                 </DropdownMenuItem>
                 {session.user.role === "admin" && (
-                  <DropdownMenuItem onClick={() => { window.location.href = "/admin"; }} className="mt-1 text-indigo-400 focus:text-indigo-300 focus:bg-indigo-500/10">
+                  <DropdownMenuItem onClick={() => { window.location.href = "/admin"; }} className="mt-1 text-white/65 focus:text-white/80 focus:bg-white/[0.06]">
                     <Shield className="mr-2 h-3.5 w-3.5" />
                     Admin Panel
                   </DropdownMenuItem>
@@ -161,7 +161,7 @@ export function Navbar() {
                 className={cn(
                   "flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors",
                   isActive
-                    ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300"
+                    ? "bg-white/[0.06] text-white/65 dark:text-white/70"
                     : "text-foreground/50 hover:text-foreground/80 hover:bg-muted"
                 )}
               >

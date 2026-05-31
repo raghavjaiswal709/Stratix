@@ -42,13 +42,13 @@ export function OpenPositions({ trades }: OpenPositionsProps) {
               className="flex items-center justify-between rounded-xl bg-muted/40 border border-border px-3 md:px-4 py-2.5 md:py-3 gap-2"
             >
               <div className="flex items-center gap-2 md:gap-3 min-w-0">
-                <div className={`h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-[9px] md:text-[10px] font-bold ${t.direction === "buy" ? "bg-blue-500/15 text-blue-400" : "bg-red-500/15 text-red-400"}`}>
+                <div className={`h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-[9px] md:text-[10px] font-bold ${t.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
                   {t.symbol.slice(0, 3)}
                 </div>
                 <div className="min-w-0">
                   <p className="text-[12px] md:text-[13px] font-semibold text-card-foreground">{t.symbol}</p>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={`text-[9px] md:text-[10px] font-semibold px-1.5 py-0.5 rounded ${t.direction === "buy" ? "bg-blue-500/15 text-blue-400" : "bg-red-500/15 text-red-400"}`}>
+                    <span className={`text-[9px] md:text-[10px] font-semibold px-1.5 py-0.5 rounded ${t.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
                       {t.direction === "buy" ? "LONG" : "SHORT"}
                     </span>
                     <span className="text-[10px] md:text-[11px] text-muted-foreground truncate">{t.lots}L @ ${t.entryPrice}</span>
@@ -56,7 +56,7 @@ export function OpenPositions({ trades }: OpenPositionsProps) {
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className={`text-[13px] md:text-[14px] font-bold ${t.profit >= 0 ? "text-blue-400" : "text-red-400"}`}>
+                <p className={`text-[13px] md:text-[14px] font-bold ${t.profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                   {fmt(t.profit)}
                 </p>
                 {t.direction === "buy" ? (

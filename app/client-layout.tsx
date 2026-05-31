@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { TradeSidebar } from "@/components/trade/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Menu, TrendingUp, LogOut } from "lucide-react";
+import { Menu, LogOut } from "lucide-react";
 
 import { useAppContext } from "@/lib/context";
 
@@ -39,10 +39,12 @@ function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
 
       {/* Logo */}
       <div className="flex items-center gap-1.5 ml-2 flex-1 min-w-0">
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-600/20 border border-blue-500/30">
-          <TrendingUp className="h-3 w-3 text-blue-400" />
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/[0.06] border border-white/[0.10]">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-white/70">
+            <path d="M2 11.5L5.5 7L9 9L14 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </div>
-        <span className="text-[13px] font-bold text-sidebar-foreground tracking-tight">Stratix</span>
+        <span className="text-[13px] font-semibold text-white/85 tracking-tight">Stratix</span>
       </div>
 
       {/* User avatar + dropdown — always visible */}
@@ -54,7 +56,7 @@ function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         >
           <Avatar className="h-7 w-7 shrink-0">
             <AvatarImage src={session?.user?.image ?? ""} />
-            <AvatarFallback className="text-[10px] bg-blue-500/20 text-blue-300">
+            <AvatarFallback className="text-[10px] bg-white/[0.08] text-white/60 border border-white/[0.10]">
               {session?.user?.name?.charAt(0)?.toUpperCase() ?? "U"}
             </AvatarFallback>
           </Avatar>
@@ -108,7 +110,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   if (status === "loading") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-3 bg-background">
-        <div className="h-5 w-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+        <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
         <p className="text-[12px] text-muted-foreground tracking-wide">Loading…</p>
       </div>
     );

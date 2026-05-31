@@ -148,7 +148,7 @@ export function Notes() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold flex items-center gap-2">
-          <StickyNote className="h-4 w-4 text-indigo-400" />
+          <StickyNote className="h-4 w-4 text-white/65" />
           Notes
           <span className="text-xs text-muted-foreground font-normal">({notes.length})</span>
         </h3>
@@ -199,7 +199,7 @@ export function Notes() {
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    {note.pinned && <Pin className="h-3 w-3 text-indigo-400 shrink-0" />}
+                    {note.pinned && <Pin className="h-3 w-3 text-white/65 shrink-0" />}
                     <h4 className="text-sm font-medium truncate">{note.title}</h4>
                   </div>
                   {note.content && (
@@ -233,7 +233,7 @@ export function Notes() {
                   {note.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 flex items-center gap-0.5"
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/65 flex items-center gap-0.5"
                     >
                       <Tag className="h-2 w-2" />
                       {tag}
@@ -317,7 +317,7 @@ export function Notes() {
                 {noteTags.map((tag) => (
                   <span
                     key={tag}
-                    className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center gap-1"
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/65 flex items-center gap-1"
                   >
                     {tag}
                     <button

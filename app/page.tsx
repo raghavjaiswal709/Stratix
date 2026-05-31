@@ -20,7 +20,7 @@ export default function Home() {
 
   return (
     <div className="flex items-center justify-center h-full">
-      <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+      <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
     </div>
   );
 }

@@ -72,7 +72,7 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-        <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+        <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
       </div>
     );
   }
@@ -107,13 +107,13 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
 
         <div className="px-5 py-4 space-y-5">
           {/* How it works */}
-          <div className="rounded-xl bg-blue-600/10 border border-blue-500/20 p-4">
-            <h3 className="text-[12px] font-semibold text-blue-400 mb-2">How it works</h3>
+          <div className="rounded-xl bg-white/[0.05] border border-white/[0.10] p-4">
+            <h3 className="text-[12px] font-semibold text-white/65 mb-2">How it works</h3>
             <ol className="space-y-1.5 text-[12px] text-muted-foreground list-none">
-              <li className="flex gap-2"><span className="text-blue-400 font-bold">1.</span> Copy your Webhook URL and Secret below</li>
-              <li className="flex gap-2"><span className="text-blue-400 font-bold">2.</span> Download the <span className="text-blue-300 font-medium">StratixEA.mq5</span> Expert Advisor from the Trades page</li>
-              <li className="flex gap-2"><span className="text-blue-400 font-bold">3.</span> Open MetaEditor → paste your URL, UserID, and Secret into the EA inputs</li>
-              <li className="flex gap-2"><span className="text-blue-400 font-bold">4.</span> Compile and attach the EA to any chart — all trades auto-log here</li>
+              <li className="flex gap-2"><span className="text-white/65 font-bold">1.</span> Copy your Webhook URL and Secret below</li>
+              <li className="flex gap-2"><span className="text-white/65 font-bold">2.</span> Download the <span className="text-white/70 font-medium">StratixEA.mq5</span> Expert Advisor from the Trades page</li>
+              <li className="flex gap-2"><span className="text-white/65 font-bold">3.</span> Open MetaEditor → paste your URL, UserID, and Secret into the EA inputs</li>
+              <li className="flex gap-2"><span className="text-white/65 font-bold">4.</span> Compile and attach the EA to any chart — all trades auto-log here</li>
             </ol>
           </div>
 
@@ -190,7 +190,7 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
                   value={accountId}
                   onChange={(e) => setAccountId(e.target.value)}
                   placeholder="e.g. 12345678"
-                  className="w-full rounded-xl bg-muted border border-border px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/50 transition"
+                  className="w-full rounded-xl bg-muted border border-border px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-white/[0.25] transition"
                 />
               </div>
               <div>
@@ -199,7 +199,7 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
                   value={broker}
                   onChange={(e) => setBroker(e.target.value)}
                   placeholder="e.g. ICMarkets"
-                  className="w-full rounded-xl bg-muted border border-border px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/50 transition"
+                  className="w-full rounded-xl bg-muted border border-border px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-white/[0.25] transition"
                 />
               </div>
             </div>
@@ -217,7 +217,7 @@ export function MT5ConnectModal({ onClose }: MT5ConnectModalProps) {
           <button
             onClick={saveAccountInfo}
             disabled={saving}
-            className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-[13px] font-semibold text-white transition disabled:opacity-50"
+            className="flex-1 py-2.5 rounded-xl bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-[13px] font-semibold text-white transition disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save Info"}
           </button>

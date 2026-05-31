@@ -94,7 +94,7 @@ export function Diary() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold flex items-center gap-2">
-            <BookOpen className="h-4 w-4 text-indigo-400" />
+            <BookOpen className="h-4 w-4 text-white/65" />
             {format(selectedDate, "EEEE, MMMM d, yyyy")}
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -164,7 +164,7 @@ export function Diary() {
             selected={selectedDate}
             onSelect={(d) => d && handleDateChange(d)}
             modifiers={{ hasEntry: diaryDates }}
-            modifiersClassNames={{ hasEntry: "border-2 border-indigo-500" }}
+            modifiersClassNames={{ hasEntry: "border-2 border-white/40" }}
             className="w-full"
           />
         </div>
@@ -186,7 +186,7 @@ export function Diary() {
               }
             }}
             modifiers={{ hasEntry: diaryDates }}
-            modifiersClassNames={{ hasEntry: "border-2 border-indigo-500" }}
+            modifiersClassNames={{ hasEntry: "border-2 border-white/40" }}
             className="w-full"
           />
         </DialogContent>

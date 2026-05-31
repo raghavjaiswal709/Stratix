@@ -232,7 +232,7 @@ function TodoRow({
               <span className="text-[10px] text-muted-foreground/60 bg-muted/50 px-1.5 py-0.5 rounded">{todo.category}</span>
             )}
             {todo.tags?.map((tag) => (
-              <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 flex items-center gap-0.5">
+              <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/65 flex items-center gap-0.5">
                 <Tag className="h-2 w-2" />{tag}
               </span>
             ))}
@@ -250,7 +250,7 @@ function TodoRow({
               </span>
             )}
             {totalSubtasks > 0 && (
-              <button onClick={() => setShowSubtasks(!showSubtasks)} className="text-[10px] text-indigo-400 flex items-center gap-0.5">
+              <button onClick={() => setShowSubtasks(!showSubtasks)} className="text-[10px] text-white/65 flex items-center gap-0.5">
                 {showSubtasks ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 {completedSubtasks}/{totalSubtasks} subtasks
               </button>
@@ -623,7 +623,7 @@ export function TodoList() {
           <button
             onClick={addInlineTodo}
             disabled={!inlineTitle.trim()}
-            className="h-6 w-6 flex items-center justify-center rounded transition-colors disabled:opacity-20 disabled:cursor-not-allowed hover:bg-indigo-500/20 text-indigo-400"
+            className="h-6 w-6 flex items-center justify-center rounded transition-colors disabled:opacity-20 disabled:cursor-not-allowed hover:bg-white/[0.08] text-white/60"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -638,7 +638,7 @@ export function TodoList() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold flex items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-indigo-400" />
+            <CalendarDays className="h-4 w-4 text-white/65" />
             {format(selectedDate, "EEEE, MMMM d, yyyy")}
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -655,7 +655,7 @@ export function TodoList() {
           <button
             className={cn(
               "h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted transition-colors",
-              hasActiveFilters ? "text-indigo-400 border-indigo-500/30 bg-indigo-500/10" : "text-muted-foreground"
+              hasActiveFilters ? "text-white/65 border-white/[0.12] bg-white/[0.06]" : "text-muted-foreground"
             )}
             onClick={() => setShowFilterMenu(!showFilterMenu)}
           >
@@ -909,7 +909,7 @@ export function TodoList() {
               <Label>Tags</Label>
               <div className="flex flex-wrap gap-1.5 mb-1">
                 {todoTags.map((tag) => (
-                  <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center gap-1">
+                  <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/65 flex items-center gap-1">
                     {tag}
                     <button onClick={() => removeTag(tag)} className="hover:text-red-400"><X className="h-2.5 w-2.5" /></button>
                   </span>

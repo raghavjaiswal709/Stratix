@@ -425,7 +425,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         {/* Toolbar */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <BarChart2 className="h-3.5 w-3.5 text-blue-400" />
+            <BarChart2 className="h-3.5 w-3.5 text-white/65" />
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
               {symbol} · Live Chart
             </span>
@@ -436,7 +436,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
               </span>
             )}
             {savedInterval && !hasNoDefaultSet && (
-              <span className="text-[10px] text-blue-400/70 bg-blue-500/8 border border-blue-500/15 rounded px-1.5 py-0.5">
+              <span className="text-[10px] text-white/40 bg-white/[0.08]/8 border border-white/[0.08] rounded px-1.5 py-0.5">
                 Default: {INTERVAL_LABELS[savedInterval]}
               </span>
             )}
@@ -451,7 +451,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
                   className={cn(
                     "px-2.5 py-1 rounded text-[11px] font-medium transition-colors relative",
                     interval === iv
-                      ? "bg-blue-600 text-white"
+                      ? "bg-white/[0.09] text-white"
                       : "text-muted-foreground hover:text-foreground/65"
                   )}
                 >
@@ -480,7 +480,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
               <button
                 onClick={handleCapture}
                 title="Capture chart screenshot"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600/15 border border-blue-500/20 text-[11px] font-medium text-blue-400 hover:bg-blue-600/25 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.07] border border-white/[0.10] text-[11px] font-medium text-white/65 hover:bg-white/[0.09]/25 transition-colors"
               >
                 <Camera className="h-3 w-3" />
                 Capture
@@ -513,7 +513,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
               </p>
               <button
                 onClick={() => { setLoaded(true); setLoading(true); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600/20 border border-blue-500/25 text-[13px] font-semibold text-blue-400 hover:bg-blue-600/30 hover:text-blue-300 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.08] border border-white/[0.10] text-[13px] font-semibold text-white/65 hover:bg-white/[0.09] hover:text-white/70 transition-colors"
               >
                 <Play className="h-4 w-4" />
                 Load candle data
@@ -523,7 +523,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
 
           {loaded && loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background">
-              <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+              <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
               <p className="text-[11px] text-muted-foreground/60">Loading chart data…</p>
             </div>
           )}
@@ -549,7 +549,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
                 href="https://twelvedata.com/pricing"
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1 text-[12px] text-blue-400 hover:text-blue-300 transition-colors"
+                className="flex items-center gap-1 text-[12px] text-white/65 hover:text-white/70 transition-colors"
               >
                 Get a free API key (800 calls/day)
                 <ExternalLink className="h-3 w-3" />

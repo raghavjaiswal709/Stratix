@@ -137,7 +137,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
         </div>
         <button
           onClick={onOpenNewSessionModal}
-          className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-[#2563eb] text-white hover:bg-[#1d4ed8] active:scale-95 transition-all shadow-md shadow-blue-900/10"
+          className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-white/[0.10] text-white hover:bg-white/[0.14] active:scale-95 transition-all shadow-md "
         >
           <Plus className="w-3.5 h-3.5" />
           New Session
@@ -153,7 +153,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
           <div className="bg-[#12131a] border border-[#23262f] rounded-xl p-4.5 flex flex-col justify-between min-h-28">
             <div className="flex items-center justify-between text-gray-500">
               <span className="text-[10px] font-bold uppercase tracking-widest text-[#5e6673]">Net P&L</span>
-              <TrendingUp className="w-3.5 h-3.5 text-blue-500" />
+              <TrendingUp className="w-3.5 h-3.5 text-white/55" />
             </div>
             <div className="flex flex-col my-1">
               <span className={`text-xl font-bold font-mono ${m.totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
@@ -271,15 +271,15 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
                   <AreaChart data={m.equityCurveData} margin={{ left: -10, right: 10, top: 10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorBal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#2563eb" stopOpacity={0.0}/>
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1c1e26" />
                     <XAxis dataKey="tradeIdx" stroke="#5e6673" fontSize={9} />
                     <YAxis stroke="#5e6673" fontSize={9} domain={["dataMin - 100", "dataMax + 100"]} />
                     <Tooltip contentStyle={{ background: "#0f0f0f", borderColor: "#23262f", borderRadius: 8 }} />
-                    <Area type="monotone" dataKey="balance" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#colorBal)" name="Balance" />
+                    <Area type="monotone" dataKey="balance" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorBal)" name="Balance" />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
@@ -370,7 +370,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => onSelectSession(s)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2563eb]/20 text-[#2563eb] hover:bg-[#2563eb] hover:text-white transition-all text-xs font-bold active:scale-95"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.10]/20 text-white/65 hover:bg-white/[0.10] hover:text-white transition-all text-xs font-bold active:scale-95"
                     >
                       <Play className="w-3 h-3 fill-current" />
                       Start Replay

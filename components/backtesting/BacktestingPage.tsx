@@ -460,11 +460,11 @@ export function BacktestingPage() {
     <div className="flex flex-col w-full h-full bg-[#0f0f0f] overflow-hidden text-gray-200">
       
       {/* ── Active Session top bar header (Image 2 styling) ── */}
-      <div className="h-14 shrink-0 bg-[#0f0f0f] border-b border-[#23262f] flex items-center justify-between px-4">
+      <div className="h-14 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <button
             onClick={handleExitToDashboard}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#23262f] hover:border-gray-500 text-gray-400 hover:text-white transition-all text-xs font-bold active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] hover:border-white/[0.20] text-gray-400 hover:text-white transition-all text-xs font-bold active:scale-95"
             title="Exit Session"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -474,7 +474,7 @@ export function BacktestingPage() {
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-white uppercase tracking-tight">{activeSession.symbol}</span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/10 text-blue-400 font-bold border border-blue-500/15">Active</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] bg-white/[0.06] text-white/65 font-bold border border-white/[0.08]">Active</span>
               <span className="text-[10px] text-gray-500 font-mono">Lev {activeSession.leverage}</span>
             </div>
             <span className="text-[9px] text-gray-600 font-mono">{activeSession.name}</span>
@@ -498,7 +498,7 @@ export function BacktestingPage() {
         {/* Timeframe selector header section */}
         <div className="flex items-center gap-3">
           {/* Timeframe switchers */}
-          <div className="flex p-0.5 rounded-lg bg-[#141720] border border-[#23262f]">
+          <div className="flex p-0.5 rounded-lg bg-white/[0.04] border border-white/[0.08]">
             {(["1m", "5m", "15m", "1H", "4H", "1D"] as const).map((tf) => (
               <button
                 key={tf}
@@ -506,7 +506,7 @@ export function BacktestingPage() {
                 onClick={() => handleTimeframeChange(tf)}
                 className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
                   activeTimeframe === tf
-                    ? "bg-[#2563eb] text-white"
+                    ? "bg-white/[0.10] text-white"
                     : "text-gray-400 hover:text-white"
                 }`}
               >
@@ -519,9 +519,9 @@ export function BacktestingPage() {
 
       {/* Progress loaders */}
       {isLoading && (
-        <div className="shrink-0 bg-blue-900/10 border-b border-blue-900/20 px-4 py-2 text-xs flex items-center gap-3">
-          <span className="h-3 w-3 border-2 border-blue-500/40 border-t-blue-500 rounded-full animate-spin" />
-          <span className="text-blue-400 font-mono">{loadProgress}% {loadLabel}</span>
+        <div className="shrink-0 bg-white/[0.04] border-b border-white/[0.06] px-4 py-2 text-xs flex items-center gap-3">
+          <span className="h-3 w-3 border-2 border-white/[0.15] border-t-white/70 rounded-full animate-spin" />
+          <span className="text-white/65 font-mono">{loadProgress}% {loadLabel}</span>
         </div>
       )}
 
@@ -586,9 +586,9 @@ export function BacktestingPage() {
 
           {/* Bottom Open Positions Panel */}
           {openTrade && (
-            <div className="h-16 bg-[#0f0f0f] border-t border-[#23262f] px-4.5 flex items-center justify-between shrink-0">
+            <div className="h-16 bg-[#0f0f0f] border-t border-white/[0.08] px-4.5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-4 text-xs">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[#5e6673]">Active Position</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Active Position</span>
                 <div className="font-mono flex items-center gap-3">
                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                     openTrade.direction === "LONG" 
@@ -616,7 +616,7 @@ export function BacktestingPage() {
         </div>
 
         {/* Right Side: High-Premium Execution Sidebar Panel */}
-        <div className="w-64 border-l border-[#23262f] bg-[#0f0f0f] shrink-0 h-full">
+        <div className="w-64 border-l border-white/[0.08] bg-[#0f0f0f] shrink-0 h-full">
           <ExecutionPanel
             symbol={activeSession.symbol}
             currentPrice={currentPrice}

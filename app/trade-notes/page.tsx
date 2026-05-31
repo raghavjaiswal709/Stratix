@@ -404,7 +404,7 @@ export default function TradeNotesPage() {
 
           {/* Inline category creation form */}
           {addingCat && (
-            <div className="mx-2 my-2 p-3 rounded-xl border border-blue-500/30 bg-blue-500/5 space-y-2.5">
+            <div className="mx-2 my-2 p-3 rounded-xl border border-white/[0.12] bg-white/[0.08]/5 space-y-2.5">
               <input
                 autoFocus
                 value={catName}
@@ -441,7 +441,7 @@ export default function TradeNotesPage() {
                     className={cn(
                       "p-1.5 rounded-md transition-colors",
                       catIcon === name
-                        ? "bg-blue-600 text-white"
+                        ? "bg-white/[0.09] text-white"
                         : "bg-muted text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -459,7 +459,7 @@ export default function TradeNotesPage() {
                 </button>
                 <button
                   onClick={saveCategory}
-                  className="flex-1 text-[11px] py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+                  className="flex-1 text-[11px] py-1 rounded-lg bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white font-semibold transition-colors"
                 >
                   Save
                 </button>
@@ -503,7 +503,7 @@ export default function TradeNotesPage() {
           {/* New note button */}
           <Button
             size="sm"
-            className="w-full h-7 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+            className="w-full h-7 gap-1.5 bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white text-xs font-semibold"
             onClick={handleNewNote}
           >
             <Plus className="h-3 w-3" />
@@ -535,7 +535,7 @@ export default function TradeNotesPage() {
                     onClick={() => setSelectedNoteId(note.id)}
                     className={cn(
                       "relative p-2.5 rounded-lg cursor-pointer group transition-colors",
-                      isSel ? "bg-blue-600/12 ring-1 ring-blue-500/25" : "hover:bg-muted/50"
+                      isSel ? "bg-white/[0.06] ring-1 ring-white/20" : "hover:bg-muted/50"
                     )}
                   >
                     {/* Category dot + date */}
@@ -554,7 +554,7 @@ export default function TradeNotesPage() {
                     <h4
                       className={cn(
                         "text-[12px] font-semibold truncate pr-5 leading-tight",
-                        isSel ? "text-blue-400" : "text-foreground"
+                        isSel ? "text-white/65" : "text-foreground"
                       )}
                     >
                       {note.title || "Untitled"}
@@ -610,7 +610,7 @@ export default function TradeNotesPage() {
             </p>
             <Button
               size="sm"
-              className="mt-4 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              className="mt-4 gap-2 bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
               onClick={handleNewNote}
             >
               <Plus className="h-4 w-4" />
@@ -676,7 +676,7 @@ export default function TradeNotesPage() {
                         <CatIcon name={cat.icon} className="h-3 w-3" />
                         {cat.name}
                         {selectedNote.categoryId === cat.id && (
-                          <Check className="h-3 w-3 ml-auto text-blue-400" />
+                          <Check className="h-3 w-3 ml-auto text-white/65" />
                         )}
                       </DropdownMenuItem>
                     ))}

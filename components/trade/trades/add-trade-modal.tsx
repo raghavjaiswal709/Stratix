@@ -180,9 +180,9 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
         <div className="flex items-center gap-3 px-5 py-4 border-b border-white/7">
           <div className={cn(
             "h-8 w-8 rounded-lg flex items-center justify-center border",
-            isEdit ? "bg-amber-600/20 border-amber-500/30" : "bg-blue-600/20 border-blue-500/30"
+            isEdit ? "bg-amber-600/20 border-amber-500/30" : "bg-white/[0.08] border-white/[0.12]"
           )}>
-            <TrendingUp className={cn("h-4 w-4", isEdit ? "text-amber-400" : "text-blue-400")} />
+            <TrendingUp className={cn("h-4 w-4", isEdit ? "text-amber-400" : "text-white/65")} />
           </div>
           <h2 className="text-[15px] font-semibold text-white flex-1">
             {isEdit ? `Edit Trade — ${editTrade.symbol}` : "Add Trade"}
@@ -198,7 +198,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
             <button
               onClick={() => setDirection("buy")}
               className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[13px] font-semibold transition-all ${
-                direction === "buy" ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white/70"
+                direction === "buy" ? "bg-white/[0.09] text-white shadow-lg " : "text-white/40 hover:text-white/70"
               }`}
             >
               <TrendingUp className="h-3.5 w-3.5" /> Long
@@ -229,7 +229,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                       onFocus={() => setSymbolDropdownOpen(true)}
                       placeholder="XAUUSD"
                       disabled={isEdit}
-                      className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 pr-8 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 pr-8 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     {!isEdit && (
                       <button
@@ -249,7 +249,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                             key={s}
                             type="button"
                             onMouseDown={() => { setSymbol(s); setSymbolDropdownOpen(false); }}
-                            className="w-full flex items-center justify-between px-3 py-2 text-[13px] text-white/70 hover:bg-blue-600/15 hover:text-white transition text-left"
+                            className="w-full flex items-center justify-between px-3 py-2 text-[13px] text-white/70 hover:bg-white/[0.07] hover:text-white transition text-left"
                           >
                             <span>{s}</span>
                             <span className="text-[10px] text-white/25">
@@ -271,7 +271,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     onChange={(e) => setLots(e.target.value)}
                     placeholder="0.10"
                     type="number" step="0.001" min="0"
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition"
                   />
                 </div>
               </div>
@@ -289,7 +289,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                       onClick={() => setLots(String(ls))}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold border transition ${
                         lots === String(ls)
-                          ? "bg-blue-600 border-blue-500 text-white"
+                          ? "bg-white/[0.09] border-white/30 text-white"
                           : "bg-white/5 border-white/10 text-white/50 hover:border-white/25 hover:text-white/80"
                       }`}
                     >
@@ -308,9 +308,9 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                       value={leverage}
                       onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) setLeverage(v); }}
                       type="number" min="1" max="3000"
-                      className="w-16 text-right rounded-lg bg-white/5 border border-white/8 px-2 py-1 text-[12px] text-white focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition"
+                      className="w-16 text-right rounded-lg bg-white/5 border border-white/8 px-2 py-1 text-[12px] text-white focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-white/15 transition"
                     />
-                    <span className="text-[12px] font-bold text-violet-400">×</span>
+                    <span className="text-[12px] font-bold text-white/55">×</span>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -321,7 +321,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                       onClick={() => setLeverage(lv)}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${
                         leverage === lv
-                          ? "bg-violet-600 border-violet-500 text-white shadow-sm shadow-violet-500/20"
+                          ? "bg-white/[0.12] border-white/30 text-white"
                           : "bg-white/5 border-white/10 text-white/50 hover:border-white/25 hover:text-white/80"
                       }`}
                     >
@@ -367,7 +367,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     onChange={(e) => setEntryPrice(e.target.value)}
                     placeholder="0.00"
                     type="number" step="any"
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition"
                   />
                 </div>
                 <div>
@@ -377,7 +377,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     onChange={(e) => setExitPrice(e.target.value)}
                     placeholder="Optional"
                     type="number" step="any"
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition"
                   />
                 </div>
               </div>
@@ -435,7 +435,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     value={entryTime}
                     onChange={(e) => setEntryTime(e.target.value)}
                     type="datetime-local" max={nowStr}
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition scheme-dark"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition scheme-dark"
                   />
                 </div>
                 <div>
@@ -444,7 +444,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     value={exitTime}
                     onChange={(e) => setExitTime(e.target.value)}
                     type="datetime-local" max={nowStr}
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition scheme-dark"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition scheme-dark"
                   />
                 </div>
               </div>
@@ -461,7 +461,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                       className={cn(
                         "px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition",
                         timeframe === tf
-                          ? "bg-blue-600 border-blue-500 text-white"
+                          ? "bg-white/[0.09] border-white/30 text-white"
                           : "bg-white/5 border-white/10 text-white/50 hover:border-white/25 hover:text-white/80"
                       )}
                     >
@@ -490,7 +490,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                       <div
                         onClick={() => toggleCheck(i)}
                         className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
-                          c.checked ? "bg-blue-600 border-blue-500" : "bg-transparent border-white/20 group-hover:border-white/40"
+                          c.checked ? "bg-white/[0.09] border-white/30" : "bg-transparent border-white/20 group-hover:border-white/40"
                         }`}
                       >
                         {c.checked && (
@@ -516,7 +516,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Trade rationale, entry/exit notes..."
                 rows={3}
-                className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition resize-none"
+                className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition resize-none"
               />
             </div>
           )}
@@ -541,7 +541,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
             disabled={saving}
             className={cn(
               "flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-white transition disabled:opacity-50",
-              isEdit ? "bg-amber-600 hover:bg-amber-500" : "bg-blue-600 hover:bg-blue-500"
+              isEdit ? "bg-amber-600 hover:bg-amber-500" : "bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12]"
             )}
           >
             {saving ? "Saving…" : isEdit ? "Update Trade" : "Save Trade"}

@@ -29,18 +29,18 @@ export function StatsCards({
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-3">
       {/* Total P&L */}
-      <div className="rounded-xl md:rounded-2xl border border-blue-500/20 bg-gradient-to-br from-blue-600/10 to-blue-900/5 p-3 md:p-4 relative overflow-hidden">
-        <div className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full bg-blue-600/20 flex items-center justify-center">
-          <DollarSign className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-400" />
+      <div className="rounded-xl md:rounded-2xl border border-white/[0.10] bg-gradient-to-br from-white/[0.04] to-white/[0.02] p-3 md:p-4 relative overflow-hidden">
+        <div className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full bg-white/[0.08] flex items-center justify-center">
+          <DollarSign className="h-3.5 w-3.5 md:h-4 md:w-4 text-white/65" />
         </div>
-        <span className="inline-block text-[9px] md:text-[10px] font-semibold uppercase tracking-widest text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded-full border border-blue-500/20">
+        <span className="inline-block text-[9px] md:text-[10px] font-semibold uppercase tracking-widest text-white/40 bg-white/[0.06] px-1.5 py-0.5 rounded-full border border-white/[0.10]">
           TOTAL
         </span>
         <p className="mt-1.5 text-[10px] md:text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Total P&L</p>
         <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${totalPnL >= 0 ? "text-card-foreground" : "text-red-400"}`}>
           {fmt(totalPnL)}
         </p>
-        <p className="text-[10px] md:text-[11px] text-blue-400/80 mt-1">
+        <p className="text-[10px] md:text-[11px] text-white/50 mt-1">
           {totalTrades} trade{totalTrades !== 1 ? "s" : ""}
         </p>
       </div>
@@ -71,14 +71,14 @@ export function StatsCards({
 
       {/* Win Rate */}
       <div className="rounded-xl md:rounded-2xl border border-border bg-card p-3 md:p-4 relative overflow-hidden">
-        <div className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full bg-violet-600/15 flex items-center justify-center">
-          <Target className="h-3.5 w-3.5 md:h-4 md:w-4 text-violet-400" />
+        <div className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full bg-white/[0.06] flex items-center justify-center">
+          <Target className="h-3.5 w-3.5 md:h-4 md:w-4 text-white/55" />
         </div>
         <p className="text-[10px] md:text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Win Rate</p>
         <p className="text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight text-card-foreground">{winRate}%</p>
         <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
           <div
-            className="h-full rounded-full bg-blue-500 transition-all duration-700"
+            className="h-full rounded-full bg-white/[0.08] transition-all duration-700"
             style={{ width: `${winRate}%` }}
           />
         </div>

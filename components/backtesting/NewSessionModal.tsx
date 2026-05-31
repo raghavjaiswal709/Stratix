@@ -165,7 +165,7 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                     onClick={() => applyPresetDuration(preset)}
                     className={`py-1.5 text-xs font-bold rounded-lg border transition-all active:scale-95 cursor-pointer ${
                       selectedDuration === preset
-                        ? "bg-[#2563eb] text-white border-[#2563eb] shadow-md shadow-blue-900/10"
+                        ? "bg-white/[0.10] text-white border-white/30 shadow-md "
                         : "bg-[#141720] border-[#23262f] text-gray-400 hover:text-white hover:border-gray-500"
                     }`}
                   >
@@ -272,7 +272,7 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] text-white transition-all shadow-md shadow-blue-900/20 active:scale-95"
+              className="px-5 py-2 text-xs font-bold rounded-lg bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white transition-all shadow-md  active:scale-95"
             >
               + Create Session
             </button>

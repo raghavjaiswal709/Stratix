@@ -90,7 +90,7 @@ export function GlobalSearch() {
 
   const typeIcon = (type: SearchResult["type"]) => {
     switch (type) {
-      case "todo": return <CheckSquare className="h-3.5 w-3.5 text-indigo-400 shrink-0" />;
+      case "todo": return <CheckSquare className="h-3.5 w-3.5 text-white/65 shrink-0" />;
       case "note": return <StickyNote className="h-3.5 w-3.5 text-amber-400 shrink-0" />;
       case "diary": return <FileText className="h-3.5 w-3.5 text-emerald-400 shrink-0" />;
     }
@@ -157,7 +157,7 @@ export function GlobalSearch() {
                     {r.tags && r.tags.length > 0 && (
                       <div className="flex gap-1 mt-1">
                         {r.tags.map((tag) => (
-                          <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 flex items-center gap-0.5">
+                          <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/65 flex items-center gap-0.5">
                             <Tag className="h-1.5 w-1.5" />{tag}
                           </span>
                         ))}

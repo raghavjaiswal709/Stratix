@@ -385,7 +385,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
               )}
             </div>
             <div className="flex items-center gap-2 text-[11px] text-white/35 mt-0.5">
-              <span className={trade.direction === "buy" ? "text-blue-400 font-semibold" : "text-red-400 font-semibold"}>
+              <span className={trade.direction === "buy" ? "text-white/65 font-semibold" : "text-red-400 font-semibold"}>
                 {trade.direction === "buy" ? "Long" : "Short"}
               </span>
               <span>· Entry ${trade.entryPrice}</span>
@@ -400,7 +400,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] transition",
               editOpen
-                ? "border-blue-500/40 bg-blue-600/10 text-blue-400"
+                ? "border-white/[0.15] bg-white/[0.05] text-white/65"
                 : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
             )}
           >
@@ -416,7 +416,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
             disabled={saving}
             className={cn(
               "flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[13px] font-semibold transition",
-              saved ? "bg-emerald-600 text-white" : "bg-blue-600 hover:bg-blue-500 text-white"
+              saved ? "bg-emerald-600 text-white" : "bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
             )}
           >
             <Save className="h-3.5 w-3.5" />
@@ -438,11 +438,11 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
 
         {/* Edit Trade Panel */}
         {editOpen && (
-          <div className="rounded-xl border border-blue-500/25 bg-blue-600/5 overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-blue-500/15">
-              <Edit2 className="h-4 w-4 text-blue-400" />
-              <span className="text-[12px] font-semibold text-blue-300 uppercase tracking-wider">Edit Trade</span>
-              <span className="ml-auto text-[11px] text-blue-400/50">Changes apply immediately</span>
+          <div className="rounded-xl border border-white/[0.10] bg-white/[0.03] overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.08]">
+              <Edit2 className="h-4 w-4 text-white/65" />
+              <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Edit Trade</span>
+              <span className="ml-auto text-[11px] text-white/65/50">Changes apply immediately</span>
             </div>
             <div className="p-4 space-y-4">
               {/* Direction toggle */}
@@ -451,7 +451,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                   onClick={() => setEditDirection("buy")}
                   className={cn(
                     "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12px] font-semibold transition",
-                    editDirection === "buy" ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white/70"
+                    editDirection === "buy" ? "bg-white/[0.09] text-white shadow-lg " : "text-white/40 hover:text-white/70"
                   )}
                 >
                   <TrendingUp className="h-3 w-3" /> Long
@@ -475,7 +475,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                     type="number" step="any"
                     value={editEntryPrice}
                     onChange={(e) => setEditEntryPrice(e.target.value)}
-                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[13px] text-white focus:outline-none focus:border-blue-500/40 transition"
+                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[13px] text-white focus:outline-none focus:border-white/[0.25] transition"
                   />
                 </div>
                 <div>
@@ -485,7 +485,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                     value={editExitPrice}
                     onChange={(e) => setEditExitPrice(e.target.value)}
                     placeholder="Optional"
-                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition"
+                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] transition"
                   />
                 </div>
                 <div>
@@ -494,7 +494,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                     type="number" step="any"
                     value={editLots}
                     onChange={(e) => setEditLots(e.target.value)}
-                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[13px] text-white focus:outline-none focus:border-blue-500/40 transition"
+                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[13px] text-white focus:outline-none focus:border-white/[0.25] transition"
                   />
                 </div>
                 <div>
@@ -530,7 +530,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                       className={cn(
                         "px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition",
                         editTimeframe === tf
-                          ? "bg-blue-600 border-blue-500 text-white"
+                          ? "bg-white/[0.09] border-white/30 text-white"
                           : "bg-white/5 border-white/10 text-white/50 hover:border-white/25 hover:text-white"
                       )}
                     >
@@ -551,7 +551,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                 <button
                   onClick={handleApplyEdit}
                   disabled={editSaving}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-[13px] font-semibold text-white transition disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-[13px] font-semibold text-white transition disabled:opacity-50"
                 >
                   {editSaving ? "Applying…" : "Apply Changes"}
                 </button>
@@ -570,7 +570,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
               <span className="text-[14px] font-bold text-white">{trade.symbol}</span>
               <span className={cn(
                 "text-[11px] font-semibold px-2 py-0.5 rounded",
-                trade.direction === "buy" ? "bg-blue-500/15 text-blue-400" : "bg-red-500/15 text-red-400"
+                trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
               )}>
                 {trade.direction === "buy" ? "LONG" : "SHORT"}
               </span>
@@ -582,7 +582,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
               {trade.takeProfit && <div><span className="text-emerald-400/60">TP </span><span className="text-emerald-400/80 font-medium">${trade.takeProfit}</span></div>}
               <div>
                 <span className="text-white/35">P&L </span>
-                <span className={cn("font-bold", trade.profit >= 0 ? "text-blue-400" : "text-red-400")}>{fmt(trade.profit)}</span>
+                <span className={cn("font-bold", trade.profit >= 0 ? "text-emerald-400" : "text-red-400")}>{fmt(trade.profit)}</span>
               </div>
             </div>
           </div>
@@ -608,7 +608,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         <div className="rounded-xl border border-white/7 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/7">
             <div className="flex items-center gap-2">
-              <CheckSquare className="h-4 w-4 text-blue-400" />
+              <CheckSquare className="h-4 w-4 text-white/65" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Execution Checklist</span>
             </div>
             <span className="text-[12px] text-white/35">{checkedCount}/{checklist.length}</span>
@@ -620,13 +620,13 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                   key={i}
                   className={cn(
                     "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition group",
-                    c.checked ? "bg-blue-600/10 border-blue-500/25" : "bg-white/2 border-white/7 hover:border-white/15"
+                    c.checked ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
                   )}
                   onClick={() => toggleCheck(i)}
                 >
                   <div className={cn(
                     "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                    c.checked ? "bg-blue-600 border-blue-500" : "border-white/20"
+                    c.checked ? "bg-white/[0.09] border-white/30" : "border-white/20"
                   )}>
                     {c.checked && (
                       <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
@@ -650,11 +650,11 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                 onChange={(e) => setCustomItem(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addCustomItem()}
                 placeholder="Add custom item..."
-                className="flex-1 rounded-lg bg-white/5 border border-white/8 px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition"
+                className="flex-1 rounded-lg bg-white/5 border border-white/8 px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] transition"
               />
               <button
                 onClick={addCustomItem}
-                className="px-3 rounded-lg bg-blue-600/20 border border-blue-500/20 text-blue-400 hover:bg-blue-600/30 transition"
+                className="px-3 rounded-lg bg-white/[0.08] border border-white/[0.10] text-white/65 hover:bg-white/[0.09]/30 transition"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -665,7 +665,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         {/* Screenshots */}
         <div className="rounded-xl border border-white/7 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-            <Camera className="h-4 w-4 text-blue-400" />
+            <Camera className="h-4 w-4 text-white/65" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Screenshots</span>
             {screenshots.length > 0 && (
               <span className="ml-auto text-[11px] text-white/30">{screenshots.length} image{screenshots.length !== 1 ? "s" : ""} · click to view</span>
@@ -710,7 +710,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         {/* Pre-Trade Analysis */}
         <div className="rounded-xl border border-white/7 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-            <FileText className="h-4 w-4 text-blue-400" />
+            <FileText className="h-4 w-4 text-white/65" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Pre-Trade Analysis</span>
           </div>
           <div className="p-4">
@@ -727,7 +727,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         {/* Post-Trade Review */}
         <div className="rounded-xl border border-white/7 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-            <BookOpen className="h-4 w-4 text-blue-400" />
+            <BookOpen className="h-4 w-4 text-white/65" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Post-Trade Review</span>
           </div>
           <div className="p-4">
@@ -744,7 +744,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         {/* Risk : Reward */}
         <div className="rounded-xl border border-white/7 p-4">
           <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="h-4 w-4 text-blue-400" />
+            <TrendingUp className="h-4 w-4 text-white/65" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Risk : Reward</span>
           </div>
           <div className="flex items-center gap-3">
@@ -753,7 +753,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
               value={riskRatio}
               onChange={(e) => { setRiskRatio(parseFloat(e.target.value) || 1); markDirty(); }}
               min="0.1" step="0.1"
-              className="w-20 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[14px] font-bold text-white text-center focus:outline-none focus:border-blue-500/40 transition"
+              className="w-20 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[14px] font-bold text-white text-center focus:outline-none focus:border-white/[0.25] transition"
             />
             <span className="text-[18px] font-bold text-white/30">:</span>
             <input
@@ -761,7 +761,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
               value={rewardRatio}
               onChange={(e) => { setRewardRatio(parseFloat(e.target.value) || 2); markDirty(); }}
               min="0.1" step="0.1"
-              className="w-20 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[14px] font-bold text-blue-400 text-center focus:outline-none focus:border-blue-500/40 transition"
+              className="w-20 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[14px] font-bold text-white/65 text-center focus:outline-none focus:border-white/[0.25] transition"
             />
           </div>
         </div>
@@ -770,7 +770,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded-xl border border-white/7 overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-              <Brain className="h-4 w-4 text-violet-400" />
+              <Brain className="h-4 w-4 text-white/55" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Emotions</span>
             </div>
             <div className="p-4">
@@ -804,12 +804,12 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded-xl border border-white/7 p-4">
             <div className="flex items-center gap-2 mb-3">
-              <Tag className="h-4 w-4 text-blue-400" />
+              <Tag className="h-4 w-4 text-white/65" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Tags</span>
             </div>
             <div className="flex flex-wrap gap-1.5 mb-3">
               {tags.map((t) => (
-                <span key={t} className="flex items-center gap-1 text-[11px] bg-blue-600/15 text-blue-400 border border-blue-500/20 rounded-full px-2.5 py-0.5">
+                <span key={t} className="flex items-center gap-1 text-[11px] bg-white/[0.08] text-white border border-white/[0.10] rounded-full px-2.5 py-0.5">
                   {t}
                   <button onClick={() => removeTag(t)} className="hover:text-red-400 transition">
                     <X className="h-2.5 w-2.5" />
@@ -823,7 +823,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                 onChange={(e) => setTagsInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addTag()}
                 placeholder="breakout, trend, news (press Enter)"
-                className="flex-1 rounded-lg bg-white/5 border border-white/8 px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-blue-500/40 transition"
+                className="flex-1 rounded-lg bg-white/5 border border-white/8 px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] transition"
               />
             </div>
           </div>
@@ -834,7 +834,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                 <Star className="h-4 w-4 text-amber-400" />
                 <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Rating</span>
               </div>
-              <span className="text-[16px] font-bold text-blue-400">{rating}/10</span>
+              <span className="text-[16px] font-bold text-white/65">{rating}/10</span>
             </div>
             <div className="relative">
               <input

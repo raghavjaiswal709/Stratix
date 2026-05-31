@@ -228,7 +228,7 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
               className={cn(
                 "flex-1 flex items-center justify-center gap-1.5 py-2 transition",
                 inputTab === "file"
-                  ? "bg-blue-600 text-white"
+                  ? "bg-white/[0.09] text-white"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
             >
@@ -240,7 +240,7 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
               className={cn(
                 "flex-1 flex items-center justify-center gap-1.5 py-2 transition border-l border-border",
                 inputTab === "paste"
-                  ? "bg-blue-600 text-white"
+                  ? "bg-white/[0.09] text-white"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
             >
@@ -258,7 +258,7 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
             </p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               <div>
-                <p className="text-[10px] font-semibold text-blue-400 mb-1">Mobile (JSON)</p>
+                <p className="text-[10px] font-semibold text-white/65 mb-1">Mobile (JSON)</p>
                 <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
                   <li>Open MT5 → History</li>
                   <li>Share icon → Export JSON</li>
@@ -266,7 +266,7 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
                 </ol>
               </div>
               <div>
-                <p className="text-[10px] font-semibold text-violet-400 mb-1">Desktop (CSV)</p>
+                <p className="text-[10px] font-semibold text-white/55 mb-1">Desktop (CSV)</p>
                 <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
                   <li>Account History tab</li>
                   <li>Right-click → Save as Report</li>
@@ -284,7 +284,7 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
               "rounded-xl border-2 border-dashed transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 py-8 px-4 text-center",
               busy && "pointer-events-none opacity-60",
               dragging
-                ? "border-blue-500 bg-blue-500/10"
+                ? "border-white/30 bg-white/[0.06]"
                 : file
                 ? "border-emerald-500/40 bg-emerald-500/5"
                 : "border-border hover:border-border/80 hover:bg-muted/20"
@@ -349,14 +349,14 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
                 if (phase === "error") setPhase("idle");
               }}
               className={cn(
-                "w-full h-44 rounded-lg border border-border bg-muted/20 px-3 py-2.5 text-[12px] font-mono text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition",
+                "w-full h-44 rounded-lg border border-border bg-muted/20 px-3 py-2.5 text-[12px] font-mono text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:ring-1 focus:ring-white/20 transition",
                 busy && "opacity-60 cursor-not-allowed"
               )}
             />
             {pasteText.trim().length > 0 && (
               <p className="text-[11px] text-muted-foreground">
                 Detected:{" "}
-                <span className="font-semibold text-blue-400">
+                <span className="font-semibold text-white/65">
                   {looksLikeJson(pasteText) ? "JSON" : "CSV"}
                 </span>{" "}
                 · {pasteText.trim().length.toLocaleString()} characters
@@ -406,7 +406,7 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
                       <td className={cn(
                         "px-3 py-1.5 text-right font-semibold",
                         c.incoming.profit > c.current.profit
-                          ? "text-blue-400"
+                          ? "text-white/65"
                           : c.incoming.profit < c.current.profit
                           ? "text-red-400"
                           : "text-foreground/60"
@@ -502,7 +502,7 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
             <button
               onClick={upload}
               disabled={!canImport || busy}
-              className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[13px] font-semibold transition flex items-center justify-center gap-2"
+              className="flex-1 py-2 rounded-lg bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] disabled:opacity-40 disabled:cursor-not-allowed text-white text-[13px] font-semibold transition flex items-center justify-center gap-2"
             >
               {busy ? (
                 <>

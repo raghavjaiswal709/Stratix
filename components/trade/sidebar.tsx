@@ -16,7 +16,6 @@ import {
   StickyNote,
   FileText,
   X,
-  Sunrise,
   Sun,
   Moon,
   Shield,
@@ -93,15 +92,18 @@ function CollapsedSidebar({
     <aside className="flex flex-col w-14 h-full bg-sidebar border-r border-sidebar-border">
       {/* Logo + pin button */}
       <div className="flex flex-col items-center gap-2.5 py-4 border-b border-sidebar-border">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20 border border-blue-500/30 shrink-0">
-          <Sunrise className="text-indigo-400" style={{ width: 18, height: 18 }} />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] border border-white/[0.10] shrink-0">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-white/75">
+            <path d="M2 11.5L5.5 7L9 9L14 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 13.5H14" stroke="currentColor" strokeWidth="0.75" strokeLinecap="round" strokeOpacity="0.35"/>
+          </svg>
         </div>
         <Tooltip>
           <TooltipTrigger
             render={
               <button
                 onClick={onPin}
-                className="flex items-center justify-center h-7 w-7 rounded-md text-sidebar-foreground/30 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
+                className="flex items-center justify-center h-7 w-7 rounded-md text-white/25 hover:text-white/70 hover:bg-white/[0.07] transition-all"
               />
             }
           >
@@ -124,15 +126,15 @@ function CollapsedSidebar({
                     href={href}
                     onClick={(e) => handleNav(e, href)}
                     className={cn(
-                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all",
+                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-150",
                       active
-                        ? "bg-blue-600/15 text-blue-400 border border-blue-500/20"
-                        : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
+                        ? "bg-white/[0.09] text-white border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                        : "text-white/35 hover:text-white/70 hover:bg-white/[0.06]"
                     )}
                   />
                 }
               >
-                <Icon className="h-5 w-5 shrink-0" />
+                <Icon className="h-[18px] w-[18px] shrink-0" />
               </TooltipTrigger>
               <TooltipContent side="right">{label}</TooltipContent>
             </Tooltip>
@@ -150,22 +152,22 @@ function CollapsedSidebar({
                     href={href}
                     onClick={(e) => handleNav(e, href)}
                     className={cn(
-                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all",
+                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-150",
                       active
-                        ? "bg-amber-600/15 text-amber-400 border border-amber-500/20"
-                        : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
+                        ? "bg-white/[0.09] text-white border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                        : "text-white/35 hover:text-white/70 hover:bg-white/[0.06]"
                     )}
                   />
                 }
               >
-                <Icon className="h-5 w-5 shrink-0" />
+                <Icon className="h-[18px] w-[18px] shrink-0" />
               </TooltipTrigger>
               <TooltipContent side="right">{label}</TooltipContent>
             </Tooltip>
           );
         })}
 
-        <div className="w-8 my-1 border-t border-sidebar-border" />
+        <div className="w-8 my-1 border-t border-white/[0.06]" />
 
         {/* Life-OS */}
         {lifeItems.map(({ href, label, icon: Icon }) => {
@@ -178,15 +180,15 @@ function CollapsedSidebar({
                     href={href}
                     onClick={(e) => handleNav(e, href)}
                     className={cn(
-                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all",
+                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-150",
                       active
-                        ? "bg-indigo-600/15 text-indigo-400 border border-indigo-500/20"
-                        : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
+                        ? "bg-white/[0.09] text-white border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                        : "text-white/35 hover:text-white/70 hover:bg-white/[0.06]"
                     )}
                   />
                 }
               >
-                <Icon className="h-5 w-5 shrink-0" />
+                <Icon className="h-[18px] w-[18px] shrink-0" />
               </TooltipTrigger>
               <TooltipContent side="right">{label}</TooltipContent>
             </Tooltip>
@@ -208,7 +210,7 @@ function CollapsedSidebar({
             >
               <Avatar className="h-8 w-8">
                 <AvatarImage src={session.user.image ?? ""} />
-                <AvatarFallback className="text-[10px] bg-blue-500/20 text-blue-300">
+                <AvatarFallback className="text-[10px] bg-white/[0.08] text-white/60 border border-white/[0.10]">
                   {session.user.name?.charAt(0)?.toUpperCase() ?? "U"}
                 </AvatarFallback>
               </Avatar>
@@ -219,8 +221,8 @@ function CollapsedSidebar({
           {profileOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setProfileOpen(false)} />
-              <div className="absolute bottom-4 left-full ml-2 z-20 w-48 rounded-xl bg-[#1a1f2e] border border-white/10 shadow-2xl overflow-hidden">
-                <div className="px-3 py-2.5 border-b border-white/8">
+              <div className="absolute bottom-4 left-full ml-2 z-20 w-52 rounded-xl border border-white/[0.08] shadow-2xl overflow-hidden backdrop-blur-2xl bg-[#111]/90">
+                <div className="px-3 py-2.5 border-b border-white/[0.06]">
                   <p className="text-[12px] font-semibold text-white/80 truncate">{session.user.name}</p>
                   <p className="text-[10px] text-white/35 truncate">{session.user.email}</p>
                 </div>
@@ -228,7 +230,7 @@ function CollapsedSidebar({
                   <Link
                     href="/admin"
                     onClick={(e) => { setProfileOpen(false); handleNav(e, "/admin"); }}
-                    className="flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-violet-400 hover:bg-violet-500/10 transition-all"
+                    className="flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-white/55 hover:text-white/85 hover:bg-white/[0.06] transition-all"
                   >
                     <Shield className="h-3.5 w-3.5" />
                     Admin Panel
@@ -236,14 +238,14 @@ function CollapsedSidebar({
                 )}
                 <button
                   onClick={() => { setProfileOpen(false); setTheme(theme === "dark" ? "light" : "dark"); }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-sidebar-foreground/60 hover:bg-sidebar-accent transition-all"
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-white/45 hover:text-white/75 hover:bg-white/[0.06] transition-all"
                 >
                   {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
                   {theme === "dark" ? "Light mode" : "Dark mode"}
                 </button>
                 <button
                   onClick={() => { setProfileOpen(false); handleSignOut(); }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-red-400 hover:bg-red-500/10 transition-all"
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-all"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                   Sign out
@@ -297,12 +299,15 @@ function ExpandedSidebar({
     <aside className="flex flex-col w-55 h-full bg-sidebar border-r border-sidebar-border">
       {/* Header */}
       <div className="flex items-center gap-2.5 px-4 py-4 border-b border-sidebar-border">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20 border border-blue-500/30 shrink-0">
-          <Sunrise className="text-indigo-400" style={{ width: 22, height: 22 }} />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] border border-white/[0.10] shrink-0">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className="text-white/75">
+            <path d="M2 11.5L5.5 7L9 9L14 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 13.5H14" stroke="currentColor" strokeWidth="0.75" strokeLinecap="round" strokeOpacity="0.35"/>
+          </svg>
         </div>
         <div className="flex flex-col leading-none flex-1 min-w-0">
-          <span className="text-[18px] font-bold text-sidebar-foreground tracking-tight">Stratix PRO</span>
-          <span className="text-[10px] mt-1 text-sidebar-foreground/40 font-medium uppercase tracking-wider">Tradebook &amp; Life OS</span>
+          <span className="text-[16px] font-semibold text-white/90 tracking-tight">Stratix</span>
+          <span className="text-[10px] mt-0.5 text-white/25 font-medium uppercase tracking-widest">Tradebook &amp; Life OS</span>
         </div>
         {/* Unpin / close button */}
         {!isMobile && onUnpin ? (
@@ -311,7 +316,7 @@ function ExpandedSidebar({
               render={
                 <button
                   onClick={onUnpin}
-                  className="shrink-0 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 p-1.5 rounded transition-all"
+                  className="shrink-0 text-white/25 hover:text-white/70 hover:bg-white/[0.07] p-1.5 rounded-md transition-all"
                 />
               }
             >
@@ -332,7 +337,7 @@ function ExpandedSidebar({
 
       {/* Navigation */}
       <nav className="flex-1 px-2 pt-4 space-y-0.5 overflow-y-auto">
-        <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/25">Trading</p>
+        <p className="px-2 mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-white/20">Trading</p>
         {tradeItems.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
@@ -341,15 +346,15 @@ function ExpandedSidebar({
               href={href}
               onClick={(e) => handleNav(e, href)}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150",
+                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150",
                 active
-                  ? "bg-blue-600/15 text-blue-400 border border-blue-500/20"
-                  : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
+                  ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]"
+                  : "text-white/38 hover:text-white/72 hover:bg-white/[0.05]"
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <Icon className="h-[15px] w-[15px] shrink-0" />
               {label}
-              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-400" />}
+              {active && <span className="ml-auto h-1 w-1 rounded-full bg-white/50" />}
             </Link>
           );
         })}
@@ -363,22 +368,22 @@ function ExpandedSidebar({
               href={href}
               onClick={(e) => handleNav(e, href)}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150",
+                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150",
                 active
-                  ? "bg-amber-600/15 text-amber-400 border border-amber-500/20"
-                  : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
+                  ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]"
+                  : "text-white/38 hover:text-white/72 hover:bg-white/[0.05]"
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <Icon className="h-[15px] w-[15px] shrink-0" />
               {label}
-              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400" />}
+              {active && <span className="ml-auto h-1 w-1 rounded-full bg-white/50" />}
             </Link>
           );
         })}
 
-        <div className="my-3 border-t border-sidebar-border" />
+        <div className="my-3 border-t border-white/[0.055]" />
 
-        <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/25">Life-OS</p>
+        <p className="px-2 mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-white/20">Life-OS</p>
         {lifeItems.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
@@ -387,15 +392,15 @@ function ExpandedSidebar({
               href={href}
               onClick={(e) => handleNav(e, href)}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150",
+                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150",
                 active
-                  ? "bg-indigo-600/15 text-indigo-400 border border-indigo-500/20"
-                  : "text-sidebar-foreground/45 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent"
+                  ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]"
+                  : "text-white/38 hover:text-white/72 hover:bg-white/[0.05]"
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <Icon className="h-[15px] w-[15px] shrink-0" />
               {label}
-              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-indigo-400" />}
+              {active && <span className="ml-auto h-1 w-1 rounded-full bg-white/50" />}
             </Link>
           );
         })}
@@ -403,12 +408,12 @@ function ExpandedSidebar({
 
       {/* User profile — dropup */}
       {session?.user && (
-        <div className="px-3 pb-4 pt-2 border-t border-sidebar-border relative">
+        <div className="px-3 pb-4 pt-2 border-t border-white/[0.055] relative">
           {profileOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setProfileOpen(false)} />
-              <div className="absolute bottom-full left-3 right-3 mb-2 z-20 rounded-xl bg-[#1a1f2e] border border-white/10 shadow-2xl overflow-hidden">
-                <div className="px-3 py-2.5 border-b border-white/8">
+              <div className="absolute bottom-full left-3 right-3 mb-2 z-20 rounded-xl border border-white/[0.08] shadow-2xl overflow-hidden backdrop-blur-2xl bg-[#111]/90">
+                <div className="px-3 py-2.5 border-b border-white/[0.06]">
                   <p className="text-[12px] font-semibold text-white/80 truncate">{session.user.name}</p>
                   <p className="text-[10px] text-white/35 truncate">{session.user.email}</p>
                 </div>
@@ -416,7 +421,7 @@ function ExpandedSidebar({
                   <Link
                     href="/admin"
                     onClick={(e) => { setProfileOpen(false); handleNav(e, "/admin"); }}
-                    className="flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-violet-400 hover:bg-violet-500/10 transition-all duration-150"
+                    className="flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-white/55 hover:text-white/85 hover:bg-white/[0.06] transition-all duration-150"
                   >
                     <Shield className="h-3.5 w-3.5" />
                     Admin Panel
@@ -424,14 +429,14 @@ function ExpandedSidebar({
                 )}
                 <button
                   onClick={() => { setProfileOpen(false); setTheme(theme === "dark" ? "light" : "dark"); }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-sidebar-foreground/60 hover:bg-sidebar-accent transition-all duration-150"
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-white/45 hover:text-white/75 hover:bg-white/[0.06] transition-all duration-150"
                 >
                   {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
                   {theme === "dark" ? "Light mode" : "Dark mode"}
                 </button>
                 <button
                   onClick={() => { setProfileOpen(false); handleSignOut(); }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-red-400 hover:bg-red-500/10 transition-all duration-150"
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-all duration-150"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                   Sign out
@@ -441,23 +446,23 @@ function ExpandedSidebar({
           )}
           <button
             onClick={() => setProfileOpen((v) => !v)}
-            className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-sidebar-accent transition-all duration-150"
+            className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/[0.05] transition-all duration-150"
           >
             <Avatar className="h-7 w-7 shrink-0">
               <AvatarImage src={session.user.image ?? ""} />
-              <AvatarFallback className="text-[10px] bg-blue-500/20 text-blue-300">
+              <AvatarFallback className="text-[10px] bg-white/[0.08] text-white/60 border border-white/[0.10]">
                 {session.user.name?.charAt(0)?.toUpperCase() ?? "U"}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0 text-left">
-              <p className="text-[12px] font-medium text-sidebar-foreground/80 truncate">
+              <p className="text-[12px] font-medium text-white/75 truncate">
                 {session.user.name?.split(" ")[0]}
               </p>
-              <p className="text-[10px] text-sidebar-foreground/35 truncate">{session.user.email}</p>
+              <p className="text-[10px] text-white/30 truncate">{session.user.email}</p>
             </div>
             <ChevronUp
               className={cn(
-                "h-3.5 w-3.5 shrink-0 text-sidebar-foreground/30 transition-transform duration-150",
+                "h-3 w-3 shrink-0 text-white/25 transition-transform duration-150",
                 profileOpen ? "rotate-0" : "rotate-180"
               )}
             />
