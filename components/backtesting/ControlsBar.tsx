@@ -13,11 +13,12 @@ interface Props {
   isLoading: boolean;
   progress:  number;  // 0-100
   loadLabel: string;
+  dataSource?: string | null;
 }
 
 const TIMEFRAMES: Timeframe[] = ["1m", "5m", "15m", "1H", "4H", "1D"];
 
-export function ControlsBar({ controls, onChange, onLoad, isLoading, progress, loadLabel }: Props) {
+export function ControlsBar({ controls, onChange, onLoad, isLoading, progress, loadLabel, dataSource }: Props) {
   return (
     <div className="shrink-0 border-b border-[#2a2a2a]">
       <div className="flex flex-wrap items-end gap-3 px-4 py-3 bg-[#111]">
@@ -84,21 +85,31 @@ export function ControlsBar({ controls, onChange, onLoad, isLoading, progress, l
           />
         </Field>
 
-        {/* ── Load button ─────────────────────────────────────────────── */}
-        <button
-          onClick={onLoad}
-          disabled={isLoading}
-          className="px-5 py-1.5 text-[12px] font-bold rounded-md bg-[#F0B90B] text-black hover:bg-[#d9a60a] disabled:opacity-50 transition-colors min-w-28 self-end"
-        >
-          {isLoading ? (
-            <span className="flex items-center justify-center gap-1.5">
-              <span className="h-3 w-3 border-2 border-black/40 border-t-black rounded-full animate-spin" />
-              Loading…
-            </span>
-          ) : (
-            "↓ Load Data"
+        {/* ── Load button & Data source pill ────────────────────────────── */}
+        <div className="flex items-center gap-2 self-end">
+          <button
+            onClick={onLoad}
+            disabled={isLoading}
+            className="px-5 py-1.5 text-[12px] font-bold rounded-md bg-[#F0B90B] text-black hover:bg-[#d9a60a] disabled:opacity-50 transition-colors min-w-28"
+          >
+            {isLoading ? (
+              <span className="flex items-center justify-center gap-1.5">
+                <span className="h-3 w-3 border-2 border-black/40 border-t-black rounded-full animate-spin" />
+                Loading…
+              </span>
+            ) : (
+              "↓ Load Data"
+            )}
+          </button>
+          {dataSource && (
+            <div 
+              className="px-2 py-1.5 text-[10px] rounded bg-[#161616] border border-[#2a2a2a] text-[#8a9bb0] font-mono cursor-help"
+              title={`Candle data loaded from: ${dataSource === "GitHub CDN" ? "jsDelivr GitHub CDN (static CSV files)" : dataSource === "Local Static" ? "Local public assets (static CSV files)" : "Dukascopy Node API (live fetch)"}`}
+            >
+              🌐 {dataSource}
+            </div>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Progress bar while loading */}

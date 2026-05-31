@@ -7,6 +7,13 @@ import type { Candle, InstrumentKey, Timeframe } from "./types";
 // In-memory cache: "INSTRUMENT-YYYY-MM" → raw 1m Candle[]
 const monthCache = new Map<string, Candle[]>();
 
+// Track where the last backtest data was successfully loaded from
+let lastFetchedSource: "GitHub CDN" | "Local Static" | "Dukascopy API" = "Dukascopy API";
+
+export function getLastFetchedSource(): string {
+  return lastFetchedSource;
+}
+
 // ── Timeframe bucket sizes in seconds ─────────────────────────────────────────
 
 const TF_SECONDS: Record<Timeframe, number> = {
@@ -110,6 +117,13 @@ async function fetchMonth(
         const csvText = await res.text();
         const candles = parseCandlesCSV(csvText);
         monthCache.set(key, candles);
+
+        if (csvUrl.startsWith("https://cdn.jsdelivr.net")) {
+          lastFetchedSource = "GitHub CDN";
+        } else {
+          lastFetchedSource = "Local Static";
+        }
+
         return candles;
       }
       console.warn(`[dataFetcher] Static CSV not found (${csvUrl}), falling back to API`);
@@ -141,6 +155,7 @@ async function fetchMonth(
     const candles = json.candles ?? [];
     // Cache the successful result
     monthCache.set(key, candles);
+    lastFetchedSource = "Dukascopy API";
     return candles;
   } catch (err: unknown) {
     if ((err as Error).name === "AbortError") throw err; // propagate cancellation

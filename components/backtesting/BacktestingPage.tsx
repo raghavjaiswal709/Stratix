@@ -6,7 +6,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { Candle, ControlsState, ReplayState, LiveStatus, ManualTrade, ReplaySpeed } from "./types";
-import { fetchCandleRange, clearCandleCache, resampleCandles } from "./dataFetcher";
+import { fetchCandleRange, clearCandleCache, resampleCandles, getLastFetchedSource } from "./dataFetcher";
 import {
   initialReplayState, enterSelectMode, confirmStartBar,
   stepForward, stepBack, jumpToStart, startPlaying, pausePlaying, stopReplay,
@@ -50,6 +50,7 @@ export function BacktestingPage() {
   const [openTrade,     setOpenTrade]    = useState<ManualTrade | null>(null);
   const [closedTrades,  setClosedTrades] = useState<ManualTrade[]>([]);
   const [unrealised,    setUnrealised]   = useState(0);
+  const [dataSource,    setDataSource]   = useState<string | null>(null);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
   const trackerRef    = useRef(new TradeTracker());
@@ -82,6 +83,7 @@ export function BacktestingPage() {
     setLoading(true);
     setLoadProgress(0);
     setLoadLabel("Starting…");
+    setDataSource(null);
 
     try {
       const raw = await fetchCandleRange(
@@ -92,6 +94,7 @@ export function BacktestingPage() {
       const resampled = resampleCandles(raw, c.timeframe);
       setRawCandles(raw);
       setDisplay(resampled);
+      setDataSource(getLastFetchedSource());
 
       // Start live feed
       const feed = new LiveDataFeed(
@@ -279,6 +282,7 @@ export function BacktestingPage() {
         isLoading={isLoading}
         progress={loadProgress}
         loadLabel={loadLabel}
+        dataSource={dataSource}
       />
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
