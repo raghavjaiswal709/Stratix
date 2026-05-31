@@ -15,15 +15,17 @@ export default function Page() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  // Redirect to signin if not authenticated
+  // Redirect to signin if not authenticated, or to dashboard if not admin
   useEffect(() => {
     if (status === "loading") return;
     if (!session?.user) {
       router.replace("/auth/signin");
+    } else if (session.user.role !== "admin") {
+      router.replace("/dashboard");
     }
   }, [session, status, router]);
 
-  if (status === "loading" || !session?.user) {
+  if (status === "loading" || !session?.user || session.user.role !== "admin") {
     return null;
   }
 

@@ -29,17 +29,24 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-const tradeItems = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: any;
+  beta?: boolean;
+}
+
+const tradeItems: NavItem[] = [
   { href: "/dashboard",   label: "Dashboard",   icon: LayoutDashboard },
   { href: "/trades",      label: "Trades",      icon: ArrowLeftRight },
   { href: "/journal",     label: "Journal",     icon: BookOpen },
   { href: "/trade-notes", label: "Trade Notes", icon: FileText },
-  { href: "/live-data",   label: "Live Data",   icon: Radio },
-  { href: "/chart",       label: "Chart",       icon: ChartCandlestick },
+  { href: "/backtesting", label: "Backtesting", icon: ChartCandlestick, beta: true },
 ];
 
-const adminTradeItems = [
-  { href: "/backtesting", label: "Backtesting", icon: ChartCandlestick },
+const adminTradeItems: NavItem[] = [
+  { href: "/live-data",   label: "Live Data",   icon: Radio },
+  { href: "/chart",       label: "Chart",       icon: ChartCandlestick },
 ];
 
 const lifeItems = [
@@ -116,7 +123,7 @@ function CollapsedSidebar({
       {/* Nav */}
       <nav className="flex-1 flex flex-col items-center px-2 pt-4 gap-1 overflow-y-auto">
         {/* Trading */}
-        {tradeItems.map(({ href, label, icon: Icon }) => {
+        {tradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Tooltip key={href}>
@@ -136,13 +143,22 @@ function CollapsedSidebar({
               >
                 <Icon className="h-[18px] w-[18px] shrink-0" />
               </TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
+              <TooltipContent side="right">
+                <div className="flex items-center gap-1.5 font-medium">
+                  {label}
+                  {beta && (
+                    <span className="px-1 py-0.5 text-[8px] font-bold leading-none uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
+                      Beta
+                    </span>
+                  )}
+                </div>
+              </TooltipContent>
             </Tooltip>
           );
         })}
 
         {/* Admin-only items */}
-        {session?.user?.role === "admin" && adminTradeItems.map(({ href, label, icon: Icon }) => {
+        {session?.user?.role === "admin" && adminTradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Tooltip key={href}>
@@ -162,7 +178,16 @@ function CollapsedSidebar({
               >
                 <Icon className="h-[18px] w-[18px] shrink-0" />
               </TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
+              <TooltipContent side="right">
+                <div className="flex items-center gap-1.5 font-medium">
+                  {label}
+                  {beta && (
+                    <span className="px-1 py-0.5 text-[8px] font-bold leading-none uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
+                      Beta
+                    </span>
+                  )}
+                </div>
+              </TooltipContent>
             </Tooltip>
           );
         })}
@@ -338,7 +363,7 @@ function ExpandedSidebar({
       {/* Navigation */}
       <nav className="flex-1 px-2 pt-4 space-y-0.5 overflow-y-auto">
         <p className="px-2 mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-white/20">Trading</p>
-        {tradeItems.map(({ href, label, icon: Icon }) => {
+        {tradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Link
@@ -353,14 +378,19 @@ function ExpandedSidebar({
               )}
             >
               <Icon className="h-[15px] w-[15px] shrink-0" />
-              {label}
-              {active && <span className="ml-auto h-1 w-1 rounded-full bg-white/50" />}
+              <span>{label}</span>
+              {beta && (
+                <span className="px-1.5 py-0.5 text-[8px] font-bold leading-none uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
+                  Beta
+                </span>
+              )}
+              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-white/60" />}
             </Link>
           );
         })}
 
         {/* Admin-only items */}
-        {session?.user?.role === "admin" && adminTradeItems.map(({ href, label, icon: Icon }) => {
+        {session?.user?.role === "admin" && adminTradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Link
@@ -375,8 +405,13 @@ function ExpandedSidebar({
               )}
             >
               <Icon className="h-[15px] w-[15px] shrink-0" />
-              {label}
-              {active && <span className="ml-auto h-1 w-1 rounded-full bg-white/50" />}
+              <span>{label}</span>
+              {beta && (
+                <span className="px-1.5 py-0.5 text-[8px] font-bold leading-none uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
+                  Beta
+                </span>
+              )}
+              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-white/60" />}
             </Link>
           );
         })}
