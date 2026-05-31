@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Minus, ArrowUpRight, TrendingUp, Award, AwardIcon } from "lucide-react";
+import { Plus, Minus } from "lucide-react";
 
 interface Props {
   symbol: string;
@@ -67,7 +67,7 @@ export function ExecutionPanel({
             className={`flex-1 py-1.5 text-[11px] font-bold tracking-wide rounded-md transition-all ${
               orderType === "market"
                 ? "bg-white/[0.10] text-white shadow-md "
-                : "text-gray-400 hover:text-white"
+                : "text-white/40 hover:text-white"
             }`}
           >
             Market
@@ -77,7 +77,7 @@ export function ExecutionPanel({
             className={`flex-1 py-1.5 text-[11px] font-bold tracking-wide rounded-md transition-all ${
               orderType === "pending"
                 ? "bg-white/[0.10] text-white shadow-md "
-                : "text-gray-400 hover:text-white"
+                : "text-white/40 hover:text-white"
             }`}
           >
             Pending
@@ -90,7 +90,7 @@ export function ExecutionPanel({
           <div className="flex items-center bg-white/[0.04] border border-white/[0.08] rounded-lg overflow-hidden p-1.5 gap-2">
             <button
               onClick={() => onLotSizeChange(Math.max(1, lotSize - 10))}
-              className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-white/[0.06] active:scale-90 transition-all shrink-0"
+              className="p-1 rounded-md text-white/40 hover:text-white hover:bg-white/[0.06] active:scale-90 transition-all shrink-0"
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
@@ -102,11 +102,11 @@ export function ExecutionPanel({
                 min={1}
                 className="w-16 bg-transparent text-center text-sm font-bold text-white font-mono focus:outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
-              <span className="text-[10px] text-gray-500 font-bold uppercase">Lots</span>
+              <span className="text-[10px] text-white/35 font-bold uppercase">Lots</span>
             </div>
             <button
               onClick={() => onLotSizeChange(lotSize + 10)}
-              className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-white/[0.06] active:scale-90 transition-all shrink-0"
+              className="p-1 rounded-md text-white/40 hover:text-white hover:bg-white/[0.06] active:scale-90 transition-all shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -117,20 +117,23 @@ export function ExecutionPanel({
         <div className="border border-white/[0.08] rounded-lg overflow-hidden shrink-0">
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="w-full flex items-center justify-between px-3 py-2 bg-white/[0.04] hover:bg-white/[0.06] text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-white transition-all"
+            className="w-full flex items-center justify-between px-3 py-2 bg-white/[0.04] hover:bg-white/[0.06] text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-all"
           >
-            <span>⚙️ Advanced Settings</span>
-            <span>{showAdvanced ? "▲" : "▼"}</span>
+            <span className="flex items-center gap-1.5">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4"/><path d="M8 1.5V3M8 13V14.5M1.5 8H3M13 8H14.5M3.2 3.2L4.2 4.2M11.8 11.8L12.8 12.8M12.8 3.2L11.8 4.2M4.2 11.8L3.2 12.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+              Advanced Settings
+            </span>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className={`transition-transform duration-200 ${showAdvanced ? "rotate-180" : ""}`}><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
           {showAdvanced && (
-            <div className="p-3 bg-transparent border-t border-white/[0.08] flex flex-col gap-3 text-xs text-gray-400">
+            <div className="p-3 bg-transparent border-t border-white/[0.08] flex flex-col gap-3 text-xs text-white/45">
               <div className="flex items-center justify-between">
                 <span>Take Profit (TP)</span>
-                <span className="text-gray-500 font-mono">Not set</span>
+                <span className="text-white/35 font-mono">Not set</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Stop Loss (SL)</span>
-                <span className="text-gray-500 font-mono">Not set</span>
+                <span className="text-white/35 font-mono">Not set</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Max Slippage</span>
@@ -145,33 +148,34 @@ export function ExecutionPanel({
         {/* Real-time Session Stats Card */}
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 flex flex-col gap-3 shrink-0">
           <span className="text-[10px] font-bold uppercase tracking-widest text-white/40 border-b border-white/[0.08] pb-1.5 flex items-center gap-1.5">
-            📊 Active Replay Stats
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="2" y="9" width="3" height="5" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><rect x="6.5" y="6" width="3" height="8" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><rect x="11" y="3" width="3" height="11" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>
+            Active Replay Stats
           </span>
 
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 font-mono text-[11px]">
             {/* Net P&L */}
             <div className="flex flex-col gap-0.5">
-              <span className="text-gray-500 text-[9px] uppercase font-semibold">Net P&L</span>
-              <span className={`font-bold ${totalPnl >= 0 ? "text-emerald-400" : "text-red-500"}`}>
+              <span className="text-white/35 text-[9px] uppercase font-semibold">Net P&L</span>
+              <span className={`font-bold ${totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
               </span>
             </div>
 
             {/* Win Rate */}
             <div className="flex flex-col gap-0.5">
-              <span className="text-gray-500 text-[9px] uppercase font-semibold">Win Rate</span>
+              <span className="text-white/35 text-[9px] uppercase font-semibold">Win Rate</span>
               <span className="font-bold text-white">{winRate.toFixed(1)}%</span>
             </div>
 
             {/* Trades */}
             <div className="flex flex-col gap-0.5">
-              <span className="text-gray-500 text-[9px] uppercase font-semibold">Trades</span>
+              <span className="text-white/35 text-[9px] uppercase font-semibold">Trades</span>
               <span className="font-bold text-white">{totalTrades}</span>
             </div>
 
             {/* Profit Factor */}
             <div className="flex flex-col gap-0.5">
-              <span className="text-gray-500 text-[9px] uppercase font-semibold">PF</span>
+              <span className="text-white/35 text-[9px] uppercase font-semibold">PF</span>
               <span className="font-bold text-white">{profitFactor === 999 ? "∞" : profitFactor.toFixed(2)}</span>
             </div>
           </div>

@@ -457,14 +457,14 @@ export function BacktestingPage() {
 
   // ── Render Chart View Mode (Active Session is active) ──
   return (
-    <div className="flex flex-col w-full h-full bg-[#0f0f0f] overflow-hidden text-gray-200">
+    <div className="flex flex-col w-full h-full bg-[#0f0f0f] overflow-hidden text-white/75">
       
       {/* ── Active Session top bar header (Image 2 styling) ── */}
       <div className="h-14 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <button
             onClick={handleExitToDashboard}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] hover:border-white/[0.20] text-gray-400 hover:text-white transition-all text-xs font-bold active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] hover:border-white/[0.20] text-white/45 hover:text-white transition-all text-xs font-bold active:scale-95"
             title="Exit Session"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -475,20 +475,20 @@ export function BacktestingPage() {
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-white uppercase tracking-tight">{activeSession.symbol}</span>
               <span className="px-1.5 py-0.5 rounded text-[9px] bg-white/[0.06] text-white/65 font-bold border border-white/[0.08]">Active</span>
-              <span className="text-[10px] text-gray-500 font-mono">Lev {activeSession.leverage}</span>
+              <span className="text-[10px] text-white/35 font-mono">Lev {activeSession.leverage}</span>
             </div>
-            <span className="text-[9px] text-gray-600 font-mono">{activeSession.name}</span>
+            <span className="text-[9px] text-white/30 font-mono">{activeSession.name}</span>
           </div>
         </div>
 
         {/* Live balance and P&L indicators */}
         <div className="flex items-center gap-6 text-xs font-mono select-none">
           <div className="flex flex-col">
-            <span className="text-gray-500 text-[9px] uppercase font-semibold">Balance</span>
+            <span className="text-white/40 text-[9px] uppercase font-semibold">Balance</span>
             <span className="text-white font-bold">${(activeSession.startingBalance + activeMetrics.totalPnl).toFixed(2)}</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-gray-500 text-[9px] uppercase font-semibold">P&L</span>
+            <span className="text-white/40 text-[9px] uppercase font-semibold">P&L</span>
             <span className={`font-bold ${activeMetrics.totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
               {activeMetrics.totalPnl >= 0 ? "+" : ""}${activeMetrics.totalPnl.toFixed(2)}
             </span>
@@ -507,7 +507,7 @@ export function BacktestingPage() {
                 className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
                   activeTimeframe === tf
                     ? "bg-white/[0.10] text-white"
-                    : "text-gray-400 hover:text-white"
+                    : "text-white/40 hover:text-white"
                 }`}
               >
                 {tf}

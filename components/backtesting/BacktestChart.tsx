@@ -15,11 +15,9 @@ import {
 } from "lightweight-charts";
 import type { Candle, ManualTrade, LiveStatus, Drawing, DrawingType, TimePricePoint } from "./types";
 import {
-  MousePointer, Slash, Square, Grid, ArrowUpRight, Trash2,
-  Paintbrush, Type, Smile, Ruler, Search,
+  Trash2, Search,
   Magnet, Lock, Unlock, Eye, EyeOff, PenTool,
-  Workflow, Settings, X, Minus, ArrowRight, Circle, Triangle,
-  Layers, TrendingUp, Star, GripVertical,
+  Settings, X, Star, GripVertical,
 } from "lucide-react";
 
 interface Props {
@@ -66,7 +64,7 @@ const TOOL_POINTS: Partial<Record<DrawingType, number>> = {
 const CHART_BG = "#0f0f0f";
 const GRID_COLOR = "#181a20";
 const TEXT_COLOR = "#5e6673";
-const SEL_COLOR = "#eab308";
+const SEL_COLOR = "rgba(255,255,255,0.80)";
 const LINE_COLOR = "#3b82f6";
 
 export function BacktestChart({
@@ -222,7 +220,7 @@ export function BacktestChart({
     const tooltip = document.createElement("div");
     tooltip.style.cssText = [
       "position:absolute", "top:8px", "left:8px",
-      "background:rgba(12,14,20,0.92)", "border:1px solid #23262f",
+      "background:rgba(0,0,0,0.85)", "border:1px solid rgba(255,255,255,0.08)",
       "border-radius:6px", "padding:6px 10px",
       "font-size:10px", "font-family:monospace",
       "color:#d1d5db", "pointer-events:none", "z-index:10",
@@ -1728,7 +1726,7 @@ export function BacktestChart({
         {/* ── Floating Multi-Selection Panel ── */}
         {selectedDrawingIds.length > 1 && (
           <div
-            className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-3.5 px-4.5 py-2.5 bg-black/85 backdrop-blur-md border border-red-500/35 rounded-full z-45 shadow-2xl font-mono text-[9px] text-gray-200 pointer-events-auto select-none"
+            className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-3.5 px-4.5 py-2.5 bg-black/85 backdrop-blur-xl border border-red-500/30 rounded-full z-45 shadow-2xl font-mono text-[9px] text-white/70 pointer-events-auto select-none"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <span className="font-bold text-red-400 flex items-center gap-1.5">
@@ -1749,7 +1747,7 @@ export function BacktestChart({
             </button>
             <button
               onClick={() => setSelectedDrawingIds([])}
-              className="p-1 rounded-full text-gray-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer focus:outline-none"
+              className="p-1 rounded-full text-white/40 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer focus:outline-none"
               title="Cancel Selection"
             >
               <X className="w-3.5 h-3.5" />
@@ -1776,7 +1774,7 @@ export function BacktestChart({
               className="bg-black/90 border border-white/[0.10] backdrop-blur-xl rounded px-2 py-1 text-white text-xs font-mono focus:outline-none w-36 shadow-lg"
             />
             <button onClick={() => textOverlay.onSubmit(textInputVal)} className="p-1 bg-white/[0.09] rounded text-white text-xs">✓</button>
-            <button onClick={() => { setTextOverlay(null); setTextInputVal(""); }} className="p-1 bg-white/[0.08] rounded text-gray-400 text-xs">✗</button>
+            <button onClick={() => { setTextOverlay(null); setTextInputVal(""); }} className="p-1 bg-white/[0.08] rounded text-white/50 text-xs">✗</button>
           </div>
         )}
 
@@ -1804,7 +1802,7 @@ export function BacktestChart({
             <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${openTrade.direction === "LONG" ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
               {openTrade.direction}
             </span>
-            <span className="text-gray-500">Entry <b className="text-white">{openTrade.entryPrice.toFixed(3)}</b></span>
+            <span className="text-white/40">Entry <b className="text-white">{openTrade.entryPrice.toFixed(3)}</b></span>
             <span className="w-px h-3 bg-white/[0.08]" />
             <span className={`font-bold ${openTradeUnrealised >= 0 ? "text-green-500" : "text-red-500"}`}>
               {openTradeUnrealised >= 0 ? "+" : ""}${openTradeUnrealised.toFixed(2)}
@@ -1823,7 +1821,7 @@ export function BacktestChart({
           const applicableTemplates = (settings.drawingTemplates || []).filter(t => t.type === sel.type);
 
           return (
-            <div className="absolute z-30 flex flex-col bg-black/80 border border-white/[0.10] rounded-lg p-2 shadow-2xl select-none font-mono text-[9px] min-w-[220px]"
+            <div className="absolute z-30 flex flex-col bg-black/85 backdrop-blur-xl border border-white/[0.10] rounded-lg p-2 shadow-2xl select-none font-mono text-[9px] min-w-[220px]"
               style={{ left: `${Math.max(10, xy.x - 40)}px`, top: `${Math.max(10, xy.y - 65)}px`, transform: "translateY(-50%)" }}>
               
               <div className="flex items-center gap-2">
@@ -1863,7 +1861,7 @@ export function BacktestChart({
                   className={`px-1.5 py-0.5 rounded font-bold border transition-colors flex items-center gap-1 cursor-pointer ${
                     isTemplateMenuOpen
                       ? "bg-white/[0.07] border-white/[0.12] text-white/65"
-                      : "bg-white/[0.06] border-white/[0.08] text-gray-400 hover:text-white"
+                      : "bg-white/[0.04] border border-white/[0.08] text-white/40 hover:text-white"
                   }`}
                   title="Templates menu"
                 >
@@ -1874,7 +1872,7 @@ export function BacktestChart({
 
                 {/* Delete button */}
                 <button onClick={e => { e.stopPropagation(); handleDeleteDrawing(selectedDrawingId); }}
-                  className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors flex items-center cursor-pointer" title="Delete">
+                  className="p-1 rounded text-white/35 hover:text-red-400 hover:bg-red-500/10 transition-colors flex items-center cursor-pointer" title="Delete">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -1904,7 +1902,7 @@ export function BacktestChart({
                   {applicableTemplates.length > 0 && (
                     <>
                       <div className="h-px bg-white/[0.08] my-0.5" />
-                      <span className="px-2 text-[7px] text-gray-500 font-bold uppercase tracking-wider">APPLY TEMPLATE:</span>
+                      <span className="px-2 text-[7px] text-white/35 font-bold uppercase tracking-wider">APPLY TEMPLATE:</span>
                       {applicableTemplates.map((t) => (
                         <div key={t.id} className="flex items-center justify-between hover:bg-white/[0.06] rounded px-2 py-0.5 group/item">
                           <button
@@ -1912,7 +1910,7 @@ export function BacktestChart({
                               handleUpdateDrawingColor(t.color);
                               setIsTemplateMenuOpen(false);
                             }}
-                            className="text-left text-gray-300 font-medium truncate w-[100px]"
+                            className="text-left text-white/65 font-medium truncate w-[100px]"
                             title={`Apply ${t.name}`}
                           >
                             {t.name}
@@ -1922,7 +1920,7 @@ export function BacktestChart({
                               const updatedTemplates = (settings.drawingTemplates || []).filter(item => item.id !== t.id);
                               onSettingsChange({ drawingTemplates: updatedTemplates });
                             }}
-                            className="text-gray-500 hover:text-red-500 opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5"
+                            className="text-white/30 hover:text-red-400 opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5"
                             title="Delete Template"
                           >
                             <X className="w-2.5 h-2.5" />
@@ -1950,7 +1948,7 @@ export function BacktestChart({
           </button>
           <div className="w-px h-4 bg-white/[0.08]" />
           <button onClick={() => setIsSettingsModalOpen(true)}
-            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-white/[0.06] transition-all active:scale-90 cursor-pointer flex items-center"
+            className="p-1.5 rounded text-white/40 hover:text-white hover:bg-white/[0.06] transition-all active:scale-90 cursor-pointer flex items-center"
             title="Chart Settings">
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -1967,7 +1965,7 @@ export function BacktestChart({
                   <Settings className="w-4 h-4 text-white/55" />
                   <span className="font-bold text-white text-sm tracking-tight font-mono">CHART SETTINGS</span>
                 </div>
-                <button onClick={() => setIsSettingsModalOpen(false)} className="p-1.5 rounded-lg hover:bg-white/[0.06] text-gray-500 hover:text-white transition-colors cursor-pointer">
+                <button onClick={() => setIsSettingsModalOpen(false)} className="p-1.5 rounded-lg hover:bg-white/[0.06] text-white/35 hover:text-white transition-colors cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -2039,11 +2037,11 @@ export function BacktestChart({
                   <div key={key} className="flex items-center justify-between bg-black/80/30 rounded-lg px-3.5 py-2.5 border border-white/[0.08]/60 hover:bg-black/80/60 transition-colors">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-white font-bold tracking-tight">{label}</span>
-                      <span className="text-[9px] text-gray-500">{desc}</span>
+                      <span className="text-[9px] text-white/35">{desc}</span>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer select-none">
                       <input type="checkbox" checked={settings[key]} onChange={e => onSettingsChange({ [key]: e.target.checked })} className="sr-only peer" />
-                      <div className={`w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${color === "yellow" ? "peer-checked:bg-white/[0.16]" : "peer-checked:bg-white/[0.12]"} peer-checked:after:bg-white`} />
+                      <div className={`w-9 h-5 bg-white/[0.08] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white/60 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${color === "yellow" ? "peer-checked:bg-white/[0.16]" : "peer-checked:bg-white/[0.12]"} peer-checked:after:bg-white`} />
                     </label>
                   </div>
                 ))}
