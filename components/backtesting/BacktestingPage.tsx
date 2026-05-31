@@ -1,11 +1,15 @@
 "use client";
 
-// ─── BacktestingPage ──────────────────────────────────────────────────────────
-// Orchestrates: ControlsBar → load data → ReplayBar → BacktestChart + ResultsPanel.
-// Manages replay state, live feed, and manual trade tracking.
+// ─── BacktestingPage Coordinator ──────────────────────────────────────────────
+// Manages:
+//  • Sessions Dashboard view (when activeSession is null)
+//  • High-fidelity Trading Replay interface (when activeSession is active)
+//  • Local Storage session syncing (drawings, trades, metrics, balance)
+//  • Creating sessions via modal popover (leveraging 14 symbols and custom dates)
+//  • Step replay engines, live feeds, and real-time execution panels
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import type { Candle, ControlsState, ReplayState, LiveStatus, ManualTrade, ReplaySpeed } from "./types";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import type { Candle, ControlsState, ReplayState, LiveStatus, ManualTrade, ReplaySpeed, Session, Drawing } from "./types";
 import { fetchCandleRange, clearCandleCache, resampleCandles, getLastFetchedSource } from "./dataFetcher";
 import {
   initialReplayState, enterSelectMode, confirmStartBar,
@@ -13,31 +17,21 @@ import {
   setSpeed, SPEED_INTERVALS,
 } from "./replayEngine";
 import { LiveDataFeed }  from "./liveDataFeed";
-import { TradeTracker }  from "./tradeTracker";
+import { TradeTracker, computeMetrics }  from "./tradeTracker";
 import { BacktestChart } from "./BacktestChart";
-import { ControlsBar }   from "./ControlsBar";
 import { ReplayBar }     from "./ReplayBar";
-import { ResultsPanel }  from "./ResultsPanel";
-
-// ── Default controls ──────────────────────────────────────────────────────────
-const defaultControls = (): ControlsState => {
-  const to   = new Date();
-  const from = new Date();
-  from.setFullYear(from.getFullYear() - 1);
-  return {
-    instrument: "xauusd",
-    fromDate:   from.toISOString().slice(0, 10),
-    toDate:     to.toISOString().slice(0, 10),
-    timeframe:  "1H",
-    lotSize:    1_000,
-  };
-};
-
-const INITIAL_CAPITAL = 10_000;
+import { NewSessionModal } from "./NewSessionModal";
+import { SessionDashboard } from "./SessionDashboard";
+import { ExecutionPanel } from "./ExecutionPanel";
+import { ArrowLeft, Play, Layout, RotateCcw, AlertTriangle } from "lucide-react";
 
 export function BacktestingPage() {
-  // ── State ────────────────────────────────────────────────────────────────
-  const [controls,      setControls]     = useState<ControlsState>(defaultControls);
+  // ── Session State & Local Storage Persistence ──────────────────────────────
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [activeSession, setActiveSession] = useState<Session | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // ── Trading & Replay State ──
   const [rawCandles,    setRawCandles]   = useState<Candle[]>([]);    // 1m base data
   const [displayCandles,setDisplay]      = useState<Candle[]>([]);    // resampled for TF
   const [isLoading,     setLoading]      = useState(false);
@@ -52,53 +46,123 @@ export function BacktestingPage() {
   const [unrealised,    setUnrealised]   = useState(0);
   const [dataSource,    setDataSource]   = useState<string | null>(null);
 
+  // Active Symbol Lot Sizing & Settings
+  const [lotSize, setLotSize] = useState(10);
+  const [activeTimeframe, setActiveTimeframe] = useState<"1m" | "5m" | "15m" | "1H" | "4H" | "1D">("15m");
+
   // ── Refs ─────────────────────────────────────────────────────────────────
   const trackerRef    = useRef(new TradeTracker());
   const liveFeedRef   = useRef<LiveDataFeed | null>(null);
   const playTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef      = useRef<AbortController | null>(null);
-  const displayRef    = useRef<Candle[]>([]);  // mirror for use inside timers
+  const displayRef    = useRef<Candle[]>([]);
 
-  // Keep displayRef in sync
   useEffect(() => { displayRef.current = displayCandles; }, [displayCandles]);
 
-  // ── Load data ─────────────────────────────────────────────────────────────
-  const handleLoad = useCallback(async (ctrl?: ControlsState) => {
-    const c = ctrl ?? controls;
+  // Load saved sessions on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("stratix_backtest_sessions");
+    if (saved) {
+      try {
+        setSessions(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to load saved backtesting sessions", e);
+      }
+    }
+  }, []);
+
+  // ── Replay Helpers ──
+  function stopPlayTimer() {
+    if (playTimerRef.current) {
+      clearInterval(playTimerRef.current);
+      playTimerRef.current = null;
+    }
+  }
+
+  function startPlayTimer(speed: ReplaySpeed) {
+    stopPlayTimer();
+    const ms = SPEED_INTERVALS[String(speed)] ?? 1000;
+    playTimerRef.current = setInterval(() => {
+      setReplay((s) => {
+        const next = stepForward(s, displayRef.current.length - 1);
+        if (next.currentIdx >= displayRef.current.length - 1) {
+          clearInterval(playTimerRef.current!);
+          playTimerRef.current = null;
+          return pausePlaying(next);
+        }
+        return next;
+      });
+    }, ms);
+  }
+
+  // ── Session Operations ──
+  const handleOpenModal = () => setIsModalOpen(true);
+  const handleCloseModal = () => setIsModalOpen(false);
+
+  const handleCreateSession = (data: Omit<Session, "id" | "createdAt" | "trades" | "drawings">) => {
+    const newSession: Session = {
+      ...data,
+      id: String(Date.now()),
+      createdAt: Date.now(),
+      trades: [],
+      drawings: [],
+    };
+    const updated = [...sessions, newSession];
+    setSessions(updated);
+    localStorage.setItem("stratix_backtest_sessions", JSON.stringify(updated));
+    setIsModalOpen(false);
+    handleSelectSession(newSession);
+  };
+
+  const handleDeleteSession = (id: string) => {
+    const updated = sessions.filter(s => s.id !== id);
+    setSessions(updated);
+    localStorage.setItem("stratix_backtest_sessions", JSON.stringify(updated));
+  };
+
+  const handleSelectSession = useCallback(async (session: Session) => {
+    setActiveSession(session);
+    setClosedTrades(session.trades || []);
+    setOpenTrade(null);
+    setUnrealised(0);
+    setDataSource(null);
+    
+    // Sync tracking engine with session's closed trades list
+    trackerRef.current.reset();
+    trackerRef.current.closed = [...session.trades];
+
+    // Load data from the static CSV downloader or fall back to live API
     abortRef.current?.abort();
     const abort = new AbortController();
     abortRef.current = abort;
 
     stopPlayTimer();
     liveFeedRef.current?.stop();
-    trackerRef.current.reset();
     setReplay(initialReplayState());
-    setOpenTrade(null);
-    setClosedTrades([]);
-    setUnrealised(0);
     setDisplay([]);
     setRawCandles([]);
     setLiveCandle(null);
     setError(null);
     setLoading(true);
     setLoadProgress(0);
-    setLoadLabel("Starting…");
-    setDataSource(null);
+    setLoadLabel("Fetching static candles...");
 
     try {
       const raw = await fetchCandleRange(
-        c.instrument, c.fromDate, c.toDate,
+        session.symbol,
+        session.startDate,
+        session.endDate,
         (pct, label) => { setLoadProgress(pct); setLoadLabel(label); },
         abort.signal,
       );
-      const resampled = resampleCandles(raw, c.timeframe);
+      const resampled = resampleCandles(raw, activeTimeframe);
       setRawCandles(raw);
       setDisplay(resampled);
       setDataSource(getLastFetchedSource());
 
-      // Start live feed
+      // Start the real-time live feed for updating the chart
       const feed = new LiveDataFeed(
-        c.instrument,
+        session.symbol,
         (candle) => setLiveCandle(candle),
         (status) => setLiveStatus(status),
       );
@@ -114,64 +178,107 @@ export function BacktestingPage() {
         setLoadProgress(100);
       }
     }
-  }, [controls]);
+  }, [activeTimeframe]);
 
-  // ── Timeframe change (resample without re-fetching) ───────────────────────
-  const handleTimeframeChange = useCallback((tf: string) => {
-    setControls((prev) => {
-      const next = { ...prev, timeframe: tf as ControlsState["timeframe"] };
-      if (rawCandles.length > 0) {
-        const resampled = resampleCandles(rawCandles, next.timeframe);
-        setDisplay(resampled);
-        stopPlayTimer();
-        setReplay(initialReplayState());
-      }
-      return next;
-    });
-  }, [rawCandles]);
-
-  // ── Controls change handler ──────────────────────────────────────────────
-  const handleChange = useCallback((next: Partial<ControlsState>) => {
-    if ("timeframe" in next && next.timeframe) {
-      handleTimeframeChange(next.timeframe);
-    } else {
-      setControls((prev) => ({ ...prev, ...next }));
-    }
-  }, [handleTimeframeChange]);
-
-  // ── Play timer helpers ────────────────────────────────────────────────────
-  function stopPlayTimer() {
-    if (playTimerRef.current) {
-      clearInterval(playTimerRef.current);
-      playTimerRef.current = null;
-    }
-  }
-
-  function startPlayTimer(speed: ReplaySpeed) {
+  const handleExitToDashboard = () => {
     stopPlayTimer();
-    const ms = SPEED_INTERVALS[String(speed)] ?? 1000;
-    playTimerRef.current = setInterval(() => {
-      setReplay((s) => {
-        const next = stepForward(s, displayRef.current.length - 1);
-        if (next.currentIdx >= displayRef.current.length - 1) {
-          // Reached end — stop
-          clearInterval(playTimerRef.current!);
-          playTimerRef.current = null;
-          return pausePlaying(next);
-        }
-        return next;
-      });
-    }, ms);
-  }
+    liveFeedRef.current?.stop();
+    setActiveSession(null);
+    setRawCandles([]);
+    setDisplay([]);
+  };
 
-  // ── Replay actions ────────────────────────────────────────────────────────
+  // ── Sync drawings & trades to local storage ──
+  const handleDrawingsChange = (newDrawings: Drawing[]) => {
+    if (!activeSession) return;
+    const updated: Session = { ...activeSession, drawings: newDrawings };
+    setActiveSession(updated);
+
+    const updatedList = sessions.map(s => s.id === activeSession.id ? updated : s);
+    setSessions(updatedList);
+    localStorage.setItem("stratix_backtest_sessions", JSON.stringify(updatedList));
+  };
+
+  const updateActiveSessionTrades = (newTrades: ManualTrade[]) => {
+    if (!activeSession) return;
+    const updated: Session = { ...activeSession, trades: newTrades };
+    setActiveSession(updated);
+
+    const updatedList = sessions.map(s => s.id === activeSession.id ? updated : s);
+    setSessions(updatedList);
+    localStorage.setItem("stratix_backtest_sessions", JSON.stringify(updatedList));
+  };
+
+  // ── Orders Placement ──
+  const handleBuy = useCallback(() => {
+    const candle = displayRef.current[replay.currentIdx];
+    if (!candle) return;
+    const entered = trackerRef.current.enter("LONG", candle, lotSize);
+    if (entered) {
+      setOpenTrade({ ...trackerRef.current.open! });
+      setClosedTrades([...trackerRef.current.closed]);
+      updateActiveSessionTrades([...trackerRef.current.closed]);
+    }
+  }, [replay.currentIdx, lotSize, activeSession]);
+
+  const handleSell = useCallback(() => {
+    const candle = displayRef.current[replay.currentIdx];
+    if (!candle) return;
+    const entered = trackerRef.current.enter("SHORT", candle, lotSize);
+    if (entered) {
+      setOpenTrade(trackerRef.current.open ? { ...trackerRef.current.open } : null);
+      setClosedTrades([...trackerRef.current.closed]);
+      updateActiveSessionTrades([...trackerRef.current.closed]);
+    }
+  }, [replay.currentIdx, lotSize, activeSession]);
+
+  // Handle closing of open positions
+  const handleClosePosition = () => {
+    const candle = displayRef.current[replay.currentIdx];
+    if (!candle) return;
+    const closed = trackerRef.current.close(candle);
+    if (closed) {
+      setOpenTrade(null);
+      setClosedTrades([...trackerRef.current.closed]);
+      updateActiveSessionTrades([...trackerRef.current.closed]);
+    }
+  };
+
+  // Update floating P&L on replay candle changes
+  useEffect(() => {
+    if (!openTrade) { setUnrealised(0); return; }
+    const candle = displayCandles[replay.currentIdx];
+    if (candle) setUnrealised(trackerRef.current.unrealizedPnl(candle.close));
+  }, [replay.currentIdx, openTrade, displayCandles]);
+
+  // Clean play timers on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      liveFeedRef.current?.stop();
+      stopPlayTimer();
+      clearCandleCache();
+    };
+  }, []);
+
+  // ── Timeframe resampling without re-fetching ──
+  const handleTimeframeChange = (tf: typeof activeTimeframe) => {
+    setActiveTimeframe(tf);
+    if (rawCandles.length > 0) {
+      const resampled = resampleCandles(rawCandles, tf);
+      setDisplay(resampled);
+      stopPlayTimer();
+      setReplay(initialReplayState());
+    }
+  };
+
+  // ── Replay Actions ──
   const handleSelectStart = useCallback(() => {
     setReplay((s) => enterSelectMode(s));
   }, []);
 
   const handleStartBarSelect = useCallback((idx: number) => {
     setReplay((s) => confirmStartBar(s, idx));
-    // Pause live feed during replay
     liveFeedRef.current?.stop();
     setLiveStatus("stopped");
   }, []);
@@ -182,7 +289,7 @@ export function BacktestingPage() {
       startPlayTimer(next.speed);
       return next;
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handlePause = useCallback(() => {
     stopPlayTimer();
@@ -208,7 +315,7 @@ export function BacktestingPage() {
       if (next.playing) startPlayTimer(speed);
       return next;
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleStop = useCallback(() => {
     stopPlayTimer();
@@ -217,128 +324,220 @@ export function BacktestingPage() {
     setOpenTrade(null);
     setClosedTrades([]);
     setUnrealised(0);
-    // Resume live feed
-    if (displayCandles.length > 0) {
+    updateActiveSessionTrades([]);
+    
+    if (displayCandles.length > 0 && activeSession) {
       const feed = new LiveDataFeed(
-        controls.instrument,
+        activeSession.symbol,
         (candle) => setLiveCandle(candle),
         (status) => setLiveStatus(status),
       );
       liveFeedRef.current = feed;
       feed.start();
     }
-  }, [controls.instrument, displayCandles.length]);
+  }, [activeSession, displayCandles.length]);
 
-  // ── Manual trade actions ──────────────────────────────────────────────────
-  const handleBuy = useCallback(() => {
-    const candle = displayRef.current[replay.currentIdx];
-    if (!candle) return;
-    const entered = trackerRef.current.enter("LONG", candle, controls.lotSize);
-    if (entered) {
-      setOpenTrade({ ...trackerRef.current.open! });
-      setClosedTrades([...trackerRef.current.closed]);
-    }
-  }, [replay.currentIdx, controls.lotSize]);
+  // Derived real-time session stats
+  const activeMetrics = useMemo(() => {
+    if (!activeSession) return { totalTrades: 0, winRate: 0, totalPnl: 0, profitFactor: 0 };
+    return computeMetrics(closedTrades, activeSession.startingBalance);
+  }, [closedTrades, activeSession]);
 
-  const handleSell = useCallback(() => {
-    const candle = displayRef.current[replay.currentIdx];
-    if (!candle) return;
-    const entered = trackerRef.current.enter("SHORT", candle, controls.lotSize);
-    if (entered) {
-      setOpenTrade(trackerRef.current.open ? { ...trackerRef.current.open } : null);
-      setClosedTrades([...trackerRef.current.closed]);
-    }
-  }, [replay.currentIdx, controls.lotSize]);
-
-  // ── Update unrealised P&L on each new replay bar ─────────────────────────
-  useEffect(() => {
-    if (!openTrade) { setUnrealised(0); return; }
-    const candle = displayCandles[replay.currentIdx];
-    if (candle) setUnrealised(trackerRef.current.unrealizedPnl(candle.close));
-  }, [replay.currentIdx, openTrade, displayCandles]);
-
-  // ── Cleanup on unmount ────────────────────────────────────────────────────
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-      liveFeedRef.current?.stop();
-      stopPlayTimer();
-      clearCandleCache();
-    };
-  }, []);
-
-  // ── Derived ──────────────────────────────────────────────────────────────
   const currentCandle = replay.active && displayCandles[replay.currentIdx]
     ? displayCandles[replay.currentIdx]
     : null;
 
-  return (
-    <div className="flex flex-col w-full h-full bg-[#0c0e14] overflow-hidden">
-      {/* ── Controls bar ────────────────────────────────────────────────── */}
-      <ControlsBar
-        controls={controls}
-        onChange={handleChange}
-        onLoad={() => handleLoad()}
-        isLoading={isLoading}
-        progress={loadProgress}
-        loadLabel={loadLabel}
-        dataSource={dataSource}
-      />
+  const currentPrice = currentCandle ? currentCandle.close : (liveCandle ? liveCandle.close : 0);
 
-      {/* ── Error banner ────────────────────────────────────────────────── */}
-      {error && (
-        <div className="shrink-0 bg-red-900/20 border-b border-red-800/50 px-4 py-2 text-[12px] text-red-400">
-          ⚠ {error}
+  // ── Render Dashboard Mode (Active Session is null) ──
+  if (!activeSession) {
+    return (
+      <div className="w-full h-full relative">
+        <SessionDashboard
+          sessions={sessions}
+          onSelectSession={handleSelectSession}
+          onDeleteSession={handleDeleteSession}
+          onOpenNewSessionModal={handleOpenModal}
+        />
+        <NewSessionModal
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          onCreate={handleCreateSession}
+        />
+      </div>
+    );
+  }
+
+  // ── Render Chart View Mode (Active Session is active) ──
+  return (
+    <div className="flex flex-col w-full h-full bg-[#0c0e14] overflow-hidden text-gray-200">
+      
+      {/* ── Active Session top bar header (Image 2 styling) ── */}
+      <div className="h-14 shrink-0 bg-[#0c0e14] border-b border-[#23262f] flex items-center justify-between px-4">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleExitToDashboard}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#23262f] hover:border-gray-500 text-gray-400 hover:text-white transition-all text-xs font-bold active:scale-95"
+            title="Exit Session"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Sessions
+          </button>
+          
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-white uppercase tracking-tight">{activeSession.symbol}</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/10 text-blue-400 font-bold border border-blue-500/15">Active</span>
+              <span className="text-[10px] text-gray-500 font-mono">Lev {activeSession.leverage}</span>
+            </div>
+            <span className="text-[9px] text-gray-600 font-mono">{activeSession.name}</span>
+          </div>
+        </div>
+
+        {/* Live balance and P&L indicators */}
+        <div className="flex items-center gap-6 text-xs font-mono select-none">
+          <div className="flex flex-col">
+            <span className="text-gray-500 text-[9px] uppercase font-semibold">Balance</span>
+            <span className="text-white font-bold">${(activeSession.startingBalance + activeMetrics.totalPnl).toFixed(2)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-gray-500 text-[9px] uppercase font-semibold">P&L</span>
+            <span className={`font-bold ${activeMetrics.totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+              {activeMetrics.totalPnl >= 0 ? "+" : ""}${activeMetrics.totalPnl.toFixed(2)}
+            </span>
+          </div>
+        </div>
+
+        {/* Timeframe switchers */}
+        <div className="flex p-0.5 rounded-lg bg-[#141720] border border-[#23262f]">
+          {(["1m", "5m", "15m", "1H", "4H", "1D"] as const).map((tf) => (
+            <button
+              key={tf}
+              disabled={isLoading}
+              onClick={() => handleTimeframeChange(tf)}
+              className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
+                activeTimeframe === tf
+                  ? "bg-[#2563eb] text-white"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              {tf}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Progress loaders */}
+      {isLoading && (
+        <div className="shrink-0 bg-blue-900/10 border-b border-blue-900/20 px-4 py-2 text-xs flex items-center gap-3">
+          <span className="h-3 w-3 border-2 border-blue-500/40 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-blue-400 font-mono">{loadProgress}% {loadLabel}</span>
         </div>
       )}
 
-      {/* ── Replay bar (only when data loaded) ──────────────────────────── */}
-      {displayCandles.length > 0 && (
-        <ReplayBar
-          replay={replay}
-          currentCandle={currentCandle}
-          totalCandles={displayCandles.length}
-          hasData={displayCandles.length > 0}
-          onSelectStart={handleSelectStart}
-          onPlay={handlePlay}
-          onPause={handlePause}
-          onNext={handleNext}
-          onPrev={handlePrev}
-          onJumpToStart={handleJumpToStart}
-          onStop={handleStop}
-          onSpeedChange={handleSpeedChange}
-        />
+      {/* Error banner */}
+      {error && (
+        <div className="shrink-0 bg-red-950/25 border-b border-red-900/20 px-4 py-2 text-xs text-red-400 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
       )}
 
-      {/* ── Main content: chart + results ───────────────────────────────── */}
-      <div className="flex flex-1 min-h-0">
-        {/* Chart — 65% */}
-        <div className="flex-[65] min-w-0 h-full">
-          <BacktestChart
-            candles={displayCandles}
-            replayIndex={replay.active ? replay.currentIdx : null}
-            replayStartIndex={replay.active ? replay.startIdx : null}
-            isSelectingStart={replay.selectingStart}
-            onStartBarSelect={handleStartBarSelect}
-            manualTrades={closedTrades}
-            openTrade={openTrade}
-            openTradeUnrealised={unrealised}
-            liveCandle={liveCandle}
-            liveStatus={liveStatus}
-            isInReplay={replay.active}
+      {/* ── Main Workspace Body (Chart + Replay controls + Order panel) ── */}
+      <div className="flex-1 min-h-0 flex w-full relative">
+        
+        {/* Left Side: Chart Canvas & Bottom controls */}
+        <div className="flex-1 min-w-0 flex flex-col h-full bg-[#0c0e14]">
+          
+          {/* Replay Controls (Docked right under header if replay is running) */}
+          {displayCandles.length > 0 && (
+            <div className="h-11 shrink-0 bg-[#0c0e14] border-b border-[#23262f]">
+              <ReplayBar
+                replay={replay}
+                currentCandle={currentCandle}
+                totalCandles={displayCandles.length}
+                hasData={displayCandles.length > 0}
+                onSelectStart={handleSelectStart}
+                onPlay={handlePlay}
+                onPause={handlePause}
+                onNext={handleNext}
+                onPrev={handlePrev}
+                onJumpToStart={handleJumpToStart}
+                onStop={handleStop}
+                onSpeedChange={handleSpeedChange}
+              />
+            </div>
+          )}
+
+          {/* Lightweight-charts Canvas Overlay Container */}
+          <div className="flex-1 min-h-0 relative w-full">
+            <BacktestChart
+              candles={displayCandles}
+              replayIndex={replay.active ? replay.currentIdx : null}
+              replayStartIndex={replay.active ? replay.startIdx : null}
+              isSelectingStart={replay.selectingStart}
+              onStartBarSelect={handleStartBarSelect}
+              manualTrades={closedTrades}
+              openTrade={openTrade}
+              openTradeUnrealised={unrealised}
+              liveCandle={liveCandle}
+              liveStatus={liveStatus}
+              isInReplay={replay.active}
+              onBuy={handleBuy}
+              onSell={handleSell}
+              
+              // Custom drawings canvas support
+              drawings={activeSession.drawings || []}
+              onDrawingsChange={handleDrawingsChange}
+            />
+          </div>
+
+          {/* Bottom Open Positions Panel */}
+          {openTrade && (
+            <div className="h-16 bg-[#0c0e14] border-t border-[#23262f] px-4.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#5e6673]">Active Position</span>
+                <div className="font-mono flex items-center gap-3">
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                    openTrade.direction === "LONG" 
+                      ? "bg-green-500/15 text-green-400" 
+                      : "bg-red-500/15 text-red-400"
+                  }`}>
+                    {openTrade.direction}
+                  </span>
+                  <span>Lots: <b className="text-white">{openTrade.lotSize}</b></span>
+                  <span>Entry: <b className="text-white">{openTrade.entryPrice.toFixed(3)}</b></span>
+                  <span>Floating P&L: <b className={unrealised >= 0 ? "text-green-500" : "text-red-500"}>
+                    {unrealised >= 0 ? "+" : ""}${unrealised.toFixed(2)}
+                  </b></span>
+                </div>
+              </div>
+
+              <button
+                onClick={handleClosePosition}
+                className="px-4 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-500 text-white transition-all active:scale-95 shadow-md shadow-red-950/20"
+              >
+                Close Position
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Right Side: High-Premium Execution Sidebar Panel */}
+        <div className="w-64 border-l border-[#23262f] bg-[#0c0e14] shrink-0 h-full">
+          <ExecutionPanel
+            symbol={activeSession.symbol}
+            currentPrice={currentPrice}
+            lotSize={lotSize}
+            onLotSizeChange={setLotSize}
             onBuy={handleBuy}
             onSell={handleSell}
-          />
-        </div>
-
-        {/* Divider */}
-        <div className="w-px bg-[#2a2a2a] shrink-0" />
-
-        {/* Results — 35% */}
-        <div className="flex-[35] min-w-0 h-full bg-[#0f0f0f] overflow-y-auto">
-          <ResultsPanel
-            trades={closedTrades}
-            initialCapital={INITIAL_CAPITAL}
+            
+            // Stats feeds
+            totalTrades={activeMetrics.totalTrades}
+            winRate={activeMetrics.winRate}
+            totalPnl={activeMetrics.totalPnl}
+            profitFactor={activeMetrics.profitFactor}
           />
         </div>
       </div>

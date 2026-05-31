@@ -94,3 +94,45 @@ export interface ReplayMetrics {
   worstTrade: number;
   equityCurve: { time: number; value: number }[];
 }
+
+// ─── Drawing Tools & Coordinate Space ──────────────────────────────────────────
+
+export type DrawingType = "trendline" | "rectangle" | "fib" | "long" | "short" | "text" | "cursor" | "eraser";
+
+export interface TimePricePoint {
+  time: number; // Unix-second timestamp
+  price: number;
+}
+
+export interface Drawing {
+  id: string;
+  type: DrawingType;
+  points: TimePricePoint[]; // points representing drawings in time-price space
+  text?: string;
+  color?: string;
+  // Specific settings for long/short risk positions
+  riskSettings?: {
+    entry: number;
+    stopLoss: number;
+    takeProfit: number;
+    riskRewardRatio: number;
+  };
+}
+
+// ─── Backtest Session persistence ─────────────────────────────────────────────
+
+export interface Session {
+  id: string;
+  name: string;
+  description: string;
+  strategy: string;
+  symbol: InstrumentKey;
+  startDate: string;
+  endDate: string;
+  startingBalance: number;
+  leverage: string;
+  createdAt: number;
+  trades: ManualTrade[];
+  drawings: Drawing[];
+}
+

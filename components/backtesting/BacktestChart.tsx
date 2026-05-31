@@ -1,14 +1,14 @@
 "use client";
 
 // ─── BacktestChart ─────────────────────────────────────────────────────────────
-// Renders candlesticks for XAUUSD/BTCUSD with:
-//  • Bar-by-bar replay (sliced data)
-//  • Live candle updates via series.update()
-//  • Click-to-set-start-bar interaction
-//  • Manual trade markers (entries/exits)
-//  • BUY/SELL overlay buttons (during replay)
+// High-fidelity chart rendering using lightweight-charts, featuring:
+//  • Vertical drawing toolbar on the left (Cursor, Trendline, Rectangle, Fib, Long, Short)
+//  • Synchronized SVG Canvas Overlay matching time & price coordinate spaces
+//  • Click-to-place and hover previews for multi-point drawing shapes
+//  • Dynamic Redraw listener updating SVG coordinates during scroll & zoom
+//  • Click-to-set start bar selection, manual trade markers, and live badges
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   createChart,
   CrosshairMode,
@@ -19,7 +19,11 @@ import {
   type CandlestickData,
   type HistogramData,
 } from "lightweight-charts";
-import type { Candle, ManualTrade, LiveStatus } from "./types";
+import type { Candle, ManualTrade, LiveStatus, Drawing, DrawingType, TimePricePoint } from "./types";
+import { 
+  MousePointer, Slash, Square, Grid, 
+  ArrowUpRight, ArrowDownRight, Trash2, HelpCircle 
+} from "lucide-react";
 
 interface Props {
   candles:            Candle[];           // full loaded candles
@@ -35,21 +39,32 @@ interface Props {
   isInReplay:         boolean;            // show BUY/SELL buttons
   onBuy:              () => void;
   onSell:             () => void;
+  
+  // Drawings support
+  drawings:           Drawing[];
+  onDrawingsChange:   (drawings: Drawing[]) => void;
 }
 
-const CHART_BG = "#0f0f0f";
-const GRID     = "#1a1a1a";
-const TEXT     = "#8a9bb0";
+const CHART_BG = "#0c0e14";
+const GRID     = "#181a20";
+const TEXT     = "#5e6673";
 
 export function BacktestChart({
   candles, replayIndex, replayStartIndex, isSelectingStart,
   onStartBarSelect, manualTrades, openTrade, openTradeUnrealised,
   liveCandle, liveStatus, isInReplay, onBuy, onSell,
+  drawings, onDrawingsChange,
 }: Props) {
-  const containerRef   = useRef<HTMLDivElement>(null);
-  const chartRef       = useRef<IChartApi | null>(null);
-  const candleSeriesRef= useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const volSeriesRef   = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const containerRef    = useRef<HTMLDivElement>(null);
+  const chartRef        = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const volSeriesRef    = useRef<ISeriesApi<"Histogram"> | null>(null);
+
+  // Drawing Tools State
+  const [activeTool, setActiveTool] = useState<DrawingType>("cursor");
+  const [previewDrawing, setPreviewDrawing] = useState<Drawing | null>(null);
+  const activeDrawingRef = useRef<Drawing | null>(null);
+  const [redrawTrigger, setRedrawTrigger] = useState(0);
 
   // ── Build chart on mount ──────────────────────────────────────────────────
   const buildChart = useCallback(() => {
@@ -62,10 +77,12 @@ export function BacktestChart({
       layout: {
         background: { color: CHART_BG },
         textColor:  TEXT,
+        fontSize:   10,
+        fontFamily: "monospace",
       },
       grid: {
-        vertLines: { color: GRID },
-        horzLines: { color: GRID },
+        vertLines: { color: GRID, style: 2 },
+        horzLines: { color: GRID, style: 2 },
       },
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: {
@@ -78,30 +95,35 @@ export function BacktestChart({
     chartRef.current = chart;
 
     const candleSeries = chart.addCandlestickSeries({
-      upColor:         "#F0B90B",
-      downColor:       "#F6465D",
-      borderUpColor:   "#F0B90B",
-      borderDownColor: "#F6465D",
-      wickUpColor:     "#F0B90B",
-      wickDownColor:   "#F6465D",
+      upColor:         "#2563eb",
+      downColor:       "#ef4444",
+      borderUpColor:   "#2563eb",
+      borderDownColor: "#ef4444",
+      wickUpColor:     "#2563eb",
+      wickDownColor:   "#ef4444",
     });
     candleSeriesRef.current = candleSeries;
 
     const volSeries = chart.addHistogramSeries({
-      color:       "rgba(240,185,11,0.3)",
+      color:       "rgba(37,99,235,0.15)",
       priceFormat: { type: "volume" },
       priceScaleId:"volume",
     });
     chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     volSeriesRef.current = volSeries;
 
+    // ── Grid scroll / zoom redrawing subscriber ───────────────────────────────
+    chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+      setRedrawTrigger((t) => t + 1);
+    });
+
     // ── Tooltip ───────────────────────────────────────────────────────────────
     const tooltip = document.createElement("div");
     tooltip.style.cssText = [
       "position:absolute", "top:8px", "left:8px",
-      "background:rgba(15,15,15,0.92)", "border:1px solid #2a2a2a",
+      "background:rgba(12,14,20,0.92)", "border:1px solid #23262f",
       "border-radius:6px", "padding:6px 10px",
-      "font-size:11px", "font-family:\"JetBrains Mono\",monospace",
+      "font-size:10px", "font-family:monospace",
       "color:#d1d5db", "pointer-events:none", "z-index:10",
       "line-height:1.7", "min-width:200px",
     ].join(";");
@@ -116,17 +138,18 @@ export function BacktestChart({
       const d = new Date((param.time as number) * 1000);
       tooltip.style.display = "block";
       tooltip.innerHTML = [
-        `<span style="color:#8a9bb0">${d.toISOString().replace("T"," ").slice(0,16)} UTC</span>`,
-        `O <b style="color:#F0B90B">${cData.open.toFixed(2)}</b>  ` +
-        `H <b style="color:#F0B90B">${cData.high.toFixed(2)}</b>  ` +
-        `L <b style="color:#F6465D">${cData.low.toFixed(2)}</b>  ` +
-        `C <b style="color:#F0B90B">${cData.close.toFixed(2)}</b>`,
+        `<span style="color:#5e6673">${d.toISOString().replace("T"," ").slice(0,16)} UTC</span>`,
+        `O <b style="color:#2563eb">${cData.open.toFixed(3)}</b>  ` +
+        `H <b style="color:#2563eb">${cData.high.toFixed(3)}</b>  ` +
+        `L <b style="color:#ef4444">${cData.low.toFixed(3)}</b>  ` +
+        `C <b style="color:#2563eb">${cData.close.toFixed(3)}</b>`,
       ].join("<br>");
     });
 
     // ── Auto-resize ───────────────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
       if (chartRef.current) chart.resize(el.clientWidth, el.clientHeight);
+      setRedrawTrigger((t) => t + 1);
     });
     ro.observe(el);
 
@@ -144,7 +167,92 @@ export function BacktestChart({
     return () => { cleanup?.(); };
   }, [buildChart]);
 
-  // ── Click handler for start-bar selection ────────────────────────────────
+  // ── Click and Crosshair listeners for placement ───────────────────────────
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+    if (!chart || !series) return;
+
+    // Click handler: starts or completes drawings
+    const clickHandler = (param: { point?: { x: number; y: number }; time?: Time }) => {
+      if (!param.point || !param.time || activeTool === "cursor") return;
+
+      const timeSec = param.time as number;
+      const price = series.coordinateToPrice(param.point.y);
+      if (price == null) return;
+
+      const p: TimePricePoint = { time: timeSec, price };
+
+      if (!activeDrawingRef.current) {
+        // Start drawing (First click)
+        const newDrawing: Drawing = {
+          id: String(Date.now()),
+          type: activeTool,
+          points: [p, p],
+        };
+        activeDrawingRef.current = newDrawing;
+        setPreviewDrawing(newDrawing);
+      } else {
+        // Complete drawing (Second click)
+        const finished: Drawing = {
+          ...activeDrawingRef.current,
+          points: [activeDrawingRef.current.points[0], p],
+        };
+
+        if (finished.type === "long" || finished.type === "short") {
+          const entry = finished.points[0].price;
+          const stopLoss = finished.points[1].price;
+          const dist = Math.abs(entry - stopLoss);
+          const tp = finished.type === "long" ? entry + dist * 2 : entry - dist * 2;
+          finished.riskSettings = {
+            entry,
+            stopLoss,
+            takeProfit: tp,
+            riskRewardRatio: 2.00,
+          };
+        }
+
+        onDrawingsChange([...drawings, finished]);
+        activeDrawingRef.current = null;
+        setPreviewDrawing(null);
+        setActiveTool("cursor"); // Return to pointer mode
+      }
+    };
+
+    // Hover handler: generates visual drawing previews
+    const hoverHandler = (param: { point?: { x: number; y: number }; time?: Time }) => {
+      if (!param.point || !param.time || activeTool === "cursor" || !activeDrawingRef.current) return;
+
+      const timeSec = param.time as number;
+      const price = series.coordinateToPrice(param.point.y);
+      if (price == null) return;
+
+      const p: TimePricePoint = { time: timeSec, price };
+      const updated: Drawing = {
+        ...activeDrawingRef.current,
+        points: [activeDrawingRef.current.points[0], p],
+      };
+      setPreviewDrawing(updated);
+    };
+
+    chart.subscribeClick(clickHandler);
+    chart.subscribeCrosshairMove(hoverHandler);
+
+    return () => {
+      chart.unsubscribeClick(clickHandler);
+      chart.unsubscribeCrosshairMove(hoverHandler);
+    };
+  }, [activeTool, drawings, onDrawingsChange]);
+
+  // Set crosshair cursor styling during drawing modes
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el) {
+      el.style.cursor = activeTool !== "cursor" || isSelectingStart ? "crosshair" : "default";
+    }
+  }, [activeTool, isSelectingStart]);
+
+  // ── Click to set start bar ───────────────────────────────────────────────
   useEffect(() => {
     const chart = chartRef.current;
     const series = candleSeriesRef.current;
@@ -153,7 +261,6 @@ export function BacktestChart({
     const handler = (param: { time?: Time }) => {
       if (!param.time) return;
       const clickTime = param.time as number;
-      // Find candle index by time
       const visible = replayIndex != null ? candles.slice(0, replayIndex + 1) : candles;
       const idx = visible.findIndex((c) => c.time === clickTime);
       if (idx >= 0) onStartBarSelect(idx);
@@ -162,12 +269,6 @@ export function BacktestChart({
     chart.subscribeClick(handler);
     return () => { chart.unsubscribeClick(handler); };
   }, [isSelectingStart, candles, replayIndex, onStartBarSelect]);
-
-  // ── Cursor style ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    const el = containerRef.current;
-    if (el) el.style.cursor = isSelectingStart ? "crosshair" : "default";
-  }, [isSelectingStart]);
 
   // ── Feed candle data (full or replayed slice) ────────────────────────────
   useEffect(() => {
@@ -183,20 +284,20 @@ export function BacktestChart({
     const vData: HistogramData[] = slice.map((c) => ({
       time:  c.time as Time,
       value: c.volume,
-      color: c.close >= c.open ? "rgba(240,185,11,0.25)" : "rgba(246,70,93,0.25)",
+      color: c.close >= c.open ? "rgba(37,99,235,0.15)" : "rgba(239,68,68,0.15)",
     }));
 
     cs.setData(cData);
     vs.setData(vData);
 
-    // On first full load, fit all. In replay, don't refit so user keeps their view.
     if (replayIndex == null) chartRef.current?.timeScale().fitContent();
+    setRedrawTrigger((t) => t + 1);
   }, [candles, replayIndex]);
 
-  // ── Live candle update ───────────────────────────────────────────────────
+  // ── Live candle updates ──────────────────────────────────────────────────
   useEffect(() => {
     const cs = candleSeriesRef.current;
-    if (!cs || !liveCandle || replayIndex != null) return; // don't update during replay
+    if (!cs || !liveCandle || replayIndex != null) return;
 
     cs.update({
       time:  liveCandle.time as Time,
@@ -205,104 +306,321 @@ export function BacktestChart({
       low:   liveCandle.low,
       close: liveCandle.close,
     });
+    setRedrawTrigger((t) => t + 1);
   }, [liveCandle, replayIndex]);
 
-  // ── Trade markers + start-bar marker ────────────────────────────────────
+  // ── Closed trades & Start markers ────────────────────────────────────────
   useEffect(() => {
     const cs = candleSeriesRef.current;
     if (!cs) return;
 
     const markers: SeriesMarker<Time>[] = [];
 
-    // Start bar marker
     if (replayStartIndex != null && candles[replayStartIndex]) {
       markers.push({
         time:     candles[replayStartIndex].time as Time,
         position: "belowBar",
-        color:    "#F0B90B",
+        color:    "#2563eb",
         shape:    "arrowUp",
         text:     "START",
       });
     }
 
-    // Closed trade markers
     manualTrades.forEach((t) => {
       markers.push({
         time:     t.entryTime as Time,
         position: t.direction === "LONG" ? "belowBar" : "aboveBar",
         color:    t.direction === "LONG" ? "#22c55e" : "#ef4444",
         shape:    t.direction === "LONG" ? "arrowUp" : "arrowDown",
-        text:     t.direction === "LONG" ? "B" : "S",
+        text:     t.direction === "LONG" ? "BUY" : "SELL",
       });
       if (t.exitTime != null) {
-        const pnlColor = (t.pnl ?? 0) >= 0 ? "#22c55e" : "#ef4444";
+        const win = (t.pnl ?? 0) >= 0;
         markers.push({
           time:     t.exitTime as Time,
           position: t.direction === "LONG" ? "aboveBar" : "belowBar",
-          color:    pnlColor,
+          color:    win ? "#22c55e" : "#ef4444",
           shape:    "circle",
-          text:     `${(t.pnl ?? 0) >= 0 ? "+" : ""}${(t.pnl ?? 0).toFixed(0)}`,
+          text:     `EXIT (${win ? "+" : ""}${(t.pnl ?? 0).toFixed(0)})`,
         });
       }
     });
 
-    // Sort ascending time (required by lightweight-charts)
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     cs.setMarkers(markers);
   }, [manualTrades, replayStartIndex, candles]);
 
+  // ── Coordinates Helper for SVG overlay ──────────────────────────────────
+  const getXY = useCallback((pt: TimePricePoint) => {
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+    if (!chart || !series) return null;
+
+    const x = chart.timeScale().timeToCoordinate(pt.time as Time);
+    const y = series.priceToCoordinate(pt.price);
+    if (x == null || y == null) return null;
+    return { x, y };
+  }, [redrawTrigger]); // Re-evaluate when trigger changes
+
+  const handleClearAllDrawings = () => {
+    onDrawingsChange([]);
+    setPreviewDrawing(null);
+    activeDrawingRef.current = null;
+  };
+
+  const allDrawings = [...drawings, ...(previewDrawing ? [previewDrawing] : [])];
+
   return (
-    <div className="relative w-full h-full" style={{ background: CHART_BG }}>
-      <div ref={containerRef} className="w-full h-full" />
+    <div className="relative w-full h-full flex bg-[#0c0e14]">
+      
+      {/* ── Vertical Drawings Toolbar (Left side) ── */}
+      <div className="w-11 bg-[#0c0e14] border-r border-[#23262f] flex flex-col items-center py-3 gap-1 shrink-0 z-20">
+        <ToolbarButton 
+          active={activeTool === "cursor"} 
+          onClick={() => setActiveTool("cursor")} 
+          icon={<MousePointer className="w-4 h-4" />} 
+          label="Crosshair Cursor" 
+        />
+        <ToolbarButton 
+          active={activeTool === "trendline"} 
+          onClick={() => setActiveTool("trendline")} 
+          icon={<Slash className="w-4 h-4" />} 
+          label="Trend Line" 
+        />
+        <ToolbarButton 
+          active={activeTool === "rectangle"} 
+          onClick={() => setActiveTool("rectangle")} 
+          icon={<Square className="w-4 h-4" />} 
+          label="Rectangle" 
+        />
+        <ToolbarButton 
+          active={activeTool === "fib"} 
+          onClick={() => setActiveTool("fib")} 
+          icon={<Grid className="w-4 h-4" />} 
+          label="Fibonacci Retracement" 
+        />
+        <ToolbarButton 
+          active={activeTool === "long"} 
+          onClick={() => setActiveTool("long")} 
+          icon={<ArrowUpRight className="w-4 h-4 text-green-500" />} 
+          label="Long Risk Reward Bracket" 
+        />
+        <ToolbarButton 
+          active={activeTool === "short"} 
+          onClick={() => setActiveTool("short")} 
+          icon={<ArrowDownRight className="w-4 h-4 text-red-500" />} 
+          label="Short Risk Reward Bracket" 
+        />
 
-      {/* ── LIVE badge ───────────────────────────────────────────────── */}
-      {!replayIndex && (
-        <div className="absolute top-3 right-3 flex items-center gap-1.5 text-[11px] font-semibold">
-          {liveStatus === "live" && (
-            <>
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-green-400">LIVE</span>
-            </>
-          )}
-          {liveStatus === "reconnecting" && (
-            <>
-              <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-              <span className="text-yellow-500">RECONNECTING</span>
-            </>
-          )}
-        </div>
-      )}
+        <div className="w-6 h-px bg-[#23262f] my-2" />
 
-      {/* ── Open trade floating P&L panel ────────────────────────────── */}
-      {openTrade && (
-        <div className="absolute top-3 left-3 bg-[rgba(15,15,15,0.92)] border border-[#2a2a2a] rounded-md px-3 py-2 text-[11px] font-mono">
-          <span className={`font-bold ${openTrade.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>
-            {openTrade.direction}
-          </span>
-          <span className="text-[#8a9bb0] ml-2">@ {openTrade.entryPrice.toFixed(2)}</span>
-          <span className={`ml-3 font-bold ${openTradeUnrealised >= 0 ? "text-green-400" : "text-red-400"}`}>
-            {openTradeUnrealised >= 0 ? "+" : ""}{openTradeUnrealised.toFixed(2)}
-          </span>
-        </div>
-      )}
+        <button
+          onClick={handleClearAllDrawings}
+          className="p-2 rounded-lg text-gray-600 hover:text-red-500 hover:bg-red-500/10 transition-all active:scale-90"
+          title="Clear All Drawings"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
 
-      {/* ── BUY / SELL overlay buttons (replay only) ─────────────────── */}
-      {isInReplay && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-3">
-          <button
-            onClick={onBuy}
-            className="px-6 py-2 text-[13px] font-bold rounded-lg bg-green-600 text-white hover:bg-green-500 active:scale-95 transition-all shadow-lg border border-green-500"
-          >
-            ▲ BUY
-          </button>
-          <button
-            onClick={onSell}
-            className="px-6 py-2 text-[13px] font-bold rounded-lg bg-red-600 text-white hover:bg-red-500 active:scale-95 transition-all shadow-lg border border-red-500"
-          >
-            ▼ SELL
-          </button>
-        </div>
-      )}
+      {/* ── Main Chart Canvas ── */}
+      <div className="flex-1 min-w-0 h-full relative">
+        <div ref={containerRef} className="w-full h-full" />
+
+        {/* ── SVG Drawing Overlay ── */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+          {allDrawings.map((draw) => {
+            const p1 = getXY(draw.points[0]);
+            const p2 = getXY(draw.points[1]);
+            if (!p1 || !p2) return null;
+
+            // Trendline
+            if (draw.type === "trendline") {
+              return (
+                <line
+                  key={draw.id}
+                  x1={p1.x}
+                  y1={p1.y}
+                  x2={p2.x}
+                  y2={p2.y}
+                  stroke="#3b82f6"
+                  strokeWidth="2"
+                  strokeDasharray={draw.id === previewDrawing?.id ? "4 4" : "0"}
+                />
+              );
+            }
+
+            // Rectangle
+            if (draw.type === "rectangle") {
+              const x = Math.min(p1.x, p2.x);
+              const y = Math.min(p1.y, p2.y);
+              const w = Math.abs(p2.x - p1.x);
+              const h = Math.abs(p2.y - p1.y);
+              return (
+                <rect
+                  key={draw.id}
+                  x={x}
+                  y={y}
+                  width={w}
+                  height={h}
+                  stroke="#3b82f6"
+                  strokeWidth="1.5"
+                  fill="rgba(59,130,246,0.06)"
+                  strokeDasharray={draw.id === previewDrawing?.id ? "4 4" : "0"}
+                />
+              );
+            }
+
+            // Fibonacci Retracements
+            if (draw.type === "fib") {
+              const dy = p2.y - p1.y;
+              const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+              const labels = ["0.0%", "23.6%", "38.2%", "50.0%", "61.8%", "78.6%", "100.0%"];
+
+              return (
+                <g key={draw.id}>
+                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3 3" />
+                  {levels.map((lvl, idx) => {
+                    const y = p1.y + dy * lvl;
+                    const priceVal = draw.points[0].price + (draw.points[1].price - draw.points[0].price) * lvl;
+                    return (
+                      <g key={idx}>
+                        <line x1={0} y1={y} x2={2500} y2={y} stroke="rgba(59,130,246,0.2)" strokeWidth="1" />
+                        <text x={p1.x + 10} y={y - 4} fill="#5e6673" fontSize="8" fontFamily="monospace">
+                          {labels[idx]} ({priceVal.toFixed(3)})
+                        </text>
+                      </g>
+                    );
+                  })}
+                </g>
+              );
+            }
+
+            // Long / Short Position (Risk/Reward Bracket)
+            if (draw.type === "long" || draw.type === "short") {
+              const isLong = draw.type === "long";
+              const entry = draw.points[0].price;
+              const stopLoss = draw.points[1].price;
+              const dist = Math.abs(entry - stopLoss);
+              const target = isLong ? entry + dist * 2 : entry - dist * 2;
+
+              const yEntry = p1.y;
+              const yStop = p2.y;
+
+              const pTarget = getXY({ time: draw.points[1].time, price: target });
+              if (!pTarget) return null;
+
+              const xStart = p1.x;
+              const width = Math.max(90, p2.x - p1.x);
+
+              const targetHeight = Math.abs(pTarget.y - yEntry);
+              const stopHeight = Math.abs(yStop - yEntry);
+
+              return (
+                <g key={draw.id}>
+                  {/* Green Target Box */}
+                  <rect 
+                    x={xStart} 
+                    y={isLong ? pTarget.y : yEntry} 
+                    width={width} 
+                    height={targetHeight} 
+                    fill="rgba(34,197,94,0.14)" 
+                    stroke="#22c55e" 
+                    strokeWidth="0.75" 
+                  />
+                  {/* Red Stop Box */}
+                  <rect 
+                    x={xStart} 
+                    y={isLong ? yEntry : pTarget.y} 
+                    width={width} 
+                    height={stopHeight} 
+                    fill="rgba(239,68,68,0.14)" 
+                    stroke="#ef4444" 
+                    strokeWidth="0.75" 
+                  />
+                  {/* Risk Reward Ratio Text Badge */}
+                  <rect x={xStart + 6} y={yEntry - 8} width={50} height={16} rx="3" fill="#0c0e14" stroke="#23262f" strokeWidth="1" />
+                  <text x={xStart + 31} y={yEntry + 3} textAnchor="middle" fill="#d1d5db" fontSize="8" fontFamily="monospace" fontWeight="bold">
+                    R/R 2.00
+                  </text>
+                </g>
+              );
+            }
+
+            return null;
+          })}
+        </svg>
+
+        {/* ── Replay Active Float Badge ── */}
+        {!replayIndex && (
+          <div className="absolute top-3 right-3 flex items-center gap-1.5 text-[9px] font-bold bg-[#141720] border border-[#23262f] rounded px-2 py-1 select-none font-mono">
+            {liveStatus === "live" && (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-green-500 tracking-wider">LIVE FEED</span>
+              </>
+            )}
+            {liveStatus === "reconnecting" && (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+                <span className="text-yellow-500 tracking-wider">RECONNECTING</span>
+              </>
+            )}
+            {liveStatus === "stopped" && (
+              <span className="text-gray-500 tracking-wider">REPLAY DOCKED</span>
+            )}
+          </div>
+        )}
+
+        {/* ── Active Float P&L Panel ── */}
+        {openTrade && (
+          <div className="absolute top-3 left-3 bg-[#141720]/90 border border-[#23262f] rounded-lg px-3 py-2 text-[10px] font-mono z-10 flex items-center gap-2">
+            <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${
+              openTrade.direction === "LONG" 
+                ? "bg-green-500/15 text-green-400" 
+                : "bg-red-500/15 text-red-400"
+            }`}>
+              {openTrade.direction}
+            </span>
+            <span className="text-gray-500">Entry <b className="text-white font-mono">{openTrade.entryPrice.toFixed(3)}</b></span>
+            <span className="w-px h-3 bg-[#23262f]" />
+            <span className={`font-bold ${openTradeUnrealised >= 0 ? "text-green-500" : "text-red-500"}`}>
+              {openTradeUnrealised >= 0 ? "+" : ""}${openTradeUnrealised.toFixed(2)}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Local Toolbar Button Sub-component ───
+
+interface ButtonProps {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}
+
+function ToolbarButton({ active, onClick, icon, label }: ButtonProps) {
+  return (
+    <div className="relative group select-none">
+      <button
+        onClick={onClick}
+        className={`p-2 rounded-lg transition-all active:scale-90 cursor-pointer ${
+          active 
+            ? "bg-[#2563eb] text-white shadow-md shadow-blue-900/10" 
+            : "text-gray-500 hover:text-white hover:bg-[#1c1e26]"
+        }`}
+        title={label}
+      >
+        {icon}
+      </button>
+      {/* Mini Popover tooltip */}
+      <span className="absolute left-12 top-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-black border border-[#23262f] text-[9px] font-bold text-gray-200 px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none tracking-wide uppercase">
+        {label}
+      </span>
     </div>
   );
 }
