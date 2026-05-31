@@ -48,7 +48,43 @@ export function resampleCandles(candles: Candle[], timeframe: Timeframe): Candle
   return Array.from(buckets.values()).sort((a, b) => a.time - b.time);
 }
 
-// Fetch a single calendar month of 1m data from the API
+// Helper to parse static CSV candle data in the browser
+function parseCandlesCSV(text: string): Candle[] {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(",");
+  const timeIdx = headers.indexOf("time");
+  const openIdx = headers.indexOf("open");
+  const highIdx = headers.indexOf("high");
+  const lowIdx = headers.indexOf("low");
+  const closeIdx = headers.indexOf("close");
+  const volumeIdx = headers.indexOf("volume");
+
+  if (timeIdx === -1 || openIdx === -1 || highIdx === -1 || lowIdx === -1 || closeIdx === -1 || volumeIdx === -1) {
+    throw new Error("Invalid CSV format: missing required headers");
+  }
+
+  const candles: Candle[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const parts = line.split(",");
+    if (parts.length < 6) continue;
+
+    candles.push({
+      time:   parseInt(parts[timeIdx], 10),
+      open:   parseFloat(parts[openIdx]),
+      high:   parseFloat(parts[highIdx]),
+      low:    parseFloat(parts[lowIdx]),
+      close:  parseFloat(parts[closeIdx]),
+      volume: parseFloat(parts[volumeIdx]),
+    });
+  }
+  return candles;
+}
+
+// Fetch a single calendar month of 1m data from local CSV or the API
 // Returns cached result if available; skips and logs on error
 async function fetchMonth(
   instrument: InstrumentKey,
@@ -61,7 +97,29 @@ async function fetchMonth(
   // Return cached data if already fetched
   if (monthCache.has(key)) return monthCache.get(key)!;
 
-  // Build the date range for this month
+  const monthStr = String(month + 1).padStart(2, "0");
+
+  // Load from static CSV if instrument is xauusd
+  if (instrument === "xauusd") {
+    const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
+    const csvUrl = `${baseCandlesUrl}/xauusd/xauusd_${year}_${monthStr}.csv`;
+
+    try {
+      const res = await fetch(csvUrl, { signal });
+      if (res.ok) {
+        const csvText = await res.text();
+        const candles = parseCandlesCSV(csvText);
+        monthCache.set(key, candles);
+        return candles;
+      }
+      console.warn(`[dataFetcher] Static CSV not found (${csvUrl}), falling back to API`);
+    } catch (err: unknown) {
+      if ((err as Error).name === "AbortError") throw err;
+      console.warn(`[dataFetcher] Static CSV fetch failed for ${key}, falling back to API:`, (err as Error).message);
+    }
+  }
+
+  // Fallback API path (or for non-xauusd instruments)
   const from = new Date(Date.UTC(year, month, 1));
   const to   = new Date(Date.UTC(year, month + 1, 1)); // first day of next month
 
@@ -76,7 +134,7 @@ async function fetchMonth(
     const res = await fetch(`/api/backtesting/candles?${params}`, { signal });
     if (!res.ok) {
       const body = await res.json().catch(() => ({})) as { error?: string };
-      console.warn(`[dataFetcher] Skipping ${key}: HTTP ${res.status} — ${body.error ?? ""}`);
+      console.warn(`[dataFetcher] Skipping ${key} API fallback: HTTP ${res.status} — ${body.error ?? ""}`);
       return [];
     }
     const json = await res.json() as { candles?: Candle[] };
@@ -86,7 +144,7 @@ async function fetchMonth(
     return candles;
   } catch (err: unknown) {
     if ((err as Error).name === "AbortError") throw err; // propagate cancellation
-    console.warn(`[dataFetcher] Skipping ${key}: fetch failed —`, (err as Error).message);
+    console.warn(`[dataFetcher] Skipping ${key} API fallback: fetch failed —`, (err as Error).message);
     return [];
   }
 }
