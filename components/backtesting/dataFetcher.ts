@@ -106,31 +106,29 @@ async function fetchMonth(
 
   const monthStr = String(month + 1).padStart(2, "0");
 
-  // Load from static CSV if instrument is xauusd
-  if (instrument === "xauusd") {
-    const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
-    const csvUrl = `${baseCandlesUrl}/xauusd/xauusd_${year}_${monthStr}.csv`;
+  // Load from static CSV if available for any instrument
+  const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
+  const csvUrl = `${baseCandlesUrl}/${instrument}/${instrument}_${year}_${monthStr}.csv`;
 
-    try {
-      const res = await fetch(csvUrl, { signal });
-      if (res.ok) {
-        const csvText = await res.text();
-        const candles = parseCandlesCSV(csvText);
-        monthCache.set(key, candles);
+  try {
+    const res = await fetch(csvUrl, { signal });
+    if (res.ok) {
+      const csvText = await res.text();
+      const candles = parseCandlesCSV(csvText);
+      monthCache.set(key, candles);
 
-        if (csvUrl.startsWith("https://cdn.jsdelivr.net")) {
-          lastFetchedSource = "GitHub CDN";
-        } else {
-          lastFetchedSource = "Local Static";
-        }
-
-        return candles;
+      if (csvUrl.startsWith("https://cdn.jsdelivr.net")) {
+        lastFetchedSource = "GitHub CDN";
+      } else {
+        lastFetchedSource = "Local Static";
       }
-      console.warn(`[dataFetcher] Static CSV not found (${csvUrl}), falling back to API`);
-    } catch (err: unknown) {
-      if ((err as Error).name === "AbortError") throw err;
-      console.warn(`[dataFetcher] Static CSV fetch failed for ${key}, falling back to API:`, (err as Error).message);
+
+      return candles;
     }
+    console.warn(`[dataFetcher] Static CSV not found (${csvUrl}), falling back to API`);
+  } catch (err: unknown) {
+    if ((err as Error).name === "AbortError") throw err;
+    console.warn(`[dataFetcher] Static CSV fetch failed for ${key}, falling back to API:`, (err as Error).message);
   }
 
   // Fallback API path (or for non-xauusd instruments)

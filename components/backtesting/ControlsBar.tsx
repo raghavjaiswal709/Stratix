@@ -25,23 +25,22 @@ export function ControlsBar({ controls, onChange, onLoad, isLoading, progress, l
 
         {/* ── Instrument selector ─────────────────────────────────────── */}
         <Field label="Instrument">
-          <div className="flex gap-px rounded-md overflow-hidden border border-[#F0B90B]/40">
+          <select
+            value={controls.instrument}
+            disabled={isLoading}
+            onChange={(e) => onChange({ instrument: e.target.value as InstrumentKey })}
+            className="bg-[#161616] border border-[#F0B90B]/40 rounded-md px-3 py-1.5 text-[12px] font-bold text-[#F0B90B] focus:outline-none focus:border-[#F0B90B] transition-colors cursor-pointer disabled:opacity-40"
+          >
             {INSTRUMENTS.map((inst) => (
-              <button
-                key={inst.key}
-                disabled={isLoading}
-                onClick={() => onChange({ instrument: inst.key as InstrumentKey })}
-                className={`px-3 py-1.5 text-[11px] font-bold tracking-wide transition-colors disabled:opacity-40 ${
-                  controls.instrument === inst.key
-                    ? "bg-[#F0B90B] text-black"
-                    : "bg-[#161616] text-[#F0B90B] hover:bg-[#1e1e1e]"
-                }`}
-                title={inst.description}
+              <option 
+                key={inst.key} 
+                value={inst.key}
+                className="bg-[#111] text-[#d1d5db] font-semibold py-1"
               >
-                {inst.label}
-              </button>
+                {inst.label} — {inst.description}
+              </option>
             ))}
-          </div>
+          </select>
         </Field>
 
         {/* ── Date range ──────────────────────────────────────────────── */}

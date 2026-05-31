@@ -11,7 +11,11 @@ export interface Candle {
 
 export type Timeframe = "1m" | "5m" | "15m" | "1H" | "4H" | "1D";
 
-export type InstrumentKey = "xauusd" | "btcusd";
+export type InstrumentKey =
+  | "xauusd" | "xagusd"
+  | "eurusd" | "gbpusd" | "usdcad" | "usdjpy" | "nzdusd" | "audusd" | "usdchf"
+  | "ethusd" | "btcusdt"
+  | "dxy" | "usoil" | "us100";
 
 export interface InstrumentInfo {
   key: InstrumentKey;
@@ -21,7 +25,19 @@ export interface InstrumentInfo {
 
 export const INSTRUMENTS: InstrumentInfo[] = [
   { key: "xauusd", label: "XAUUSD", description: "Gold / US Dollar" },
-  { key: "btcusd", label: "BTCUSD", description: "Bitcoin / US Dollar" },
+  { key: "xagusd", label: "XAGUSD", description: "Silver / US Dollar" },
+  { key: "eurusd", label: "EURUSD", description: "Euro / US Dollar" },
+  { key: "gbpusd", label: "GBPUSD", description: "Pound Sterling / US Dollar" },
+  { key: "usdcad", label: "USDCAD", description: "US Dollar / Canadian Dollar" },
+  { key: "usdjpy", label: "USDJPY", description: "US Dollar / Japanese Yen" },
+  { key: "nzdusd", label: "NZDUSD", description: "New Zealand Dollar / US Dollar" },
+  { key: "audusd", label: "AUDUSD", description: "Australian Dollar / US Dollar" },
+  { key: "usdchf", label: "USDCHF", description: "US Dollar / Swiss Franc" },
+  { key: "ethusd", label: "ETHUSD", description: "Ethereum / US Dollar" },
+  { key: "btcusdt", label: "BTCUSDT", description: "Bitcoin / Tether" },
+  { key: "dxy",    label: "DXY",    description: "US Dollar Index" },
+  { key: "usoil",  label: "USOIL",  description: "WTI Crude Oil" },
+  { key: "us100",  label: "US100",  description: "Nasdaq 100 Index" },
 ];
 
 // ─── Manual replay trade ──────────────────────────────────────────────────────

@@ -11,7 +11,19 @@ export const maxDuration = 180;
 // Supported instruments
 const INSTRUMENT_MAP: Record<string, string> = {
   xauusd: Instrument.xauusd,
-  btcusd: Instrument.btcusd,
+  xagusd: Instrument.xagusd,
+  eurusd: Instrument.eurusd,
+  gbpusd: Instrument.gbpusd,
+  usdcad: Instrument.usdcad,
+  usdjpy: Instrument.usdjpy,
+  nzdusd: Instrument.nzdusd,
+  audusd: Instrument.audusd,
+  usdchf: Instrument.usdchf,
+  ethusd: Instrument.ethusd,
+  btcusdt: Instrument.btcusd,
+  dxy: Instrument.dollaridxusd,
+  usoil: Instrument.lightcmdusd,
+  us100: Instrument.usatechidxusd,
 };
 
 // Map UI timeframe labels to dukascopy-node Timeframe enum values
