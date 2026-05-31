@@ -472,6 +472,8 @@ export function BacktestingPage() {
           {/* Lightweight-charts Canvas Overlay Container */}
           <div className="flex-1 min-h-0 relative w-full">
             <BacktestChart
+              symbol={activeSession.symbol}
+              timeframe={activeTimeframe}
               candles={displayCandles}
               replayIndex={replay.active ? replay.currentIdx : null}
               replayStartIndex={replay.active ? replay.startIdx : null}
