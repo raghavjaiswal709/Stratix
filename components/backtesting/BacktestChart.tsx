@@ -1,74 +1,71 @@
 "use client";
 
 // ─── BacktestChart ─────────────────────────────────────────────────────────────
-// High-fidelity chart rendering using lightweight-charts, featuring:
-//  • Vertical drawings toolbar on the left exactly matching native TradingView (Image 1)
-//  • Synchronized SVG Canvas Overlay supporting 10+ standard TV tools
-//  • Magnet Mode: Real-time snapping to closest OHLC candlestick coordinates
-//  • Jump-free Replay Slicing: Viewport restoration preventing camera shifts on cuts
-//  • Stay-in-drawing-mode, Lock all tools, and Hide all drawings states
-//  • Support for Text Annotations, Ruler Measurements, Brush strokes, and Emojis
+// TradingView-parity drawing tools on lightweight-charts SVG overlay.
+// Tools: trendline, ray, hline, vline, arrow, rectangle, circle, triangle,
+//        channel, fib, long/short, patterns, text, brush, ruler, smiley
+// Stability: global window mouseup/mousemove, no window.prompt, 4-corner rect
+//            anchors, smooth brush bezier, stable localDrawings sync.
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  createChart,
-  CrosshairMode,
-  type IChartApi,
-  type ISeriesApi,
-  type SeriesMarker,
-  type Time,
-  type CandlestickData,
-  type HistogramData,
+  createChart, CrosshairMode,
+  type IChartApi, type ISeriesApi, type SeriesMarker, type Time,
+  type CandlestickData, type HistogramData,
 } from "lightweight-charts";
 import type { Candle, ManualTrade, LiveStatus, Drawing, DrawingType, TimePricePoint } from "./types";
-import { 
-  MousePointer, Slash, Square, Grid, 
-  ArrowUpRight, ArrowDownRight, Trash2,
+import {
+  MousePointer, Slash, Square, Grid, ArrowUpRight, Trash2,
   Paintbrush, Type, Smile, Ruler, Search,
   Magnet, Lock, Unlock, Eye, EyeOff, PenTool,
-  Workflow, Settings, Check, X, Volume2
+  Workflow, Settings, X, Minus, ArrowRight, Circle, Triangle,
+  Layers, TrendingUp,
 } from "lucide-react";
 
 interface Props {
-  candles:            Candle[];           // full loaded candles
-  replayIndex:        number | null;      // if set: only show [0..replayIndex]
-  replayStartIndex:   number | null;      // show gold marker here
-  isSelectingStart:   boolean;            // crosshair cursor mode
-  onStartBarSelect:   (idx: number) => void;
-  manualTrades:       ManualTrade[];      // closed trades → markers
-  openTrade:          ManualTrade | null; // unrealised position
-  openTradeUnrealised: number;            // floating P&L for overlay
-  liveCandle:         Candle | null;      // latest live price
-  liveStatus:         LiveStatus;
-  isInReplay:         boolean;            // show BUY/SELL buttons
-  onBuy:              () => void;
-  onSell:             () => void;
-  
-  // Drawings support
-  drawings:           Drawing[];
-  onDrawingsChange:   (drawings: Drawing[]) => void;
-
-  // Next.js compatibility props
-  symbol?:            string;
-  timeframe?:         string;
-
-  // Theme settings
+  candles:             Candle[];
+  replayIndex:         number | null;
+  replayStartIndex:    number | null;
+  isSelectingStart:    boolean;
+  onStartBarSelect:    (idx: number) => void;
+  manualTrades:        ManualTrade[];
+  openTrade:           ManualTrade | null;
+  openTradeUnrealised: number;
+  liveCandle:          Candle | null;
+  liveStatus:          LiveStatus;
+  isInReplay:          boolean;
+  onBuy:               () => void;
+  onSell:              () => void;
+  drawings:            Drawing[];
+  onDrawingsChange:    (drawings: Drawing[]) => void;
+  symbol?:             string;
+  timeframe?:          string;
   settings: {
-    themeName: string;
-    upColor: string;
-    downColor: string;
-    showGrid: boolean;
-    showVolume: boolean;
-    isYAxisLocked: boolean;
+    themeName:      string;
+    upColor:        string;
+    downColor:      string;
+    showGrid:       boolean;
+    showVolume:     boolean;
+    isYAxisLocked:  boolean;
     isMagnetActive: boolean;
-    bgColor: string;
+    bgColor:        string;
   };
   onSettingsChange: (settings: Partial<Props["settings"]>) => void;
 }
 
+// How many points each tool needs before it finalizes
+const TOOL_POINTS: Partial<Record<DrawingType, number>> = {
+  hline: 1, vline: 1, smiley: 1,
+  trendline: 2, ray: 2, arrow: 2, rectangle: 2, circle: 2, fib: 2,
+  long: 2, short: 2, ruler: 2, text: 1,
+  channel: 3, triangle: 3, patterns: 2,
+};
+
 const CHART_BG = "#0c0e14";
-const GRID     = "#181a20";
-const TEXT     = "#5e6673";
+const GRID_COLOR = "#181a20";
+const TEXT_COLOR = "#5e6673";
+const SEL_COLOR = "#eab308";
+const LINE_COLOR = "#3b82f6";
 
 export function BacktestChart({
   candles, replayIndex, replayStartIndex, isSelectingStart,
@@ -80,32 +77,82 @@ export function BacktestChart({
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volSeriesRef    = useRef<ISeriesApi<"Histogram"> | null>(null);
 
-  // Drawing Tools State
-  const [activeTool, setActiveTool] = useState<DrawingType>("cursor");
-  const [previewDrawing, setPreviewDrawing] = useState<Drawing | null>(null);
-  const activeDrawingRef = useRef<Drawing | null>(null);
-  const [redrawTrigger, setRedrawTrigger] = useState(0);
-  const lastRenderedIdxRef = useRef<number | null>(null);
+  const [activeTool, setActiveTool]           = useState<DrawingType>("cursor");
+  const [previewDrawing, setPreviewDrawing]   = useState<Drawing | null>(null);
+  const activeDrawingRef                       = useRef<Drawing | null>(null);
+  const [redrawTrigger, setRedrawTrigger]     = useState(0);
+  const lastRenderedIdxRef                     = useRef<number | null>(null);
 
-  // Selection & Modal States
-  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [selectedDrawingId, setSelectedDrawingId]   = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [draggingAnchor, setDraggingAnchor] = useState<{ drawingId: string; pointIndex: number } | null>(null);
-  const isDraggingDrawingRef = useRef(false);
+  const [draggingAnchor, setDraggingAnchor]         = useState<{ drawingId: string; pointIndex: number } | null>(null);
+  const isDraggingDrawingRef                         = useRef(false);
 
-  // Local Drawings Buffer to prevent high-frequency DB sync lag
-  const [localDrawings, setLocalDrawings] = useState<Drawing[]>(drawings);
+  const [draggingDrawing, setDraggingDrawing] = useState<{
+    id: string;
+    startPoints: TimePricePoint[];
+    startMouseCoords: { time: number; price: number };
+  } | null>(null);
 
+  const [isClickCreating, setIsClickCreating] = useState(false);
+  const dragStartPosRef  = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  // True only when the pointer actually moved during a drag — prevents a
+  // plain click from triggering an unnecessary onDrawingsChange save.
+  const dragMovedRef = useRef(false);
+
+  // Multi-point creation (channel, triangle need 3 clicks)
+  const [multiCreating, setMultiCreating] = useState<{
+    type: DrawingType;
+    points: TimePricePoint[];
+  } | null>(null);
+  const multiCreatingRef = useRef<typeof multiCreating>(null);
+  useEffect(() => { multiCreatingRef.current = multiCreating; }, [multiCreating]);
+
+  // Text input overlay (replaces window.prompt)
+  const [textOverlay, setTextOverlay] = useState<{
+    x: number; y: number;
+    onSubmit: (text: string) => void;
+  } | null>(null);
+  const [textInputVal, setTextInputVal] = useState("");
+
+  // Lock ref copies for stable global handlers
+  const draggingAnchorRef  = useRef<typeof draggingAnchor>(null);
+  const draggingDrawingRef = useRef<typeof draggingDrawing>(null);
+  const localDrawingsRef   = useRef<Drawing[]>(drawings || []);
+  const [localDrawings, setLocalDrawingsState] = useState<Drawing[]>(drawings || []);
+  const setLocalDrawings = useCallback((d: Drawing[] | ((prev: Drawing[]) => Drawing[])) => {
+    setLocalDrawingsState(prev => {
+      const next = typeof d === "function" ? d(prev) : d;
+      localDrawingsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => { draggingAnchorRef.current = draggingAnchor; }, [draggingAnchor]);
+  useEffect(() => { draggingDrawingRef.current = draggingDrawing; }, [draggingDrawing]);
   useEffect(() => {
-    setLocalDrawings(drawings);
+    setLocalDrawings(drawings || []);
   }, [drawings]);
 
-  // TradingView Magnet, Lock, and Visibility settings
   const [stayInDrawingMode, setStayInDrawingMode] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
+  const [isLocked, setIsLocked]                   = useState(false);
   const [areDrawingsHidden, setAreDrawingsHidden] = useState(false);
 
-  // ── Build chart on mount ──────────────────────────────────────────────────
+  const stopEvent = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    e.nativeEvent.stopImmediatePropagation();
+  }, []);
+
+  // Cancel active creation on tool switch
+  useEffect(() => {
+    activeDrawingRef.current = null;
+    setPreviewDrawing(null);
+    setIsClickCreating(false);
+    setMultiCreating(null);
+  }, [activeTool]);
+
+  // ── Build chart ───────────────────────────────────────────────────────────
   const buildChart = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -115,51 +162,45 @@ export function BacktestChart({
       height: el.clientHeight,
       layout: {
         background: { color: settings.bgColor || "#0f0f0f" },
-        textColor:  TEXT,
+        textColor:  TEXT_COLOR,
         fontSize:   10,
         fontFamily: "monospace",
       },
       grid: {
-        vertLines: { color: GRID, style: 2 },
-        horzLines: { color: GRID, style: 2 },
+        vertLines: { color: GRID_COLOR, style: 2 },
+        horzLines: { color: GRID_COLOR, style: 2 },
       },
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: {
-        timeVisible:    true,
-        secondsVisible: false,
-        borderColor:    GRID,
+        timeVisible: true, secondsVisible: false, borderColor: GRID_COLOR,
       },
-      rightPriceScale: { borderColor: GRID },
+      rightPriceScale: { borderColor: GRID_COLOR },
     });
     chartRef.current = chart;
 
-    const upColor = settings.upColor || "#2563eb";
-    const downColor = settings.downColor || "#ef4444";
+    const up = settings.upColor || "#2563eb";
+    const dn = settings.downColor || "#ef4444";
 
     const candleSeries = chart.addCandlestickSeries({
-      upColor:         upColor,
-      downColor:       downColor,
-      borderUpColor:   upColor,
-      borderDownColor: downColor,
-      wickUpColor:     upColor,
-      wickDownColor:   downColor,
+      upColor: up, downColor: dn,
+      borderUpColor: up, borderDownColor: dn,
+      wickUpColor: up, wickDownColor: dn,
     });
     candleSeriesRef.current = candleSeries;
 
     const volSeries = chart.addHistogramSeries({
-      color:       "rgba(37,99,235,0.15)",
+      color: "rgba(37,99,235,0.15)",
       priceFormat: { type: "volume" },
-      priceScaleId:"volume",
+      priceScaleId: "volume",
     });
     chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     volSeriesRef.current = volSeries;
 
-    // ── Grid scroll / zoom redrawing subscriber ───────────────────────────────
     chart.timeScale().subscribeVisibleTimeRangeChange(() => {
-      setRedrawTrigger((t) => t + 1);
+      setRedrawTrigger(t => t + 1);
     });
 
-    // ── Tooltip ───────────────────────────────────────────────────────────────
+    // Tooltip
     const tooltip = document.createElement("div");
     tooltip.style.cssText = [
       "position:absolute", "top:8px", "left:8px",
@@ -176,11 +217,10 @@ export function BacktestChart({
       if (!param.point || !param.time) { tooltip.style.display = "none"; return; }
       const cData = param.seriesData.get(candleSeries) as CandlestickData | undefined;
       if (!cData) { tooltip.style.display = "none"; return; }
-
       const d = new Date((param.time as number) * 1000);
       tooltip.style.display = "block";
       tooltip.innerHTML = [
-        `<span style="color:#5e6673">${d.toISOString().replace("T"," ").slice(0,16)} UTC</span>`,
+        `<span style="color:#5e6673">${d.toISOString().replace("T", " ").slice(0, 16)} UTC</span>`,
         `O <b style="color:#2563eb">${cData.open.toFixed(3)}</b>  ` +
         `H <b style="color:#2563eb">${cData.high.toFixed(3)}</b>  ` +
         `L <b style="color:#ef4444">${cData.low.toFixed(3)}</b>  ` +
@@ -188,10 +228,9 @@ export function BacktestChart({
       ].join("<br>");
     });
 
-    // ── Auto-resize ───────────────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
       if (chartRef.current) chart.resize(el.clientWidth, el.clientHeight);
-      setRedrawTrigger((t) => t + 1);
+      setRedrawTrigger(t => t + 1);
     });
     ro.observe(el);
 
@@ -200,1117 +239,1169 @@ export function BacktestChart({
       chartRef.current = null;
       candleSeriesRef.current = null;
       volSeriesRef.current = null;
-      try { chart.remove(); } catch { /* already disposed */ }
+      try { chart.remove(); } catch { /* disposed */ }
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const cleanup = buildChart();
     return () => { cleanup?.(); };
   }, [buildChart]);
 
-  // Dynamically update series options on theme changes
+  // Dynamic settings sync
   useEffect(() => {
     const cs = candleSeriesRef.current;
-    if (!cs || !settings) return;
-    const up = settings.upColor;
-    const down = settings.downColor;
-    cs.applyOptions({
-      upColor:         up,
-      downColor:       down,
-      borderUpColor:   up,
-      borderDownColor: down,
-      wickUpColor:     up,
-      wickDownColor:   down,
-    });
+    if (!cs) return;
+    const up = settings.upColor, dn = settings.downColor;
+    cs.applyOptions({ upColor: up, downColor: dn, borderUpColor: up, borderDownColor: dn, wickUpColor: up, wickDownColor: dn });
   }, [settings.upColor, settings.downColor]);
 
-  // Dynamically update Grid Visibility
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart || !settings) return;
-    const gridColor = settings.showGrid ? GRID : "rgba(0,0,0,0)";
-    chart.applyOptions({
-      grid: {
-        vertLines: { color: gridColor },
-        horzLines: { color: gridColor },
-      },
-    });
-  }, [settings.showGrid]);
-
-  // Dynamically update Volume Visibility
-  useEffect(() => {
-    const vs = volSeriesRef.current;
-    if (!vs || !settings) return;
-    vs.applyOptions({
-      visible: settings.showVolume,
-    });
-  }, [settings.showVolume]);
-
-  // Dynamically update Price Scale Locking (Y-Axis Lock)
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart || !settings) return;
-    chart.priceScale("right").applyOptions({
-      autoScale: !settings.isYAxisLocked,
-    });
-  }, [settings.isYAxisLocked]);
-
-  // Dynamically update background color
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart || !settings) return;
-    chart.applyOptions({
-      layout: {
-        background: { color: settings.bgColor || "#0f0f0f" },
-      },
-    });
-  }, [settings.bgColor]);
-
-  // Dynamically lock chart panning and zooming when a drawing tool is active to make placement 100% stable
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const drawingActive = activeTool !== "cursor";
-    chart.applyOptions({
-      handleScroll: {
-        mouseWheel: !drawingActive,
-        pressedMouseMove: !drawingActive,
-        horzTouchDrag: !drawingActive,
-        vertTouchDrag: !drawingActive,
-      },
-      handleScale: {
-        mouseWheel: !drawingActive,
-        pinch: !drawingActive,
-        axisPressedMouseMove: {
-          time: !drawingActive,
-          price: !drawingActive,
-        },
-      },
-    });
-  }, [activeTool]);
+    const c = settings.showGrid ? GRID_COLOR : "rgba(0,0,0,0)";
+    chart.applyOptions({ grid: { vertLines: { color: c }, horzLines: { color: c } } });
+  }, [settings.showGrid]);
 
-  // Cancel active drawing or deselect on Escape key
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (activeDrawingRef.current) {
-          activeDrawingRef.current = null;
-          setPreviewDrawing(null);
-          setRedrawTrigger((t) => t + 1);
-        } else {
-          setActiveTool("cursor");
-        }
-        setSelectedDrawingId(null);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    volSeriesRef.current?.applyOptions({ visible: settings.showVolume });
+  }, [settings.showVolume]);
 
-  // Keep track of current cursor (time, price) coordinates dynamically
-  const mouseTimePriceRef = useRef<{ time: Time; price: number } | null>(null);
+  useEffect(() => {
+    chartRef.current?.priceScale("right").applyOptions({ autoScale: !settings.isYAxisLocked });
+  }, [settings.isYAxisLocked]);
 
+  useEffect(() => {
+    chartRef.current?.applyOptions({ layout: { background: { color: settings.bgColor || "#0f0f0f" } } });
+  }, [settings.bgColor]);
+
+  // Lock chart panning when drawing
   useEffect(() => {
     const chart = chartRef.current;
+    if (!chart) return;
+    const locked = activeTool !== "cursor" || draggingAnchor !== null;
+    chart.applyOptions({
+      handleScroll: { mouseWheel: !locked, pressedMouseMove: !locked, horzTouchDrag: !locked, vertTouchDrag: !locked },
+      handleScale:  { mouseWheel: !locked, pinch: !locked, axisPressedMouseMove: { time: !locked, price: !locked } },
+    });
+  }, [activeTool, draggingAnchor]);
+
+  // Deselect on blank canvas click
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handler = () => setSelectedDrawingId(null);
+    container.addEventListener("mousedown", handler);
+    return () => container.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Redraw on scroll/zoom
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handler = () => setRedrawTrigger(t => t + 1);
+    container.addEventListener("mousemove", handler, { passive: true });
+    container.addEventListener("wheel", handler, { passive: true });
+    return () => {
+      container.removeEventListener("mousemove", handler);
+      container.removeEventListener("wheel", handler);
+    };
+  }, []);
+
+  // Escape key handling
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        activeDrawingRef.current = null;
+        setPreviewDrawing(null);
+        setIsClickCreating(false);
+        setMultiCreating(null);
+        setSelectedDrawingId(null);
+        setTextOverlay(null);
+        if (!activeDrawingRef.current) setActiveTool("cursor");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Delete key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!selectedDrawingId) return;
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+      if (e.key === "Delete" || e.key === "Backspace") handleDeleteDrawing(selectedDrawingId);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedDrawingId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── CRITICAL: Global window mouseup ──────────────────────────────────────
+  // We MUST NOT stop propagation in drawing onMouseUp handlers — that would
+  // block this handler, leaving draggingDrawing stuck and the drawing glued to
+  // the cursor forever. This handler is the single cleanup point for all drags.
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      const anchor = draggingAnchorRef.current;
+      const moving = draggingDrawingRef.current;
+      if (anchor || moving) {
+        // Only persist if the pointer actually moved — avoids spurious saves on plain clicks
+        if (dragMovedRef.current) {
+          onDrawingsChange(localDrawingsRef.current);
+        }
+        dragMovedRef.current = false;
+        setDraggingAnchor(null);
+        setDraggingDrawing(null);
+        draggingAnchorRef.current = null;
+        draggingDrawingRef.current = null;
+      }
+    };
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
+  }, [onDrawingsChange]);
+
+  // Global mousemove for dragging existing drawings / anchors outside SVG bounds
+  useEffect(() => {
+    const handleGlobalMove = (e: MouseEvent) => {
+      const anchor = draggingAnchorRef.current;
+      const moving = draggingDrawingRef.current;
+      if (!anchor && !moving) return;
+
+      const coords = getTimePriceFromEventNative(e);
+      if (!coords) return;
+      const { time: timeSec, price: rawPrice } = coords;
+      const price = settings.isMagnetActive ? getMagnetSnappedPrice(timeSec, rawPrice) : rawPrice;
+      const p: TimePricePoint = { time: timeSec, price };
+
+      dragMovedRef.current = true; // mark that real movement occurred
+
+      if (anchor) {
+        const { drawingId, pointIndex } = anchor;
+        setLocalDrawings(prev => prev.map(draw => {
+          if (draw.id !== drawingId) return draw;
+          const pts = [...draw.points];
+          pts[pointIndex] = p;
+          return rebuildRiskSettings({ ...draw, points: pts });
+        }));
+        setRedrawTrigger(t => t + 1);
+      }
+
+      if (moving) {
+        const { id, startPoints, startMouseCoords } = moving;
+        const deltaPrice = price - startMouseCoords.price;
+        const deltaTime  = timeSec - startMouseCoords.time;
+        setLocalDrawings(prev => prev.map(draw => {
+          if (draw.id !== id) return draw;
+          const pts = startPoints.map(pt => ({ time: pt.time + deltaTime, price: pt.price + deltaPrice }));
+          return rebuildRiskSettings({ ...draw, points: pts });
+        }));
+        setRedrawTrigger(t => t + 1);
+      }
+    };
+    window.addEventListener("mousemove", handleGlobalMove);
+    return () => window.removeEventListener("mousemove", handleGlobalMove);
+  }, [settings.isMagnetActive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Crosshair time/price tracker
+  const mouseTimePriceRef = useRef<{ time: Time; price: number } | null>(null);
+  useEffect(() => {
+    const chart  = chartRef.current;
     const series = candleSeriesRef.current;
     if (!chart || !series) return;
-
     const handler = (param: { point?: { x: number; y: number }; time?: Time }) => {
       if (param.point && param.time) {
         const price = series.coordinateToPrice(param.point.y);
-        if (price != null) {
-          mouseTimePriceRef.current = {
-            time: param.time,
-            price: price as number,
-          };
-        }
+        if (price != null) mouseTimePriceRef.current = { time: param.time, price: price as number };
       } else {
         mouseTimePriceRef.current = null;
       }
     };
-
     chart.subscribeCrosshairMove(handler);
     return () => chart.unsubscribeCrosshairMove(handler);
   }, []);
 
+  // ── Coordinate helpers ────────────────────────────────────────────────────
   const getMagnetSnappedPrice = useCallback((time: number, price: number) => {
-    const candle = candles.find((c) => c.time === time);
+    const candle = candles.find(c => c.time === time);
     if (!candle) return price;
     const ohlc = [candle.open, candle.high, candle.low, candle.close];
-    let closest = ohlc[0];
-    let minDist = Math.abs(price - closest);
+    let closest = ohlc[0], minDist = Math.abs(price - closest);
     for (let i = 1; i < ohlc.length; i++) {
-      const dist = Math.abs(price - ohlc[i]);
-      if (dist < minDist) {
-        minDist = dist;
-        closest = ohlc[i];
-      }
+      const d = Math.abs(price - ohlc[i]);
+      if (d < minDist) { minDist = d; closest = ohlc[i]; }
     }
     return closest;
   }, [candles]);
 
+  const getXY = useCallback((pt: TimePricePoint) => {
+    const chart  = chartRef.current;
+    const series = candleSeriesRef.current;
+    if (!chart || !series) return null;
+    const x = chart.timeScale().timeToCoordinate(pt.time as Time);
+    const y = series.priceToCoordinate(pt.price);
+    if (x == null || y == null) return null;
+    return { x: x as number, y: y as number };
+  }, [redrawTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const getTimePriceFromEvent = useCallback((e: React.MouseEvent | MouseEvent): { time: number; price: number } | null => {
+    const chart     = chartRef.current;
+    const series    = candleSeriesRef.current;
+    const container = containerRef.current;
+    if (!chart || !series || !container) return null;
+    const rect  = container.getBoundingClientRect();
+    const x     = e.clientX - rect.left;
+    const y     = e.clientY - rect.top;
+    const time  = chart.timeScale().coordinateToTime(x);
+    const price = series.coordinateToPrice(y);
+    if (time == null || price == null) return null;
+    return { time: time as number, price: price as number };
+  }, []);
+
+  const getTimePriceFromEventNative = useCallback((e: MouseEvent): { time: number; price: number } | null => {
+    const chart     = chartRef.current;
+    const series    = candleSeriesRef.current;
+    const container = containerRef.current;
+    if (!chart || !series || !container) return null;
+    const rect  = container.getBoundingClientRect();
+    const x     = e.clientX - rect.left;
+    const y     = e.clientY - rect.top;
+    const time  = chart.timeScale().coordinateToTime(x);
+    const price = series.coordinateToPrice(y);
+    if (time == null || price == null) return null;
+    return { time: time as number, price: price as number };
+  }, []);
+
+  // Rebuild riskSettings when anchors change
+  const rebuildRiskSettings = (draw: Drawing): Drawing => {
+    if (draw.type !== "long" && draw.type !== "short") return draw;
+    const pts = draw.points;
+    if (pts.length < 2) return draw;
+    const entry = pts[0].price;
+    const stop  = pts[1].price;
+    const dist  = Math.abs(entry - stop);
+    const tp    = pts[2]?.price ?? (draw.type === "long" ? entry + dist * 2 : entry - dist * 2);
+    const risk   = Math.abs(entry - stop);
+    const reward = Math.abs(tp - entry);
+    const riskSettings = { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: risk > 0 ? reward / risk : 2 };
+    const newPts = [...pts];
+    if (newPts.length < 3) newPts[2] = { time: pts[1].time, price: tp };
+    return { ...draw, points: newPts, riskSettings };
+  };
+
+  // ── Finalize drawing ──────────────────────────────────────────────────────
+  const finalizeDrawing = useCallback((coords: { time: number; price: number } | null) => {
+    if (!activeDrawingRef.current) return;
+
+    let { time: timeSec, price } = coords || activeDrawingRef.current.points[activeDrawingRef.current.points.length - 1];
+    if (settings.isMagnetActive) price = getMagnetSnappedPrice(timeSec, price);
+    const p: TimePricePoint = { time: timeSec, price };
+
+    let finished: Drawing = { ...activeDrawingRef.current };
+
+    if (finished.type === "long" || finished.type === "short") {
+      const entry = finished.points[0].price;
+      const stop  = p.price;
+      const dist  = Math.abs(entry - stop);
+      const tp    = finished.type === "long" ? entry + dist * 2 : entry - dist * 2;
+      finished = {
+        ...finished,
+        points: [finished.points[0], p, { time: p.time, price: tp }],
+        riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: 2 },
+      };
+    } else if (finished.type === "patterns") {
+      const p1 = finished.points[0];
+      const dx = p.time - p1.time;
+      const dy = p.price - p1.price;
+      finished = {
+        ...finished,
+        points: [
+          p1,
+          { time: p1.time + dx * 0.25, price: p1.price + dy * 0.85 },
+          { time: p1.time + dx * 0.50, price: p1.price + dy * 0.25 },
+          { time: p1.time + dx * 0.75, price: p1.price + dy * 0.90 },
+          p,
+        ],
+      };
+    } else if (finished.type === "hline" || finished.type === "vline") {
+      finished = { ...finished, points: [p] };
+    } else if (finished.type === "text" || finished.type === "smiley") {
+      finished = { ...finished, points: [finished.points[0]] };
+    } else {
+      finished = { ...finished, points: [finished.points[0], p] };
+    }
+
+    // Text tool: show inline overlay instead of prompt
+    if (finished.type === "text") {
+      const xy = getXY(finished.points[0]);
+      if (xy) {
+        const pendingDrawing = finished;
+        setTextOverlay({
+          x: xy.x,
+          y: xy.y,
+          onSubmit: (text: string) => {
+            const withText = { ...pendingDrawing, text: text || "Text" };
+            onDrawingsChange([...localDrawingsRef.current, withText]);
+            setSelectedDrawingId(withText.id);
+            setTextOverlay(null);
+            setTextInputVal("");
+            if (!stayInDrawingMode) setActiveTool("cursor");
+          },
+        });
+      }
+      activeDrawingRef.current = null;
+      setPreviewDrawing(null);
+      setIsClickCreating(false);
+      isDraggingDrawingRef.current = false;
+      return;
+    }
+
+    onDrawingsChange([...localDrawingsRef.current, finished]);
+    setSelectedDrawingId(finished.id);
+    activeDrawingRef.current = null;
+    setPreviewDrawing(null);
+    setIsClickCreating(false);
+    isDraggingDrawingRef.current = false;
+    if (!stayInDrawingMode) setActiveTool("cursor");
+  }, [settings.isMagnetActive, getMagnetSnappedPrice, onDrawingsChange, stayInDrawingMode, getXY]);
+
+  // ── SVG event handlers ────────────────────────────────────────────────────
   const handleSvgMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    // If dragging anchor, ignore
     if (draggingAnchor) return;
     if (activeTool === "cursor" || isLocked) return;
     e.stopPropagation();
-
-    // Reset selection on new drawing
+    e.preventDefault();
     setSelectedDrawingId(null);
 
-    if (!mouseTimePriceRef.current) return;
-
-    const timeSec = mouseTimePriceRef.current.time as number;
-    let price = mouseTimePriceRef.current.price;
-    if (settings.isMagnetActive) {
-      price = getMagnetSnappedPrice(timeSec, price);
-    }
-
+    const coords = getTimePriceFromEvent(e);
+    if (!coords) return;
+    let { time: timeSec, price } = coords;
+    if (settings.isMagnetActive) price = getMagnetSnappedPrice(timeSec, price);
     const p: TimePricePoint = { time: timeSec, price };
 
+    const needed = TOOL_POINTS[activeTool] ?? 2;
+
+    // Single-point tools: finalize immediately on mousedown
+    if (needed === 1) {
+      const newDrawing: Drawing = { id: String(Date.now()), type: activeTool, points: [p] };
+      activeDrawingRef.current = newDrawing;
+      finalizeDrawing(coords);
+      return;
+    }
+
+    // Multi-point tools (channel, triangle) — accumulate clicks
+    if (needed === 3) {
+      const current = multiCreatingRef.current;
+      if (!current) {
+        const nd: Drawing = { id: String(Date.now()), type: activeTool, points: [p, p] };
+        activeDrawingRef.current = nd;
+        setPreviewDrawing(nd);
+        setMultiCreating({ type: activeTool, points: [p] });
+        isDraggingDrawingRef.current = false;
+        dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
+      if (current.points.length === 1) {
+        const updated = { ...current, points: [...current.points, p] };
+        setMultiCreating(updated);
+        const nd: Drawing = { ...activeDrawingRef.current!, points: [...current.points, p, p] };
+        activeDrawingRef.current = nd;
+        setPreviewDrawing(nd);
+        return;
+      }
+      if (current.points.length === 2) {
+        // Third click: finalize
+        const allPts = [...current.points, p];
+        const finished: Drawing = { id: String(Date.now()), type: activeTool, points: allPts };
+        onDrawingsChange([...localDrawingsRef.current, finished]);
+        setSelectedDrawingId(finished.id);
+        activeDrawingRef.current = null;
+        setPreviewDrawing(null);
+        setMultiCreating(null);
+        if (!stayInDrawingMode) setActiveTool("cursor");
+        return;
+      }
+      return;
+    }
+
+    // Standard 2-point tools
+    if (isClickCreating && activeDrawingRef.current) {
+      finalizeDrawing(coords);
+      return;
+    }
+
     if (!activeDrawingRef.current) {
-      // Start drawing
-      const newDrawing: Drawing = {
-        id: String(Date.now()),
-        type: activeTool,
-        points: [p, p],
-      };
+      const newDrawing: Drawing = { id: String(Date.now()), type: activeTool, points: [p, p] };
       activeDrawingRef.current = newDrawing;
       setPreviewDrawing(newDrawing);
       isDraggingDrawingRef.current = true;
+      dragStartPosRef.current = { x: e.clientX, y: e.clientY };
     }
   };
 
   const handleSvgMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!mouseTimePriceRef.current) return;
-
-    const timeSec = mouseTimePriceRef.current.time as number;
-    let price = mouseTimePriceRef.current.price;
-    if (settings.isMagnetActive) {
-      price = getMagnetSnappedPrice(timeSec, price);
-    }
-
+    const coords = getTimePriceFromEvent(e);
+    if (!coords) return;
+    let { time: timeSec, price } = coords;
+    if (settings.isMagnetActive) price = getMagnetSnappedPrice(timeSec, price);
     const p: TimePricePoint = { time: timeSec, price };
 
-    // Case A: Drawing creation dragging
-    if (isDraggingDrawingRef.current && activeDrawingRef.current) {
-      const updated: Drawing = {
-        ...activeDrawingRef.current,
-        points: [activeDrawingRef.current.points[0], p],
-      };
+    // Update preview for active drawing
+    if (activeDrawingRef.current && (isDraggingDrawingRef.current || isClickCreating)) {
+      if (activeDrawingRef.current.type === "brush") {
+        const last = activeDrawingRef.current.points[activeDrawingRef.current.points.length - 1];
+        if (last.time !== timeSec || last.price !== price) {
+          const updated: Drawing = { ...activeDrawingRef.current, points: [...activeDrawingRef.current.points, p] };
+          activeDrawingRef.current = updated;
+          setPreviewDrawing(updated);
+        }
+      } else {
+        const pts = [...activeDrawingRef.current.points];
+        pts[pts.length - 1] = p;
+        const updated: Drawing = { ...activeDrawingRef.current, points: pts };
+        activeDrawingRef.current = updated;
+        setPreviewDrawing(updated);
+      }
+    }
+
+    // Multi-point preview: update last segment
+    if (multiCreating && activeDrawingRef.current) {
+      const pts = [...activeDrawingRef.current.points];
+      pts[pts.length - 1] = p;
+      const updated: Drawing = { ...activeDrawingRef.current, points: pts };
+      activeDrawingRef.current = updated;
       setPreviewDrawing(updated);
     }
 
-    // Case B: Stretching existing drawing anchor
-    if (draggingAnchor) {
-      const { drawingId, pointIndex } = draggingAnchor;
-      const updatedDrawings = drawings.map((draw) => {
-        if (draw.id === drawingId) {
-          const pts = [...draw.points];
-          pts[pointIndex] = p;
-          
-          let riskSettings = draw.riskSettings;
-          if (draw.type === "long" || draw.type === "short") {
-            const entry = pts[0].price;
-            const stopLoss = pts[1].price;
-            const dist = Math.abs(entry - stopLoss);
-            const tp = draw.type === "long" ? entry + dist * 2 : entry - dist * 2;
-            riskSettings = {
-              entry,
-              stopLoss,
-              takeProfit: tp,
-              riskRewardRatio: 2.00,
-            };
-          }
-
-          return { ...draw, points: pts, riskSettings };
-        }
-        return draw;
-      });
-      onDrawingsChange(updatedDrawings);
-      setRedrawTrigger((t) => t + 1);
-    }
+    // NOTE: draggingDrawing and draggingAnchor are now handled by the global window mousemove
   };
 
   const handleSvgMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
-    // Case A: Complete drawing creation
-    if (isDraggingDrawingRef.current && activeDrawingRef.current) {
+    if (isDraggingDrawingRef.current && activeDrawingRef.current && !multiCreating) {
       e.stopPropagation();
-      if (mouseTimePriceRef.current) {
-        const timeSec = mouseTimePriceRef.current.time as number;
-        let price = mouseTimePriceRef.current.price;
-        if (settings.isMagnetActive) {
-          price = getMagnetSnappedPrice(timeSec, price);
-        }
-        const p: TimePricePoint = { time: timeSec, price };
-        
-        const finished: Drawing = {
-          ...activeDrawingRef.current,
-          points: [activeDrawingRef.current.points[0], p],
-        };
-
-        if (finished.type === "long" || finished.type === "short") {
-          const entry = finished.points[0].price;
-          const stopLoss = finished.points[1].price;
-          const dist = Math.abs(entry - stopLoss);
-          const tp = finished.type === "long" ? entry + dist * 2 : entry - dist * 2;
-          finished.riskSettings = {
-            entry,
-            stopLoss,
-            takeProfit: tp,
-            riskRewardRatio: 2.00,
-          };
-        } else if (finished.type === "text") {
-          const txt = prompt("Enter text annotation:") || "Text";
-          finished.text = txt;
-        }
-
-        onDrawingsChange([...drawings, finished]);
+      const coords = getTimePriceFromEvent(e);
+      const dist = Math.hypot(e.clientX - dragStartPosRef.current.x, e.clientY - dragStartPosRef.current.y);
+      if (activeDrawingRef.current.type === "brush") {
+        finalizeDrawing(coords);
+      } else if (dist > 5) {
+        finalizeDrawing(coords);
+      } else {
+        isDraggingDrawingRef.current = false;
+        setIsClickCreating(true);
       }
-
-      activeDrawingRef.current = null;
-      setPreviewDrawing(null);
-      isDraggingDrawingRef.current = false;
-
-      if (!stayInDrawingMode) {
-        setActiveTool("cursor");
-      }
+      return;
     }
-
-    // Case B: Complete stretching anchor
-    if (draggingAnchor) {
-      e.stopPropagation();
-      setDraggingAnchor(null);
-    }
+    // Anchor/translation: handled by global mouseup
   };
 
-  // Set crosshair cursor styling during drawing modes
+  // Cursor style
   useEffect(() => {
     const el = containerRef.current;
-    if (el) {
-      el.style.cursor = activeTool !== "cursor" || isSelectingStart ? "crosshair" : "default";
-    }
+    if (el) el.style.cursor = activeTool !== "cursor" || isSelectingStart ? "crosshair" : "default";
   }, [activeTool, isSelectingStart]);
 
-  // ── Click to set start bar ───────────────────────────────────────────────
+  // Start bar selection click
   useEffect(() => {
-    const chart = chartRef.current;
+    const chart  = chartRef.current;
     const series = candleSeriesRef.current;
     if (!chart || !series || !isSelectingStart) return;
-
     const handler = (param: { time?: Time }) => {
       if (!param.time) return;
       const clickTime = param.time as number;
       const visible = replayIndex != null ? candles.slice(0, replayIndex + 1) : candles;
-      const idx = visible.findIndex((c) => c.time === clickTime);
+      const idx = visible.findIndex(c => c.time === clickTime);
       if (idx >= 0) onStartBarSelect(idx);
     };
-
     chart.subscribeClick(handler);
-    return () => { chart.unsubscribeClick(handler); };
+    return () => chart.unsubscribeClick(handler);
   }, [isSelectingStart, candles, replayIndex, onStartBarSelect]);
 
-  // ── Feed candle data (full or replayed slice) with incremental update & jump-free lock ────────
+  // Feed candle data
   useEffect(() => {
     const cs = candleSeriesRef.current;
     const vs = volSeriesRef.current;
     if (!cs || !vs || candles.length === 0) return;
 
     const targetIdx = replayIndex != null ? replayIndex : candles.length - 1;
-    const lastIdx = lastRenderedIdxRef.current;
+    const lastIdx   = lastRenderedIdxRef.current;
+    const up        = settings.upColor || "#2563eb";
+    const dn        = settings.downColor || "#ef4444";
+    const isStep    = lastIdx !== null && targetIdx === lastIdx + 1;
 
-    const up = settings.upColor || "#2563eb";
-    const down = settings.downColor || "#ef4444";
-
-    // 🚀 Incremental update: append new candle smoothly to avoid coordinate resets & camera flickers!
-    const isStepForward = lastIdx !== null && targetIdx === lastIdx + 1;
-
-    if (isStepForward) {
+    if (isStep) {
       const c = candles[targetIdx];
-      const candleData: CandlestickData = {
-        time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close
-      };
-      const volData: HistogramData = {
-        time: c.time as Time,
-        value: c.volume,
-        color: c.close >= c.open ? `${up}26` : `${down}26`,
-      };
-      cs.update(candleData);
-      vs.update(volData);
+      cs.update({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close });
+      vs.update({ time: c.time as Time, value: c.volume, color: c.close >= c.open ? `${up}26` : `${dn}26` });
       lastRenderedIdxRef.current = targetIdx;
     } else {
-      // 🔄 Full reset: required on Strategy switches, Stops, or start-bar selections
-      const slice = candles.slice(0, targetIdx + 1);
-      const cData: CandlestickData[] = slice.map((c) => ({
-        time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close,
-      }));
-      const vData: HistogramData[] = slice.map((c) => ({
-        time:  c.time as Time,
-        value: c.volume,
-        color: c.close >= c.open ? `${up}26` : `${down}26`,
-      }));
-
-      // 🔒 Capture visible range to restore camera view
-      const timeScale = chartRef.current?.timeScale();
-      const visibleRange = timeScale?.getVisibleRange();
-
+      const slice  = candles.slice(0, targetIdx + 1);
+      const cData  = slice.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }));
+      const vData  = slice.map(c => ({ time: c.time as Time, value: c.volume, color: c.close >= c.open ? `${up}26` : `${dn}26` }));
+      const ts     = chartRef.current?.timeScale();
+      const range  = ts?.getVisibleRange();
       cs.setData(cData);
       vs.setData(vData);
-
-      // 🔓 Restore camera position
-      if (visibleRange) {
-        try {
-          timeScale?.setVisibleRange(visibleRange);
-        } catch (e) {
-          // Safe handler
-        }
+      if (range) {
+        try { ts?.setVisibleRange(range); } catch { /* safe */ }
       } else if (replayIndex == null) {
         chartRef.current?.timeScale().fitContent();
       }
-
       lastRenderedIdxRef.current = targetIdx;
     }
-
-    setRedrawTrigger((t) => t + 1);
+    setRedrawTrigger(t => t + 1);
   }, [candles, replayIndex, settings.upColor, settings.downColor]);
 
-  // ── Live candle updates ──────────────────────────────────────────────────
+  // Live candle
   useEffect(() => {
     const cs = candleSeriesRef.current;
     if (!cs || !liveCandle || replayIndex != null) return;
-
-    cs.update({
-      time:  liveCandle.time as Time,
-      open:  liveCandle.open,
-      high:  liveCandle.high,
-      low:   liveCandle.low,
-      close: liveCandle.close,
-    });
-    setRedrawTrigger((t) => t + 1);
+    cs.update({ time: liveCandle.time as Time, open: liveCandle.open, high: liveCandle.high, low: liveCandle.low, close: liveCandle.close });
+    setRedrawTrigger(t => t + 1);
   }, [liveCandle, replayIndex]);
 
-  // ── Closed trades & Start markers ────────────────────────────────────────
+  // Trade markers
   useEffect(() => {
     const cs = candleSeriesRef.current;
     if (!cs) return;
-
     const markers: SeriesMarker<Time>[] = [];
-
     if (replayStartIndex != null && candles[replayStartIndex]) {
-      markers.push({
-        time:     candles[replayStartIndex].time as Time,
-        position: "belowBar",
-        color:    "#2563eb",
-        shape:    "arrowUp",
-        text:     "START",
-      });
+      markers.push({ time: candles[replayStartIndex].time as Time, position: "belowBar", color: "#2563eb", shape: "arrowUp", text: "START" });
     }
-
-    manualTrades.forEach((t) => {
-      markers.push({
-        time:     t.entryTime as Time,
-        position: t.direction === "LONG" ? "belowBar" : "aboveBar",
-        color:    t.direction === "LONG" ? "#22c55e" : "#ef4444",
-        shape:    t.direction === "LONG" ? "arrowUp" : "arrowDown",
-        text:     t.direction === "LONG" ? "BUY" : "SELL",
-      });
+    manualTrades.forEach(t => {
+      markers.push({ time: t.entryTime as Time, position: t.direction === "LONG" ? "belowBar" : "aboveBar", color: t.direction === "LONG" ? "#22c55e" : "#ef4444", shape: t.direction === "LONG" ? "arrowUp" : "arrowDown", text: t.direction === "LONG" ? "BUY" : "SELL" });
       if (t.exitTime != null) {
         const win = (t.pnl ?? 0) >= 0;
-        markers.push({
-          time:     t.exitTime as Time,
-          position: t.direction === "LONG" ? "aboveBar" : "belowBar",
-          color:    win ? "#22c55e" : "#ef4444",
-          shape:    "circle",
-          text:     `EXIT (${win ? "+" : ""}${(t.pnl ?? 0).toFixed(0)})`,
-        });
+        markers.push({ time: t.exitTime as Time, position: t.direction === "LONG" ? "aboveBar" : "belowBar", color: win ? "#22c55e" : "#ef4444", shape: "circle", text: `EXIT (${win ? "+" : ""}${(t.pnl ?? 0).toFixed(0)})` });
       }
     });
-
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     cs.setMarkers(markers);
   }, [manualTrades, replayStartIndex, candles]);
 
-  // ── Coordinates Helper for SVG overlay ──────────────────────────────────
-  const getXY = useCallback((pt: TimePricePoint) => {
-    const chart = chartRef.current;
-    const series = candleSeriesRef.current;
-    if (!chart || !series) return null;
-
-    const x = chart.timeScale().timeToCoordinate(pt.time as Time);
-    const y = series.priceToCoordinate(pt.price);
-    if (x == null || y == null) return null;
-    return { x, y };
-  }, [redrawTrigger]); // Re-evaluate when trigger changes
-
+  // ── Delete helpers ────────────────────────────────────────────────────────
   const handleClearAllDrawings = () => {
     onDrawingsChange([]);
     setPreviewDrawing(null);
     activeDrawingRef.current = null;
     setSelectedDrawingId(null);
+    setMultiCreating(null);
   };
 
-  const handleDeleteIndividualDrawing = useCallback((id: string) => {
-    onDrawingsChange(drawings.filter((d) => d.id !== id));
+  const handleDeleteDrawing = useCallback((id: string) => {
+    // Use localDrawingsRef to get the freshest list
+    onDrawingsChange(localDrawingsRef.current.filter(d => d.id !== id));
     setSelectedDrawingId(null);
-  }, [drawings, onDrawingsChange]);
+  }, [onDrawingsChange]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!selectedDrawingId) return;
-      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
-      if (e.key === "Delete" || e.key === "Backspace") {
-        handleDeleteIndividualDrawing(selectedDrawingId);
+  // ── Event forwarding from SVG overlay to chart canvas ────────────────────
+  // The SVG is a DOM sibling of the chart host div, so wheel/mousemove events
+  // on drawings bubble to the wrapper — NOT to the chart canvas. We re-dispatch
+  // them directly so lightweight-charts always receives scroll and crosshair input.
+  const getChartCanvas = useCallback(
+    () => containerRef.current?.querySelector('canvas') ?? null,
+    [],
+  );
+
+  const forwardWheelToChart = useCallback((e: React.WheelEvent) => {
+    const canvas = getChartCanvas();
+    if (!canvas) return;
+    canvas.dispatchEvent(new WheelEvent('wheel', {
+      deltaX:    e.deltaX,
+      deltaY:    e.deltaY,
+      deltaZ:    e.deltaZ,
+      deltaMode: e.deltaMode,
+      clientX:   e.clientX,
+      clientY:   e.clientY,
+      screenX:   e.screenX,
+      screenY:   e.screenY,
+      ctrlKey:   e.ctrlKey,
+      altKey:    e.altKey,
+      shiftKey:  e.shiftKey,
+      metaKey:   e.metaKey,
+      bubbles:   true,
+      cancelable: true,
+      composed:  true,
+    }));
+  }, [getChartCanvas]);
+
+  // Also forward mousemove so the crosshair + tooltip stays live while
+  // the pointer is hovering over a drawing.
+  const forwardMouseMoveToChart = useCallback((e: React.MouseEvent) => {
+    const canvas = getChartCanvas();
+    if (!canvas) return;
+    canvas.dispatchEvent(new MouseEvent('mousemove', {
+      clientX:  e.clientX,
+      clientY:  e.clientY,
+      screenX:  e.screenX,
+      screenY:  e.screenY,
+      ctrlKey:  e.ctrlKey,
+      altKey:   e.altKey,
+      shiftKey: e.shiftKey,
+      metaKey:  e.metaKey,
+      bubbles:  true,
+      cancelable: true,
+      composed: true,
+    }));
+  }, [getChartCanvas]);
+
+  // ── SVG rendering helpers ─────────────────────────────────────────────────
+  const svgW = containerRef.current?.clientWidth ?? 3000;
+  const svgH = containerRef.current?.clientHeight ?? 1000;
+
+  // Anchors are only interactive in cursor mode — prevents accidental drags while drawing
+  const makeAnchor = (cx: number, cy: number, drawingId: string, pointIndex: number, key: string) => (
+    <circle
+      key={key}
+      cx={cx} cy={cy} r={5.5}
+      fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.8}
+      className={activeTool === "cursor" ? "cursor-nwse-resize pointer-events-auto" : "pointer-events-none"}
+      onMouseDown={activeTool === "cursor" ? (e => {
+        stopEvent(e);
+        const newAnchor = { drawingId, pointIndex };
+        draggingAnchorRef.current = newAnchor;
+        setDraggingAnchor(newAnchor);
+      }) : undefined}
+    />
+  );
+
+  // Compute the arrowhead points for an arrow line
+  const arrowHead = (x1: number, y1: number, x2: number, y2: number, size = 10) => {
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    const a1 = angle + Math.PI * 0.8;
+    const a2 = angle - Math.PI * 0.8;
+    return `${x2},${y2} ${x2 + size * Math.cos(a1)},${y2 + size * Math.sin(a1)} ${x2 + size * Math.cos(a2)},${y2 + size * Math.sin(a2)}`;
+  };
+
+  // Extend a line from p1 through p2 to the SVG right edge
+  const extendToRight = (x1: number, y1: number, x2: number, y2: number) => {
+    if (x2 === x1) return { x: x2, y: svgH };
+    const slope = (y2 - y1) / (x2 - x1);
+    const ex = svgW + 100;
+    const ey = y1 + slope * (ex - x1);
+    return { x: ex, y: ey };
+  };
+
+  const allDrawings = [...(localDrawings || []), ...(previewDrawing ? [previewDrawing] : [])];
+
+  // ── Render single drawing ─────────────────────────────────────────────────
+  const renderDrawing = (draw: Drawing) => {
+    const p1 = getXY(draw.points[0]);
+    const isSelected = selectedDrawingId === draw.id;
+    const isPreview  = draw.id === previewDrawing?.id;
+    const stroke     = isSelected ? SEL_COLOR : LINE_COLOR;
+    const dashArray  = isPreview ? "5 4" : "0";
+
+    // Drawings are only interactive in cursor mode.
+    // In any drawing tool mode, <g> elements are pointer-events-none so clicks
+    // fall through to the SVG to start a new drawing — this is the fix for
+    // the "drawing stays stuck to cursor" bug (startDrag was firing on finalized
+    // drawings when user clicked in drawing mode).
+    const inCursorMode = activeTool === "cursor";
+
+    const startDrag = (e: React.MouseEvent) => {
+      stopEvent(e);
+      setSelectedDrawingId(draw.id);
+      if (isLocked) return;
+      const coords = getTimePriceFromEvent(e);
+      if (coords) {
+        const nd = { id: draw.id, startPoints: [...draw.points], startMouseCoords: coords };
+        draggingDrawingRef.current = nd;
+        setDraggingDrawing(nd);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedDrawingId, handleDeleteIndividualDrawing]);
+    const groupProps = {
+      key: draw.id,
+      className: inCursorMode ? "cursor-pointer pointer-events-auto" : "pointer-events-none",
+      onClick: inCursorMode ? ((e: React.MouseEvent) => { stopEvent(e); setSelectedDrawingId(draw.id); }) : undefined,
+      onMouseDown: inCursorMode ? startDrag : undefined,
+      // NO onMouseUp here — stopImmediatePropagation on mouseup would block the
+      // global window.mouseup handler, leaving draggingDrawing set and the
+      // drawing stuck to the cursor. Global handler is the sole cleanup point.
+    };
 
-  const allDrawings = [...drawings, ...(previewDrawing ? [previewDrawing] : [])];
+    // ── Horizontal Line ───────────────────────────────────────────────────
+    if (draw.type === "hline") {
+      if (!p1) return null;
+      return (
+        <g {...groupProps}>
+          <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke="transparent" strokeWidth={12} />
+          <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
+          <text x={svgW - 8} y={p1.y - 4} fill={stroke} fontSize={8} fontFamily="monospace" textAnchor="end">
+            {draw.points[0].price.toFixed(4)}
+          </text>
+          {isSelected && makeAnchor(80, p1.y, draw.id, 0, "anc0")}
+        </g>
+      );
+    }
 
+    // ── Vertical Line ─────────────────────────────────────────────────────
+    if (draw.type === "vline") {
+      if (!p1) return null;
+      return (
+        <g {...groupProps}>
+          <line x1={p1.x} y1={0} x2={p1.x} y2={svgH} stroke="transparent" strokeWidth={12} />
+          <line x1={p1.x} y1={0} x2={p1.x} y2={svgH} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
+          {isSelected && makeAnchor(p1.x, 40, draw.id, 0, "anc0")}
+        </g>
+      );
+    }
+
+    // ── Trendline ─────────────────────────────────────────────────────────
+    if (draw.type === "trendline") {
+      const p2 = getXY(draw.points[1]);
+      if (!p1 || !p2) return null;
+      return (
+        <g {...groupProps}>
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray={dashArray} />
+          {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
+        </g>
+      );
+    }
+
+    // ── Ray (extends right) ───────────────────────────────────────────────
+    if (draw.type === "ray") {
+      const p2 = getXY(draw.points[1]);
+      if (!p1 || !p2) return null;
+      const ext = extendToRight(p1.x, p1.y, p2.x, p2.y);
+      return (
+        <g {...groupProps}>
+          <line x1={p1.x} y1={p1.y} x2={ext.x} y2={ext.y} stroke="transparent" strokeWidth={12} />
+          <line x1={p1.x} y1={p1.y} x2={ext.x} y2={ext.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray={dashArray} />
+          {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
+        </g>
+      );
+    }
+
+    // ── Arrow ─────────────────────────────────────────────────────────────
+    if (draw.type === "arrow") {
+      const p2 = getXY(draw.points[1]);
+      if (!p1 || !p2) return null;
+      return (
+        <g {...groupProps}>
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.8} />
+          <polygon points={arrowHead(p1.x, p1.y, p2.x, p2.y, 10)} fill={stroke} />
+          {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
+        </g>
+      );
+    }
+
+    // ── Rectangle ─────────────────────────────────────────────────────────
+    if (draw.type === "rectangle") {
+      const p2 = getXY(draw.points[1]);
+      if (!p1 || !p2) return null;
+      const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y);
+      const w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
+      const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
+      return (
+        <g {...groupProps}>
+          <rect x={x} y={y} width={w} height={h} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
+            fill={isSelected ? "rgba(234,179,8,0.08)" : "rgba(59,130,246,0.05)"} strokeDasharray={dashArray} />
+          {isSelected && <>
+            {makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
+            {makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}
+            {/* Opposite corners — visually shown, clicking moves to nearest real anchor */}
+            <circle cx={p2.x} cy={p1.y} r={5.5} fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.8}
+              className={inCursorMode ? "cursor-nesw-resize pointer-events-auto" : "pointer-events-none"}
+              onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 1 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
+            <circle cx={p1.x} cy={p2.y} r={5.5} fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.8}
+              className={inCursorMode ? "cursor-nesw-resize pointer-events-auto" : "pointer-events-none"}
+              onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 0 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
+            {/* Center handle for whole-drawing movement */}
+            <circle cx={cx} cy={cy} r={4} fill={SEL_COLOR} fillOpacity={0.4}
+              className={inCursorMode ? "cursor-move pointer-events-auto" : "pointer-events-none"}
+              onMouseDown={inCursorMode ? startDrag : undefined} />
+          </>}
+        </g>
+      );
+    }
+
+    // ── Circle / Ellipse ─────────────────────────────────────────────────
+    if (draw.type === "circle") {
+      const p2 = getXY(draw.points[1]);
+      if (!p1 || !p2) return null;
+      const rx = Math.abs(p2.x - p1.x);
+      const ry = Math.abs(p2.y - p1.y);
+      return (
+        <g {...groupProps}>
+          <ellipse cx={p1.x} cy={p1.y} rx={rx || 1} ry={ry || 1} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
+            fill={isSelected ? "rgba(234,179,8,0.08)" : "rgba(59,130,246,0.05)"} strokeDasharray={dashArray} />
+          {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
+        </g>
+      );
+    }
+
+    // ── Triangle ─────────────────────────────────────────────────────────
+    if (draw.type === "triangle") {
+      if (draw.points.length < 3) {
+        // Partial preview
+        const p2 = draw.points[1] ? getXY(draw.points[1]) : null;
+        if (!p1 || !p2) return null;
+        return <line key={draw.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={1.5} strokeDasharray="5 4" />;
+      }
+      const coords3 = draw.points.map(pt => getXY(pt));
+      if (coords3.some(c => !c)) return null;
+      const [c1, c2, c3] = coords3 as { x: number; y: number }[];
+      const pts = `${c1.x},${c1.y} ${c2.x},${c2.y} ${c3.x},${c3.y}`;
+      return (
+        <g {...groupProps}>
+          <polygon points={pts} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
+            fill={isSelected ? "rgba(234,179,8,0.08)" : "rgba(59,130,246,0.05)"} strokeDasharray={dashArray} />
+          {isSelected && draw.points.map((_, i) => {
+            const xy = getXY(draw.points[i])!;
+            return makeAnchor(xy.x, xy.y, draw.id, i, `a${i}`);
+          })}
+        </g>
+      );
+    }
+
+    // ── Parallel Channel ─────────────────────────────────────────────────
+    if (draw.type === "channel") {
+      if (draw.points.length < 3) {
+        const p2 = draw.points[1] ? getXY(draw.points[1]) : null;
+        if (!p1 || !p2) return null;
+        return <line key={draw.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={1.5} strokeDasharray="5 4" />;
+      }
+      const [c1, c2, c3] = draw.points.map(pt => getXY(pt)) as ({ x: number; y: number } | null)[];
+      if (!c1 || !c2 || !c3) return null;
+      // Offset: c3 defines the y-offset for the parallel line
+      const dy = c3.y - c1.y;
+      return (
+        <g {...groupProps}>
+          {/* First line */}
+          <line x1={c1.x} y1={c1.y} x2={c2.x} y2={c2.y} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
+          {/* Second parallel line */}
+          <line x1={c1.x} y1={c1.y + dy} x2={c2.x} y2={c2.y + dy} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
+          {/* Fill */}
+          <polygon
+            points={`${c1.x},${c1.y} ${c2.x},${c2.y} ${c2.x},${c2.y + dy} ${c1.x},${c1.y + dy}`}
+            fill={isSelected ? "rgba(234,179,8,0.06)" : "rgba(59,130,246,0.04)"} stroke="none"
+          />
+          {/* End caps */}
+          <line x1={c1.x} y1={c1.y} x2={c1.x} y2={c1.y + dy} stroke={stroke} strokeWidth={1} strokeDasharray="3 3" />
+          <line x1={c2.x} y1={c2.y} x2={c2.x} y2={c2.y + dy} stroke={stroke} strokeWidth={1} strokeDasharray="3 3" />
+          {isSelected && <>
+            {makeAnchor(c1.x, c1.y, draw.id, 0, "a0")}
+            {makeAnchor(c2.x, c2.y, draw.id, 1, "a1")}
+            {makeAnchor(c3.x, c3.y, draw.id, 2, "a2")}
+          </>}
+        </g>
+      );
+    }
+
+    // ── Brush / Highlighter ───────────────────────────────────────────────
+    if (draw.type === "brush") {
+      const pts = draw.points.map(pt => getXY(pt)).filter(Boolean) as { x: number; y: number }[];
+      if (pts.length < 2) return null;
+      // Smooth catmull-rom style path
+      let d = `M ${pts[0].x} ${pts[0].y}`;
+      for (let i = 1; i < pts.length; i++) {
+        const prev  = pts[i - 1];
+        const curr  = pts[i];
+        const cpx   = (prev.x + curr.x) / 2;
+        const cpy   = (prev.y + curr.y) / 2;
+        if (i === 1) {
+          d += ` Q ${prev.x} ${prev.y} ${cpx} ${cpy}`;
+        } else {
+          d += ` T ${cpx} ${cpy}`;
+        }
+      }
+      d += ` L ${pts[pts.length - 1].x} ${pts[pts.length - 1].y}`;
+      return (
+        <g {...groupProps}>
+          <path d={d} fill="none" stroke="transparent" strokeWidth={20} strokeLinecap="round" strokeLinejoin="round" />
+          <path d={d} fill="none" stroke={isSelected ? "rgba(234,179,8,0.55)" : "rgba(59,130,246,0.28)"} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
+        </g>
+      );
+    }
+
+    // ── Text Annotation ───────────────────────────────────────────────────
+    if (draw.type === "text") {
+      if (!p1) return null;
+      const label = draw.text || "Text";
+      const fw    = label.length * 6.5 + 12;
+      return (
+        <g {...groupProps}>
+          <rect x={p1.x - 4} y={p1.y - 15} width={fw} height={19} rx={4} fill={CHART_BG} stroke={isSelected ? SEL_COLOR : "#23262f"} strokeWidth={isSelected ? 1.5 : 1} />
+          <text x={p1.x + 2} y={p1.y - 2} fill={isSelected ? SEL_COLOR : LINE_COLOR} fontSize={9} fontFamily="monospace" fontWeight="bold">{label}</text>
+          {isSelected && makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
+        </g>
+      );
+    }
+
+    // ── Smiley / Emoji ────────────────────────────────────────────────────
+    if (draw.type === "smiley") {
+      if (!p1) return null;
+      return (
+        <g {...groupProps}>
+          {isSelected && <circle cx={p1.x} cy={p1.y} r={14} fill="rgba(234,179,8,0.18)" stroke={SEL_COLOR} strokeWidth={1} />}
+          <text x={p1.x - 8} y={p1.y + 8} fontSize={16}>🙂</text>
+          {isSelected && makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
+        </g>
+      );
+    }
+
+    // ── Ruler ─────────────────────────────────────────────────────────────
+    if (draw.type === "ruler") {
+      const p2 = getXY(draw.points[1]);
+      if (!p1 || !p2) return null;
+      const pips  = Math.abs(draw.points[0].price - draw.points[1].price) * 10000;
+      const bars  = Math.round(Math.abs(draw.points[0].time - draw.points[1].time) / 900);
+      const bx    = Math.min(p1.x, p2.x);
+      const by    = Math.min(p1.y, p2.y) - 22;
+      return (
+        <g {...groupProps}>
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? SEL_COLOR : "#f59e0b"} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray="4 3" />
+          <rect x={bx} y={by} width={108} height={17} rx={4} fill={isSelected ? SEL_COLOR : "#f59e0b"} />
+          <text x={bx + 54} y={by + 11} textAnchor="middle" fill="#000" fontSize={8} fontFamily="monospace" fontWeight="bold">
+            {pips.toFixed(1)} Pips | {bars} Bars
+          </text>
+          {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
+        </g>
+      );
+    }
+
+    // ── Fibonacci Retracements ────────────────────────────────────────────
+    if (draw.type === "fib") {
+      const p2 = getXY(draw.points[1]);
+      if (!p1 || !p2) return null;
+      const dy  = p2.y - p1.y;
+      const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+      const labels = ["0%", "23.6%", "38.2%", "50%", "61.8%", "78.6%", "100%"];
+      const zoneColors = [
+        "rgba(239,68,68,0.04)", "rgba(249,115,22,0.04)", "rgba(234,179,8,0.04)",
+        "rgba(16,185,129,0.04)", "rgba(59,130,246,0.04)", "rgba(139,92,246,0.04)",
+      ];
+      return (
+        <g {...groupProps}>
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
+          {zoneColors.map((color, idx) => {
+            const yTop = p1.y + dy * levels[idx];
+            const yBot = p1.y + dy * levels[idx + 1];
+            return <rect key={`z${idx}`} x={0} y={Math.min(yTop, yBot)} width={svgW} height={Math.abs(yBot - yTop)} fill={color} pointerEvents="none" />;
+          })}
+          {levels.map((lvl, idx) => {
+            const y = p1.y + dy * lvl;
+            const priceVal = draw.points[0].price + (draw.points[1].price - draw.points[0].price) * lvl;
+            return (
+              <g key={idx}>
+                <line x1={0} y1={y} x2={svgW} y2={y} stroke={isSelected ? "rgba(234,179,8,0.4)" : "rgba(59,130,246,0.22)"} strokeWidth={isSelected ? 1.5 : 1} />
+                <text x={p1.x + 8} y={y - 3} fill={isSelected ? SEL_COLOR : TEXT_COLOR} fontSize={8} fontFamily="monospace">
+                  {labels[idx]} ({priceVal.toFixed(4)})
+                </text>
+              </g>
+            );
+          })}
+          {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
+        </g>
+      );
+    }
+
+    // ── Harmonic XABCD ────────────────────────────────────────────────────
+    if (draw.type === "patterns") {
+      const ptsXY = draw.points.map(pt => getXY(pt));
+      if (draw.points.length < 5 || ptsXY.some(p => !p)) return null;
+      const [pX, pA, pB, pC, pD] = ptsXY as { x: number; y: number }[];
+      return (
+        <g {...groupProps}>
+          <polygon points={`${pX.x},${pX.y} ${pA.x},${pA.y} ${pB.x},${pB.y}`}
+            stroke={isSelected ? SEL_COLOR : "#8b5cf6"} strokeWidth={isSelected ? 2 : 1.5}
+            fill={isSelected ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)"} />
+          <polygon points={`${pB.x},${pB.y} ${pC.x},${pC.y} ${pD.x},${pD.y}`}
+            stroke={isSelected ? SEL_COLOR : "#8b5cf6"} strokeWidth={isSelected ? 2 : 1.5}
+            fill={isSelected ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)"} />
+          {[{ p: pX, l: "X" }, { p: pA, l: "A" }, { p: pB, l: "B" }, { p: pC, l: "C" }, { p: pD, l: "D" }].map((v, i) => (
+            <text key={i} x={v.p.x} y={v.p.y - 8} fill="#c084fc" fontSize={9} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{v.l}</text>
+          ))}
+          {isSelected && draw.points.map((_, idx) => {
+            const xy = getXY(draw.points[idx])!;
+            return makeAnchor(xy.x, xy.y, draw.id, idx, `a${idx}`);
+          })}
+        </g>
+      );
+    }
+
+    // ── Long / Short Risk Bracket ─────────────────────────────────────────
+    if (draw.type === "long" || draw.type === "short") {
+      const p2 = getXY(draw.points[1]);
+      if (!p1 || !p2) return null;
+      const isLong = draw.type === "long";
+      const entry  = draw.points[0].price;
+      const stop   = draw.points[1].price;
+      const dist   = Math.abs(entry - stop);
+      const tp     = draw.points[2]?.price ?? (isLong ? entry + dist * 2 : entry - dist * 2);
+      const tpPt   = draw.points[2] ? getXY(draw.points[2]) : null;
+      const tpY    = tpPt?.y ?? (p1.y - (p2.y - p1.y) * 2);
+      const xStart = p1.x;
+      const width  = Math.max(90, Math.abs(p2.x - p1.x) + 40);
+      const rrRatio = Math.abs(tp - entry) / (dist || 1);
+      return (
+        <g {...groupProps}>
+          <rect x={xStart} y={Math.min(p1.y, tpY)} width={width} height={Math.abs(tpY - p1.y)}
+            fill={isSelected ? "rgba(34,197,94,0.18)" : "rgba(34,197,94,0.12)"} stroke={isSelected ? SEL_COLOR : "#22c55e"} strokeWidth={isSelected ? 1.5 : 0.75} />
+          <rect x={xStart} y={Math.min(p1.y, p2.y)} width={width} height={Math.abs(p2.y - p1.y)}
+            fill={isSelected ? "rgba(239,68,68,0.18)" : "rgba(239,68,68,0.12)"} stroke={isSelected ? SEL_COLOR : "#ef4444"} strokeWidth={isSelected ? 1.5 : 0.75} />
+          <rect x={xStart + 6} y={p1.y - 9} width={70} height={17} rx={4} fill={CHART_BG} stroke={isSelected ? SEL_COLOR : "#23262f"} strokeWidth={1} />
+          <text x={xStart + 41} y={p1.y + 3} textAnchor="middle" fill="#d1d5db" fontSize={8} fontFamily="monospace" fontWeight="bold">
+            R/R: {rrRatio.toFixed(2)}
+          </text>
+          {isSelected && <>
+            {makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
+            {makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}
+            {makeAnchor(p2.x, tpY, draw.id, 2, "a2")}
+          </>}
+        </g>
+      );
+    }
+
+    return null;
+  };
+
+  // ── JSX ───────────────────────────────────────────────────────────────────
   return (
     <div className="relative w-full h-full flex transition-colors duration-200" style={{ backgroundColor: settings.bgColor || "#0f0f0f" }}>
-      
-      {/* ── Vertical Drawings Toolbar (Exactly matching native TradingView layout) ── */}
-      <div className="w-11 border-r border-[#23262f] flex flex-col items-center py-2.5 gap-0.5 shrink-0 z-20 select-none transition-colors duration-200" style={{ backgroundColor: settings.bgColor || "#0f0f0f" }}>
-        
-        {/* Section 1: Standard TV Drawings Toolbar list */}
-        <ToolbarButton 
-          active={activeTool === "cursor"} 
-          onClick={() => setActiveTool("cursor")} 
-          icon={<MousePointer className="w-4 h-4" />} 
-          label="Crosshair Cursor" 
-        />
-        <ToolbarButton 
-          active={activeTool === "trendline"} 
-          onClick={() => setActiveTool("trendline")} 
-          icon={<Slash className="w-4 h-4" />} 
-          label="Trend Line" 
-        />
-        <ToolbarButton 
-          active={activeTool === "fib"} 
-          onClick={() => setActiveTool("fib")} 
-          icon={<Grid className="w-4 h-4" />} 
-          label="Gann and Fibonacci Retracement" 
-        />
-        <ToolbarButton 
-          active={activeTool === "rectangle"} 
-          onClick={() => setActiveTool("rectangle")} 
-          icon={<Square className="w-4 h-4" />} 
-          label="Geometric Rectangle" 
-        />
-        <ToolbarButton 
-          active={activeTool === "brush"} 
-          onClick={() => setActiveTool("brush")} 
-          icon={<Paintbrush className="w-4 h-4" />} 
-          label="Highlighter Brush" 
-        />
-        <ToolbarButton 
-          active={activeTool === "text"} 
-          onClick={() => setActiveTool("text")} 
-          icon={<Type className="w-4 h-4" />} 
-          label="Text Annotation" 
-        />
-        <ToolbarButton 
-          active={activeTool === "patterns"} 
-          onClick={() => setActiveTool("patterns")} 
-          icon={<Workflow className="w-4 h-4 text-[#8b5cf6]" />} 
-          label="Harmonic XABCD Patterns" 
-        />
-        <ToolbarButton 
-          active={activeTool === "long" || activeTool === "short"} 
-          onClick={() => setActiveTool(activeTool === "long" ? "short" : "long")} 
-          icon={<ArrowUpRight className={`w-4 h-4 ${activeTool === "long" ? "text-green-500" : "text-red-500"}`} />} 
-          label="Risk/Reward Bracket (Long/Short)" 
-        />
-        <ToolbarButton 
-          active={activeTool === "smiley"} 
-          onClick={() => setActiveTool("smiley")} 
-          icon={<Smile className="w-4 h-4 text-yellow-500" />} 
-          label="Smileys & Emojis" 
-        />
 
-        {/* Separator 1 */}
-        <div className="w-6 h-px bg-[#23262f] my-1.5" />
+      {/* ── Toolbar ── */}
+      <div className="w-11 border-r border-[#23262f] flex flex-col items-center py-2 gap-0 shrink-0 z-20 select-none overflow-y-auto"
+        style={{ backgroundColor: settings.bgColor || "#0f0f0f" }}>
 
-        {/* Section 2: Measurement & Utility items */}
-        <ToolbarButton 
-          active={activeTool === "ruler"} 
-          onClick={() => setActiveTool("ruler")} 
-          icon={<Ruler className="w-4 h-4 text-amber-500" />} 
-          label="Ruler Pip Measurement" 
-        />
-        <ToolbarButton 
-          active={false} 
-          onClick={() => chartRef.current?.timeScale().fitContent()} 
-          icon={<Search className="w-4 h-4 text-gray-500 hover:text-white" />} 
-          label="Reset Zoom scale" 
-        />
+        {/* Cursor */}
+        <TB active={activeTool === "cursor"} onClick={() => setActiveTool("cursor")} icon={<MousePointer className="w-4 h-4" />} label="Crosshair / Cursor" />
 
-        {/* Separator 2 */}
-        <div className="w-6 h-px bg-[#23262f] my-1.5" />
+        <Sep />
 
-        {/* Section 3: Interactive Magnet, stay in tool, lock, show/hide states */}
-        <ToolbarButton 
-          active={settings.isMagnetActive} 
-          onClick={() => onSettingsChange({ isMagnetActive: !settings.isMagnetActive })} 
-          icon={<Magnet className={`w-4 h-4 ${settings.isMagnetActive ? "text-blue-400" : ""}`} />} 
-          label="Magnet Mode (Snaps to OHLC)" 
-        />
-        <ToolbarButton 
-          active={stayInDrawingMode} 
-          onClick={() => setStayInDrawingMode(prev => !prev)} 
-          icon={<PenTool className={`w-4 h-4 ${stayInDrawingMode ? "text-blue-400" : ""}`} />} 
-          label="Stay in Drawing Mode" 
-        />
-        <ToolbarButton 
-          active={isLocked} 
-          onClick={() => setIsLocked(prev => !prev)} 
-          icon={isLocked ? <Lock className="w-4 h-4 text-[#ef4444]" /> : <Unlock className="w-4 h-4 text-gray-500" />} 
-          label={isLocked ? "Unlock All Drawing Placements" : "Lock All Drawing Placements"} 
-        />
-        <ToolbarButton 
-          active={areDrawingsHidden} 
-          onClick={() => setAreDrawingsHidden(prev => !prev)} 
-          icon={areDrawingsHidden ? <EyeOff className="w-4 h-4 text-yellow-500" /> : <Eye className="w-4 h-4 text-gray-500" />} 
-          label={areDrawingsHidden ? "Show All Drawings" : "Hide All Drawings"} 
-        />
+        {/* Lines group */}
+        <TB active={activeTool === "trendline"} onClick={() => setActiveTool("trendline")} icon={<Slash className="w-4 h-4" />} label="Trend Line" />
+        <TB active={activeTool === "ray"} onClick={() => setActiveTool("ray")} icon={<ArrowRight className="w-4 h-4" />} label="Ray (extends right)" />
+        <TB active={activeTool === "hline"} onClick={() => setActiveTool("hline")} icon={<Minus className="w-4 h-4" />} label="Horizontal Line" />
+        <TB active={activeTool === "vline"} onClick={() => setActiveTool("vline")}
+          icon={<span className="inline-block rotate-90"><Minus className="w-4 h-4" /></span>} label="Vertical Line" />
+        <TB active={activeTool === "arrow"} onClick={() => setActiveTool("arrow")} icon={<ArrowUpRight className="w-4 h-4" />} label="Arrow" />
 
-        {/* Separator 3 */}
-        <div className="w-6 h-px bg-[#23262f] my-1.5" />
+        <Sep />
 
-        {/* Trash delete button */}
-        <button
-          onClick={handleClearAllDrawings}
+        {/* Shapes group */}
+        <TB active={activeTool === "rectangle"} onClick={() => setActiveTool("rectangle")} icon={<Square className="w-4 h-4" />} label="Rectangle" />
+        <TB active={activeTool === "circle"} onClick={() => setActiveTool("circle")} icon={<Circle className="w-4 h-4" />} label="Circle / Ellipse" />
+        <TB active={activeTool === "triangle"} onClick={() => setActiveTool("triangle")} icon={<Triangle className="w-4 h-4" />} label="Triangle (3 clicks)" />
+        <TB active={activeTool === "channel"} onClick={() => setActiveTool("channel")} icon={<Layers className="w-4 h-4" />} label="Parallel Channel (3 clicks)" />
+
+        <Sep />
+
+        {/* Fib */}
+        <TB active={activeTool === "fib"} onClick={() => setActiveTool("fib")} icon={<Grid className="w-4 h-4" />} label="Fibonacci Retracement" />
+
+        <Sep />
+
+        {/* Risk positions */}
+        <TB active={activeTool === "long"} onClick={() => setActiveTool("long")}
+          icon={<TrendingUp className="w-4 h-4 text-green-500" />} label="Long Position (Risk/Reward)" />
+        <TB active={activeTool === "short"} onClick={() => setActiveTool("short")}
+          icon={<TrendingUp className="w-4 h-4 text-red-500 rotate-180 scale-x-[-1]" />} label="Short Position (Risk/Reward)" />
+        <TB active={activeTool === "patterns"} onClick={() => setActiveTool("patterns")}
+          icon={<Workflow className="w-4 h-4 text-[#8b5cf6]" />} label="Harmonic XABCD Pattern" />
+
+        <Sep />
+
+        {/* Annotations */}
+        <TB active={activeTool === "text"} onClick={() => setActiveTool("text")} icon={<Type className="w-4 h-4" />} label="Text Annotation" />
+        <TB active={activeTool === "brush"} onClick={() => setActiveTool("brush")} icon={<Paintbrush className="w-4 h-4" />} label="Highlighter Brush" />
+        <TB active={activeTool === "ruler"} onClick={() => setActiveTool("ruler")} icon={<Ruler className="w-4 h-4 text-amber-500" />} label="Ruler (Pips & Bars)" />
+        <TB active={activeTool === "smiley"} onClick={() => setActiveTool("smiley")} icon={<Smile className="w-4 h-4 text-yellow-500" />} label="Emoji Marker" />
+
+        <Sep />
+
+        {/* Utilities */}
+        <TB active={false} onClick={() => chartRef.current?.timeScale().fitContent()}
+          icon={<Search className="w-4 h-4" />} label="Fit / Reset Zoom" />
+        <TB active={settings.isMagnetActive} onClick={() => onSettingsChange({ isMagnetActive: !settings.isMagnetActive })}
+          icon={<Magnet className={`w-4 h-4 ${settings.isMagnetActive ? "text-blue-400" : ""}`} />} label="Magnet Mode (snap OHLC)" />
+        <TB active={stayInDrawingMode} onClick={() => setStayInDrawingMode(p => !p)}
+          icon={<PenTool className={`w-4 h-4 ${stayInDrawingMode ? "text-blue-400" : ""}`} />} label="Stay in Drawing Mode" />
+        <TB active={isLocked} onClick={() => setIsLocked(p => !p)}
+          icon={isLocked ? <Lock className="w-4 h-4 text-red-400" /> : <Unlock className="w-4 h-4" />} label={isLocked ? "Unlock Drawings" : "Lock Drawings"} />
+        <TB active={areDrawingsHidden} onClick={() => setAreDrawingsHidden(p => !p)}
+          icon={areDrawingsHidden ? <EyeOff className="w-4 h-4 text-yellow-500" /> : <Eye className="w-4 h-4" />} label={areDrawingsHidden ? "Show Drawings" : "Hide Drawings"} />
+
+        <Sep />
+
+        <button onClick={handleClearAllDrawings}
           className="p-2 rounded-lg text-gray-600 hover:text-red-500 hover:bg-red-500/10 transition-all active:scale-90 cursor-pointer"
-          title="Clear All Drawings"
-        >
+          title="Clear All Drawings">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
 
-      {/* ── Main Chart Canvas ── */}
+      {/* ── Chart area ── */}
       <div className="flex-1 min-w-0 h-full relative">
         <div ref={containerRef} className="w-full h-full" />
 
         {/* ── SVG Drawing Overlay ── */}
         {!areDrawingsHidden && (
-          <svg 
+          <svg
             className={`absolute inset-0 w-full h-full z-10 ${
-              activeTool !== "cursor" || draggingAnchor !== null ? "pointer-events-auto" : "pointer-events-none"
+              activeTool !== "cursor" || isClickCreating || !!multiCreating
+                ? "pointer-events-auto"
+                : "pointer-events-none"
             }`}
             onMouseDown={handleSvgMouseDown}
-            onMouseMove={handleSvgMouseMove}
+            onMouseMove={(e) => { handleSvgMouseMove(e); forwardMouseMoveToChart(e); }}
             onMouseUp={handleSvgMouseUp}
+            onWheel={forwardWheelToChart}
           >
-            {allDrawings.map((draw) => {
-              const p1 = getXY(draw.points[0]);
-              const p2 = getXY(draw.points[1]);
-              if (!p1 || !p2) return null;
-
-              const isSelected = selectedDrawingId === draw.id;
-
-              // Trendline
-              if (draw.type === "trendline") {
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    {/* Transparent Click Hitbox */}
-                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth="12" />
-                    <line
-                      x1={p1.x}
-                      y1={p1.y}
-                      x2={p2.x}
-                      y2={p2.y}
-                      stroke={isSelected ? "#eab308" : "#3b82f6"}
-                      strokeWidth={isSelected ? "3" : "2"}
-                      strokeDasharray={draw.id === previewDrawing?.id ? "4 4" : "0"}
-                    />
-                    {isSelected && (
-                      <>
-                        <circle 
-                          cx={p1.x} 
-                          cy={p1.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                          }}
-                        />
-                        <circle 
-                          cx={p2.x} 
-                          cy={p2.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 1 });
-                          }}
-                        />
-                      </>
-                    )}
-                  </g>
-                );
-              }
-
-              // Rectangle
-              if (draw.type === "rectangle") {
-                const x = Math.min(p1.x, p2.x);
-                const y = Math.min(p1.y, p2.y);
-                const w = Math.abs(p2.x - p1.x);
-                const h = Math.abs(p2.y - p1.y);
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    <rect
-                      x={x}
-                      y={y}
-                      width={w}
-                      height={h}
-                      stroke={isSelected ? "#eab308" : "#3b82f6"}
-                      strokeWidth={isSelected ? "2.5" : "1.5"}
-                      fill={isSelected ? "rgba(234,179,8,0.12)" : "rgba(59,130,246,0.06)"}
-                      strokeDasharray={draw.id === previewDrawing?.id ? "4 4" : "0"}
-                    />
-                    {isSelected && (
-                      <>
-                        <circle 
-                          cx={p1.x} 
-                          cy={p1.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                          }}
-                        />
-                        <circle 
-                          cx={p2.x} 
-                          cy={p2.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 1 });
-                          }}
-                        />
-                      </>
-                    )}
-                  </g>
-                );
-              }
-
-              // Brush/Highlighter Stroke
-              if (draw.type === "brush") {
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    <line
-                      x1={p1.x}
-                      y1={p1.y}
-                      x2={p2.x}
-                      y2={p2.y}
-                      stroke={isSelected ? "rgba(234,179,8,0.6)" : "rgba(59,130,246,0.4)"}
-                      strokeWidth="10"
-                      strokeLinecap="round"
-                    />
-                    {isSelected && (
-                      <>
-                        <circle 
-                          cx={p1.x} 
-                          cy={p1.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                          }}
-                        />
-                        <circle 
-                          cx={p2.x} 
-                          cy={p2.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 1 });
-                          }}
-                        />
-                      </>
-                    )}
-                  </g>
-                );
-              }
-
-              // Text Annotation
-              if (draw.type === "text") {
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    <rect
-                      x={p1.x - 4}
-                      y={p1.y - 14}
-                      width={(draw.text || "Text").length * 6 + 10}
-                      height={18}
-                      rx="3"
-                      fill="#0c0e14"
-                      stroke={isSelected ? "#eab308" : "#23262f"}
-                      strokeWidth={isSelected ? "1.5" : "1"}
-                    />
-                    <text
-                      x={p1.x + 2}
-                      y={p1.y - 2}
-                      fill={isSelected ? "#eab308" : "#3b82f6"}
-                      fontSize="9"
-                      fontFamily="monospace"
-                      fontWeight="bold"
-                    >
-                      {draw.text || "Text"}
-                    </text>
-                    {isSelected && (
-                      <circle 
-                        cx={p1.x} 
-                        cy={p1.y} 
-                        r="6" 
-                        fill="#0c0e14" 
-                        stroke="#eab308" 
-                        strokeWidth="2" 
-                        className="cursor-move pointer-events-auto"
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                        }}
-                      />
-                    )}
-                  </g>
-                );
-              }
-
-              // Patterns (Harmonic XABCD polygon)
-              if (draw.type === "patterns") {
-                const xMid = (p1.x + p2.x) / 2;
-                const yMid = Math.min(p1.y, p2.y) - 30;
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    <polygon
-                      points={`${p1.x},${p1.y} ${xMid},${yMid} ${p2.x},${p2.y}`}
-                      stroke={isSelected ? "#eab308" : "#8b5cf6"}
-                      strokeWidth={isSelected ? "2.5" : "1.5"}
-                      fill={isSelected ? "rgba(234,179,8,0.22)" : "rgba(139,92,246,0.15)"}
-                      strokeDasharray="2 2"
-                    />
-                    {isSelected && (
-                      <>
-                        <circle 
-                          cx={p1.x} 
-                          cy={p1.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                          }}
-                        />
-                        <circle 
-                          cx={p2.x} 
-                          cy={p2.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 1 });
-                          }}
-                        />
-                      </>
-                    )}
-                  </g>
-                );
-              }
-
-              // Smiley Emojis
-              if (draw.type === "smiley") {
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    {isSelected && (
-                      <circle 
-                        cx={p1.x} 
-                        cy={p1.y} 
-                        r="12" 
-                        fill="rgba(234,179,8,0.2)" 
-                        stroke="#eab308" 
-                        strokeWidth="1" 
-                      />
-                    )}
-                    <text
-                      x={p1.x - 7}
-                      y={p1.y + 7}
-                      fontSize="15"
-                    >
-                      🙂
-                    </text>
-                    {isSelected && (
-                      <circle 
-                        cx={p1.x} 
-                        cy={p1.y} 
-                        r="6" 
-                        fill="#0c0e14" 
-                        stroke="#eab308" 
-                        strokeWidth="2" 
-                        className="cursor-move pointer-events-auto"
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                        }}
-                      />
-                    )}
-                  </g>
-                );
-              }
-
-              // Ruler Pip & Bar Measurement
-              if (draw.type === "ruler") {
-                const pips = Math.abs(draw.points[0].price - draw.points[1].price) * 10000;
-                const candlesCount = Math.round(Math.abs(draw.points[0].time - draw.points[1].time) / 900); // 15m default divisor
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    {/* Hitbox line */}
-                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth="12" />
-                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#eab308" : "#ff9f0a"} strokeWidth={isSelected ? "2.5" : "1.5"} strokeDasharray="3 3" />
-                    <rect x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y) - 20} width={100} height={16} rx="3" fill={isSelected ? "#eab308" : "#ff9f0a"} />
-                    <text x={Math.min(p1.x, p2.x) + 50} y={Math.min(p1.y, p2.y) - 8} textAnchor="middle" fill="#000" fontSize="8" fontFamily="monospace" fontWeight="bold">
-                      {pips.toFixed(1)} Pips | {candlesCount} Bars
-                    </text>
-                    {isSelected && (
-                      <>
-                        <circle 
-                          cx={p1.x} 
-                          cy={p1.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                          }}
-                        />
-                        <circle 
-                          cx={p2.x} 
-                          cy={p2.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 1 });
-                          }}
-                        />
-                      </>
-                    )}
-                  </g>
-                );
-              }
-
-              // Fibonacci Retracements
-              if (draw.type === "fib") {
-                const dy = p2.y - p1.y;
-                const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
-                const labels = ["0.0%", "23.6%", "38.2%", "50.0%", "61.8%", "78.6%", "100.0%"];
-
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    {/* Hitbox line */}
-                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth="12" />
-                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#eab308" : "rgba(255,255,255,0.15)"} strokeWidth={isSelected ? "2" : "1"} strokeDasharray="3 3" />
-                    {levels.map((lvl, idx) => {
-                      const y = p1.y + dy * lvl;
-                      const priceVal = draw.points[0].price + (draw.points[1].price - draw.points[0].price) * lvl;
-                      return (
-                        <g key={idx}>
-                          <line x1={0} y1={y} x2={2500} y2={y} stroke={isSelected ? "rgba(234,179,8,0.4)" : "rgba(59,130,246,0.2)"} strokeWidth={isSelected ? "1.5" : "1"} />
-                          <text x={p1.x + 10} y={y - 4} fill={isSelected ? "#eab308" : "#5e6673"} fontSize="8" fontFamily="monospace">
-                            {labels[idx]} ({priceVal.toFixed(3)})
-                          </text>
-                        </g>
-                      );
-                    })}
-                    {isSelected && (
-                      <>
-                        <circle 
-                          cx={p1.x} 
-                          cy={p1.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                          }}
-                        />
-                        <circle 
-                          cx={p2.x} 
-                          cy={p2.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 1 });
-                          }}
-                        />
-                      </>
-                    )}
-                  </g>
-                );
-              }
-
-              // Long / Short Position (Risk/Reward Bracket)
-              if (draw.type === "long" || draw.type === "short") {
-                const isLong = draw.type === "long";
-                const entry = draw.points[0].price;
-                const stopLoss = draw.points[1].price;
-                const dist = Math.abs(entry - stopLoss);
-                const target = isLong ? entry + dist * 2 : entry - dist * 2;
-
-                const yEntry = p1.y;
-                const yStop = p2.y;
-
-                const pTarget = getXY({ time: draw.points[1].time, price: target });
-                if (!pTarget) return null;
-
-                const xStart = p1.x;
-                const width = Math.max(90, p2.x - p1.x);
-
-                const targetHeight = Math.abs(pTarget.y - yEntry);
-                const stopHeight = Math.abs(yStop - yEntry);
-
-                return (
-                  <g key={draw.id} className="cursor-pointer pointer-events-auto" onClick={(e) => { e.stopPropagation(); setSelectedDrawingId(draw.id); }}>
-                    {/* Green Target Box */}
-                    <rect 
-                      x={xStart} 
-                      y={isLong ? pTarget.y : yEntry} 
-                      width={width} 
-                      height={targetHeight} 
-                      fill={isSelected ? "rgba(34,197,94,0.22)" : "rgba(34,197,94,0.14)"} 
-                      stroke={isSelected ? "#eab308" : "#22c55e"} 
-                      strokeWidth={isSelected ? "1.5" : "0.75"} 
-                    />
-                    {/* Red Stop Box */}
-                    <rect 
-                      x={xStart} 
-                      y={isLong ? yEntry : pTarget.y} 
-                      width={width} 
-                      height={stopHeight} 
-                      fill={isSelected ? "rgba(239,68,68,0.22)" : "rgba(239,68,68,0.14)"} 
-                      stroke={isSelected ? "#eab308" : "#ef4444"} 
-                      strokeWidth={isSelected ? "1.5" : "0.75"} 
-                    />
-                    {/* Risk Reward Ratio Text Badge */}
-                    <rect x={xStart + 6} y={yEntry - 8} width={50} height={16} rx="3" fill="#0c0e14" stroke={isSelected ? "#eab308" : "#23262f"} strokeWidth="1" />
-                    <text x={xStart + 31} y={yEntry + 3} textAnchor="middle" fill="#d1d5db" fontSize="8" fontFamily="monospace" fontWeight="bold">
-                      R/R 2.00
-                    </text>
-                    {isSelected && (
-                      <>
-                        <circle 
-                          cx={p1.x} 
-                          cy={p1.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 0 });
-                          }}
-                        />
-                        <circle 
-                          cx={p2.x} 
-                          cy={p2.y} 
-                          r="6" 
-                          fill="#0c0e14" 
-                          stroke="#eab308" 
-                          strokeWidth="2" 
-                          className="cursor-nwse-resize pointer-events-auto"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setDraggingAnchor({ drawingId: draw.id, pointIndex: 1 });
-                          }}
-                        />
-                      </>
-                    )}
-                  </g>
-                );
-              }
-
-              return null;
-            })}
+            {allDrawings.map(draw => renderDrawing(draw))}
           </svg>
         )}
 
-        {/* ── Replay Active Float Badge ── */}
-        {replayIndex == null && (
-          <div className="absolute top-3 right-3 flex items-center gap-1.5 text-[9px] font-bold bg-[#141720] border border-[#23262f] rounded px-2 py-1 select-none font-mono z-20">
-            {liveStatus === "live" && (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-green-500 tracking-wider">LIVE FEED</span>
-              </>
-            )}
-            {liveStatus === "reconnecting" && (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
-                <span className="text-yellow-500 tracking-wider">RECONNECTING</span>
-              </>
-            )}
-            {liveStatus === "stopped" && (
-              <span className="text-gray-500 tracking-wider">REPLAY DOCKED</span>
-            )}
+        {/* ── Inline Text Input Overlay ── */}
+        {textOverlay && (
+          <div
+            className="absolute z-50 flex items-center gap-1"
+            style={{ left: textOverlay.x, top: textOverlay.y - 30, transform: "translateX(-4px)" }}
+          >
+            <input
+              autoFocus
+              value={textInputVal}
+              onChange={e => setTextInputVal(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") { textOverlay.onSubmit(textInputVal); }
+                if (e.key === "Escape") { setTextOverlay(null); setTextInputVal(""); setActiveTool("cursor"); }
+              }}
+              onBlur={() => { if (textInputVal.trim()) textOverlay.onSubmit(textInputVal); else { setTextOverlay(null); setTextInputVal(""); } }}
+              placeholder="Type text…"
+              className="bg-[#141720] border border-[#eab308] rounded px-2 py-1 text-white text-xs font-mono focus:outline-none w-36 shadow-lg"
+            />
+            <button onClick={() => textOverlay.onSubmit(textInputVal)} className="p-1 bg-blue-600 rounded text-white text-xs">✓</button>
+            <button onClick={() => { setTextOverlay(null); setTextInputVal(""); }} className="p-1 bg-[#23262f] rounded text-gray-400 text-xs">✗</button>
           </div>
         )}
 
-        {/* ── Active Float P&L Panel ── */}
+        {/* ── Multi-point hint ── */}
+        {multiCreating && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-[#141720] border border-[#eab308] rounded-lg px-3 py-1.5 text-[10px] font-mono text-yellow-400 pointer-events-none">
+            {multiCreating.points.length === 1
+              ? `Click to set 2nd point (${multiCreating.type})`
+              : `Click to set 3rd point and finalize`}
+          </div>
+        )}
+
+        {/* ── Replay / Live badge ── */}
+        {replayIndex == null && (
+          <div className="absolute top-3 right-3 flex items-center gap-1.5 text-[9px] font-bold bg-[#141720] border border-[#23262f] rounded px-2 py-1 select-none font-mono z-20">
+            {liveStatus === "live" && <><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /><span className="text-green-500 tracking-wider">LIVE FEED</span></>}
+            {liveStatus === "reconnecting" && <><span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" /><span className="text-yellow-500 tracking-wider">RECONNECTING</span></>}
+            {liveStatus === "stopped" && <span className="text-gray-500 tracking-wider">REPLAY DOCKED</span>}
+          </div>
+        )}
+
+        {/* ── Open trade P&L ── */}
         {openTrade && (
           <div className="absolute top-3 left-3 bg-[#141720]/90 border border-[#23262f] rounded-lg px-3 py-2 text-[10px] font-mono z-20 flex items-center gap-2">
-            <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${
-              openTrade.direction === "LONG" 
-                ? "bg-green-500/15 text-green-400" 
-                : "bg-red-500/15 text-red-400"
-            }`}>
+            <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${openTrade.direction === "LONG" ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
               {openTrade.direction}
             </span>
-            <span className="text-gray-500">Entry <b className="text-white font-mono">{openTrade.entryPrice.toFixed(3)}</b></span>
+            <span className="text-gray-500">Entry <b className="text-white">{openTrade.entryPrice.toFixed(3)}</b></span>
             <span className="w-px h-3 bg-[#23262f]" />
             <span className={`font-bold ${openTradeUnrealised >= 0 ? "text-green-500" : "text-red-500"}`}>
               {openTradeUnrealised >= 0 ? "+" : ""}${openTradeUnrealised.toFixed(2)}
@@ -1318,261 +1409,139 @@ export function BacktestChart({
           </div>
         )}
 
-        {/* ── Floating Individual Drawing Deletion Context Bubble ── */}
-        {selectedDrawingId && (
-          (() => {
-            const selectedDrawing = drawings.find((d) => d.id === selectedDrawingId);
-            if (!selectedDrawing) return null;
-            const p1 = getXY(selectedDrawing.points[0]);
-            if (!p1) return null;
-            return (
-              <div
-                className="absolute z-30 flex items-center bg-[#141720] border border-[#eab308] rounded-lg px-2.5 py-1.5 shadow-xl gap-2 select-none font-mono text-[9px]"
-                style={{
-                  left: `${Math.max(10, p1.x - 40)}px`,
-                  top: `${Math.max(10, p1.y - 45)}px`,
-                  transform: "translateY(-50%)",
-                }}
-              >
-                <span className="font-bold text-[#eab308] uppercase tracking-wider">{selectedDrawing.type}</span>
-                <div className="w-px h-3.5 bg-[#23262f]" />
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteIndividualDrawing(selectedDrawingId);
-                  }}
-                  className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors active:scale-90 cursor-pointer flex items-center justify-center"
-                  title="Delete Drawing"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            );
-          })()
-        )}
+        {/* ── Selected drawing context bubble ── */}
+        {selectedDrawingId && (() => {
+          const sel = localDrawings.find(d => d.id === selectedDrawingId);
+          if (!sel) return null;
+          const xy = getXY(sel.points[0]);
+          if (!xy) return null;
+          return (
+            <div className="absolute z-30 flex items-center bg-[#141720] border border-[#eab308] rounded-lg px-2.5 py-1.5 shadow-xl gap-2 select-none font-mono text-[9px]"
+              style={{ left: `${Math.max(10, xy.x - 40)}px`, top: `${Math.max(10, xy.y - 45)}px`, transform: "translateY(-50%)" }}>
+              <span className="font-bold text-[#eab308] uppercase tracking-wider">{sel.type}</span>
+              <div className="w-px h-3.5 bg-[#23262f]" />
+              <button onClick={e => { e.stopPropagation(); handleDeleteDrawing(selectedDrawingId); }}
+                className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors flex items-center cursor-pointer" title="Delete">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          );
+        })()}
 
-        {/* ── Chart Utility Controls Overlay (Bottom-Right scale and settings) ── */}
-        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-[#141720] border border-[#23262f] rounded-lg p-1 z-20 shadow-lg select-none font-mono text-[9px]">
+        {/* ── Bottom-right controls ── */}
+        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-[#141720] border border-[#23262f] rounded-lg p-1 z-20 select-none font-mono text-[9px]">
           <button
             onClick={() => onSettingsChange({ isYAxisLocked: !settings.isYAxisLocked })}
             className={`px-2 py-1 rounded font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer border ${
-              settings.isYAxisLocked
-                ? "bg-[#eab308]/15 border-[#eab308]/30 text-[#eab308]"
-                : "bg-[#2563eb]/10 border-[#2563eb]/20 text-[#2563eb] hover:bg-[#2563eb]/20"
-            }`}
-            title={settings.isYAxisLocked ? "Y-Axis scale is LOCKED. Click to unlock (Auto-scale)." : "Y-Axis scale is AUTO. Click to lock."}
-          >
+              settings.isYAxisLocked ? "bg-[#eab308]/15 border-[#eab308]/30 text-[#eab308]" : "bg-[#2563eb]/10 border-[#2563eb]/20 text-[#2563eb] hover:bg-[#2563eb]/20"
+            }`} title={settings.isYAxisLocked ? "Y-Axis LOCKED" : "Y-Axis AUTO"}>
             {settings.isYAxisLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
             <span>{settings.isYAxisLocked ? "LOCKED SCALE" : "AUTO SCALE"}</span>
           </button>
-
-          <div className="w-px h-4.5 bg-[#23262f]" />
-
-          <button
-            onClick={() => setIsSettingsModalOpen(true)}
-            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-[#1c1e26] transition-all active:scale-90 cursor-pointer flex items-center justify-center"
-            title="Open Chart Settings Modal"
-          >
-            <Settings className="w-3.5 h-3.5 text-gray-400 hover:text-white" />
+          <div className="w-px h-4 bg-[#23262f]" />
+          <button onClick={() => setIsSettingsModalOpen(true)}
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-[#1c1e26] transition-all active:scale-90 cursor-pointer flex items-center"
+            title="Chart Settings">
+            <Settings className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {/* ── Gorgeous Chart Settings Modal ── */}
+        {/* ── Settings Modal ── */}
         {isSettingsModalOpen && (
-          <div className="absolute inset-0 bg-[#06080c]/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsSettingsModalOpen(false)}>
-            <div 
-              className="w-full max-w-md bg-[#0c0e14] border border-[#23262f] rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
+          <div className="absolute inset-0 bg-[#06080c]/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setIsSettingsModalOpen(false)}>
+            <div className="w-full max-w-md bg-[#0c0e14] border border-[#23262f] rounded-xl shadow-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}>
               <div className="px-5 py-4 border-b border-[#23262f] flex items-center justify-between bg-[#141720]">
                 <div className="flex items-center gap-2">
                   <Settings className="w-4 h-4 text-blue-500" />
-                  <span className="font-bold text-white text-sm tracking-tight font-mono">CHART CONFIGURATIONS</span>
+                  <span className="font-bold text-white text-sm tracking-tight font-mono">CHART SETTINGS</span>
                 </div>
-                <button
-                  onClick={() => setIsSettingsModalOpen(false)}
-                  className="p-1.5 rounded-lg hover:bg-[#1c1e26] text-gray-500 hover:text-white transition-colors cursor-pointer"
-                >
+                <button onClick={() => setIsSettingsModalOpen(false)} className="p-1.5 rounded-lg hover:bg-[#1c1e26] text-gray-500 hover:text-white transition-colors cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Form Content */}
-              <div className="p-5 flex flex-col gap-5.5 text-xs font-mono">
-                {/* 1. Candlestick Themes presets dropdown */}
+              <div className="p-5 flex flex-col gap-5 text-xs font-mono">
                 <div className="flex flex-col gap-2">
-                  <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">Candlestick Theme Preset</label>
-                  <select
-                    value={settings.themeName}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      let colors = { upColor: "#10b981", downColor: "#ef4444" };
-                      if (val === "Emerald Bull") colors = { upColor: "#10b981", downColor: "#ef4444" };
-                      if (val === "Classic Blue") colors = { upColor: "#2563eb", downColor: "#ef4444" };
-                      if (val === "Slate & Crimson") colors = { upColor: "#999BA5", downColor: "#D63939" };
-                      if (val === "Vaporwave Neon") colors = { upColor: "#ec4899", downColor: "#06b6d4" };
-                      if (val === "Sleek Dark") colors = { upColor: "#3b82f6", downColor: "#1e293b" };
-                      if (val === "Warm Retro") colors = { upColor: "#eab308", downColor: "#ea580c" };
-                      onSettingsChange({ themeName: val, ...colors });
+                  <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">Candlestick Theme</label>
+                  <select value={settings.themeName}
+                    onChange={e => {
+                      const v = e.target.value;
+                      const themes: Record<string, { upColor: string; downColor: string }> = {
+                        "Emerald Bull":    { upColor: "#10b981", downColor: "#ef4444" },
+                        "Classic Blue":    { upColor: "#2563eb", downColor: "#ef4444" },
+                        "Slate & Crimson": { upColor: "#999BA5", downColor: "#D63939" },
+                        "Vaporwave Neon":  { upColor: "#ec4899", downColor: "#06b6d4" },
+                        "Sleek Dark":      { upColor: "#3b82f6", downColor: "#1e293b" },
+                        "Warm Retro":      { upColor: "#eab308", downColor: "#ea580c" },
+                      };
+                      onSettingsChange({ themeName: v, ...(themes[v] || {}) });
                     }}
-                    className="w-full bg-[#141720] border border-[#23262f] rounded-lg px-3 py-2 text-white font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
-                  >
-                    <option value="Emerald Bull">Emerald Bull (Default)</option>
-                    <option value="Classic Blue">Classic Blue</option>
-                    <option value="Slate & Crimson">Slate & Crimson (Slate Gray / Red)</option>
-                    <option value="Vaporwave Neon">Vaporwave Neon</option>
-                    <option value="Sleek Dark">Sleek Dark</option>
-                    <option value="Warm Retro">Warm Retro</option>
+                    className="w-full bg-[#141720] border border-[#23262f] rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 cursor-pointer">
+                    <option>Emerald Bull</option>
+                    <option>Classic Blue</option>
+                    <option>Slate & Crimson</option>
+                    <option>Vaporwave Neon</option>
+                    <option>Sleek Dark</option>
+                    <option>Warm Retro</option>
                   </select>
                 </div>
 
-                {/* 2. Custom Color Pickers */}
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">Bull Candle Color</label>
-                    <div className="flex items-center gap-2 bg-[#141720] border border-[#23262f] rounded-lg px-3 py-1.5">
-                      <input 
-                        type="color" 
-                        value={settings.upColor} 
-                        onChange={(e) => onSettingsChange({ upColor: e.target.value, themeName: "Custom" })}
-                        className="w-6 h-6 border-0 bg-transparent cursor-pointer shrink-0 rounded"
-                      />
-                      <input 
-                        type="text" 
-                        value={settings.upColor} 
-                        onChange={(e) => onSettingsChange({ upColor: e.target.value, themeName: "Custom" })}
-                        className="bg-transparent border-0 text-white w-full text-center focus:outline-none uppercase font-bold"
-                      />
+                  {[
+                    { label: "Bull Color", key: "upColor" as const },
+                    { label: "Bear Color", key: "downColor" as const },
+                  ].map(({ label, key }) => (
+                    <div key={key} className="flex flex-col gap-2">
+                      <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">{label}</label>
+                      <div className="flex items-center gap-2 bg-[#141720] border border-[#23262f] rounded-lg px-3 py-1.5">
+                        <input type="color" value={settings[key]} onChange={e => onSettingsChange({ [key]: e.target.value, themeName: "Custom" })} className="w-6 h-6 border-0 bg-transparent cursor-pointer shrink-0 rounded" />
+                        <input type="text" value={settings[key]} onChange={e => onSettingsChange({ [key]: e.target.value, themeName: "Custom" })} className="bg-transparent border-0 text-white w-full text-center focus:outline-none uppercase font-bold" />
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">Bear Candle Color</label>
-                    <div className="flex items-center gap-2 bg-[#141720] border border-[#23262f] rounded-lg px-3 py-1.5">
-                      <input 
-                        type="color" 
-                        value={settings.downColor} 
-                        onChange={(e) => onSettingsChange({ downColor: e.target.value, themeName: "Custom" })}
-                        className="w-6 h-6 border-0 bg-transparent cursor-pointer shrink-0 rounded"
-                      />
-                      <input 
-                        type="text" 
-                        value={settings.downColor} 
-                        onChange={(e) => onSettingsChange({ downColor: e.target.value, themeName: "Custom" })}
-                        className="bg-transparent border-0 text-white w-full text-center focus:outline-none uppercase font-bold"
-                      />
-                    </div>
-                  </div>
+                  ))}
                 </div>
 
-                {/* 2b. Canvas Background Color */}
                 <div className="flex flex-col gap-2">
-                  <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">Canvas Background Color</label>
+                  <label className="text-gray-500 uppercase tracking-widest font-semibold text-[9px]">Canvas Background</label>
                   <div className="flex items-center gap-2 bg-[#141720] border border-[#23262f] rounded-lg px-3 py-1.5">
-                    <input 
-                      type="color" 
-                      value={settings.bgColor || "#0f0f0f"} 
-                      onChange={(e) => onSettingsChange({ bgColor: e.target.value })}
-                      className="w-6 h-6 border-0 bg-transparent cursor-pointer shrink-0 rounded animate-pulse"
-                    />
-                    <input 
-                      type="text" 
-                      value={settings.bgColor || "#0f0f0f"} 
-                      onChange={(e) => onSettingsChange({ bgColor: e.target.value })}
-                      className="bg-transparent border-0 text-white w-20 text-center focus:outline-none uppercase font-bold"
-                    />
+                    <input type="color" value={settings.bgColor || "#0f0f0f"} onChange={e => onSettingsChange({ bgColor: e.target.value })} className="w-6 h-6 border-0 bg-transparent cursor-pointer shrink-0 rounded" />
+                    <input type="text" value={settings.bgColor || "#0f0f0f"} onChange={e => onSettingsChange({ bgColor: e.target.value })} className="bg-transparent border-0 text-white w-20 text-center focus:outline-none uppercase font-bold" />
                     <div className="flex gap-1.5 ml-auto">
-                      {["#0f0f0f", "#0c0e14", "#141720", "#000000"].map((presetBg) => (
-                        <button
-                          key={presetBg}
-                          type="button"
-                          onClick={() => onSettingsChange({ bgColor: presetBg })}
-                          className="w-4 h-4 rounded-full border border-[#23262f] focus:outline-none cursor-pointer transition-all hover:scale-110 active:scale-90"
-                          style={{ backgroundColor: presetBg }}
-                          title={`Set background to ${presetBg}`}
-                        />
+                      {["#0f0f0f", "#0c0e14", "#141720", "#000000"].map(bg => (
+                        <button key={bg} type="button" onClick={() => onSettingsChange({ bgColor: bg })}
+                          className="w-4 h-4 rounded-full border border-[#23262f] cursor-pointer hover:scale-110 transition-all"
+                          style={{ backgroundColor: bg }} title={bg} />
                       ))}
                     </div>
                   </div>
                 </div>
 
-                <div className="w-full h-px bg-[#23262f] my-1" />
+                <div className="w-full h-px bg-[#23262f]" />
 
-                {/* 3. Toggles Grid */}
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between py-1 bg-[#141720]/30 rounded-lg px-3.5 py-2.5 border border-[#23262f]/60 hover:bg-[#141720]/60 transition-colors">
+                {[
+                  { label: "Show Grid Lines", desc: "Vertical & horizontal grid lines", key: "showGrid" as const, color: "blue" },
+                  { label: "Show Volume",     desc: "Volume histogram at bottom",        key: "showVolume" as const, color: "blue" },
+                  { label: "Lock Y-Axis",     desc: "Fix price scale for free panning",  key: "isYAxisLocked" as const, color: "yellow" },
+                  { label: "Magnet Mode",     desc: "Snap drawings to OHLC levels",      key: "isMagnetActive" as const, color: "blue" },
+                ].map(({ label, desc, key, color }) => (
+                  <div key={key} className="flex items-center justify-between bg-[#141720]/30 rounded-lg px-3.5 py-2.5 border border-[#23262f]/60 hover:bg-[#141720]/60 transition-colors">
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-white font-bold tracking-tight">Show Grid Lines</span>
-                      <span className="text-[9px] text-gray-500 font-medium">Display vertical & horizontal grid lines on canvas</span>
+                      <span className="text-white font-bold tracking-tight">{label}</span>
+                      <span className="text-[9px] text-gray-500">{desc}</span>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer select-none">
-                      <input 
-                        type="checkbox" 
-                        checked={settings.showGrid} 
-                        onChange={(e) => onSettingsChange({ showGrid: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 peer-checked:after:bg-white" />
+                      <input type="checkbox" checked={settings[key]} onChange={e => onSettingsChange({ [key]: e.target.checked })} className="sr-only peer" />
+                      <div className={`w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${color === "yellow" ? "peer-checked:bg-yellow-500" : "peer-checked:bg-blue-600"} peer-checked:after:bg-white`} />
                     </label>
                   </div>
-
-                  <div className="flex items-center justify-between py-1 bg-[#141720]/30 rounded-lg px-3.5 py-2.5 border border-[#23262f]/60 hover:bg-[#141720]/60 transition-colors">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-white font-bold tracking-tight">Show Volume Series</span>
-                      <span className="text-[9px] text-gray-500 font-medium">Show semi-transparent volume histogram at bottom</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer select-none">
-                      <input 
-                        type="checkbox" 
-                        checked={settings.showVolume} 
-                        onChange={(e) => onSettingsChange({ showVolume: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 peer-checked:after:bg-white" />
-                    </label>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1 bg-[#141720]/30 rounded-lg px-3.5 py-2.5 border border-[#23262f]/60 hover:bg-[#141720]/60 transition-colors">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-white font-bold tracking-tight">Lock Price Scale (Y-Axis)</span>
-                      <span className="text-[9px] text-gray-500 font-medium">Lock scale to manual pan freely anywhere on grid</span>
-                    </div>
-                    <label className="relative inline-flex inline-flex items-center cursor-pointer select-none">
-                      <input 
-                        type="checkbox" 
-                        checked={settings.isYAxisLocked} 
-                        onChange={(e) => onSettingsChange({ isYAxisLocked: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-yellow-500 peer-checked:after:bg-white" />
-                    </label>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1 bg-[#141720]/30 rounded-lg px-3.5 py-2.5 border border-[#23262f]/60 hover:bg-[#141720]/60 transition-colors">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-white font-bold tracking-tight">Magnet Mode (Snaps OHLC)</span>
-                      <span className="text-[9px] text-gray-500 font-medium">Auto snaps drawings coordinates to closest OHLC point</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer select-none">
-                      <input 
-                        type="checkbox" 
-                        checked={settings.isMagnetActive} 
-                        onChange={(e) => onSettingsChange({ isMagnetActive: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 peer-checked:after:bg-white" />
-                    </label>
-                  </div>
-                </div>
+                ))}
               </div>
 
-              {/* Footer */}
-              <div className="px-5 py-3 border-t border-[#23262f] bg-[#141720] flex items-center justify-end">
-                <button
-                  onClick={() => setIsSettingsModalOpen(false)}
-                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold font-mono transition-all text-xs active:scale-95 shadow-md shadow-blue-900/10 cursor-pointer"
-                >
+              <div className="px-5 py-3 border-t border-[#23262f] bg-[#141720] flex justify-end">
+                <button onClick={() => setIsSettingsModalOpen(false)}
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold font-mono text-xs transition-all active:scale-95 cursor-pointer">
                   SAVE & CLOSE
                 </button>
               </div>
@@ -1584,33 +1553,24 @@ export function BacktestChart({
   );
 }
 
-// ─── Local Toolbar Button Sub-component ───
-
-interface ButtonProps {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-}
-
-function ToolbarButton({ active, onClick, icon, label }: ButtonProps) {
+// ── Toolbar button ─────────────────────────────────────────────────────────────
+function TB({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
   return (
     <div className="relative group select-none">
-      <button
-        onClick={onClick}
+      <button onClick={onClick}
         className={`p-2 rounded-lg transition-all active:scale-90 cursor-pointer ${
-          active 
-            ? "bg-[#2563eb] text-white shadow-md shadow-blue-900/10" 
-            : "text-gray-500 hover:text-white hover:bg-[#1c1e26]"
-        }`}
-        title={label}
-      >
+          active ? "bg-[#2563eb] text-white shadow-md shadow-blue-900/20" : "text-gray-500 hover:text-white hover:bg-[#1c1e26]"
+        }`} title={label}>
         {icon}
       </button>
-      {/* Mini Popover tooltip */}
-      <span className="absolute left-12 top-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-black border border-[#23262f] text-[9px] font-bold text-gray-200 px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none tracking-wide uppercase">
+      <span className="absolute left-12 top-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black border border-[#23262f] text-[9px] font-bold text-gray-200 px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none uppercase tracking-wide">
         {label}
       </span>
     </div>
   );
+}
+
+// ── Separator ──────────────────────────────────────────────────────────────────
+function Sep() {
+  return <div className="w-6 h-px bg-[#23262f] my-1.5 shrink-0" />;
 }

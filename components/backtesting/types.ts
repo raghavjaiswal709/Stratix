@@ -97,7 +97,14 @@ export interface ReplayMetrics {
 
 // ─── Drawing Tools & Coordinate Space ──────────────────────────────────────────
 
-export type DrawingType = "trendline" | "rectangle" | "fib" | "long" | "short" | "text" | "cursor" | "eraser" | "brush" | "patterns" | "smiley" | "ruler";
+export type DrawingType =
+  | "trendline" | "ray" | "hline" | "vline" | "arrow"   // Lines
+  | "rectangle" | "circle" | "triangle" | "channel"       // Shapes
+  | "fib"                                                  // Fibonacci
+  | "long" | "short"                                       // Risk positions
+  | "patterns"                                             // Harmonic patterns
+  | "text" | "brush" | "ruler" | "smiley"                 // Annotations
+  | "cursor" | "eraser";                                   // Controls
 
 export interface TimePricePoint {
   time: number; // Unix-second timestamp
