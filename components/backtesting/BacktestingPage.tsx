@@ -59,17 +59,22 @@ export function BacktestingPage() {
 
   useEffect(() => { displayRef.current = displayCandles; }, [displayCandles]);
 
-  // Load saved sessions on mount
-  useEffect(() => {
-    const saved = localStorage.getItem("stratix_backtest_sessions");
-    if (saved) {
-      try {
-        setSessions(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to load saved backtesting sessions", e);
+  // Fetch saved sessions from MongoDB on mount
+  const fetchSessions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/backtesting/sessions");
+      if (res.ok) {
+        const data = await res.json();
+        setSessions(data);
       }
+    } catch (e) {
+      console.error("Failed to fetch backtesting sessions from DB", e);
     }
   }, []);
+
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
 
   // ── Replay Helpers ──
   function stopPlayTimer() {
@@ -99,25 +104,39 @@ export function BacktestingPage() {
   const handleOpenModal = () => setIsModalOpen(true);
   const handleCloseModal = () => setIsModalOpen(false);
 
-  const handleCreateSession = (data: Omit<Session, "id" | "createdAt" | "trades" | "drawings">) => {
-    const newSession: Session = {
-      ...data,
-      id: String(Date.now()),
-      createdAt: Date.now(),
-      trades: [],
-      drawings: [],
-    };
-    const updated = [...sessions, newSession];
-    setSessions(updated);
-    localStorage.setItem("stratix_backtest_sessions", JSON.stringify(updated));
-    setIsModalOpen(false);
-    handleSelectSession(newSession);
+  const handleCreateSession = async (data: Omit<Session, "id" | "createdAt" | "trades" | "drawings">) => {
+    try {
+      const res = await fetch("/api/backtesting/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const created: Session = await res.json();
+        setSessions((prev) => [created, ...prev]);
+        setIsModalOpen(false);
+        handleSelectSession(created);
+      } else {
+        const err = await res.json();
+        setError(err.error || "Failed to create session in DB");
+      }
+    } catch (e) {
+      console.error("Failed to create session", e);
+      setError("Network error creating session");
+    }
   };
 
-  const handleDeleteSession = (id: string) => {
-    const updated = sessions.filter(s => s.id !== id);
-    setSessions(updated);
-    localStorage.setItem("stratix_backtest_sessions", JSON.stringify(updated));
+  const handleDeleteSession = async (id: string) => {
+    try {
+      const res = await fetch(`/api/backtesting/sessions?id=${id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
+      }
+    } catch (e) {
+      console.error("Failed to delete session", e);
+    }
   };
 
   const handleSelectSession = useCallback(async (session: Session) => {
@@ -188,25 +207,39 @@ export function BacktestingPage() {
     setDisplay([]);
   };
 
-  // ── Sync drawings & trades to local storage ──
-  const handleDrawingsChange = (newDrawings: Drawing[]) => {
+  // ── Sync drawings & trades to MongoDB ──
+  const handleDrawingsChange = async (newDrawings: Drawing[]) => {
     if (!activeSession) return;
     const updated: Session = { ...activeSession, drawings: newDrawings };
     setActiveSession(updated);
+    setSessions((prev) => prev.map((s) => s.id === activeSession.id ? updated : s));
 
-    const updatedList = sessions.map(s => s.id === activeSession.id ? updated : s);
-    setSessions(updatedList);
-    localStorage.setItem("stratix_backtest_sessions", JSON.stringify(updatedList));
+    try {
+      await fetch(`/api/backtesting/sessions?id=${activeSession.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ drawings: newDrawings }),
+      });
+    } catch (e) {
+      console.error("Failed to sync drawings to DB", e);
+    }
   };
 
-  const updateActiveSessionTrades = (newTrades: ManualTrade[]) => {
+  const updateActiveSessionTrades = async (newTrades: ManualTrade[]) => {
     if (!activeSession) return;
     const updated: Session = { ...activeSession, trades: newTrades };
     setActiveSession(updated);
+    setSessions((prev) => prev.map((s) => s.id === activeSession.id ? updated : s));
 
-    const updatedList = sessions.map(s => s.id === activeSession.id ? updated : s);
-    setSessions(updatedList);
-    localStorage.setItem("stratix_backtest_sessions", JSON.stringify(updatedList));
+    try {
+      await fetch(`/api/backtesting/sessions?id=${activeSession.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trades: newTrades }),
+      });
+    } catch (e) {
+      console.error("Failed to sync trades to DB", e);
+    }
   };
 
   // ── Orders Placement ──

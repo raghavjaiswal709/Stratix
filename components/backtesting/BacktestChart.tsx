@@ -2,11 +2,12 @@
 
 // ─── BacktestChart ─────────────────────────────────────────────────────────────
 // High-fidelity chart rendering using lightweight-charts, featuring:
-//  • Vertical drawing toolbar on the left (Cursor, Trendline, Rectangle, Fib, Long, Short)
-//  • Synchronized SVG Canvas Overlay matching time & price coordinate spaces
-//  • Click-to-place and hover previews for multi-point drawing shapes
-//  • Dynamic Redraw listener updating SVG coordinates during scroll & zoom
-//  • Click-to-set start bar selection, manual trade markers, and live badges
+//  • Vertical drawings toolbar on the left exactly matching native TradingView (Image 1)
+//  • Synchronized SVG Canvas Overlay supporting 10+ standard TV tools
+//  • Magnet Mode: Real-time snapping to closest OHLC candlestick coordinates
+//  • Jump-free Replay Slicing: Viewport restoration preventing camera shifts on cuts
+//  • Stay-in-drawing-mode, Lock all tools, and Hide all drawings states
+//  • Support for Text Annotations, Ruler Measurements, Brush strokes, and Emojis
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
@@ -22,7 +23,10 @@ import {
 import type { Candle, ManualTrade, LiveStatus, Drawing, DrawingType, TimePricePoint } from "./types";
 import { 
   MousePointer, Slash, Square, Grid, 
-  ArrowUpRight, ArrowDownRight, Trash2 
+  ArrowUpRight, ArrowDownRight, Trash2,
+  Paintbrush, Type, Smile, Ruler, Search,
+  Magnet, Lock, Unlock, Eye, EyeOff, PenTool,
+  Workflow
 } from "lucide-react";
 
 interface Props {
@@ -68,6 +72,12 @@ export function BacktestChart({
   const [previewDrawing, setPreviewDrawing] = useState<Drawing | null>(null);
   const activeDrawingRef = useRef<Drawing | null>(null);
   const [redrawTrigger, setRedrawTrigger] = useState(0);
+
+  // TradingView Magnet, Lock, and Visibility settings
+  const [isMagnetActive, setIsMagnetActive] = useState(false);
+  const [stayInDrawingMode, setStayInDrawingMode] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [areDrawingsHidden, setAreDrawingsHidden] = useState(false);
 
   // ── Build chart on mount ──────────────────────────────────────────────────
   const buildChart = useCallback(() => {
@@ -178,11 +188,29 @@ export function BacktestChart({
 
     // Click handler: starts or completes drawings
     const clickHandler = (param: { point?: { x: number; y: number }; time?: Time }) => {
-      if (!param.point || !param.time || activeTool === "cursor") return;
+      if (!param.point || !param.time || activeTool === "cursor" || isLocked) return;
 
       const timeSec = param.time as number;
-      const price = series.coordinateToPrice(param.point.y);
+      let price = series.coordinateToPrice(param.point.y) as number | null;
       if (price == null) return;
+
+      // Snapping (Magnet mode) coordinates processing
+      if (isMagnetActive) {
+        const candle = candles.find((c) => c.time === timeSec);
+        if (candle) {
+          const ohlc = [candle.open, candle.high, candle.low, candle.close];
+          let closest = ohlc[0];
+          let minDist = Math.abs(price - closest);
+          for (let i = 1; i < ohlc.length; i++) {
+            const dist = Math.abs(price - ohlc[i]);
+            if (dist < minDist) {
+              minDist = dist;
+              closest = ohlc[i];
+            }
+          }
+          price = closest;
+        }
+      }
 
       const p: TimePricePoint = { time: timeSec, price };
 
@@ -213,22 +241,46 @@ export function BacktestChart({
             takeProfit: tp,
             riskRewardRatio: 2.00,
           };
+        } else if (finished.type === "text") {
+          const txt = prompt("Enter text annotation:") || "Text";
+          finished.text = txt;
         }
 
         onDrawingsChange([...drawings, finished]);
         activeDrawingRef.current = null;
         setPreviewDrawing(null);
-        setActiveTool("cursor"); // Return to pointer mode
+        
+        // Reset or preserve drawing mode depending on Stay-In-Drawing State
+        if (!stayInDrawingMode) {
+          setActiveTool("cursor");
+        }
       }
     };
 
-    // Hover handler: generates visual drawing previews
+    // Hover handler: generates visual drawing previews with optional magnet snapping
     const hoverHandler = (param: { point?: { x: number; y: number }; time?: Time }) => {
-      if (!param.point || !param.time || activeTool === "cursor" || !activeDrawingRef.current) return;
+      if (!param.point || !param.time || activeTool === "cursor" || !activeDrawingRef.current || isLocked) return;
 
       const timeSec = param.time as number;
-      const price = series.coordinateToPrice(param.point.y);
+      let price = series.coordinateToPrice(param.point.y) as number | null;
       if (price == null) return;
+
+      if (isMagnetActive) {
+        const candle = candles.find((c) => c.time === timeSec);
+        if (candle) {
+          const ohlc = [candle.open, candle.high, candle.low, candle.close];
+          let closest = ohlc[0];
+          let minDist = Math.abs(price - closest);
+          for (let i = 1; i < ohlc.length; i++) {
+            const dist = Math.abs(price - ohlc[i]);
+            if (dist < minDist) {
+              minDist = dist;
+              closest = ohlc[i];
+            }
+          }
+          price = closest;
+        }
+      }
 
       const p: TimePricePoint = { time: timeSec, price };
       const updated: Drawing = {
@@ -245,7 +297,7 @@ export function BacktestChart({
       chart.unsubscribeClick(clickHandler);
       chart.unsubscribeCrosshairMove(hoverHandler);
     };
-  }, [activeTool, drawings, onDrawingsChange]);
+  }, [activeTool, drawings, onDrawingsChange, isMagnetActive, isLocked, stayInDrawingMode, candles]);
 
   // Set crosshair cursor styling during drawing modes
   useEffect(() => {
@@ -273,7 +325,7 @@ export function BacktestChart({
     return () => { chart.unsubscribeClick(handler); };
   }, [isSelectingStart, candles, replayIndex, onStartBarSelect]);
 
-  // ── Feed candle data (full or replayed slice) ────────────────────────────
+  // ── Feed candle data (full or replayed slice) with jump-free lock ────────
   useEffect(() => {
     const cs = candleSeriesRef.current;
     const vs = volSeriesRef.current;
@@ -290,10 +342,24 @@ export function BacktestChart({
       color: c.close >= c.open ? "rgba(37,99,235,0.15)" : "rgba(239,68,68,0.15)",
     }));
 
+    // 🔒 SAVE VISIBLE CAMERA RANGE BEFORE EDITING DATA
+    const timeScale = chartRef.current?.timeScale();
+    const visibleRange = timeScale?.getVisibleRange();
+
     cs.setData(cData);
     vs.setData(vData);
 
-    if (replayIndex == null) chartRef.current?.timeScale().fitContent();
+    // 🔓 RESTORE CAMERA RANGE TO AVOID JUMPS AND POSITION SHIFTS NATIVELY
+    if (visibleRange) {
+      try {
+        timeScale?.setVisibleRange(visibleRange);
+      } catch (e) {
+        // Safe handler if scale index bounds are momentarily out of limits
+      }
+    } else if (replayIndex == null) {
+      chartRef.current?.timeScale().fitContent();
+    }
+
     setRedrawTrigger((t) => t + 1);
   }, [candles, replayIndex]);
 
@@ -376,8 +442,10 @@ export function BacktestChart({
   return (
     <div className="relative w-full h-full flex bg-[#0c0e14]">
       
-      {/* ── Vertical Drawings Toolbar (Left side) ── */}
-      <div className="w-11 bg-[#0c0e14] border-r border-[#23262f] flex flex-col items-center py-3 gap-1 shrink-0 z-20">
+      {/* ── Vertical Drawings Toolbar (Exactly matching native TradingView layout) ── */}
+      <div className="w-11 bg-[#0c0e14] border-r border-[#23262f] flex flex-col items-center py-2.5 gap-0.5 shrink-0 z-20 select-none">
+        
+        {/* Section 1: Standard TV Drawings Toolbar list */}
         <ToolbarButton 
           active={activeTool === "cursor"} 
           onClick={() => setActiveTool("cursor")} 
@@ -391,32 +459,98 @@ export function BacktestChart({
           label="Trend Line" 
         />
         <ToolbarButton 
-          active={activeTool === "rectangle"} 
-          onClick={() => setActiveTool("rectangle")} 
-          icon={<Square className="w-4 h-4" />} 
-          label="Rectangle" 
-        />
-        <ToolbarButton 
           active={activeTool === "fib"} 
           onClick={() => setActiveTool("fib")} 
           icon={<Grid className="w-4 h-4" />} 
-          label="Fibonacci Retracement" 
+          label="Gann and Fibonacci Retracement" 
         />
         <ToolbarButton 
-          active={activeTool === "long"} 
-          onClick={() => setActiveTool("long")} 
-          icon={<ArrowUpRight className="w-4 h-4 text-green-500" />} 
-          label="Long Risk Reward Bracket" 
+          active={activeTool === "rectangle"} 
+          onClick={() => setActiveTool("rectangle")} 
+          icon={<Square className="w-4 h-4" />} 
+          label="Geometric Rectangle" 
         />
         <ToolbarButton 
-          active={activeTool === "short"} 
-          onClick={() => setActiveTool("short")} 
-          icon={<ArrowDownRight className="w-4 h-4 text-red-500" />} 
-          label="Short Risk Reward Bracket" 
+          active={activeTool === "brush"} 
+          onClick={() => setActiveTool("brush")} 
+          icon={<Paintbrush className="w-4 h-4" />} 
+          label="Highlighter Brush" 
+        />
+        <ToolbarButton 
+          active={activeTool === "text"} 
+          onClick={() => setActiveTool("text")} 
+          icon={<Type className="w-4 h-4" />} 
+          label="Text Annotation" 
+        />
+        <ToolbarButton 
+          active={activeTool === "patterns"} 
+          onClick={() => setActiveTool("patterns")} 
+          icon={<Workflow className="w-4 h-4 text-[#8b5cf6]" />} 
+          label="Harmonic XABCD Patterns" 
+        />
+        <ToolbarButton 
+          active={activeTool === "long" || activeTool === "short"} 
+          onClick={() => setActiveTool(activeTool === "long" ? "short" : "long")} 
+          icon={<ArrowUpRight className={`w-4 h-4 ${activeTool === "long" ? "text-green-500" : "text-red-500"}`} />} 
+          label="Risk/Reward Bracket (Long/Short)" 
+        />
+        <ToolbarButton 
+          active={activeTool === "smiley"} 
+          onClick={() => setActiveTool("smiley")} 
+          icon={<Smile className="w-4 h-4 text-yellow-500" />} 
+          label="Smileys & Emojis" 
         />
 
-        <div className="w-6 h-px bg-[#23262f] my-2" />
+        {/* Separator 1 */}
+        <div className="w-6 h-px bg-[#23262f] my-1.5" />
 
+        {/* Section 2: Measurement & Utility items */}
+        <ToolbarButton 
+          active={activeTool === "ruler"} 
+          onClick={() => setActiveTool("ruler")} 
+          icon={<Ruler className="w-4 h-4 text-amber-500" />} 
+          label="Ruler Pip Measurement" 
+        />
+        <ToolbarButton 
+          active={false} 
+          onClick={() => chartRef.current?.timeScale().fitContent()} 
+          icon={<Search className="w-4 h-4 text-gray-500 hover:text-white" />} 
+          label="Reset Zoom scale" 
+        />
+
+        {/* Separator 2 */}
+        <div className="w-6 h-px bg-[#23262f] my-1.5" />
+
+        {/* Section 3: Interactive Magnet, stay in tool, lock, show/hide states */}
+        <ToolbarButton 
+          active={isMagnetActive} 
+          onClick={() => setIsMagnetActive(prev => !prev)} 
+          icon={<Magnet className={`w-4 h-4 ${isMagnetActive ? "text-blue-400" : ""}`} />} 
+          label="Magnet Mode (Snaps to OHLC)" 
+        />
+        <ToolbarButton 
+          active={stayInDrawingMode} 
+          onClick={() => setStayInDrawingMode(prev => !prev)} 
+          icon={<PenTool className={`w-4 h-4 ${stayInDrawingMode ? "text-blue-400" : ""}`} />} 
+          label="Stay in Drawing Mode" 
+        />
+        <ToolbarButton 
+          active={isLocked} 
+          onClick={() => setIsLocked(prev => !prev)} 
+          icon={isLocked ? <Lock className="w-4 h-4 text-[#ef4444]" /> : <Unlock className="w-4 h-4 text-gray-500" />} 
+          label={isLocked ? "Unlock All Drawing Placements" : "Lock All Drawing Placements"} 
+        />
+        <ToolbarButton 
+          active={areDrawingsHidden} 
+          onClick={() => setAreDrawingsHidden(prev => !prev)} 
+          icon={areDrawingsHidden ? <EyeOff className="w-4 h-4 text-yellow-500" /> : <Eye className="w-4 h-4 text-gray-500" />} 
+          label={areDrawingsHidden ? "Show All Drawings" : "Hide All Drawings"} 
+        />
+
+        {/* Separator 3 */}
+        <div className="w-6 h-px bg-[#23262f] my-1.5" />
+
+        {/* Trash delete button */}
         <button
           onClick={handleClearAllDrawings}
           className="p-2 rounded-lg text-gray-600 hover:text-red-500 hover:bg-red-500/10 transition-all active:scale-90 cursor-pointer"
@@ -431,128 +565,219 @@ export function BacktestChart({
         <div ref={containerRef} className="w-full h-full" />
 
         {/* ── SVG Drawing Overlay ── */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
-          {allDrawings.map((draw) => {
-            const p1 = getXY(draw.points[0]);
-            const p2 = getXY(draw.points[1]);
-            if (!p1 || !p2) return null;
+        {!areDrawingsHidden && (
+          <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+            {allDrawings.map((draw) => {
+              const p1 = getXY(draw.points[0]);
+              const p2 = getXY(draw.points[1]);
+              if (!p1 || !p2) return null;
 
-            // Trendline
-            if (draw.type === "trendline") {
-              return (
-                <line
-                  key={draw.id}
-                  x1={p1.x}
-                  y1={p1.y}
-                  x2={p2.x}
-                  y2={p2.y}
-                  stroke="#3b82f6"
-                  strokeWidth="2"
-                  strokeDasharray={draw.id === previewDrawing?.id ? "4 4" : "0"}
-                />
-              );
-            }
-
-            // Rectangle
-            if (draw.type === "rectangle") {
-              const x = Math.min(p1.x, p2.x);
-              const y = Math.min(p1.y, p2.y);
-              const w = Math.abs(p2.x - p1.x);
-              const h = Math.abs(p2.y - p1.y);
-              return (
-                <rect
-                  key={draw.id}
-                  x={x}
-                  y={y}
-                  width={w}
-                  height={h}
-                  stroke="#3b82f6"
-                  strokeWidth="1.5"
-                  fill="rgba(59,130,246,0.06)"
-                  strokeDasharray={draw.id === previewDrawing?.id ? "4 4" : "0"}
-                />
-              );
-            }
-
-            // Fibonacci Retracements
-            if (draw.type === "fib") {
-              const dy = p2.y - p1.y;
-              const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
-              const labels = ["0.0%", "23.6%", "38.2%", "50.0%", "61.8%", "78.6%", "100.0%"];
-
-              return (
-                <g key={draw.id}>
-                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3 3" />
-                  {levels.map((lvl, idx) => {
-                    const y = p1.y + dy * lvl;
-                    const priceVal = draw.points[0].price + (draw.points[1].price - draw.points[0].price) * lvl;
-                    return (
-                      <g key={idx}>
-                        <line x1={0} y1={y} x2={2500} y2={y} stroke="rgba(59,130,246,0.2)" strokeWidth="1" />
-                        <text x={p1.x + 10} y={y - 4} fill="#5e6673" fontSize="8" fontFamily="monospace">
-                          {labels[idx]} ({priceVal.toFixed(3)})
-                        </text>
-                      </g>
-                    );
-                  })}
-                </g>
-              );
-            }
-
-            // Long / Short Position (Risk/Reward Bracket)
-            if (draw.type === "long" || draw.type === "short") {
-              const isLong = draw.type === "long";
-              const entry = draw.points[0].price;
-              const stopLoss = draw.points[1].price;
-              const dist = Math.abs(entry - stopLoss);
-              const target = isLong ? entry + dist * 2 : entry - dist * 2;
-
-              const yEntry = p1.y;
-              const yStop = p2.y;
-
-              const pTarget = getXY({ time: draw.points[1].time, price: target });
-              if (!pTarget) return null;
-
-              const xStart = p1.x;
-              const width = Math.max(90, p2.x - p1.x);
-
-              const targetHeight = Math.abs(pTarget.y - yEntry);
-              const stopHeight = Math.abs(yStop - yEntry);
-
-              return (
-                <g key={draw.id}>
-                  {/* Green Target Box */}
-                  <rect 
-                    x={xStart} 
-                    y={isLong ? pTarget.y : yEntry} 
-                    width={width} 
-                    height={targetHeight} 
-                    fill="rgba(34,197,94,0.14)" 
-                    stroke="#22c55e" 
-                    strokeWidth="0.75" 
+              // Trendline
+              if (draw.type === "trendline") {
+                return (
+                  <line
+                    key={draw.id}
+                    x1={p1.x}
+                    y1={p1.y}
+                    x2={p2.x}
+                    y2={p2.y}
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                    strokeDasharray={draw.id === previewDrawing?.id ? "4 4" : "0"}
                   />
-                  {/* Red Stop Box */}
-                  <rect 
-                    x={xStart} 
-                    y={isLong ? yEntry : pTarget.y} 
-                    width={width} 
-                    height={stopHeight} 
-                    fill="rgba(239,68,68,0.14)" 
-                    stroke="#ef4444" 
-                    strokeWidth="0.75" 
+                );
+              }
+
+              // Rectangle
+              if (draw.type === "rectangle") {
+                const x = Math.min(p1.x, p2.x);
+                const y = Math.min(p1.y, p2.y);
+                const w = Math.abs(p2.x - p1.x);
+                const h = Math.abs(p2.y - p1.y);
+                return (
+                  <rect
+                    key={draw.id}
+                    x={x}
+                    y={y}
+                    width={w}
+                    height={h}
+                    stroke="#3b82f6"
+                    strokeWidth="1.5"
+                    fill="rgba(59,130,246,0.06)"
+                    strokeDasharray={draw.id === previewDrawing?.id ? "4 4" : "0"}
                   />
-                  {/* Risk Reward Ratio Text Badge */}
-                  <rect x={xStart + 6} y={yEntry - 8} width={50} height={16} rx="3" fill="#0c0e14" stroke="#23262f" strokeWidth="1" />
-                  <text x={xStart + 31} y={yEntry + 3} textAnchor="middle" fill="#d1d5db" fontSize="8" fontFamily="monospace" fontWeight="bold">
-                    R/R 2.00
+                );
+              }
+
+              // Brush/Highlighter Stroke
+              if (draw.type === "brush") {
+                return (
+                  <line
+                    key={draw.id}
+                    x1={p1.x}
+                    y1={p1.y}
+                    x2={p2.x}
+                    y2={p2.y}
+                    stroke="rgba(59,130,246,0.4)"
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                  />
+                );
+              }
+
+              // Text Annotation
+              if (draw.type === "text") {
+                return (
+                  <g key={draw.id}>
+                    <rect
+                      x={p1.x - 4}
+                      y={p1.y - 14}
+                      width={(draw.text || "Text").length * 6 + 10}
+                      height={18}
+                      rx="3"
+                      fill="#0c0e14"
+                      stroke="#23262f"
+                      strokeWidth="1"
+                    />
+                    <text
+                      x={p1.x + 2}
+                      y={p1.y - 2}
+                      fill="#3b82f6"
+                      fontSize="9"
+                      fontFamily="monospace"
+                      fontWeight="bold"
+                    >
+                      {draw.text || "Text"}
+                    </text>
+                  </g>
+                );
+              }
+
+              // Patterns (Harmonic XABCD polygon)
+              if (draw.type === "patterns") {
+                const xMid = (p1.x + p2.x) / 2;
+                const yMid = Math.min(p1.y, p2.y) - 30;
+                return (
+                  <polygon
+                    key={draw.id}
+                    points={`${p1.x},${p1.y} ${xMid},${yMid} ${p2.x},${p2.y}`}
+                    stroke="#8b5cf6"
+                    strokeWidth="1.5"
+                    fill="rgba(139,92,246,0.15)"
+                    strokeDasharray="2 2"
+                  />
+                );
+              }
+
+              // Smiley Emojis
+              if (draw.type === "smiley") {
+                return (
+                  <text
+                    key={draw.id}
+                    x={p1.x - 7}
+                    y={p1.y + 7}
+                    fontSize="15"
+                  >
+                    🙂
                   </text>
-                </g>
-              );
-            }
+                );
+              }
 
-            return null;
-          })}
-        </svg>
+              // Ruler Pip & Bar Measurement
+              if (draw.type === "ruler") {
+                const pips = Math.abs(draw.points[0].price - draw.points[1].price) * 10000;
+                const candlesCount = Math.round(Math.abs(draw.points[0].time - draw.points[1].time) / 900); // 15m default divisor
+                return (
+                  <g key={draw.id}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#ff9f0a" strokeWidth="1.5" strokeDasharray="3 3" />
+                    <rect x={Math.min(p1.x, p2.x)} y={Math.min(p1.y, p2.y) - 20} width={100} height={16} rx="3" fill="#ff9f0a" />
+                    <text x={Math.min(p1.x, p2.x) + 50} y={Math.min(p1.y, p2.y) - 8} textAnchor="middle" fill="#000" fontSize="8" fontFamily="monospace" fontWeight="bold">
+                      {pips.toFixed(1)} Pips | {candlesCount} Bars
+                    </text>
+                  </g>
+                );
+              }
+
+              // Fibonacci Retracements
+              if (draw.type === "fib") {
+                const dy = p2.y - p1.y;
+                const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+                const labels = ["0.0%", "23.6%", "38.2%", "50.0%", "61.8%", "78.6%", "100.0%"];
+
+                return (
+                  <g key={draw.id}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3 3" />
+                    {levels.map((lvl, idx) => {
+                      const y = p1.y + dy * lvl;
+                      const priceVal = draw.points[0].price + (draw.points[1].price - draw.points[0].price) * lvl;
+                      return (
+                        <g key={idx}>
+                          <line x1={0} y1={y} x2={2500} y2={y} stroke="rgba(59,130,246,0.2)" strokeWidth="1" />
+                          <text x={p1.x + 10} y={y - 4} fill="#5e6673" fontSize="8" fontFamily="monospace">
+                            {labels[idx]} ({priceVal.toFixed(3)})
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
+              }
+
+              // Long / Short Position (Risk/Reward Bracket)
+              if (draw.type === "long" || draw.type === "short") {
+                const isLong = draw.type === "long";
+                const entry = draw.points[0].price;
+                const stopLoss = draw.points[1].price;
+                const dist = Math.abs(entry - stopLoss);
+                const target = isLong ? entry + dist * 2 : entry - dist * 2;
+
+                const yEntry = p1.y;
+                const yStop = p2.y;
+
+                const pTarget = getXY({ time: draw.points[1].time, price: target });
+                if (!pTarget) return null;
+
+                const xStart = p1.x;
+                const width = Math.max(90, p2.x - p1.x);
+
+                const targetHeight = Math.abs(pTarget.y - yEntry);
+                const stopHeight = Math.abs(yStop - yEntry);
+
+                return (
+                  <g key={draw.id}>
+                    {/* Green Target Box */}
+                    <rect 
+                      x={xStart} 
+                      y={isLong ? pTarget.y : yEntry} 
+                      width={width} 
+                      height={targetHeight} 
+                      fill="rgba(34,197,94,0.14)" 
+                      stroke="#22c55e" 
+                      strokeWidth="0.75" 
+                    />
+                    {/* Red Stop Box */}
+                    <rect 
+                      x={xStart} 
+                      y={isLong ? yEntry : pTarget.y} 
+                      width={width} 
+                      height={stopHeight} 
+                      fill="rgba(239,68,68,0.14)" 
+                      stroke="#ef4444" 
+                      strokeWidth="0.75" 
+                    />
+                    {/* Risk Reward Ratio Text Badge */}
+                    <rect x={xStart + 6} y={yEntry - 8} width={50} height={16} rx="3" fill="#0c0e14" stroke="#23262f" strokeWidth="1" />
+                    <text x={xStart + 31} y={yEntry + 3} textAnchor="middle" fill="#d1d5db" fontSize="8" fontFamily="monospace" fontWeight="bold">
+                      R/R 2.00
+                    </text>
+                  </g>
+                );
+              }
+
+              return null;
+            })}
+          </svg>
+        )}
 
         {/* ── Replay Active Float Badge ── */}
         {replayIndex == null && (
