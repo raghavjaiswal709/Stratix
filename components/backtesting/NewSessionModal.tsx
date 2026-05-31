@@ -67,7 +67,7 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
       <div 
-        className="relative w-full max-w-lg bg-[#0c0e14] border border-[#23262f] rounded-xl shadow-2xl p-6 flex flex-col gap-5 text-gray-200"
+        className="relative w-full max-w-lg bg-[#0f0f0f] border border-[#23262f] rounded-xl shadow-2xl p-6 flex flex-col gap-5 text-gray-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -143,7 +143,7 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
               className="bg-[#141720] border border-[#23262f] rounded-lg px-3 py-2 text-sm text-[#F0B90B] font-bold focus:outline-none focus:border-[#F0B90B] transition-colors cursor-pointer"
             >
               {INSTRUMENTS.map((inst) => (
-                <option key={inst.key} value={inst.key} className="bg-[#0c0e14] text-gray-200">
+                <option key={inst.key} value={inst.key} className="bg-[#0f0f0f] text-gray-200">
                   {inst.label} — {inst.description}
                 </option>
               ))}
@@ -179,7 +179,7 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                 className={`py-1.5 text-xs font-bold rounded-lg border transition-all pointer-events-none ${
                   selectedDuration === "custom"
                     ? "bg-[#1e222f] text-[#F0B90B] border-[#F0B90B]/30"
-                    : "bg-[#0c0e14] border-dashed border-[#23262f] text-gray-600"
+                    : "bg-[#0f0f0f] border-dashed border-[#23262f] text-gray-600"
                 }`}
               >
                 Custom Range

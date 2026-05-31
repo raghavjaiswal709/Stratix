@@ -40,6 +40,8 @@ export function BacktestingPage() {
     isYAxisLocked: false,
     isMagnetActive: false,
     bgColor: "#0f0f0f",
+    favoriteTools: [] as string[],
+    drawingTemplates: [] as { id: string; name: string; type: string; color: string }[],
   });
 
   // ── Trading & Replay State ──
@@ -455,10 +457,10 @@ export function BacktestingPage() {
 
   // ── Render Chart View Mode (Active Session is active) ──
   return (
-    <div className="flex flex-col w-full h-full bg-[#0c0e14] overflow-hidden text-gray-200">
+    <div className="flex flex-col w-full h-full bg-[#0f0f0f] overflow-hidden text-gray-200">
       
       {/* ── Active Session top bar header (Image 2 styling) ── */}
-      <div className="h-14 shrink-0 bg-[#0c0e14] border-b border-[#23262f] flex items-center justify-between px-4">
+      <div className="h-14 shrink-0 bg-[#0f0f0f] border-b border-[#23262f] flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <button
             onClick={handleExitToDashboard}
@@ -535,28 +537,8 @@ export function BacktestingPage() {
       <div className="flex-1 min-h-0 flex w-full relative">
         
         {/* Left Side: Chart Canvas & Bottom controls */}
-        <div className="flex-1 min-w-0 flex flex-col h-full bg-[#0c0e14]">
+        <div className="flex-1 min-w-0 flex flex-col h-full bg-[#0f0f0f]">
           
-          {/* Replay Controls (Docked right under header if replay is running) */}
-          {displayCandles.length > 0 && (
-            <div className="h-11 shrink-0 bg-[#0c0e14] border-b border-[#23262f]">
-              <ReplayBar
-                replay={replay}
-                currentCandle={currentCandle}
-                totalCandles={displayCandles.length}
-                hasData={displayCandles.length > 0}
-                onSelectStart={handleSelectStart}
-                onPlay={handlePlay}
-                onPause={handlePause}
-                onNext={handleNext}
-                onPrev={handlePrev}
-                onJumpToStart={handleJumpToStart}
-                onStop={handleStop}
-                onSpeedChange={handleSpeedChange}
-              />
-            </div>
-          )}
-
           {/* Lightweight-charts Canvas Overlay Container */}
           <div className="flex-1 min-h-0 relative w-full">
             <BacktestChart
@@ -582,11 +564,29 @@ export function BacktestingPage() {
               drawings={activeSession.drawings || []}
               onDrawingsChange={handleDrawingsChange}
             />
+
+            {/* Floating Replay Controls (Curved Island Floating at bottom middle of chart) */}
+            {displayCandles.length > 0 && (
+              <ReplayBar
+                replay={replay}
+                currentCandle={currentCandle}
+                totalCandles={displayCandles.length}
+                hasData={displayCandles.length > 0}
+                onSelectStart={handleSelectStart}
+                onPlay={handlePlay}
+                onPause={handlePause}
+                onNext={handleNext}
+                onPrev={handlePrev}
+                onJumpToStart={handleJumpToStart}
+                onStop={handleStop}
+                onSpeedChange={handleSpeedChange}
+              />
+            )}
           </div>
 
           {/* Bottom Open Positions Panel */}
           {openTrade && (
-            <div className="h-16 bg-[#0c0e14] border-t border-[#23262f] px-4.5 flex items-center justify-between shrink-0">
+            <div className="h-16 bg-[#0f0f0f] border-t border-[#23262f] px-4.5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-4 text-xs">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-[#5e6673]">Active Position</span>
                 <div className="font-mono flex items-center gap-3">
@@ -616,7 +616,7 @@ export function BacktestingPage() {
         </div>
 
         {/* Right Side: High-Premium Execution Sidebar Panel */}
-        <div className="w-64 border-l border-[#23262f] bg-[#0c0e14] shrink-0 h-full">
+        <div className="w-64 border-l border-[#23262f] bg-[#0f0f0f] shrink-0 h-full">
           <ExecutionPanel
             symbol={activeSession.symbol}
             currentPrice={currentPrice}

@@ -19,7 +19,7 @@ import {
   Paintbrush, Type, Smile, Ruler, Search,
   Magnet, Lock, Unlock, Eye, EyeOff, PenTool,
   Workflow, Settings, X, Minus, ArrowRight, Circle, Triangle,
-  Layers, TrendingUp,
+  Layers, TrendingUp, Star, GripVertical,
 } from "lucide-react";
 
 interface Props {
@@ -49,6 +49,8 @@ interface Props {
     isYAxisLocked:  boolean;
     isMagnetActive: boolean;
     bgColor:        string;
+    favoriteTools?: string[];
+    drawingTemplates?: { id: string; name: string; type: string; color: string }[];
   };
   onSettingsChange: (settings: Partial<Props["settings"]>) => void;
 }
@@ -61,7 +63,7 @@ const TOOL_POINTS: Partial<Record<DrawingType, number>> = {
   channel: 3, triangle: 3, patterns: 2,
 };
 
-const CHART_BG = "#0c0e14";
+const CHART_BG = "#0f0f0f";
 const GRID_COLOR = "#181a20";
 const TEXT_COLOR = "#5e6673";
 const SEL_COLOR = "#eab308";
@@ -87,6 +89,22 @@ export function BacktestChart({
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [draggingAnchor, setDraggingAnchor]         = useState<{ drawingId: string; pointIndex: number } | null>(null);
   const isDraggingDrawingRef                         = useRef(false);
+
+  // Price scale margins for expand/contract zooming
+  const [margins, setMargins] = useState({ top: 0.2, bottom: 0.1 });
+
+  // Draggable Favorites Toolbar Position & Dragging State
+  const [favsPos, setFavsPos] = useState<{ x: number | null; y: number }>({ x: null, y: 12 });
+  const [isFavsDragging, setIsFavsDragging] = useState(false);
+  const favsDragStartRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+
+  // Lasso Selector States
+  const [lassoBox, setLassoBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([]);
+  const [isModifierHeld, setIsModifierHeld] = useState(false);
+  
+  // Template menu open state
+  const [isTemplateMenuOpen, setIsTemplateMenuOpen] = useState(false);
 
   const [draggingDrawing, setDraggingDrawing] = useState<{
     id: string;
@@ -295,16 +313,59 @@ export function BacktestChart({
     return () => container.removeEventListener("mousedown", handler);
   }, []);
 
-  // Redraw on scroll/zoom
+  // Redraw on scroll/zoom and vertical price scale expand/contract zooming
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const handler = () => setRedrawTrigger(t => t + 1);
-    container.addEventListener("mousemove", handler, { passive: true });
-    container.addEventListener("wheel", handler, { passive: true });
+
+    const handleInteraction = () => setRedrawTrigger(t => t + 1);
+
+    const handleWheel = (e: WheelEvent) => {
+      const rect = container.getBoundingClientRect();
+      // The right price scale of lightweight-charts is roughly 50-60 pixels wide.
+      const isOverPriceScale = rect.right - e.clientX <= 60;
+      
+      if (isOverPriceScale) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // scroll down (deltaY > 0) -> contract / zoom out -> increase margins
+        // scroll up (deltaY < 0) -> expand / zoom in -> decrease margins
+        const zoomFactor = e.deltaY > 0 ? 1.15 : 0.85;
+
+        setMargins((prev) => {
+          let newTop = Math.max(0.01, prev.top * zoomFactor);
+          let newBottom = Math.max(0.01, prev.bottom * zoomFactor);
+          if (newTop + newBottom > 0.8) {
+            const factor = 0.8 / (newTop + newBottom);
+            newTop *= factor;
+            newBottom *= factor;
+          }
+          return { top: newTop, bottom: newBottom };
+        });
+        setRedrawTrigger(t => t + 1);
+      } else {
+        setRedrawTrigger(t => t + 1);
+      }
+    };
+
+    const handleDblClick = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const isOverPriceScale = rect.right - e.clientX <= 60;
+      if (isOverPriceScale) {
+        setMargins({ top: 0.2, bottom: 0.1 });
+        setRedrawTrigger(t => t + 1);
+      }
+    };
+
+    container.addEventListener("mousemove", handleInteraction, { passive: true });
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    container.addEventListener("dblclick", handleDblClick, { passive: true });
+
     return () => {
-      container.removeEventListener("mousemove", handler);
-      container.removeEventListener("wheel", handler);
+      container.removeEventListener("mousemove", handleInteraction);
+      container.removeEventListener("wheel", handleWheel);
+      container.removeEventListener("dblclick", handleDblClick);
     };
   }, []);
 
@@ -317,6 +378,7 @@ export function BacktestChart({
         setIsClickCreating(false);
         setMultiCreating(null);
         setSelectedDrawingId(null);
+        setSelectedDrawingIds([]);
         setTextOverlay(null);
         if (!activeDrawingRef.current) setActiveTool("cursor");
       }
@@ -325,16 +387,139 @@ export function BacktestChart({
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Delete key
+  // Cmd / Ctrl key modifier tracker for drag-selection pointer capture
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Meta" || e.key === "Control" || e.metaKey || e.ctrlKey) {
+        setIsModifierHeld(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Meta" || e.key === "Control") {
+        setIsModifierHeld(false);
+      }
+    };
+    const handleBlur = () => setIsModifierHeld(false);
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
+  // Dynamically update price scale margins (expansion/contraction)
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale("right").applyOptions({
+      scaleMargins: {
+        top: margins.top,
+        bottom: margins.bottom,
+      }
+    });
+  }, [margins]);
+
+  // Close template menu when selected drawing changes
+  useEffect(() => {
+    setIsTemplateMenuOpen(false);
+  }, [selectedDrawingId]);
+
+  // Draggable Favorites Toolbar window listeners
+  useEffect(() => {
+    if (!isFavsDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!favsDragStartRef.current || !containerRef.current) return;
+      const { startX, startY, startPosX, startPosY } = favsDragStartRef.current;
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+
+      const container = containerRef.current;
+      const containerRect = container.getBoundingClientRect();
+      
+      const newX = startPosX + deltaX;
+      const newY = startPosY + deltaY;
+
+      // Constrain within container bounds to prevent dragging offscreen
+      const maxX = Math.max(100, containerRect.width - 150);
+      const maxY = Math.max(100, containerRect.height - 40);
+      const boundedX = Math.max(4, Math.min(maxX, newX));
+      const boundedY = Math.max(4, Math.min(maxY, newY));
+
+      setFavsPos({ x: boundedX, y: boundedY });
+    };
+
+    const handleMouseUp = () => {
+      setIsFavsDragging(false);
+      favsDragStartRef.current = null;
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isFavsDragging]);
+
+  const handleFavsMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget.parentElement;
+    const container = containerRef.current;
+    if (!el || !container) return;
+    const rect = el.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    
+    const curX = rect.left - containerRect.left;
+    const curY = rect.top - containerRect.top;
+
+    favsDragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startPosX: curX,
+      startPosY: curY,
+    };
+    setIsFavsDragging(true);
+  };
+
+  // Hex color to RGBA utility helper
+  const hexToRgba = useCallback((hex: string, alpha: number) => {
+    if (!hex || !hex.startsWith("#")) return hex || "";
+    try {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      if (isNaN(r) || isNaN(g) || isNaN(b)) return hex;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    } catch {
+      return hex;
+    }
+  }, []);
+
+  // Delete key for both single and multi-selection
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!selectedDrawingId) return;
       if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
-      if (e.key === "Delete" || e.key === "Backspace") handleDeleteDrawing(selectedDrawingId);
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedDrawingIds.length > 0) {
+          onDrawingsChange(localDrawingsRef.current.filter(d => !selectedDrawingIds.includes(d.id)));
+          setSelectedDrawingIds([]);
+        } else if (selectedDrawingId) {
+          onDrawingsChange(localDrawingsRef.current.filter(d => d.id !== selectedDrawingId));
+          setSelectedDrawingId(null);
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedDrawingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedDrawingId, selectedDrawingIds, onDrawingsChange]);
 
   // ── CRITICAL: Global window mouseup ──────────────────────────────────────
   // We MUST NOT stop propagation in drawing onMouseUp handlers — that would
@@ -567,10 +752,26 @@ export function BacktestChart({
   // ── SVG event handlers ────────────────────────────────────────────────────
   const handleSvgMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     if (draggingAnchor) return;
+
+    // Check if Cmd (metaKey) or Ctrl (ctrlKey) is held to start lasso select
+    const isLassoSelect = e.metaKey || e.ctrlKey;
+    if (isLassoSelect) {
+      e.stopPropagation();
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      setLassoBox({ x1: x, y1: y, x2: x, y2: y });
+      setSelectedDrawingIds([]); // reset selection
+      setSelectedDrawingId(null);
+      return;
+    }
+
     if (activeTool === "cursor" || isLocked) return;
     e.stopPropagation();
     e.preventDefault();
     setSelectedDrawingId(null);
+    setSelectedDrawingIds([]); // clear multi-selection
 
     const coords = getTimePriceFromEvent(e);
     if (!coords) return;
@@ -639,6 +840,16 @@ export function BacktestChart({
   };
 
   const handleSvgMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (lassoBox) {
+      e.stopPropagation();
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      setLassoBox(prev => prev ? { ...prev, x2: x, y2: y } : null);
+      return;
+    }
+
     const coords = getTimePriceFromEvent(e);
     if (!coords) return;
     let { time: timeSec, price } = coords;
@@ -676,6 +887,39 @@ export function BacktestChart({
   };
 
   const handleSvgMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (lassoBox) {
+      e.stopPropagation();
+      e.preventDefault();
+      
+      const minX = Math.min(lassoBox.x1, lassoBox.x2);
+      const maxX = Math.max(lassoBox.x1, lassoBox.x2);
+      const minY = Math.min(lassoBox.y1, lassoBox.y2);
+      const maxY = Math.max(lassoBox.y1, lassoBox.y2);
+      
+      const w = maxX - minX;
+      const h = maxY - minY;
+      
+      if (w > 5 && h > 5) {
+        const ids: string[] = [];
+        localDrawingsRef.current.forEach((draw) => {
+          const hasPtInside = draw.points.some((pt) => {
+            const xy = getXY(pt);
+            if (!xy) return false;
+            return xy.x >= minX && xy.x <= maxX && xy.y >= minY && xy.y <= maxY;
+          });
+          if (hasPtInside) {
+            ids.push(draw.id);
+          }
+        });
+        setSelectedDrawingIds(ids);
+        if (ids.length === 1) {
+          setSelectedDrawingId(ids[0]);
+        }
+      }
+      setLassoBox(null);
+      return;
+    }
+
     if (isDraggingDrawingRef.current && activeDrawingRef.current && !multiCreating) {
       e.stopPropagation();
       const coords = getTimePriceFromEvent(e);
@@ -792,6 +1036,25 @@ export function BacktestChart({
     setSelectedDrawingId(null);
   }, [onDrawingsChange]);
 
+  const handleToggleFavorite = (tool: DrawingType) => {
+    const current = settings.favoriteTools || [];
+    const updated = current.includes(tool)
+      ? current.filter(t => t !== tool)
+      : [...current, tool];
+    onSettingsChange({ favoriteTools: updated });
+  };
+
+  const handleUpdateDrawingColor = (color: string) => {
+    const updatedDrawings = localDrawingsRef.current.map((draw) => {
+      if (draw.id === selectedDrawingId) {
+        return { ...draw, color };
+      }
+      return draw;
+    });
+    onDrawingsChange(updatedDrawings);
+    setRedrawTrigger((t) => t + 1);
+  };
+
   // ── Event forwarding from SVG overlay to chart canvas ────────────────────
   // The SVG is a DOM sibling of the chart host div, so wheel/mousemove events
   // on drawings bubble to the wrapper — NOT to the chart canvas. We re-dispatch
@@ -802,6 +1065,16 @@ export function BacktestChart({
   );
 
   const forwardWheelToChart = useCallback((e: React.WheelEvent) => {
+    const container = containerRef.current;
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      const isOverPriceScale = rect.right - e.clientX <= 60;
+      if (isOverPriceScale) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
     const canvas = getChartCanvas();
     if (!canvas) return;
     canvas.dispatchEvent(new WheelEvent('wheel', {
@@ -885,9 +1158,9 @@ export function BacktestChart({
   // ── Render single drawing ─────────────────────────────────────────────────
   const renderDrawing = (draw: Drawing) => {
     const p1 = getXY(draw.points[0]);
-    const isSelected = selectedDrawingId === draw.id;
+    const isSelected = selectedDrawingId === draw.id || selectedDrawingIds.includes(draw.id);
     const isPreview  = draw.id === previewDrawing?.id;
-    const stroke     = isSelected ? SEL_COLOR : LINE_COLOR;
+    const stroke     = draw.color || (isSelected ? SEL_COLOR : LINE_COLOR);
     const dashArray  = isPreview ? "5 4" : "0";
 
     // Drawings are only interactive in cursor mode.
@@ -909,7 +1182,6 @@ export function BacktestChart({
       }
     };
     const groupProps = {
-      key: draw.id,
       className: inCursorMode ? "cursor-pointer pointer-events-auto" : "pointer-events-none",
       onClick: inCursorMode ? ((e: React.MouseEvent) => { stopEvent(e); setSelectedDrawingId(draw.id); }) : undefined,
       onMouseDown: inCursorMode ? startDrag : undefined,
@@ -922,7 +1194,7 @@ export function BacktestChart({
     if (draw.type === "hline") {
       if (!p1) return null;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke="transparent" strokeWidth={12} />
           <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
           <text x={svgW - 8} y={p1.y - 4} fill={stroke} fontSize={8} fontFamily="monospace" textAnchor="end">
@@ -937,7 +1209,7 @@ export function BacktestChart({
     if (draw.type === "vline") {
       if (!p1) return null;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={0} x2={p1.x} y2={svgH} stroke="transparent" strokeWidth={12} />
           <line x1={p1.x} y1={0} x2={p1.x} y2={svgH} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
           {isSelected && makeAnchor(p1.x, 40, draw.id, 0, "anc0")}
@@ -950,7 +1222,7 @@ export function BacktestChart({
       const p2 = getXY(draw.points[1]);
       if (!p1 || !p2) return null;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray={dashArray} />
           {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
@@ -964,7 +1236,7 @@ export function BacktestChart({
       if (!p1 || !p2) return null;
       const ext = extendToRight(p1.x, p1.y, p2.x, p2.y);
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={ext.x} y2={ext.y} stroke="transparent" strokeWidth={12} />
           <line x1={p1.x} y1={p1.y} x2={ext.x} y2={ext.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray={dashArray} />
           {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
@@ -977,7 +1249,7 @@ export function BacktestChart({
       const p2 = getXY(draw.points[1]);
       if (!p1 || !p2) return null;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.8} />
           <polygon points={arrowHead(p1.x, p1.y, p2.x, p2.y, 10)} fill={stroke} />
@@ -994,9 +1266,9 @@ export function BacktestChart({
       const w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
       const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <rect x={x} y={y} width={w} height={h} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
-            fill={isSelected ? "rgba(234,179,8,0.08)" : "rgba(59,130,246,0.05)"} strokeDasharray={dashArray} />
+            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(59,130,246,0.05)")} strokeDasharray={dashArray} />
           {isSelected && <>
             {makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
             {makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}
@@ -1023,9 +1295,9 @@ export function BacktestChart({
       const rx = Math.abs(p2.x - p1.x);
       const ry = Math.abs(p2.y - p1.y);
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <ellipse cx={p1.x} cy={p1.y} rx={rx || 1} ry={ry || 1} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
-            fill={isSelected ? "rgba(234,179,8,0.08)" : "rgba(59,130,246,0.05)"} strokeDasharray={dashArray} />
+            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(59,130,246,0.05)")} strokeDasharray={dashArray} />
           {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
         </g>
       );
@@ -1044,9 +1316,9 @@ export function BacktestChart({
       const [c1, c2, c3] = coords3 as { x: number; y: number }[];
       const pts = `${c1.x},${c1.y} ${c2.x},${c2.y} ${c3.x},${c3.y}`;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <polygon points={pts} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
-            fill={isSelected ? "rgba(234,179,8,0.08)" : "rgba(59,130,246,0.05)"} strokeDasharray={dashArray} />
+            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(59,130,246,0.05)")} strokeDasharray={dashArray} />
           {isSelected && draw.points.map((_, i) => {
             const xy = getXY(draw.points[i])!;
             return makeAnchor(xy.x, xy.y, draw.id, i, `a${i}`);
@@ -1067,7 +1339,7 @@ export function BacktestChart({
       // Offset: c3 defines the y-offset for the parallel line
       const dy = c3.y - c1.y;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           {/* First line */}
           <line x1={c1.x} y1={c1.y} x2={c2.x} y2={c2.y} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
           {/* Second parallel line */}
@@ -1075,7 +1347,7 @@ export function BacktestChart({
           {/* Fill */}
           <polygon
             points={`${c1.x},${c1.y} ${c2.x},${c2.y} ${c2.x},${c2.y + dy} ${c1.x},${c1.y + dy}`}
-            fill={isSelected ? "rgba(234,179,8,0.06)" : "rgba(59,130,246,0.04)"} stroke="none"
+            fill={isSelected ? "rgba(234,179,8,0.06)" : (draw.color ? hexToRgba(draw.color, 0.04) : "rgba(59,130,246,0.04)")} stroke="none"
           />
           {/* End caps */}
           <line x1={c1.x} y1={c1.y} x2={c1.x} y2={c1.y + dy} stroke={stroke} strokeWidth={1} strokeDasharray="3 3" />
@@ -1108,9 +1380,9 @@ export function BacktestChart({
       }
       d += ` L ${pts[pts.length - 1].x} ${pts[pts.length - 1].y}`;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <path d={d} fill="none" stroke="transparent" strokeWidth={20} strokeLinecap="round" strokeLinejoin="round" />
-          <path d={d} fill="none" stroke={isSelected ? "rgba(234,179,8,0.55)" : "rgba(59,130,246,0.28)"} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
+          <path d={d} fill="none" stroke={isSelected ? (draw.color ? hexToRgba(draw.color, 0.55) : "rgba(234,179,8,0.55)") : (draw.color ? hexToRgba(draw.color, 0.28) : "rgba(59,130,246,0.28)")} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
         </g>
       );
     }
@@ -1121,9 +1393,9 @@ export function BacktestChart({
       const label = draw.text || "Text";
       const fw    = label.length * 6.5 + 12;
       return (
-        <g {...groupProps}>
-          <rect x={p1.x - 4} y={p1.y - 15} width={fw} height={19} rx={4} fill={CHART_BG} stroke={isSelected ? SEL_COLOR : "#23262f"} strokeWidth={isSelected ? 1.5 : 1} />
-          <text x={p1.x + 2} y={p1.y - 2} fill={isSelected ? SEL_COLOR : LINE_COLOR} fontSize={9} fontFamily="monospace" fontWeight="bold">{label}</text>
+        <g key={draw.id} {...groupProps}>
+          <rect x={p1.x - 4} y={p1.y - 15} width={fw} height={19} rx={4} fill={CHART_BG} stroke={isSelected ? SEL_COLOR : (draw.color || "#23262f")} strokeWidth={isSelected ? 1.5 : 1} />
+          <text x={p1.x + 2} y={p1.y - 2} fill={isSelected ? SEL_COLOR : (draw.color || LINE_COLOR)} fontSize={9} fontFamily="monospace" fontWeight="bold">{label}</text>
           {isSelected && makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
         </g>
       );
@@ -1133,8 +1405,8 @@ export function BacktestChart({
     if (draw.type === "smiley") {
       if (!p1) return null;
       return (
-        <g {...groupProps}>
-          {isSelected && <circle cx={p1.x} cy={p1.y} r={14} fill="rgba(234,179,8,0.18)" stroke={SEL_COLOR} strokeWidth={1} />}
+        <g key={draw.id} {...groupProps}>
+          {isSelected && <circle cx={p1.x} cy={p1.y} r={14} fill={draw.color ? hexToRgba(draw.color, 0.18) : "rgba(234,179,8,0.18)"} stroke={draw.color || SEL_COLOR} strokeWidth={1} />}
           <text x={p1.x - 8} y={p1.y + 8} fontSize={16}>🙂</text>
           {isSelected && makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
         </g>
@@ -1150,10 +1422,10 @@ export function BacktestChart({
       const bx    = Math.min(p1.x, p2.x);
       const by    = Math.min(p1.y, p2.y) - 22;
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
-          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? SEL_COLOR : "#f59e0b"} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray="4 3" />
-          <rect x={bx} y={by} width={108} height={17} rx={4} fill={isSelected ? SEL_COLOR : "#f59e0b"} />
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? SEL_COLOR : (draw.color || "#f59e0b")} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray="4 3" />
+          <rect x={bx} y={by} width={108} height={17} rx={4} fill={isSelected ? SEL_COLOR : (draw.color || "#f59e0b")} />
           <text x={bx + 54} y={by + 11} textAnchor="middle" fill="#000" fontSize={8} fontFamily="monospace" fontWeight="bold">
             {pips.toFixed(1)} Pips | {bars} Bars
           </text>
@@ -1174,7 +1446,7 @@ export function BacktestChart({
         "rgba(16,185,129,0.04)", "rgba(59,130,246,0.04)", "rgba(139,92,246,0.04)",
       ];
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
           {zoneColors.map((color, idx) => {
             const yTop = p1.y + dy * levels[idx];
@@ -1186,8 +1458,8 @@ export function BacktestChart({
             const priceVal = draw.points[0].price + (draw.points[1].price - draw.points[0].price) * lvl;
             return (
               <g key={idx}>
-                <line x1={0} y1={y} x2={svgW} y2={y} stroke={isSelected ? "rgba(234,179,8,0.4)" : "rgba(59,130,246,0.22)"} strokeWidth={isSelected ? 1.5 : 1} />
-                <text x={p1.x + 8} y={y - 3} fill={isSelected ? SEL_COLOR : TEXT_COLOR} fontSize={8} fontFamily="monospace">
+                <line x1={0} y1={y} x2={svgW} y2={y} stroke={isSelected ? (draw.color ? hexToRgba(draw.color, 0.4) : "rgba(234,179,8,0.4)") : (draw.color ? hexToRgba(draw.color, 0.22) : "rgba(59,130,246,0.22)")} strokeWidth={isSelected ? 1.5 : 1} />
+                <text x={p1.x + 8} y={y - 3} fill={isSelected ? SEL_COLOR : (draw.color || TEXT_COLOR)} fontSize={8} fontFamily="monospace">
                   {labels[idx]} ({priceVal.toFixed(4)})
                 </text>
               </g>
@@ -1204,13 +1476,13 @@ export function BacktestChart({
       if (draw.points.length < 5 || ptsXY.some(p => !p)) return null;
       const [pX, pA, pB, pC, pD] = ptsXY as { x: number; y: number }[];
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <polygon points={`${pX.x},${pX.y} ${pA.x},${pA.y} ${pB.x},${pB.y}`}
-            stroke={isSelected ? SEL_COLOR : "#8b5cf6"} strokeWidth={isSelected ? 2 : 1.5}
-            fill={isSelected ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)"} />
+            stroke={isSelected ? SEL_COLOR : (draw.color || "#8b5cf6")} strokeWidth={isSelected ? 2 : 1.5}
+            fill={isSelected ? "rgba(139,92,246,0.2)" : (draw.color ? hexToRgba(draw.color, 0.1) : "rgba(139,92,246,0.1)")} />
           <polygon points={`${pB.x},${pB.y} ${pC.x},${pC.y} ${pD.x},${pD.y}`}
-            stroke={isSelected ? SEL_COLOR : "#8b5cf6"} strokeWidth={isSelected ? 2 : 1.5}
-            fill={isSelected ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)"} />
+            stroke={isSelected ? SEL_COLOR : (draw.color || "#8b5cf6")} strokeWidth={isSelected ? 2 : 1.5}
+            fill={isSelected ? "rgba(139,92,246,0.2)" : (draw.color ? hexToRgba(draw.color, 0.1) : "rgba(139,92,246,0.1)")} />
           {[{ p: pX, l: "X" }, { p: pA, l: "A" }, { p: pB, l: "B" }, { p: pC, l: "C" }, { p: pD, l: "D" }].map((v, i) => (
             <text key={i} x={v.p.x} y={v.p.y - 8} fill="#c084fc" fontSize={9} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{v.l}</text>
           ))}
@@ -1237,7 +1509,7 @@ export function BacktestChart({
       const width  = Math.max(90, Math.abs(p2.x - p1.x) + 40);
       const rrRatio = Math.abs(tp - entry) / (dist || 1);
       return (
-        <g {...groupProps}>
+        <g key={draw.id} {...groupProps}>
           <rect x={xStart} y={Math.min(p1.y, tpY)} width={width} height={Math.abs(tpY - p1.y)}
             fill={isSelected ? "rgba(34,197,94,0.18)" : "rgba(34,197,94,0.12)"} stroke={isSelected ? SEL_COLOR : "#22c55e"} strokeWidth={isSelected ? 1.5 : 0.75} />
           <rect x={xStart} y={Math.min(p1.y, p2.y)} width={width} height={Math.abs(p2.y - p1.y)}
@@ -1272,43 +1544,43 @@ export function BacktestChart({
         <Sep />
 
         {/* Lines group */}
-        <TB active={activeTool === "trendline"} onClick={() => setActiveTool("trendline")} icon={<Slash className="w-4 h-4" />} label="Trend Line" />
-        <TB active={activeTool === "ray"} onClick={() => setActiveTool("ray")} icon={<ArrowRight className="w-4 h-4" />} label="Ray (extends right)" />
-        <TB active={activeTool === "hline"} onClick={() => setActiveTool("hline")} icon={<Minus className="w-4 h-4" />} label="Horizontal Line" />
+        <TB active={activeTool === "trendline"} onClick={() => setActiveTool("trendline")} icon={<Slash className="w-4 h-4" />} label="Trend Line" isFavorited={settings.favoriteTools?.includes("trendline")} onStarClick={() => handleToggleFavorite("trendline")} />
+        <TB active={activeTool === "ray"} onClick={() => setActiveTool("ray")} icon={<ArrowRight className="w-4 h-4" />} label="Ray (extends right)" isFavorited={settings.favoriteTools?.includes("ray")} onStarClick={() => handleToggleFavorite("ray")} />
+        <TB active={activeTool === "hline"} onClick={() => setActiveTool("hline")} icon={<Minus className="w-4 h-4" />} label="Horizontal Line" isFavorited={settings.favoriteTools?.includes("hline")} onStarClick={() => handleToggleFavorite("hline")} />
         <TB active={activeTool === "vline"} onClick={() => setActiveTool("vline")}
-          icon={<span className="inline-block rotate-90"><Minus className="w-4 h-4" /></span>} label="Vertical Line" />
-        <TB active={activeTool === "arrow"} onClick={() => setActiveTool("arrow")} icon={<ArrowUpRight className="w-4 h-4" />} label="Arrow" />
+          icon={<span className="inline-block rotate-90"><Minus className="w-4 h-4" /></span>} label="Vertical Line" isFavorited={settings.favoriteTools?.includes("vline")} onStarClick={() => handleToggleFavorite("vline")} />
+        <TB active={activeTool === "arrow"} onClick={() => setActiveTool("arrow")} icon={<ArrowUpRight className="w-4 h-4" />} label="Arrow" isFavorited={settings.favoriteTools?.includes("arrow")} onStarClick={() => handleToggleFavorite("arrow")} />
 
         <Sep />
 
         {/* Shapes group */}
-        <TB active={activeTool === "rectangle"} onClick={() => setActiveTool("rectangle")} icon={<Square className="w-4 h-4" />} label="Rectangle" />
-        <TB active={activeTool === "circle"} onClick={() => setActiveTool("circle")} icon={<Circle className="w-4 h-4" />} label="Circle / Ellipse" />
-        <TB active={activeTool === "triangle"} onClick={() => setActiveTool("triangle")} icon={<Triangle className="w-4 h-4" />} label="Triangle (3 clicks)" />
-        <TB active={activeTool === "channel"} onClick={() => setActiveTool("channel")} icon={<Layers className="w-4 h-4" />} label="Parallel Channel (3 clicks)" />
+        <TB active={activeTool === "rectangle"} onClick={() => setActiveTool("rectangle")} icon={<Square className="w-4 h-4" />} label="Rectangle" isFavorited={settings.favoriteTools?.includes("rectangle")} onStarClick={() => handleToggleFavorite("rectangle")} />
+        <TB active={activeTool === "circle"} onClick={() => setActiveTool("circle")} icon={<Circle className="w-4 h-4" />} label="Circle / Ellipse" isFavorited={settings.favoriteTools?.includes("circle")} onStarClick={() => handleToggleFavorite("circle")} />
+        <TB active={activeTool === "triangle"} onClick={() => setActiveTool("triangle")} icon={<Triangle className="w-4 h-4" />} label="Triangle (3 clicks)" isFavorited={settings.favoriteTools?.includes("triangle")} onStarClick={() => handleToggleFavorite("triangle")} />
+        <TB active={activeTool === "channel"} onClick={() => setActiveTool("channel")} icon={<Layers className="w-4 h-4" />} label="Parallel Channel (3 clicks)" isFavorited={settings.favoriteTools?.includes("channel")} onStarClick={() => handleToggleFavorite("channel")} />
 
         <Sep />
 
         {/* Fib */}
-        <TB active={activeTool === "fib"} onClick={() => setActiveTool("fib")} icon={<Grid className="w-4 h-4" />} label="Fibonacci Retracement" />
+        <TB active={activeTool === "fib"} onClick={() => setActiveTool("fib")} icon={<Grid className="w-4 h-4" />} label="Fibonacci Retracement" isFavorited={settings.favoriteTools?.includes("fib")} onStarClick={() => handleToggleFavorite("fib")} />
 
         <Sep />
 
         {/* Risk positions */}
         <TB active={activeTool === "long"} onClick={() => setActiveTool("long")}
-          icon={<TrendingUp className="w-4 h-4 text-green-500" />} label="Long Position (Risk/Reward)" />
+          icon={<TrendingUp className="w-4 h-4 text-green-500" />} label="Long Position (Risk/Reward)" isFavorited={settings.favoriteTools?.includes("long")} onStarClick={() => handleToggleFavorite("long")} />
         <TB active={activeTool === "short"} onClick={() => setActiveTool("short")}
-          icon={<TrendingUp className="w-4 h-4 text-red-500 rotate-180 scale-x-[-1]" />} label="Short Position (Risk/Reward)" />
+          icon={<TrendingUp className="w-4 h-4 text-red-500 rotate-180 scale-x-[-1]" />} label="Short Position (Risk/Reward)" isFavorited={settings.favoriteTools?.includes("short")} onStarClick={() => handleToggleFavorite("short")} />
         <TB active={activeTool === "patterns"} onClick={() => setActiveTool("patterns")}
-          icon={<Workflow className="w-4 h-4 text-[#8b5cf6]" />} label="Harmonic XABCD Pattern" />
+          icon={<Workflow className="w-4 h-4 text-[#8b5cf6]" />} label="Harmonic XABCD Pattern" isFavorited={settings.favoriteTools?.includes("patterns")} onStarClick={() => handleToggleFavorite("patterns")} />
 
         <Sep />
 
         {/* Annotations */}
-        <TB active={activeTool === "text"} onClick={() => setActiveTool("text")} icon={<Type className="w-4 h-4" />} label="Text Annotation" />
-        <TB active={activeTool === "brush"} onClick={() => setActiveTool("brush")} icon={<Paintbrush className="w-4 h-4" />} label="Highlighter Brush" />
-        <TB active={activeTool === "ruler"} onClick={() => setActiveTool("ruler")} icon={<Ruler className="w-4 h-4 text-amber-500" />} label="Ruler (Pips & Bars)" />
-        <TB active={activeTool === "smiley"} onClick={() => setActiveTool("smiley")} icon={<Smile className="w-4 h-4 text-yellow-500" />} label="Emoji Marker" />
+        <TB active={activeTool === "text"} onClick={() => setActiveTool("text")} icon={<Type className="w-4 h-4" />} label="Text Annotation" isFavorited={settings.favoriteTools?.includes("text")} onStarClick={() => handleToggleFavorite("text")} />
+        <TB active={activeTool === "brush"} onClick={() => setActiveTool("brush")} icon={<Paintbrush className="w-4 h-4" />} label="Highlighter Brush" isFavorited={settings.favoriteTools?.includes("brush")} onStarClick={() => handleToggleFavorite("brush")} />
+        <TB active={activeTool === "ruler"} onClick={() => setActiveTool("ruler")} icon={<Ruler className="w-4 h-4 text-amber-500" />} label="Ruler (Pips & Bars)" isFavorited={settings.favoriteTools?.includes("ruler")} onStarClick={() => handleToggleFavorite("ruler")} />
+        <TB active={activeTool === "smiley"} onClick={() => setActiveTool("smiley")} icon={<Smile className="w-4 h-4 text-yellow-500" />} label="Emoji Marker" isFavorited={settings.favoriteTools?.includes("smiley")} onStarClick={() => handleToggleFavorite("smiley")} />
 
         <Sep />
 
@@ -1337,11 +1609,63 @@ export function BacktestChart({
       <div className="flex-1 min-w-0 h-full relative">
         <div ref={containerRef} className="w-full h-full" />
 
+        {/* ── Floating Favorites Toolbar ── */}
+        {settings.favoriteTools && settings.favoriteTools.length > 0 && (
+          <div
+            className="absolute flex items-center gap-1 bg-[#141720]/95 backdrop-blur-md border border-[#23262f] rounded-lg p-1 z-20 shadow-xl select-none font-mono text-[9px] pointer-events-auto transition-shadow duration-150"
+            style={{
+              left: favsPos.x !== null ? `${favsPos.x}px` : "50%",
+              top: `${favsPos.y}px`,
+              transform: favsPos.x !== null ? "none" : "translateX(-50%)",
+              cursor: isFavsDragging ? "grabbing" : "default",
+              boxShadow: isFavsDragging ? "0 20px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.5)" : undefined,
+            }}
+          >
+            {/* Draggable Grip Handle */}
+            <div
+              onMouseDown={handleFavsMouseDown}
+              className="p-1 text-gray-500 hover:text-gray-300 cursor-grab active:cursor-grabbing flex items-center justify-center rounded hover:bg-[#1c1e26] transition-colors shrink-0"
+              title="Drag Favorites Toolbar"
+            >
+              <GripVertical className="w-3.5 h-3.5" />
+            </div>
+
+            {/* Star Icon Indicator */}
+            <div className="pl-0.5 pr-0.5 flex items-center justify-center text-yellow-500 shrink-0">
+              <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" />
+            </div>
+
+            {/* Vertical Divider */}
+            <div className="w-px h-4.5 bg-[#23262f] mx-1 shrink-0" />
+
+            <div className="flex items-center gap-0.5">
+              {settings.favoriteTools.map((tool) => {
+                const icon = getToolIcon(tool as DrawingType);
+                const label = getToolLabel(tool as DrawingType);
+                return (
+                  <button
+                    key={tool}
+                    onClick={() => setActiveTool(tool as DrawingType)}
+                    className={`p-1.5 rounded transition-all active:scale-90 cursor-pointer ${
+                      activeTool === tool
+                        ? "bg-[#2563eb] text-white"
+                        : "text-gray-400 hover:text-white hover:bg-[#1c1e26]"
+                    }`}
+                    title={label}
+                  >
+                    {icon}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── SVG Drawing Overlay ── */}
         {!areDrawingsHidden && (
           <svg
             className={`absolute inset-0 w-full h-full z-10 ${
-              activeTool !== "cursor" || isClickCreating || !!multiCreating
+              activeTool !== "cursor" || isClickCreating || !!multiCreating || isModifierHeld || lassoBox
                 ? "pointer-events-auto"
                 : "pointer-events-none"
             }`}
@@ -1351,7 +1675,54 @@ export function BacktestChart({
             onWheel={forwardWheelToChart}
           >
             {allDrawings.map(draw => renderDrawing(draw))}
+
+            {/* Lasso Selector Box */}
+            {lassoBox && (
+              <rect
+                x={Math.min(lassoBox.x1, lassoBox.x2)}
+                y={Math.min(lassoBox.y1, lassoBox.y2)}
+                width={Math.abs(lassoBox.x2 - lassoBox.x1)}
+                height={Math.abs(lassoBox.y2 - lassoBox.y1)}
+                fill="rgba(37,99,235,0.06)"
+                stroke="#2563eb"
+                strokeWidth={1.2}
+                strokeDasharray="4 3"
+                pointerEvents="none"
+              />
+            )}
           </svg>
+        )}
+
+        {/* ── Floating Multi-Selection Panel ── */}
+        {selectedDrawingIds.length > 1 && (
+          <div
+            className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-3.5 px-4.5 py-2.5 bg-[#141720]/95 backdrop-blur-md border border-red-500/35 rounded-full z-45 shadow-2xl font-mono text-[9px] text-gray-200 pointer-events-auto select-none"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <span className="font-bold text-red-400 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              {selectedDrawingIds.length} DRAWINGS SELECTED
+            </span>
+            <div className="h-4 w-px bg-white/10" />
+            <button
+              onClick={() => {
+                const freshDrawings = localDrawings.filter(d => !selectedDrawingIds.includes(d.id));
+                onDrawingsChange(freshDrawings);
+                setSelectedDrawingIds([]);
+              }}
+              className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-500 text-white font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer focus:outline-none"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selection</span>
+            </button>
+            <button
+              onClick={() => setSelectedDrawingIds([])}
+              className="p-1 rounded-full text-gray-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer focus:outline-none"
+              title="Cancel Selection"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
 
         {/* ── Inline Text Input Overlay ── */}
@@ -1415,15 +1786,122 @@ export function BacktestChart({
           if (!sel) return null;
           const xy = getXY(sel.points[0]);
           if (!xy) return null;
+
+          const paletteColors = ["#3b82f6", "#10b981", "#ef4444", "#eab308", "#8b5cf6", "#999BA5", "#ffffff"];
+          const applicableTemplates = (settings.drawingTemplates || []).filter(t => t.type === sel.type);
+
           return (
-            <div className="absolute z-30 flex items-center bg-[#141720] border border-[#eab308] rounded-lg px-2.5 py-1.5 shadow-xl gap-2 select-none font-mono text-[9px]"
-              style={{ left: `${Math.max(10, xy.x - 40)}px`, top: `${Math.max(10, xy.y - 45)}px`, transform: "translateY(-50%)" }}>
-              <span className="font-bold text-[#eab308] uppercase tracking-wider">{sel.type}</span>
-              <div className="w-px h-3.5 bg-[#23262f]" />
-              <button onClick={e => { e.stopPropagation(); handleDeleteDrawing(selectedDrawingId); }}
-                className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors flex items-center cursor-pointer" title="Delete">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+            <div className="absolute z-30 flex flex-col bg-[#141720] border border-[#eab308] rounded-lg p-2 shadow-2xl select-none font-mono text-[9px] min-w-[220px]"
+              style={{ left: `${Math.max(10, xy.x - 40)}px`, top: `${Math.max(10, xy.y - 65)}px`, transform: "translateY(-50%)" }}>
+              
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-[#eab308] uppercase tracking-wider">{sel.type}</span>
+                
+                <div className="w-px h-3.5 bg-[#23262f]" />
+                
+                {/* Palette color dots */}
+                <div className="flex items-center gap-1">
+                  {paletteColors.map((col) => (
+                    <button
+                      key={col}
+                      onClick={() => handleUpdateDrawingColor(col)}
+                      className="w-3.5 h-3.5 rounded-full border border-white/20 transition-all hover:scale-110 active:scale-90 cursor-pointer"
+                      style={{ backgroundColor: col }}
+                      title={`Set color to ${col}`}
+                    />
+                  ))}
+                  
+                  {/* Custom picker */}
+                  <div className="relative w-3.5 h-3.5 rounded-full border border-white/20 overflow-hidden hover:scale-110 transition-all flex items-center justify-center cursor-pointer bg-gradient-to-tr from-red-500 via-green-500 to-blue-500">
+                    <input
+                      type="color"
+                      value={sel.color || "#3b82f6"}
+                      onChange={(e) => handleUpdateDrawingColor(e.target.value)}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                      title="Choose Custom Color"
+                    />
+                  </div>
+                </div>
+
+                <div className="w-px h-3.5 bg-[#23262f]" />
+
+                {/* Templates trigger */}
+                <button
+                  onClick={() => setIsTemplateMenuOpen(!isTemplateMenuOpen)}
+                  className={`px-1.5 py-0.5 rounded font-bold border transition-colors flex items-center gap-1 cursor-pointer ${
+                    isTemplateMenuOpen
+                      ? "bg-blue-600/15 border-blue-600/30 text-blue-400"
+                      : "bg-[#1c1e26] border-[#23262f] text-gray-400 hover:text-white"
+                  }`}
+                  title="Templates menu"
+                >
+                  TEMPLATES
+                </button>
+
+                <div className="w-px h-3.5 bg-[#23262f]" />
+
+                {/* Delete button */}
+                <button onClick={e => { e.stopPropagation(); handleDeleteDrawing(selectedDrawingId); }}
+                  className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors flex items-center cursor-pointer" title="Delete">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Templates Popover */}
+              {isTemplateMenuOpen && (
+                <div className="absolute left-0 top-full mt-1.5 z-40 bg-[#0f0f0f] border border-[#23262f] rounded-lg p-2 shadow-2xl flex flex-col gap-1.5 min-w-[150px]">
+                  <button
+                    onClick={() => {
+                      const name = prompt("Enter template name:");
+                      if (name) {
+                        const newTemplate = {
+                          id: String(Date.now()),
+                          name,
+                          type: sel.type,
+                          color: sel.color || "#3b82f6",
+                        };
+                        const updatedTemplates = [...(settings.drawingTemplates || []), newTemplate];
+                        onSettingsChange({ drawingTemplates: updatedTemplates });
+                      }
+                      setIsTemplateMenuOpen(false);
+                    }}
+                    className="w-full text-left px-2 py-1 hover:bg-blue-600 hover:text-white rounded transition-colors text-[8px] font-bold text-blue-400"
+                  >
+                    + SAVE AS TEMPLATE...
+                  </button>
+                  {applicableTemplates.length > 0 && (
+                    <>
+                      <div className="h-px bg-[#23262f] my-0.5" />
+                      <span className="px-2 text-[7px] text-gray-500 font-bold uppercase tracking-wider">APPLY TEMPLATE:</span>
+                      {applicableTemplates.map((t) => (
+                        <div key={t.id} className="flex items-center justify-between hover:bg-[#1c1e26] rounded px-2 py-0.5 group/item">
+                          <button
+                            onClick={() => {
+                              handleUpdateDrawingColor(t.color);
+                              setIsTemplateMenuOpen(false);
+                            }}
+                            className="text-left text-gray-300 font-medium truncate w-[100px]"
+                            title={`Apply ${t.name}`}
+                          >
+                            {t.name}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const updatedTemplates = (settings.drawingTemplates || []).filter(item => item.id !== t.id);
+                              onSettingsChange({ drawingTemplates: updatedTemplates });
+                            }}
+                            className="text-gray-500 hover:text-red-500 opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5"
+                            title="Delete Template"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+
             </div>
           );
         })()}
@@ -1450,7 +1928,7 @@ export function BacktestChart({
         {isSettingsModalOpen && (
           <div className="absolute inset-0 bg-[#06080c]/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             onClick={() => setIsSettingsModalOpen(false)}>
-            <div className="w-full max-w-md bg-[#0c0e14] border border-[#23262f] rounded-xl shadow-2xl overflow-hidden"
+            <div className="w-full max-w-md bg-[#0f0f0f] border border-[#23262f] rounded-xl shadow-2xl overflow-hidden"
               onClick={e => e.stopPropagation()}>
               <div className="px-5 py-4 border-b border-[#23262f] flex items-center justify-between bg-[#141720]">
                 <div className="flex items-center gap-2">
@@ -1554,7 +2032,21 @@ export function BacktestChart({
 }
 
 // ── Toolbar button ─────────────────────────────────────────────────────────────
-function TB({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+function TB({
+  active,
+  onClick,
+  icon,
+  label,
+  isFavorited,
+  onStarClick,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  isFavorited?: boolean;
+  onStarClick?: (e: React.MouseEvent) => void;
+}) {
   return (
     <div className="relative group select-none">
       <button onClick={onClick}
@@ -1563,6 +2055,20 @@ function TB({ active, onClick, icon, label }: { active: boolean; onClick: () => 
         }`} title={label}>
         {icon}
       </button>
+      {onStarClick && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onStarClick(e);
+          }}
+          className={`absolute -top-1 -right-1 p-0.5 rounded-full bg-[#141720] border border-[#23262f] hover:scale-110 active:scale-90 transition-all cursor-pointer opacity-0 group-hover:opacity-100 z-30 ${
+            isFavorited ? "opacity-100 text-yellow-500" : "text-gray-500 hover:text-yellow-500"
+          }`}
+          title={isFavorited ? "Remove from Favorites" : "Add to Favorites"}
+        >
+          <Star className={`w-2.5 h-2.5 ${isFavorited ? "fill-yellow-500" : ""}`} />
+        </button>
+      )}
       <span className="absolute left-12 top-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black border border-[#23262f] text-[9px] font-bold text-gray-200 px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none uppercase tracking-wide">
         {label}
       </span>
@@ -1573,4 +2079,51 @@ function TB({ active, onClick, icon, label }: { active: boolean; onClick: () => 
 // ── Separator ──────────────────────────────────────────────────────────────────
 function Sep() {
   return <div className="w-6 h-px bg-[#23262f] my-1.5 shrink-0" />;
+}
+
+// ── Favorites Helpers ─────────────────────────────────────────────────────────
+function getToolIcon(tool: DrawingType) {
+  switch (tool) {
+    case "trendline": return <Slash className="w-3.5 h-3.5" />;
+    case "ray": return <ArrowRight className="w-3.5 h-3.5" />;
+    case "hline": return <Minus className="w-3.5 h-3.5" />;
+    case "vline": return <span className="inline-block rotate-90"><Minus className="w-3.5 h-3.5" /></span>;
+    case "arrow": return <ArrowUpRight className="w-3.5 h-3.5" />;
+    case "rectangle": return <Square className="w-3.5 h-3.5" />;
+    case "circle": return <Circle className="w-3.5 h-3.5" />;
+    case "triangle": return <Triangle className="w-3.5 h-3.5" />;
+    case "channel": return <Layers className="w-3.5 h-3.5" />;
+    case "fib": return <Grid className="w-3.5 h-3.5" />;
+    case "long": return <TrendingUp className="w-3.5 h-3.5 text-green-500" />;
+    case "short": return <TrendingUp className="w-3.5 h-3.5 text-red-500 rotate-180 scale-x-[-1]" />;
+    case "patterns": return <Workflow className="w-3.5 h-3.5 text-[#8b5cf6]" />;
+    case "text": return <Type className="w-3.5 h-3.5" />;
+    case "brush": return <Paintbrush className="w-3.5 h-3.5" />;
+    case "ruler": return <Ruler className="w-3.5 h-3.5 text-amber-500" />;
+    case "smiley": return <Smile className="w-3.5 h-3.5 text-yellow-500" />;
+    default: return null;
+  }
+}
+
+function getToolLabel(tool: DrawingType) {
+  switch (tool) {
+    case "trendline": return "Trend Line";
+    case "ray": return "Ray";
+    case "hline": return "Horizontal Line";
+    case "vline": return "Vertical Line";
+    case "arrow": return "Arrow";
+    case "rectangle": return "Rectangle";
+    case "circle": return "Circle";
+    case "triangle": return "Triangle";
+    case "channel": return "Parallel Channel";
+    case "fib": return "Fibonacci Retracement";
+    case "long": return "Long Position";
+    case "short": return "Short Position";
+    case "patterns": return "Harmonic XABCD Pattern";
+    case "text": return "Text Annotation";
+    case "brush": return "Highlighter Brush";
+    case "ruler": return "Ruler";
+    case "smiley": return "Emoji Marker";
+    default: return "";
+  }
 }

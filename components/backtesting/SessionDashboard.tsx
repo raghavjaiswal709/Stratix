@@ -126,9 +126,9 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
   }, [lastSession]);
 
   return (
-    <div className="flex-1 w-full h-full bg-[#0c0e14] overflow-y-auto text-[#d1d5db]">
+    <div className="flex-1 w-full h-full bg-[#0f0f0f] overflow-y-auto text-[#d1d5db]">
       {/* Upper Navigation Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#23262f] bg-[#0c0e14] shrink-0">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[#23262f] bg-[#0f0f0f] shrink-0">
         <div className="flex flex-col gap-0.5">
           <span className="text-[11px] font-bold uppercase tracking-widest text-[#5e6673]">Overview</span>
           <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
@@ -278,7 +278,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
                     <CartesianGrid strokeDasharray="3 3" stroke="#1c1e26" />
                     <XAxis dataKey="tradeIdx" stroke="#5e6673" fontSize={9} />
                     <YAxis stroke="#5e6673" fontSize={9} domain={["dataMin - 100", "dataMax + 100"]} />
-                    <Tooltip contentStyle={{ background: "#0c0e14", borderColor: "#23262f", borderRadius: 8 }} />
+                    <Tooltip contentStyle={{ background: "#0f0f0f", borderColor: "#23262f", borderRadius: 8 }} />
                     <Area type="monotone" dataKey="balance" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#colorBal)" name="Balance" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -306,7 +306,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
                     <CartesianGrid strokeDasharray="3 3" stroke="#1c1e26" />
                     <XAxis dataKey="tradeIdx" stroke="#5e6673" fontSize={9} />
                     <YAxis stroke="#5e6673" fontSize={9} />
-                    <Tooltip contentStyle={{ background: "#0c0e14", borderColor: "#23262f", borderRadius: 8 }} />
+                    <Tooltip contentStyle={{ background: "#0f0f0f", borderColor: "#23262f", borderRadius: 8 }} />
                     <Area type="monotone" dataKey="drawdown" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorDd)" name="Drawdown %" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -356,7 +356,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
               {sessions.map((s) => (
                 <div 
                   key={s.id}
-                  className="flex items-center justify-between p-3.5 bg-[#0c0e14] border border-[#23262f] hover:border-gray-600 rounded-lg transition-all"
+                  className="flex items-center justify-between p-3.5 bg-[#0f0f0f] border border-[#23262f] hover:border-gray-600 rounded-lg transition-all"
                 >
                   <div className="flex flex-col gap-1">
                     <span className="text-sm font-bold text-white">{s.name}</span>

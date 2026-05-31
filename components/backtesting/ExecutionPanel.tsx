@@ -29,9 +29,9 @@ export function ExecutionPanel({
   const formattedPrice = currentPrice > 0 ? currentPrice.toFixed(5) : "—";
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#0c0e14] text-[#d1d5db] select-none font-sans">
+    <div className="w-full h-full flex flex-col bg-[#0f0f0f] text-[#d1d5db] select-none font-sans">
       {/* Symbol Title */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#23262f] bg-[#0c0e14] shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#23262f] bg-[#0f0f0f] shrink-0">
         <span className="text-sm font-bold text-white tracking-wide uppercase flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-blue-500" />
           {symbol.toUpperCase()}
@@ -123,7 +123,7 @@ export function ExecutionPanel({
             <span>{showAdvanced ? "▲" : "▼"}</span>
           </button>
           {showAdvanced && (
-            <div className="p-3 bg-[#0c0e14] border-t border-[#23262f] flex flex-col gap-3 text-xs text-gray-400">
+            <div className="p-3 bg-[#0f0f0f] border-t border-[#23262f] flex flex-col gap-3 text-xs text-gray-400">
               <div className="flex items-center justify-between">
                 <span>Take Profit (TP)</span>
                 <span className="text-gray-500 font-mono">Not set</span>
