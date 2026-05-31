@@ -25,6 +25,23 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
   const [startingBalance, setStartingBalance] = useState(10000);
   const [leverage, setLeverage] = useState("1:100");
 
+  const [selectedDuration, setSelectedDuration] = useState<"3m" | "6m" | "1y" | "custom">("1y");
+
+  const applyPresetDuration = (preset: "3m" | "6m" | "1y") => {
+    setSelectedDuration(preset);
+    const end = new Date();
+    const start = new Date();
+    if (preset === "3m") {
+      start.setMonth(start.getMonth() - 3);
+    } else if (preset === "6m") {
+      start.setMonth(start.getMonth() - 6);
+    } else if (preset === "1y") {
+      start.setFullYear(start.getFullYear() - 1);
+    }
+    setStartDate(start.toISOString().slice(0, 10));
+    setEndDate(end.toISOString().slice(0, 10));
+  };
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -133,6 +150,43 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
             </select>
           </div>
 
+          {/* Duration Presets Selector */}
+          <div className="flex flex-col">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-[#5e6673] mb-1.5">
+              Select Preset Duration
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {(["3m", "6m", "1y"] as const).map((preset) => {
+                const labelShort = preset === "3m" ? "3 Months" : preset === "6m" ? "6 Months" : "1 Year";
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => applyPresetDuration(preset)}
+                    className={`py-1.5 text-xs font-bold rounded-lg border transition-all active:scale-95 cursor-pointer ${
+                      selectedDuration === preset
+                        ? "bg-[#2563eb] text-white border-[#2563eb] shadow-md shadow-blue-900/10"
+                        : "bg-[#141720] border-[#23262f] text-gray-400 hover:text-white hover:border-gray-500"
+                    }`}
+                  >
+                    {labelShort}
+                  </button>
+                );
+              })}
+              <button
+                key="custom"
+                type="button"
+                className={`py-1.5 text-xs font-bold rounded-lg border transition-all pointer-events-none ${
+                  selectedDuration === "custom"
+                    ? "bg-[#1e222f] text-[#F0B90B] border-[#F0B90B]/30"
+                    : "bg-[#0c0e14] border-dashed border-[#23262f] text-gray-600"
+                }`}
+              >
+                Custom Range
+              </button>
+            </div>
+          </div>
+
           {/* Start and End Dates */}
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col">
@@ -143,7 +197,10 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                 type="date"
                 required
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setSelectedDuration("custom");
+                }}
                 className="bg-[#141720] border border-[#23262f] rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#F0B90B] transition-colors"
               />
             </div>
@@ -156,7 +213,10 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                 required
                 value={endDate}
                 min={startDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  setSelectedDuration("custom");
+                }}
                 className="bg-[#141720] border border-[#23262f] rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#F0B90B] transition-colors"
               />
             </div>

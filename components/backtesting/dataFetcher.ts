@@ -125,10 +125,29 @@ async function fetchMonth(
 
       return candles;
     }
-    console.warn(`[dataFetcher] Static CSV not found (${csvUrl}), falling back to API`);
+    console.warn(`[dataFetcher] Static CSV not found (${csvUrl}), trying local fallback`);
   } catch (err: unknown) {
     if ((err as Error).name === "AbortError") throw err;
-    console.warn(`[dataFetcher] Static CSV fetch failed for ${key}, falling back to API:`, (err as Error).message);
+    console.warn(`[dataFetcher] Static CSV fetch failed for ${key}, trying local fallback:`, (err as Error).message);
+  }
+
+  // ─── Local public directory fallback ───
+  if (process.env.NEXT_PUBLIC_CANDLES_URL) {
+    const localCsvUrl = `/data/candles/${instrument}/${instrument}_${year}_${monthStr}.csv`;
+    try {
+      const res = await fetch(localCsvUrl, { signal });
+      if (res.ok) {
+        const csvText = await res.text();
+        const candles = parseCandlesCSV(csvText);
+        monthCache.set(key, candles);
+        lastFetchedSource = "Local Static";
+        return candles;
+      }
+      console.warn(`[dataFetcher] Local static CSV not found (${localCsvUrl}), falling back to API`);
+    } catch (err: unknown) {
+      if ((err as Error).name === "AbortError") throw err;
+      console.warn(`[dataFetcher] Local static CSV fetch failed for ${key}, falling back to API:`, (err as Error).message);
+    }
   }
 
   // Fallback API path (or for non-xauusd instruments)

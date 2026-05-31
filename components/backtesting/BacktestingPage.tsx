@@ -31,6 +31,17 @@ export function BacktestingPage() {
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const [chartSettings, setChartSettings] = useState({
+    themeName: "Emerald Bull",
+    upColor: "#10b981",
+    downColor: "#ef4444",
+    showGrid: true,
+    showVolume: true,
+    isYAxisLocked: false,
+    isMagnetActive: false,
+    bgColor: "#0f0f0f",
+  });
+
   // ── Trading & Replay State ──
   const [rawCandles,    setRawCandles]   = useState<Candle[]>([]);    // 1m base data
   const [displayCandles,setDisplay]      = useState<Candle[]>([]);    // resampled for TF
@@ -59,7 +70,7 @@ export function BacktestingPage() {
 
   useEffect(() => { displayRef.current = displayCandles; }, [displayCandles]);
 
-  // Fetch saved sessions from MongoDB on mount
+  // Fetch saved sessions and user theme preferences from MongoDB on mount
   const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch("/api/backtesting/sessions");
@@ -74,7 +85,48 @@ export function BacktestingPage() {
 
   useEffect(() => {
     fetchSessions();
+
+    // Fetch theme & chart settings preferences from user-data endpoint
+    async function loadPreferences() {
+      try {
+        const res = await fetch("/api/user-data");
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.preferences?.backtestChartSettings) {
+            setChartSettings((prev) => ({
+              ...prev,
+              ...data.preferences.backtestChartSettings,
+            }));
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load user preferences", e);
+      }
+    }
+    loadPreferences();
   }, [fetchSessions]);
+
+  const handleSettingsChange = async (newSettings: Partial<typeof chartSettings>) => {
+    const updated = { ...chartSettings, ...newSettings };
+    setChartSettings(updated);
+
+    try {
+      const resGet = await fetch("/api/user-data");
+      const current = resGet.ok ? await resGet.json() : {};
+      const updatedPrefs = {
+        ...(current.preferences || {}),
+        backtestChartSettings: updated,
+      };
+
+      await fetch("/api/user-data", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferences: updatedPrefs }),
+      });
+    } catch (e) {
+      console.error("Failed to save chart settings preferences to DB", e);
+    }
+  };
 
   // ── Replay Helpers ──
   function stopPlayTimer() {
@@ -441,22 +493,25 @@ export function BacktestingPage() {
           </div>
         </div>
 
-        {/* Timeframe switchers */}
-        <div className="flex p-0.5 rounded-lg bg-[#141720] border border-[#23262f]">
-          {(["1m", "5m", "15m", "1H", "4H", "1D"] as const).map((tf) => (
-            <button
-              key={tf}
-              disabled={isLoading}
-              onClick={() => handleTimeframeChange(tf)}
-              className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
-                activeTimeframe === tf
-                  ? "bg-[#2563eb] text-white"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {tf}
-            </button>
-          ))}
+        {/* Timeframe selector header section */}
+        <div className="flex items-center gap-3">
+          {/* Timeframe switchers */}
+          <div className="flex p-0.5 rounded-lg bg-[#141720] border border-[#23262f]">
+            {(["1m", "5m", "15m", "1H", "4H", "1D"] as const).map((tf) => (
+              <button
+                key={tf}
+                disabled={isLoading}
+                onClick={() => handleTimeframeChange(tf)}
+                className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
+                  activeTimeframe === tf
+                    ? "bg-[#2563eb] text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -507,6 +562,8 @@ export function BacktestingPage() {
             <BacktestChart
               symbol={activeSession.symbol}
               timeframe={activeTimeframe}
+              settings={chartSettings}
+              onSettingsChange={handleSettingsChange}
               candles={displayCandles}
               replayIndex={replay.active ? replay.currentIdx : null}
               replayStartIndex={replay.active ? replay.startIdx : null}
