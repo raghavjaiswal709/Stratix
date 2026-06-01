@@ -111,9 +111,9 @@ export function HabitCharts({ timeFrame, referenceDate }: HabitChartsProps) {
             style={
               activeTab === tab
                 ? {
-                    background: "rgba(99,102,241,0.15)",
-                    color: "rgb(165,180,252)",
-                    border: "1px solid rgba(99,102,241,0.22)",
+                    background: "rgba(255,255,255,0.08)",
+                    color: "rgba(255,255,255,0.75)",
+                    border: "1px solid rgba(255,255,255,0.12)",
                   }
                 : {
                     background: "transparent",

@@ -64,8 +64,8 @@ const PRIORITY_STYLE: Record<Priority, { bg: string; text: string; border: strin
 
 const TASK_COLORS = [
   "", "#ef4444", "#f97316", "#f59e0b", "#eab308",
-  "#84cc16", "#22c55e", "#14b8a6", "#06b6d4",
-  "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899",
+  "#84cc16", "#22c55e", "#14b8a6", "#10b981",
+  "#f43f5e", "#ec4899", "#a3a3a3", "#64748b",
 ];
 
 const SWIPE_THRESHOLD = 80;

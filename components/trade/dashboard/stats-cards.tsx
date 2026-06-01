@@ -37,7 +37,7 @@ export function StatsCards({
           TOTAL
         </span>
         <p className="mt-1.5 text-[10px] md:text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Total P&L</p>
-        <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${totalPnL >= 0 ? "text-card-foreground" : "text-red-400"}`}>
+        <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${totalPnL >= 0 ? "text-emerald-400" : "text-red-400"}`}>
           {fmt(totalPnL)}
         </p>
         <p className="text-[10px] md:text-[11px] text-white/50 mt-1">
@@ -51,7 +51,7 @@ export function StatsCards({
           <Clock className="h-3.5 w-3.5 md:h-4 md:w-4 text-amber-400" />
         </div>
         <p className="text-[10px] md:text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Unrealized</p>
-        <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${unrealized >= 0 ? "text-card-foreground" : "text-red-400"}`}>
+        <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${unrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
           {fmt(unrealized)}
         </p>
         <p className="text-[10px] md:text-[11px] text-muted-foreground mt-1">{openTrades} open</p>
@@ -63,7 +63,7 @@ export function StatsCards({
           <CheckCircle2 className="h-3.5 w-3.5 md:h-4 md:w-4 text-emerald-400" />
         </div>
         <p className="text-[10px] md:text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Realized</p>
-        <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${realized >= 0 ? "text-card-foreground" : "text-red-400"}`}>
+        <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${realized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
           {fmt(realized)}
         </p>
         <p className="text-[10px] md:text-[11px] text-muted-foreground mt-1">{closedTrades} closed</p>

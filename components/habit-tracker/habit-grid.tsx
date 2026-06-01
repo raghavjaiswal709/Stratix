@@ -57,9 +57,9 @@ function HabitIconComp({
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const COLOR_OPTIONS = [
-  "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e",
-  "#f97316", "#eab308", "#22c55e", "#14b8a6",
-  "#06b6d4", "#3b82f6", "#64748b", "#a855f7",
+  "#ef4444", "#f97316", "#ec4899", "#f43f5e",
+  "#eab308", "#84cc16", "#22c55e", "#14b8a6",
+  "#10b981", "#099981", "#64748b", "#a3a3a3",
 ];
 
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -615,7 +615,7 @@ export function HabitGrid({ timeFrame, referenceDate }: { timeFrame?: TimeFrame;
                             <HabitIconComp
                               iconKey={habit.icon}
                               size={14}
-                              color={habit.color || "#6366f1"}
+                              color={habit.color || "#10b981"}
                             />
                           </button>
                         } />
@@ -649,7 +649,7 @@ export function HabitGrid({ timeFrame, referenceDate }: { timeFrame?: TimeFrame;
                       <HabitIconComp
                         iconKey={habit.icon}
                         size={13}
-                        color={habit.color || "#6366f1"}
+                        color={habit.color || "#10b981"}
                       />
                       <span className="text-xs font-medium truncate flex-1">
                         {habit.name}

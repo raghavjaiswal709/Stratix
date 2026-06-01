@@ -65,7 +65,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   return (
     <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs shadow-xl">
       <p className="text-muted-foreground mb-1">{label}</p>
-      <p className={val >= 0 ? "text-white/65 font-bold" : "text-red-400 font-bold"}>
+      <p className={val >= 0 ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
         {val >= 0 ? "+" : ""}${val.toFixed(2)}
       </p>
     </div>
@@ -93,7 +93,7 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
             Performance
           </div>
           <div className="flex items-center gap-2">
-            <p className={`text-[20px] md:text-[28px] font-bold leading-tight ${isPositive ? "text-card-foreground" : "text-red-400"}`}>
+            <p className={`text-[20px] md:text-[28px] font-bold leading-tight ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
               {isPositive ? "+" : ""}${Math.abs(totalForPeriod).toFixed(2)}
             </p>
           </div>
@@ -128,8 +128,8 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
             <AreaChart data={data} margin={{ top: 8, right: 4, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={isPositive ? "#3b82f6" : "#ef4444"} stopOpacity={0.25} />
-                  <stop offset="95%" stopColor={isPositive ? "#3b82f6" : "#ef4444"} stopOpacity={0} />
+                  <stop offset="5%" stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis
@@ -149,11 +149,11 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
               <Area
                 type="monotone"
                 dataKey="pnl"
-                stroke={isPositive ? "#3b82f6" : "#ef4444"}
+                stroke={isPositive ? "#10b981" : "#ef4444"}
                 strokeWidth={2}
                 fill="url(#pnlGrad)"
                 dot={false}
-                activeDot={{ r: 4, fill: isPositive ? "#3b82f6" : "#ef4444" }}
+                activeDot={{ r: 4, fill: isPositive ? "#10b981" : "#ef4444" }}
               />
             </AreaChart>
           </ResponsiveContainer>

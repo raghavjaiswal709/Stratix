@@ -229,7 +229,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                       onFocus={() => setSymbolDropdownOpen(true)}
                       placeholder="XAUUSD"
                       disabled={isEdit}
-                      className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 pr-8 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 pr-8 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-white/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     {!isEdit && (
                       <button
@@ -271,7 +271,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     onChange={(e) => setLots(e.target.value)}
                     placeholder="0.10"
                     type="number" step="0.001" min="0"
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-white/20 transition"
                   />
                 </div>
               </div>
@@ -367,7 +367,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     onChange={(e) => setEntryPrice(e.target.value)}
                     placeholder="0.00"
                     type="number" step="any"
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-white/20 transition"
                   />
                 </div>
                 <div>
@@ -377,7 +377,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     onChange={(e) => setExitPrice(e.target.value)}
                     placeholder="Optional"
                     type="number" step="any"
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-white/20 transition"
                   />
                 </div>
               </div>
@@ -435,7 +435,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     value={entryTime}
                     onChange={(e) => setEntryTime(e.target.value)}
                     type="datetime-local" max={nowStr}
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition scheme-dark"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-white/20 transition scheme-dark"
                   />
                 </div>
                 <div>
@@ -444,7 +444,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                     value={exitTime}
                     onChange={(e) => setExitTime(e.target.value)}
                     type="datetime-local" max={nowStr}
-                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition scheme-dark"
+                    className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white/80 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-white/20 transition scheme-dark"
                   />
                 </div>
               </div>
@@ -516,7 +516,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Trade rationale, entry/exit notes..."
                 rows={3}
-                className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-blue-500/30 transition resize-none"
+                className="w-full rounded-xl bg-white/5 border border-white/8 px-3 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] focus:ring-1 focus:ring-white/20 transition resize-none"
               />
             </div>
           )}

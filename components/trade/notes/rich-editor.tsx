@@ -60,12 +60,12 @@ const COLORS = [
   "#f97316",
   "#eab308",
   "#22c55e",
-  "#3b82f6",
-  "#8b5cf6",
+  "#10b981",
+  "#14b8a6",
   "#ec4899",
   "#6b7280",
-  "#7c3aed",
-  "#0891b2",
+  "#f43f5e",
+  "#a3a3a3",
 ];
 
 const LINE_WIDTHS = [2, 4, 8, 16];
@@ -121,7 +121,7 @@ function DrawingCanvas({
   const mainRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const [tool, setTool] = useState<DrawTool>("pen");
-  const [color, setColor] = useState("#3b82f6");
+  const [color, setColor] = useState("#10b981");
   const [lineWidth, setLineWidth] = useState(3);
   const [canUndo, setCanUndo] = useState(false);
   const isDrawing = useRef(false);
@@ -670,7 +670,7 @@ function FigureView({
         />
         {/* Selection ring */}
         {selected && (
-          <div className="absolute inset-0 ring-2 ring-blue-500 ring-offset-1 rounded-xl pointer-events-none" />
+          <div className="absolute inset-0 ring-2 ring-white/30 ring-offset-1 rounded-xl pointer-events-none" />
         )}
         {/* Hover actions */}
         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end gap-2 p-2">
@@ -815,7 +815,7 @@ function DrawingView({
             </div>
           )}
           {selected && (
-            <div className="absolute inset-0 ring-2 ring-blue-500 ring-offset-1 rounded-xl pointer-events-none" />
+            <div className="absolute inset-0 ring-2 ring-white/30 ring-offset-1 rounded-xl pointer-events-none" />
           )}
           {/* Hover actions */}
           <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-end gap-2 p-2">

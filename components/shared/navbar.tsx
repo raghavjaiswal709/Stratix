@@ -37,8 +37,8 @@ export function Navbar() {
             <div
               className="flex h-7 w-7 items-center justify-center rounded-[8px]"
               style={{
-                background: "rgba(99,102,241,0.18)",
-                border: "1px solid rgba(99,102,241,0.3)",
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.10)",
               }}
             >
               <Sun style={{ width: 15, height: 15 }} className="text-white/65" />

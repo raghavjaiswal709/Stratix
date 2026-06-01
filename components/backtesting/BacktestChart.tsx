@@ -65,7 +65,7 @@ const CHART_BG = "#0f0f0f";
 const GRID_COLOR = "#181a20";
 const TEXT_COLOR = "#5e6673";
 const SEL_COLOR = "rgba(255,255,255,0.80)";
-const LINE_COLOR = "#3b82f6";
+const LINE_COLOR = "#10b981";
 
 const formatPrice = (p: number, minPrice: number) => {
   if (minPrice < 0.001) return p.toFixed(8);
@@ -1355,7 +1355,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <rect x={x} y={y} width={w} height={h} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
-            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(59,130,246,0.05)")} strokeDasharray={dashArray} />
+            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(16,185,129,0.05)")} strokeDasharray={dashArray} />
           {isSelected && <>
             {makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
             {makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}
@@ -1384,7 +1384,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <ellipse cx={p1.x} cy={p1.y} rx={rx || 1} ry={ry || 1} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
-            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(59,130,246,0.05)")} strokeDasharray={dashArray} />
+            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(16,185,129,0.05)")} strokeDasharray={dashArray} />
           {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
         </g>
       );
@@ -1405,7 +1405,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <polygon points={pts} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
-            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(59,130,246,0.05)")} strokeDasharray={dashArray} />
+            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(16,185,129,0.05)")} strokeDasharray={dashArray} />
           {isSelected && draw.points.map((_, i) => {
             const xy = getXY(draw.points[i])!;
             return makeAnchor(xy.x, xy.y, draw.id, i, `a${i}`);
@@ -1434,7 +1434,7 @@ export function BacktestChart({
           {/* Fill */}
           <polygon
             points={`${c1.x},${c1.y} ${c2.x},${c2.y} ${c2.x},${c2.y + dy} ${c1.x},${c1.y + dy}`}
-            fill={isSelected ? "rgba(234,179,8,0.06)" : (draw.color ? hexToRgba(draw.color, 0.04) : "rgba(59,130,246,0.04)")} stroke="none"
+            fill={isSelected ? "rgba(234,179,8,0.06)" : (draw.color ? hexToRgba(draw.color, 0.04) : "rgba(16,185,129,0.04)")} stroke="none"
           />
           {/* End caps */}
           <line x1={c1.x} y1={c1.y} x2={c1.x} y2={c1.y + dy} stroke={stroke} strokeWidth={1} strokeDasharray="3 3" />
@@ -1469,7 +1469,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <path d={d} fill="none" stroke="transparent" strokeWidth={20} strokeLinecap="round" strokeLinejoin="round" />
-          <path d={d} fill="none" stroke={isSelected ? (draw.color ? hexToRgba(draw.color, 0.55) : "rgba(234,179,8,0.55)") : (draw.color ? hexToRgba(draw.color, 0.28) : "rgba(59,130,246,0.28)")} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
+          <path d={d} fill="none" stroke={isSelected ? (draw.color ? hexToRgba(draw.color, 0.55) : "rgba(234,179,8,0.55)") : (draw.color ? hexToRgba(draw.color, 0.28) : "rgba(16,185,129,0.28)")} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
         </g>
       );
     }
@@ -1530,7 +1530,7 @@ export function BacktestChart({
       const labels = ["0%", "23.6%", "38.2%", "50%", "61.8%", "78.6%", "100%"];
       const zoneColors = [
         "rgba(239,68,68,0.04)", "rgba(249,115,22,0.04)", "rgba(234,179,8,0.04)",
-        "rgba(16,185,129,0.04)", "rgba(59,130,246,0.04)", "rgba(139,92,246,0.04)",
+        "rgba(16,185,129,0.04)", "rgba(20,184,166,0.04)", "rgba(9,153,129,0.04)",
       ];
       return (
         <g key={draw.id} {...groupProps}>
@@ -1545,7 +1545,7 @@ export function BacktestChart({
             const priceVal = draw.points[0].price + (draw.points[1].price - draw.points[0].price) * lvl;
             return (
               <g key={idx}>
-                <line x1={0} y1={y} x2={svgW} y2={y} stroke={isSelected ? (draw.color ? hexToRgba(draw.color, 0.4) : "rgba(234,179,8,0.4)") : (draw.color ? hexToRgba(draw.color, 0.22) : "rgba(59,130,246,0.22)")} strokeWidth={isSelected ? 1.5 : 1} />
+                <line x1={0} y1={y} x2={svgW} y2={y} stroke={isSelected ? (draw.color ? hexToRgba(draw.color, 0.4) : "rgba(234,179,8,0.4)") : (draw.color ? hexToRgba(draw.color, 0.22) : "rgba(16,185,129,0.22)")} strokeWidth={isSelected ? 1.5 : 1} />
                 <text x={p1.x + 8} y={y - 3} fill={isSelected ? SEL_COLOR : (draw.color || TEXT_COLOR)} fontSize={8} fontFamily="monospace">
                   {labels[idx]} ({formatPrice(priceVal, minPriceRef.current)})
                 </text>
@@ -1565,10 +1565,10 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <polygon points={`${pX.x},${pX.y} ${pA.x},${pA.y} ${pB.x},${pB.y}`}
-            stroke={isSelected ? SEL_COLOR : (draw.color || "#8b5cf6")} strokeWidth={isSelected ? 2 : 1.5}
+            stroke={isSelected ? SEL_COLOR : (draw.color || "#10b981")} strokeWidth={isSelected ? 2 : 1.5}
             fill={isSelected ? "rgba(139,92,246,0.2)" : (draw.color ? hexToRgba(draw.color, 0.1) : "rgba(139,92,246,0.1)")} />
           <polygon points={`${pB.x},${pB.y} ${pC.x},${pC.y} ${pD.x},${pD.y}`}
-            stroke={isSelected ? SEL_COLOR : (draw.color || "#8b5cf6")} strokeWidth={isSelected ? 2 : 1.5}
+            stroke={isSelected ? SEL_COLOR : (draw.color || "#10b981")} strokeWidth={isSelected ? 2 : 1.5}
             fill={isSelected ? "rgba(139,92,246,0.2)" : (draw.color ? hexToRgba(draw.color, 0.1) : "rgba(139,92,246,0.1)")} />
           {[{ p: pX, l: "X" }, { p: pA, l: "A" }, { p: pB, l: "B" }, { p: pC, l: "C" }, { p: pD, l: "D" }].map((v, i) => (
             <text key={i} x={v.p.x} y={v.p.y - 8} fill="#c084fc" fontSize={9} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{v.l}</text>
@@ -1906,7 +1906,7 @@ export function BacktestChart({
           const xy = getXY(sel.points[0]);
           if (!xy) return null;
 
-          const paletteColors = ["#3b82f6", "#10b981", "#ef4444", "#eab308", "#8b5cf6", "#999BA5", "#ffffff"];
+          const paletteColors = ["#10b981", "#ef4444", "#eab308", "#f97316", "#ec4899", "#999BA5", "#ffffff"];
           const applicableTemplates = (settings.drawingTemplates || []).filter(t => t.type === sel.type);
 
           return (
@@ -1934,7 +1934,7 @@ export function BacktestChart({
                   <div className="relative w-3.5 h-3.5 rounded-full border border-white/20 overflow-hidden hover:scale-110 transition-all flex items-center justify-center cursor-pointer bg-gradient-to-tr from-red-500 via-green-500 to-blue-500">
                     <input
                       type="color"
-                      value={sel.color || "#3b82f6"}
+                      value={sel.color || "#10b981"}
                       onChange={(e) => handleUpdateDrawingColor(e.target.value)}
                       className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       title="Choose Custom Color"
@@ -1977,7 +1977,7 @@ export function BacktestChart({
                           id: String(Date.now()),
                           name,
                           type: sel.type,
-                          color: sel.color || "#3b82f6",
+                          color: sel.color || "#10b981",
                         };
                         const updatedTemplates = [...(settings.drawingTemplates || []), newTemplate];
                         onSettingsChange({ drawingTemplates: updatedTemplates });
@@ -2070,7 +2070,7 @@ export function BacktestChart({
                         "Classic Blue":    { upColor: "#2563eb", downColor: "#ef4444" },
                         "Slate & Crimson": { upColor: "#999BA5", downColor: "#D63939" },
                         "Vaporwave Neon":  { upColor: "#ec4899", downColor: "#06b6d4" },
-                        "Sleek Dark":      { upColor: "#3b82f6", downColor: "#1e293b" },
+                        "Sleek Dark":      { upColor: "#10b981", downColor: "#1e293b" },
                         "Warm Retro":      { upColor: "#eab308", downColor: "#ea580c" },
                       };
                       onSettingsChange({ themeName: v, ...(themes[v] || {}) });

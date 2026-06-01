@@ -843,7 +843,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
                 className="w-full cursor-pointer"
                 style={{
                   background: `linear-gradient(to right, ${
-                    rating <= 3 ? "#ef4444" : rating <= 6 ? "#eab308" : rating <= 8 ? "#22c55e" : "#3b82f6"
+                    rating <= 3 ? "#ef4444" : rating <= 6 ? "#eab308" : rating <= 8 ? "#22c55e" : "#10b981"
                   } ${((rating - 1) / 9) * 100}%, rgba(255,255,255,0.08) ${((rating - 1) / 9) * 100}%)`
                 }}
               />

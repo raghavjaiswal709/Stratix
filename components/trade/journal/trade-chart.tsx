@@ -272,7 +272,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         // ── Price lines (price-only, no timestamp) ────────────────────────────
         candleSeries.createPriceLine({
           price: entryPrice,
-          color: "#3b82f6",
+          color: direction === "buy" ? "#10b981" : "#ef4444",
           lineWidth: 2,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
@@ -331,7 +331,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           {
             time: entryTs,
             position: direction === "buy" ? "belowBar" : "aboveBar",
-            color: direction === "buy" ? "#3b82f6" : "#ef4444",
+            color: direction === "buy" ? "#10b981" : "#ef4444",
             shape: direction === "buy" ? "arrowUp" : "arrowDown",
             text: `Entry $${entryPrice}`,
           },
@@ -576,7 +576,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         {loaded && !loading && !error && !noApiKey && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 border-t border-border">
             <LegendItem
-              color={direction === "buy" ? "#3b82f6" : "#ef4444"}
+              color={direction === "buy" ? "#10b981" : "#ef4444"}
               label={`${direction === "buy" ? "▲" : "▼"} Entry $${entryPrice}`}
             />
             {exitPrice != null && (

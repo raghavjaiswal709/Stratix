@@ -136,7 +136,7 @@ export function TradingQuotesModal() {
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-6"
       >
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-violet-500/10 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-br from-white/[0.03] to-white/[0.01] pointer-events-none" />
         
         <motion.div 
           initial={{ scale: 0.9, y: 20 }}
@@ -168,7 +168,7 @@ export function TradingQuotesModal() {
           >
             <button
               onClick={() => setShow(false)}
-              className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white rounded-full font-medium tracking-wide transition-all border border-white/10 hover:border-white/30 text-lg shadow-[0_0_40px_rgba(99,102,241,0.2)] hover:shadow-[0_0_60px_rgba(99,102,241,0.4)]"
+              className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white rounded-full font-medium tracking-wide transition-all border border-white/10 hover:border-white/30 text-lg shadow-[0_0_40px_rgba(255,255,255,0.06)] hover:shadow-[0_0_60px_rgba(255,255,255,0.12)]"
             >
               Enter Dashboard
             </button>

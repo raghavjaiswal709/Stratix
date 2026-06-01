@@ -35,13 +35,13 @@ const ICONS = [
 ];
 
 const COLORS = [
-  "#3b82f6", // blue
   "#ef4444", // red
   "#10b981", // emerald
   "#f59e0b", // amber
-  "#8b5cf6", // violet
   "#ec4899", // pink
   "#64748b", // slate
+  "#a3a3a3", // neutral
+  "#f97316", // orange
 ];
 
 interface CategoryModalProps {
@@ -169,7 +169,7 @@ export function CategoryModal({ isOpen, onClose }: CategoryModalProps) {
                       key={c}
                       className={cn(
                         "w-6 h-6 rounded-full flex items-center justify-center transition-transform hover:scale-110",
-                        newColor === c && "ring-2 ring-blue-500 ring-offset-2 ring-offset-card"
+                        newColor === c && "ring-2 ring-white/50 ring-offset-2 ring-offset-card"
                       )}
                       style={{ backgroundColor: c }}
                       onClick={() => setNewColor(c)}
