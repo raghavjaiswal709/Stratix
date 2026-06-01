@@ -41,7 +41,7 @@ export function formatPrice(instrumentId, price) {
     return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  const altcoins = ["ethusd", "ltcusd", "xrpusd", "bnbusd", "solusd"];
+  const altcoins = ["ethusd", "ltcusd", "xrpusd", "bnbusd", "solusd", "adausd", "xlmusd", "dotusd", "lnkusd", "uniusd", "eosusd"];
   if (altcoins.includes(key)) {
     if (price > 100) {
       return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -55,4 +55,48 @@ export function formatPrice(instrumentId, price) {
 
   // 5. Indices & commodities
   return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Premium resolution mapping for Lightweight Charts price format scale increments.
+ * Critical to render low-price assets (< 1.0) with clean spacing and no grid squashing.
+ * @param {string} instrumentId 
+ * @returns {number} Resolution increment (minMove)
+ */
+export function getMinMove(instrumentId) {
+  if (!instrumentId) return 0.00001;
+  const key = instrumentId.toLowerCase();
+
+  // 1. JPY Pairs
+  if (key.includes("jpy")) {
+    return 0.001;
+  }
+
+  // 2. Standard Forex Pairs
+  const forexPairs = [
+    "eurusd", "gbpusd", "usdchf", "audusd", "usdcad", "nzdusd",
+    "eurgbp", "eurchf", "euraud", "eurcad", "eurnzd",
+    "gbpchf", "gbpaud", "gbpcad", "gbpnzd",
+    "audchf", "audcad", "audnzd"
+  ];
+  if (forexPairs.includes(key)) {
+    return 0.00001;
+  }
+
+  // 3. Metals & Gold/BTC
+  if (key === "xauusd" || key === "btcusd") {
+    return 0.01;
+  }
+  if (key === "xagusd" || key === "xpdusd" || key === "xptusd") {
+    return 0.001;
+  }
+
+  // 4. Altcoins (low price altcoins need high resolution decimals like 6 decimals)
+  const altcoins = ["ethusd", "ltcusd", "xrpusd", "bnbusd", "solusd", "adausd", "xlmusd", "dotusd", "lnkusd", "uniusd", "eosusd"];
+  if (altcoins.includes(key)) {
+    return 0.000001;
+  }
+
+  // 5. Indices & commodities
+  return 0.01;
 }

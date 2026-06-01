@@ -1,9 +1,11 @@
 import React from "react";
 import { formatPrice } from "./formatPrice.js";
 import { INSTRUMENTS } from "../../app/live-data/instrumentConfig.js";
+import { SVGIcons } from "./WatchlistSidebar.jsx";
 
 export function PriceTicker({ instrument, currentCandle, closedCandles, feedStatus }) {
-  const inst = INSTRUMENTS[instrument.toLowerCase()];
+  const key = instrument.toLowerCase();
+  const inst = INSTRUMENTS[key];
   const displayName = inst ? inst.name : instrument.toUpperCase();
 
   const lastClosed = closedCandles && closedCandles.length > 0
@@ -43,23 +45,31 @@ export function PriceTicker({ instrument, currentCandle, closedCandles, feedStat
       {/* Symbol, Price, & Change Offset */}
       <div className="flex flex-wrap items-center gap-6">
         {/* Symbol badge */}
-        <div className="flex items-center gap-2">
-          {inst && <span className="text-[18px] filter drop-shadow">{inst.icon}</span>}
-          <span className="text-[16px] font-black text-white uppercase tracking-wider">
+        <div className="flex items-center gap-2.5">
+          {SVGIcons[key] || SVGIcons.generic}
+          <span className="text-[15px] font-black text-white uppercase tracking-wider">
             {displayName}
           </span>
         </div>
 
         {/* Large Close Price */}
         <div className="flex items-baseline gap-1.5 leading-none">
-          <span className={`text-[24px] font-black font-mono tracking-tight transition-colors duration-150 ${priceColorClass}`}>
+          <span className={`text-[23px] font-black font-mono tracking-tight transition-colors duration-150 ${priceColorClass}`}>
             {formattedPrice}
           </span>
         </div>
 
         {/* Absolute / Percent Change */}
-        <div className={`text-[12px] font-bold font-mono flex items-center gap-1 mt-0.5 ${changeColorClass}`}>
-          <span>{isChangePositive ? "▲" : "▼"}</span>
+        <div className={`text-[12px] font-bold font-mono flex items-center gap-1.5 mt-0.5 ${changeColorClass}`}>
+          {isChangePositive ? (
+            <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0 fill-current" viewBox="0 0 24 24">
+              <path d="M12 4l9 16H3L12 4z"/>
+            </svg>
+          ) : (
+            <svg className="w-3.5 h-3.5 text-rose-500 shrink-0 fill-current" viewBox="0 0 24 24">
+              <path d="M12 20L3 4h18L12 20z"/>
+            </svg>
+          )}
           <span>{isChangePositive ? "+" : ""}{change.toFixed(inst?.type === "jpy" ? 3 : 5)}</span>
           <span>({isChangePositive ? "+" : ""}{changePercent.toFixed(2)}%)</span>
         </div>

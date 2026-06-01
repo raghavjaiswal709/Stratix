@@ -67,6 +67,16 @@ const TEXT_COLOR = "#5e6673";
 const SEL_COLOR = "rgba(255,255,255,0.80)";
 const LINE_COLOR = "#3b82f6";
 
+const formatPrice = (p: number, minPrice: number) => {
+  if (minPrice < 0.001) return p.toFixed(8);
+  if (minPrice < 0.01) return p.toFixed(7);
+  if (minPrice < 0.1) return p.toFixed(6);
+  if (minPrice < 1) return p.toFixed(5);
+  if (minPrice < 10) return p.toFixed(4);
+  if (minPrice < 100) return p.toFixed(3);
+  return p.toFixed(2);
+};
+
 export function BacktestChart({
   candles, replayIndex, replayStartIndex, isSelectingStart,
   onStartBarSelect, manualTrades, openTrade, openTradeUnrealised,
@@ -76,6 +86,7 @@ export function BacktestChart({
   const chartRef        = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volSeriesRef    = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const minPriceRef     = useRef<number>(1.0);
 
   const [activeTool, setActiveTool]           = useState<DrawingType>("cursor");
   const [previewDrawing, setPreviewDrawing]   = useState<Drawing | null>(null);
@@ -188,9 +199,47 @@ export function BacktestChart({
       },
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: {
-        timeVisible: true, secondsVisible: false, borderColor: GRID_COLOR,
+        timeVisible: true,
+        secondsVisible: false,
+        borderColor: GRID_COLOR,
+        tickMarkFormatter: (time: Time, tickMarkType: number) => {
+          const timestamp = typeof time === 'number' ? time : (time && (time as any).timestamp ? (time as any).timestamp : 0);
+          if (!timestamp) return "";
+          const d = new Date(timestamp * 1000);
+          const options: Intl.DateTimeFormatOptions = { timeZone: 'Asia/Kolkata' };
+          if (tickMarkType === 0) { // Year
+            options.year = 'numeric';
+          } else if (tickMarkType === 1) { // Month
+            options.month = 'short';
+            options.year = 'numeric';
+          } else if (tickMarkType === 2) { // Day
+            options.day = 'numeric';
+            options.month = 'short';
+          } else { // Hour / Minute
+            options.hour = '2-digit';
+            options.minute = '2-digit';
+            options.hour12 = false;
+          }
+          return d.toLocaleString('en-IN', options);
+        }
       },
       rightPriceScale: { borderColor: GRID_COLOR },
+      localization: {
+        timeFormatter: (time: Time) => {
+          const timestamp = typeof time === 'number' ? time : (time && (time as any).timestamp ? (time as any).timestamp : 0);
+          if (!timestamp) return "";
+          const d = new Date(timestamp * 1000);
+          return d.toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          }).replace(',', '');
+        }
+      }
     });
     chartRef.current = chart;
 
@@ -236,11 +285,11 @@ export function BacktestChart({
       const d = new Date((param.time as number) * 1000);
       tooltip.style.display = "block";
       tooltip.innerHTML = [
-        `<span style="color:#5e6673">${d.toISOString().replace("T", " ").slice(0, 16)} UTC</span>`,
-        `O <b style="color:rgba(255,255,255,0.85)">${cData.open.toFixed(3)}</b>  ` +
-        `H <b style="color:rgba(255,255,255,0.85)">${cData.high.toFixed(3)}</b>  ` +
-        `L <b style="color:#ef4444">${cData.low.toFixed(3)}</b>  ` +
-        `C <b style="color:rgba(255,255,255,0.85)">${cData.close.toFixed(3)}</b>`,
+        `<span style="color:#5e6673">${d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')} IST</span>`,
+        `O <b style="color:rgba(255,255,255,0.85)">${formatPrice(cData.open, minPriceRef.current)}</b>  ` +
+        `H <b style="color:rgba(255,255,255,0.85)">${formatPrice(cData.high, minPriceRef.current)}</b>  ` +
+        `L <b style="color:#ef4444">${formatPrice(cData.low, minPriceRef.current)}</b>  ` +
+        `C <b style="color:rgba(255,255,255,0.85)">${formatPrice(cData.close, minPriceRef.current)}</b>`,
       ].join("<br>");
     });
 
@@ -258,6 +307,46 @@ export function BacktestChart({
       try { chart.remove(); } catch { /* disposed */ }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dynamic price formatting based on candle prices
+  useEffect(() => {
+    const cs = candleSeriesRef.current;
+    if (!cs || candles.length === 0) return;
+
+    const minPrice = Math.min(...candles.map(c => c.close));
+    minPriceRef.current = minPrice;
+
+    let precision = 2;
+    let minMove = 0.01;
+
+    if (minPrice < 0.001) {
+      precision = 8;
+      minMove = 0.00000001;
+    } else if (minPrice < 0.01) {
+      precision = 7;
+      minMove = 0.0000001;
+    } else if (minPrice < 0.1) {
+      precision = 6;
+      minMove = 0.000001;
+    } else if (minPrice < 1) {
+      precision = 5;
+      minMove = 0.00001;
+    } else if (minPrice < 10) {
+      precision = 4;
+      minMove = 0.0001;
+    } else if (minPrice < 100) {
+      precision = 3;
+      minMove = 0.001;
+    }
+
+    cs.applyOptions({
+      priceFormat: {
+        type: "price",
+        precision: precision,
+        minMove: minMove,
+      },
+    });
+  }, [candles]);
 
   useEffect(() => {
     const cleanup = buildChart();
@@ -1196,7 +1285,7 @@ export function BacktestChart({
           <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke="transparent" strokeWidth={12} />
           <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
           <text x={svgW - 8} y={p1.y - 4} fill={stroke} fontSize={8} fontFamily="monospace" textAnchor="end">
-            {draw.points[0].price.toFixed(4)}
+            {formatPrice(draw.points[0].price, minPriceRef.current)}
           </text>
           {isSelected && makeAnchor(80, p1.y, draw.id, 0, "anc0")}
         </g>
@@ -1458,7 +1547,7 @@ export function BacktestChart({
               <g key={idx}>
                 <line x1={0} y1={y} x2={svgW} y2={y} stroke={isSelected ? (draw.color ? hexToRgba(draw.color, 0.4) : "rgba(234,179,8,0.4)") : (draw.color ? hexToRgba(draw.color, 0.22) : "rgba(59,130,246,0.22)")} strokeWidth={isSelected ? 1.5 : 1} />
                 <text x={p1.x + 8} y={y - 3} fill={isSelected ? SEL_COLOR : (draw.color || TEXT_COLOR)} fontSize={8} fontFamily="monospace">
-                  {labels[idx]} ({priceVal.toFixed(4)})
+                  {labels[idx]} ({formatPrice(priceVal, minPriceRef.current)})
                 </text>
               </g>
             );
@@ -1802,7 +1891,7 @@ export function BacktestChart({
             <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${openTrade.direction === "LONG" ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
               {openTrade.direction}
             </span>
-            <span className="text-white/40">Entry <b className="text-white">{openTrade.entryPrice.toFixed(3)}</b></span>
+            <span className="text-white/40">Entry <b className="text-white">{formatPrice(openTrade.entryPrice, minPriceRef.current)}</b></span>
             <span className="w-px h-3 bg-white/[0.08]" />
             <span className={`font-bold ${openTradeUnrealised >= 0 ? "text-green-500" : "text-red-500"}`}>
               {openTradeUnrealised >= 0 ? "+" : ""}${openTradeUnrealised.toFixed(2)}

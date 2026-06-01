@@ -11,14 +11,14 @@ export async function handleChartCandles(request) {
   const timeframe = searchParams.get("timeframe") || "1m";
 
   try {
-    const state = candleBuilder.getSessionState();
+    const state = candleBuilder.getSessionState(instrument, timeframe);
     
     // Automatically initialize/switch session if requested instrument or timeframe differs
     if (state.instrument !== instrument.toLowerCase() || state.timeframe !== timeframe) {
       await candleBuilder.initializeSession(instrument, timeframe);
     }
 
-    const latestState = candleBuilder.getSessionState();
+    const latestState = candleBuilder.getSessionState(instrument, timeframe);
     return NextResponse.json({
       closedCandles: latestState.closedCandles
     }, {
@@ -42,7 +42,7 @@ export async function handleChartTick(request) {
   const timeframe = searchParams.get("timeframe") || "1m";
 
   try {
-    const state = candleBuilder.getSessionState();
+    const state = candleBuilder.getSessionState(instrument, timeframe);
 
     // Safe safeguard: if the current state doesn't match the client request (switching, etc),
     // return null until the client calls handleChartCandles to start the new session

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { createChart, CrosshairMode } from "lightweight-charts";
-import { formatPrice } from "./formatPrice.js";
+import { formatPrice, getMinMove } from "./formatPrice.js";
 import {
   calculateSMA,
   calculateEMA,
@@ -65,6 +65,23 @@ export function ChartContainer({
         timeVisible: true,
         secondsVisible: false,
       },
+      localization: {
+        timeFormatter: (timestamp) => {
+          if (typeof timestamp === 'number') {
+            const date = new Date(timestamp * 1000);
+            return new Intl.DateTimeFormat('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            }).format(date);
+          }
+          return String(timestamp);
+        }
+      }
     });
     chartRef.current = chart;
 
@@ -103,8 +120,18 @@ export function ChartContainer({
         return;
       }
 
-      const date = new Date((param.time) * 1000);
-      const formattedDate = date.toISOString().replace("T", " ").slice(0, 19);
+      // Convert timestamp to Indian Standard Time (IST)
+      const date = new Date(param.time * 1000);
+      const formattedDate = new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).format(date);
 
       // Parse OHLC depending on Line/Area vs Candlestick format
       let o, h, l, c;
@@ -129,7 +156,7 @@ export function ChartContainer({
           <span>C: <b class="text-zinc-50 font-bold">${c}</b></span>
           <span>V: <b class="text-[#F0B90B] font-bold">${v}</b></span>
         </div>
-        <div class="text-[8px] font-semibold text-zinc-500 mt-1 uppercase tracking-widest">[ ${formattedDate} UTC ]</div>
+        <div class="text-[8px] font-semibold text-zinc-500 mt-1 uppercase tracking-widest">[ ${formattedDate} IST ]</div>
       `;
 
       // Position tooltip in left/right top quadrants based on crosshair point
@@ -184,6 +211,8 @@ export function ChartContainer({
       volSeriesRef.current = null;
     }
 
+    const precisionMinMove = getMinMove(instrument);
+
     // A. Recreate Main price series overlay
     if (seriesType === "Candles") {
       mainSeriesRef.current = chart.addCandlestickSeries({
@@ -193,13 +222,21 @@ export function ChartContainer({
         borderDownColor: "#ef5350",
         wickUpColor: "#26a69a",
         wickDownColor: "#ef5350",
-        priceFormat: { type: "custom", formatter: (p) => formatPrice(instrument, p) }
+        priceFormat: { 
+          type: "custom", 
+          formatter: (p) => formatPrice(instrument, p),
+          minMove: precisionMinMove
+        }
       });
     } else if (seriesType === "Line") {
       mainSeriesRef.current = chart.addLineSeries({
         color: "#F0B90B",
         lineWidth: 2,
-        priceFormat: { type: "custom", formatter: (p) => formatPrice(instrument, p) }
+        priceFormat: { 
+          type: "custom", 
+          formatter: (p) => formatPrice(instrument, p),
+          minMove: precisionMinMove
+        }
       });
     } else {
       // Area graph
@@ -208,7 +245,11 @@ export function ChartContainer({
         topColor: "rgba(240, 185, 11, 0.2)",
         bottomColor: "rgba(240, 185, 11, 0.0)",
         lineWidth: 2,
-        priceFormat: { type: "custom", formatter: (p) => formatPrice(instrument, p) }
+        priceFormat: { 
+          type: "custom", 
+          formatter: (p) => formatPrice(instrument, p),
+          minMove: precisionMinMove
+        }
       });
     }
 

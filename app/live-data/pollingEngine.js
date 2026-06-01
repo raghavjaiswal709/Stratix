@@ -5,11 +5,16 @@ class PollingEngine {
     this.states = {};
     this.listeners = {}; // instrumentId -> Set of callbacks
     this.isRunning = false;
-    this.intervalId = null;
-    this.instrumentsList = Object.keys(INSTRUMENTS);
+    this.cryptoIntervalId = null;
+    this.dukascopyIntervalId = null;
 
-    // Initialize state structure for all 43 instruments
-    this.instrumentsList.forEach((id) => {
+    // Separate instruments by data source for different polling cadences
+    this.cryptoInstruments = [];
+    this.dukascopyInstruments = [];
+
+    // Initialize state structure for all instruments
+    Object.keys(INSTRUMENTS).forEach((id) => {
+      const inst = INSTRUMENTS[id];
       this.states[id] = {
         id,
         bid: null,
@@ -26,6 +31,12 @@ class PollingEngine {
         errorCount: 0,
         lastErrorTime: 0,
       };
+
+      if (inst.source === "binance") {
+        this.cryptoInstruments.push(id);
+      } else {
+        this.dukascopyInstruments.push(id);
+      }
     });
   }
 
@@ -77,70 +88,99 @@ class PollingEngine {
   start() {
     if (this.isRunning) return;
     this.isRunning = true;
-    
-    // Execute immediate poll sweep
-    this.sweep();
 
-    // Trigger sweep every 2 seconds
-    this.intervalId = setInterval(() => {
-      this.sweep();
+    // Crypto sweep: fast, every 2 seconds (Binance responds in <100ms)
+    this.sweepCrypto();
+    this.cryptoIntervalId = setInterval(() => {
+      this.sweepCrypto();
     }, 2000);
+
+    // Dukascopy sweep: slower, every 4 seconds (each call takes 500ms-2s)
+    this.sweepDukascopy();
+    this.dukascopyIntervalId = setInterval(() => {
+      this.sweepDukascopy();
+    }, 4000);
   }
 
   stop() {
     if (!this.isRunning) return;
     this.isRunning = false;
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
+    if (this.cryptoIntervalId) {
+      clearInterval(this.cryptoIntervalId);
+      this.cryptoIntervalId = null;
+    }
+    if (this.dukascopyIntervalId) {
+      clearInterval(this.dukascopyIntervalId);
+      this.dukascopyIntervalId = null;
     }
   }
 
-  async sweep() {
-    const now = Date.now();
-    
-    // Filter out instruments currently under 10-second error cooldown
-    const instrumentsToPoll = this.instrumentsList.filter((id) => {
+  // Crypto sweep — poll all crypto instruments in parallel (fast via Binance)
+  async sweepCrypto() {
+    if (!this.isRunning) return;
+
+    const instrumentsToPoll = this.cryptoInstruments.filter((id) => {
       const state = this.states[id];
-      if (state.isStale && now - state.lastErrorTime < 10000) {
-        return false; // Skip, inside cooldown period
-      }
+      // 5-second cooldown for errors
+      if (state.isStale && Date.now() - state.lastErrorTime < 5000) return false;
       return true;
     });
 
-    // Divide instruments into batches of 5
-    const batchSize = 5;
+    // Binance is fast — poll all crypto in parallel
+    await Promise.all(instrumentsToPoll.map((id) => this.pollInstrument(id)));
+  }
+
+  // Dukascopy sweep — poll forex/metals/indices in small batches (slow API)
+  async sweepDukascopy() {
+    if (!this.isRunning) return;
+    const now = Date.now();
+
+    const instrumentsToPoll = this.dukascopyInstruments.filter((id) => {
+      const state = this.states[id];
+      // 15-second cooldown for Dukascopy errors (it's slow, don't hammer)
+      if (state.isStale && now - state.lastErrorTime < 15000) return false;
+      return true;
+    });
+
+    // Divide into batches of 3 (smaller batches = less overload on Dukascopy)
+    const batchSize = 3;
     const batches = [];
     for (let i = 0; i < instrumentsToPoll.length; i += batchSize) {
       batches.push(instrumentsToPoll.slice(i, i + batchSize));
     }
 
-    // Process batches with 300ms gap in between
+    // Process batches with 500ms gap in between
     for (let i = 0; i < batches.length; i++) {
       if (!this.isRunning) break;
-      
+
       const batch = batches[i];
-      
-      // Execute this batch concurrently
       await Promise.all(batch.map((id) => this.pollInstrument(id)));
-      
-      // Delay 300ms before starting next batch (except after last batch)
+
+      // Delay 500ms before starting next batch (except after last batch)
       if (i < batches.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
   }
 
   async pollInstrument(id) {
     const state = this.states[id];
-    
+
+    // Add 6-second request timeout via AbortController
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
     try {
-      const res = await fetch(`/api/live-price?instrument=${id}`);
+      const res = await fetch(`/api/live-price?instrument=${id}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
       if (!res.ok) {
         throw new Error(`HTTP error ${res.status}`);
       }
       const data = await res.json();
-      
+
       if (data.error) {
         throw new Error(data.error);
       }
@@ -186,8 +226,15 @@ class PollingEngine {
 
       this.notify(id);
     } catch (err) {
-      console.warn(`Error polling rates for ${id}:`, err.message);
-      
+      clearTimeout(timeoutId);
+
+      // Only log non-abort errors to avoid console spam
+      if (err.name !== "AbortError") {
+        console.warn(`Error polling rates for ${id}:`, err.message);
+      } else {
+        console.warn(`Timeout polling ${id} (6s exceeded)`);
+      }
+
       state.isStale = true;
       state.direction = "flat";
       state.lastErrorTime = Date.now();

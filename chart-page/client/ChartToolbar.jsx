@@ -103,7 +103,11 @@ export function ChartToolbar({
               : "bg-[#0f0f0f]/40 text-zinc-400 border-[#1e1e1e] hover:text-zinc-200"
           }`}
         >
-          <span>📊</span>
+          <svg className="w-3.5 h-3.5 text-[#F0B90B] shrink-0 fill-none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
+          </svg>
           <span>Indicators</span>
         </button>
 
@@ -135,13 +139,19 @@ export function ChartToolbar({
         {/* Fullscreen Toggle */}
         <button
           onClick={onToggleFullscreen}
-          className={`text-[10px] font-black uppercase tracking-wider border rounded-lg px-3 py-2 flex items-center gap-1 transition-all duration-150 ${
+          className={`text-[10px] font-black uppercase tracking-wider border rounded-lg px-3 py-2 flex items-center gap-1.5 transition-all duration-150 ${
             isFullscreen 
               ? "bg-indigo-600/10 text-indigo-400 border-indigo-500/20" 
               : "bg-[#0f0f0f]/40 text-zinc-400 border-[#1e1e1e] hover:text-zinc-200 hover:bg-[#0f0f0f]"
           }`}
         >
-          <span>{isFullscreen ? "🗖" : "🗗"}</span>
+          <svg className="w-3.5 h-3.5 text-zinc-400 shrink-0 fill-none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            {isFullscreen ? (
+              <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" />
+            ) : (
+              <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
+            )}
+          </svg>
           <span>{isFullscreen ? "Exit Full" : "Full Screen"}</span>
         </button>
 

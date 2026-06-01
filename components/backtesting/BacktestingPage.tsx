@@ -25,6 +25,16 @@ import { SessionDashboard } from "./SessionDashboard";
 import { ExecutionPanel } from "./ExecutionPanel";
 import { ArrowLeft, Play, Layout, RotateCcw, AlertTriangle } from "lucide-react";
 
+const formatPrice = (p: number) => {
+  if (p < 0.001) return p.toFixed(8);
+  if (p < 0.01) return p.toFixed(7);
+  if (p < 0.1) return p.toFixed(6);
+  if (p < 1) return p.toFixed(5);
+  if (p < 10) return p.toFixed(4);
+  if (p < 100) return p.toFixed(3);
+  return p.toFixed(2);
+};
+
 export function BacktestingPage() {
   // ── Session State & Local Storage Persistence ──────────────────────────────
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -598,7 +608,7 @@ export function BacktestingPage() {
                     {openTrade.direction}
                   </span>
                   <span>Lots: <b className="text-white">{openTrade.lotSize}</b></span>
-                  <span>Entry: <b className="text-white">{openTrade.entryPrice.toFixed(3)}</b></span>
+                  <span>Entry: <b className="text-white">{formatPrice(openTrade.entryPrice)}</b></span>
                   <span>Floating P&L: <b className={unrealised >= 0 ? "text-green-500" : "text-red-500"}>
                     {unrealised >= 0 ? "+" : ""}${unrealised.toFixed(2)}
                   </b></span>

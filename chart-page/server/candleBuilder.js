@@ -1,7 +1,26 @@
 import { getHistoricRates, getRealTimeRates, Timeframe } from "dukascopy-node";
 
-const INSTRUMENT_MAP = {
-  // Forex Majors
+// Binance REST API base URL (public, no auth required)
+const BINANCE_API = "https://api.binance.com/api/v3";
+
+// Binance symbols for crypto instruments
+const BINANCE_SYMBOLS = {
+  btcusd: "BTCUSDT",
+  ethusd: "ETHUSDT",
+  ltcusd: "LTCUSDT",
+  xrpusd: "XRPUSDT",
+  bchusd: "BCHUSDT",
+  eosusd: "EOSUSDT",
+  xlmusd: "XLMUSDT",
+  adausd: "ADAUSDT",
+  dotusd: "DOTUSDT",
+  lnkusd: "LINKUSDT",
+  uniusd: "UNIUSDT",
+  solusd: "SOLUSDT",
+};
+
+// Dukascopy symbols for forex, metals, and indices
+const DUKASCOPY_SYMBOLS = {
   eurusd: "eurusd",
   usdjpy: "usdjpy",
   gbpusd: "gbpusd",
@@ -9,27 +28,36 @@ const INSTRUMENT_MAP = {
   audusd: "audusd",
   usdcad: "usdcad",
   nzdusd: "nzdusd",
-  // Metals
   xauusd: "xauusd",
   xagusd: "xagusd",
-  // Crypto
-  btcusd: "btcusd",
-  ethusd: "ethusd",
-  ltcusd: "ltcusd",
-  xrpusd: "adausd", // Derived from ADA/USD
-  bnbusd: "uniusd", // Derived from UNI/USD
-  solusd: "adausd", // Derived from ADA/USD
-  // Forex Crosses
+  xpdusd: "xpdcmdusd",
+  xptusd: "xptcmdusd",
   eurgbp: "eurgbp",
   eurjpy: "eurjpy",
   gbpjpy: "gbpjpy",
   audjpy: "audjpy",
   eurchf: "eurchf",
   gbpchf: "gbpchf",
-  // Indices
+  euraud: "euraud",
+  eurcad: "eurcad",
+  eurnzd: "eurnzd",
+  gbpaud: "gbpaud",
+  gbpcad: "gbpcad",
+  gbpnzd: "gbpnzd",
+  audchf: "audchf",
+  audcad: "audcad",
+  audnzd: "audnzd",
+  cadjpy: "cadjpy",
+  chfjpy: "chfjpy",
+  nzdjpy: "nzdjpy",
   spx500: "usa500idxusd",
   nasusd: "usatechidxusd",
-  deuidxeur: "deuidxeur"
+  deuidxeur: "deuidxeur",
+  wti: "lightcmdusd",
+  ukxusd: "gbridxgbp",
+  fraidxeur: "fraidxeur",
+  jpnidxjpy: "jpnidxjpy",
+  hkgidxhkd: "hkgidxhkd",
 };
 
 const DURATION_MAP = {
@@ -39,7 +67,7 @@ const DURATION_MAP = {
   "30m": 30 * 60 * 1000,
   "1H": 60 * 60 * 1000,
   "4H": 4 * 60 * 60 * 1000,
-  "1D": 24 * 60 * 60 * 1000
+  "1D": 24 * 60 * 60 * 1000,
 };
 
 const TIMEFRAME_MAP = {
@@ -49,248 +77,468 @@ const TIMEFRAME_MAP = {
   "30m": Timeframe.m30,
   "1H": Timeframe.h1,
   "4H": Timeframe.h4,
-  "1D": Timeframe.d1
+  "1D": Timeframe.d1,
 };
 
-class CandleBuilder {
-  constructor() {
-    this.instrument = null;
-    this.timeframe = null;
+// Binance kline interval mapping
+const BINANCE_INTERVAL_MAP = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "30m": "30m",
+  "1H": "1h",
+  "4H": "4h",
+  "1D": "1d",
+};
+
+class ChartSession {
+  constructor(instrument, timeframe) {
+    this.instrument = instrument.toLowerCase();
+    this.timeframe = timeframe;
     this.closedCandles = [];
     this.currentCandle = null;
     this.lastProcessedTimestamp = 0;
     this.intervalId = null;
     this.isPolling = false;
-    this.multiplier = 1;
-    this.isDerived = false;
+    this.isBinance = this.instrument in BINANCE_SYMBOLS;
+    this.lastAccessed = Date.now();
+  }
+}
+
+class CandleBuilder {
+  constructor() {
+    this.sessions = {}; // key -> ChartSession
+    this.lastActiveKey = null;
   }
 
   // Get active session data
-  getSessionState() {
+  getSessionState(instrumentId, timeframe) {
+    const key = (instrumentId && timeframe)
+      ? `${instrumentId.toLowerCase()}_${timeframe}`
+      : this.lastActiveKey;
+
+    if (!key || !this.sessions[key]) {
+      return {
+        instrument: null,
+        timeframe: null,
+        closedCandles: [],
+        currentCandle: null,
+        serverTime: Date.now(),
+      };
+    }
+
+    const sess = this.sessions[key];
+    sess.lastAccessed = Date.now(); // update access time
+
     return {
-      instrument: this.instrument,
-      timeframe: this.timeframe,
-      closedCandles: this.closedCandles.slice(-200),
-      currentCandle: this.currentCandle,
-      serverTime: Date.now()
+      instrument: sess.instrument,
+      timeframe: sess.timeframe,
+      closedCandles: sess.closedCandles.slice(-200),
+      currentCandle: sess.currentCandle,
+      serverTime: Date.now(),
     };
   }
 
-  // Reset the builder completely
+  // Reset the builder completely (stops all sessions)
   reset() {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
-    this.instrument = null;
-    this.timeframe = null;
-    this.closedCandles = [];
-    this.currentCandle = null;
-    this.lastProcessedTimestamp = 0;
-    this.isPolling = false;
-    this.multiplier = 1;
-    this.isDerived = false;
-    console.log("[CandleBuilder] Session cleared.");
+    Object.keys(this.sessions).forEach((key) => {
+      const sess = this.sessions[key];
+      if (sess.intervalId) {
+        clearInterval(sess.intervalId);
+      }
+    });
+    this.sessions = {};
+    this.lastActiveKey = null;
+    console.log("[CandleBuilder] All sessions cleared.");
+  }
+
+  // Prune inactive sessions to prevent memory leak
+  pruneOldSessions() {
+    const now = Date.now();
+    const maxInactiveMs = 5 * 60 * 1000; // 5 minutes
+
+    Object.keys(this.sessions).forEach((key) => {
+      const sess = this.sessions[key];
+      if (now - sess.lastAccessed > maxInactiveMs) {
+        console.log(`[CandleBuilder] Pruning inactive session: ${key}`);
+        if (sess.intervalId) {
+          clearInterval(sess.intervalId);
+        }
+        delete this.sessions[key];
+      }
+    });
   }
 
   // Initialize a new session
   async initializeSession(instrumentId, timeframe) {
-    // 1. Clean up active loops
-    this.reset();
+    const instLower = instrumentId.toLowerCase();
+    const isBinance = instLower in BINANCE_SYMBOLS;
+    const isDukascopy = instLower in DUKASCOPY_SYMBOLS;
 
-    const targetSymbol = INSTRUMENT_MAP[instrumentId.toLowerCase()];
-    if (!targetSymbol) {
+    if (!isBinance && !isDukascopy) {
       throw new Error(`Unsupported instrument: ${instrumentId}`);
     }
 
-    this.instrument = instrumentId.toLowerCase();
-    this.timeframe = timeframe;
-    
-    // 2. Setup derived multipliers for SOL, BNB, XRP
-    this.isDerived = ["xrpusd", "bnbusd", "solusd"].includes(this.instrument);
-    if (this.instrument === "xrpusd") this.multiplier = 1.5;
-    else if (this.instrument === "bnbusd") this.multiplier = 80;
-    else if (this.instrument === "solusd") this.multiplier = 500;
-    else this.multiplier = 1;
+    // Automatically prune old inactive sessions first
+    this.pruneOldSessions();
 
-    console.log(`[CandleBuilder] Prefilling history for ${this.instrument} (${this.timeframe})...`);
-    
-    // 3. Prefill historical candles
+    const key = `${instLower}_${timeframe}`;
+
+    if (this.sessions[key]) {
+      // Re-use already initialized session
+      this.sessions[key].lastAccessed = Date.now();
+      this.lastActiveKey = key;
+      console.log(`[CandleBuilder] Re-using active session for ${key}`);
+      return;
+    }
+
+    // Create a new session
+    const sess = new ChartSession(instrumentId, timeframe);
+    this.sessions[key] = sess;
+    this.lastActiveKey = key;
+
+    console.log(
+      `[CandleBuilder] Prefilling history for ${sess.instrument} (${sess.timeframe}) via ${sess.isBinance ? "Binance" : "Dukascopy"}...`
+    );
+
+    // Prefill historical candles
     try {
-      const durationMs = DURATION_MAP[timeframe];
-      const to = new Date();
-      const targetTimeframe = TIMEFRAME_MAP[timeframe];
+      if (sess.isBinance) {
+        await this.prefillBinanceHistory(sess);
+      } else {
+        await this.prefillDukascopyHistory(sess);
+      }
+      console.log(
+        `[CandleBuilder] Loaded ${sess.closedCandles.length} historical candles for ${key}.`
+      );
+    } catch (err) {
+      console.error(
+        `[CandleBuilder] Historical rates prefill failed for ${key}:`,
+        err.message
+      );
+      sess.closedCandles = [];
+    }
 
-      let history = [];
-      let lookbackMultiplier = 260;
-      let attempts = 0;
+    // Start active ticks aggregator loop
+    this.startPollingLoop(sess);
+  }
 
-      // Progressively expand lookback window if we get fewer than 200 candles (handles weekends/holidays)
-      while (history.length < 200 && attempts < 4) {
-        attempts++;
-        const from = new Date(Date.now() - lookbackMultiplier * durationMs);
-        
-        console.log(`[CandleBuilder] Prefill fetch: attempt ${attempts}, lookbackMultiplier ${lookbackMultiplier}...`);
-        
-        const res = await getHistoricRates({
-          instrument: targetSymbol,
-          dates: { from, to },
-          timeframe: targetTimeframe,
-          format: "json",
-          useCache: false
-        });
+  // ---------------------------------------------------------------------------
+  // Binance historical candle prefill
+  // ---------------------------------------------------------------------------
+  async prefillBinanceHistory(sess) {
+    const symbol = BINANCE_SYMBOLS[sess.instrument];
+    const interval = BINANCE_INTERVAL_MAP[sess.timeframe];
+    if (!symbol || !interval) return;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const res = await fetch(
+        `${BINANCE_API}/klines?symbol=${symbol}&interval=${interval}&limit=200`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeout);
+
+      if (!res.ok) throw new Error(`Binance klines HTTP ${res.status}`);
+
+      const klines = await res.json();
+
+      // Binance kline format: [openTime, open, high, low, close, volume, closeTime, ...]
+      sess.closedCandles = klines
+        .slice(0, -1) // Exclude the last (current/forming) candle
+        .map((k) => ({
+          time: Math.floor(k[0] / 1000), // openTime in seconds
+          open: +parseFloat(k[1]).toFixed(8),
+          high: +parseFloat(k[2]).toFixed(8),
+          low: +parseFloat(k[3]).toFixed(8),
+          close: +parseFloat(k[4]).toFixed(8),
+          volume: +parseFloat(k[5]).toFixed(2),
+        }))
+        .sort((a, b) => a.time - b.time);
+    } catch (err) {
+      clearTimeout(timeout);
+      throw err;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dukascopy historical candle prefill
+  // ---------------------------------------------------------------------------
+  async prefillDukascopyHistory(sess) {
+    const targetSymbol = DUKASCOPY_SYMBOLS[sess.instrument];
+    const durationMs = DURATION_MAP[sess.timeframe];
+    const targetTimeframe = TIMEFRAME_MAP[sess.timeframe];
+
+    if (!targetSymbol || !durationMs || !targetTimeframe) return;
+
+    const to = new Date();
+    let history = [];
+    let lookbackMultiplier = 260;
+    let attempts = 0;
+
+    // Progressively expand lookback window if we get fewer than 200 candles
+    while (history.length < 200 && attempts < 4) {
+      attempts++;
+      const from = new Date(Date.now() - lookbackMultiplier * durationMs);
+
+      console.log(
+        `[CandleBuilder] Prefill fetch for ${sess.instrument}: attempt ${attempts}, lookbackMultiplier ${lookbackMultiplier}...`
+      );
+
+      // Timeout protection for Dukascopy
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(
+          () => reject(new Error("Dukascopy history timeout (12s)")),
+          12000
+        );
+      });
+
+      const fetchPromise = getHistoricRates({
+        instrument: targetSymbol,
+        dates: { from, to },
+        timeframe: targetTimeframe,
+        format: "json",
+        useCache: false,
+      });
+
+      try {
+        const res = await Promise.race([fetchPromise, timeoutPromise]);
         if (res && res.length > 0) {
           history = res;
         }
-
-        if (history.length < 200) {
-          lookbackMultiplier *= 4; // Expand lookback (e.g. 4.3h -> 17.3h -> 69.3h -> 277h)
-        }
+      } catch (err) {
+        console.warn(
+          `[CandleBuilder] Dukascopy prefill attempt ${attempts} failed for ${sess.instrument}:`,
+          err.message
+        );
       }
 
-      if (history && history.length > 0) {
-        this.closedCandles = history.map((c) => {
-          let open = c.open;
-          let high = c.high;
-          let low = c.low;
-          let close = c.close;
-
-          if (this.isDerived) {
-            open *= this.multiplier;
-            high *= this.multiplier;
-            low *= this.multiplier;
-            close *= this.multiplier;
-          }
-
-          return {
-            time: Math.floor(c.timestamp / 1000), // lightweight-charts requires seconds
-            open: +open.toFixed(6),
-            high: +high.toFixed(6),
-            low: +low.toFixed(6),
-            close: +close.toFixed(6),
-            volume: +c.volume.toFixed(2)
-          };
-        }).sort((a, b) => a.time - b.time);
+      if (history.length < 200) {
+        lookbackMultiplier *= 4;
       }
-      
-      console.log(`[CandleBuilder] Loaded ${this.closedCandles.length} historical candles.`);
-    } catch (err) {
-      console.error(`[CandleBuilder] Historical rates prefill failed:`, err.message);
-      // Fallback: start with empty historical list
-      this.closedCandles = [];
     }
 
-    // 4. Start active 1-second ticks aggregator loop
-    this.startPollingLoop();
+    if (history && history.length > 0) {
+      sess.closedCandles = history
+        .map((c) => ({
+          time: Math.floor(c.timestamp / 1000),
+          open: +c.open.toFixed(6),
+          high: +c.high.toFixed(6),
+          low: +c.low.toFixed(6),
+          close: +c.close.toFixed(6),
+          volume: +c.volume.toFixed(2),
+        }))
+        .sort((a, b) => a.time - b.time);
+    }
   }
 
-  startPollingLoop() {
-    if (this.isPolling) return;
-    this.isPolling = true;
+  // ---------------------------------------------------------------------------
+  // Live tick polling loop
+  // ---------------------------------------------------------------------------
+  startPollingLoop(sess) {
+    if (sess.isPolling) return;
+    sess.isPolling = true;
 
-    const targetSymbol = INSTRUMENT_MAP[this.instrument];
-    const durationMs = DURATION_MAP[this.timeframe];
+    const pollInterval = sess.isBinance ? 1000 : 1500;
 
-    this.intervalId = setInterval(async () => {
+    sess.intervalId = setInterval(async () => {
       try {
-        const raw = await getRealTimeRates({
-          instrument: targetSymbol,
-          timeframe: "tick",
-          last: 20,
-          format: "json"
-        });
+        // Safe check: if session has been deleted, terminate interval
+        const currentSess = this.sessions[`${sess.instrument}_${sess.timeframe}`];
+        if (!currentSess || currentSess !== sess) {
+          clearInterval(sess.intervalId);
+          return;
+        }
 
-        if (!raw || !raw.length) return;
-
-        // Process ticks in chronological order
-        const ticks = raw.map((item) => {
-          let timestamp = Date.now();
-          let bid = 0;
-          let ask = 0;
-          let bidVol = 0;
-          let askVol = 0;
-
-          if (Array.isArray(item)) {
-            timestamp = item[0] || Date.now();
-            const p1 = item[1] || 0;
-            const p2 = item[2] || 0;
-            bid = Math.min(p1, p2);
-            ask = Math.max(p1, p2);
-            bidVol = item[3] || 0;
-            askVol = item[4] || 0;
-          } else if (item && typeof item === "object") {
-            timestamp = item.timestamp || Date.now();
-            const p1 = item.askPrice !== undefined ? item.askPrice : 0;
-            const p2 = item.bidPrice !== undefined ? item.bidPrice : 0;
-            bid = Math.min(p1, p2);
-            ask = Math.max(p1, p2);
-            bidVol = item.bidVolume || 0;
-            askVol = item.askVolume || 0;
-          }
-
-          let mid = (bid + ask) / 2;
-          if (this.isDerived) {
-            mid *= this.multiplier;
-          }
-
-          return {
-            timestamp,
-            mid,
-            volume: bidVol + askVol
-          };
-        }).sort((a, b) => a.timestamp - b.timestamp);
-
-        // Feed ticks into OHLC candle accumulator
-        ticks.forEach((tick) => {
-          if (tick.timestamp <= this.lastProcessedTimestamp) {
-            return; // Deduplicate: do not process same tick twice
-          }
-          this.lastProcessedTimestamp = tick.timestamp;
-
-          const boundaryMs = Math.floor(tick.timestamp / durationMs) * durationMs;
-          const unixSeconds = boundaryMs / 1000;
-
-          if (!this.currentCandle) {
-            // First live candle
-            this.currentCandle = {
-              time: unixSeconds,
-              open: +tick.mid.toFixed(6),
-              high: +tick.mid.toFixed(6),
-              low: +tick.mid.toFixed(6),
-              close: +tick.mid.toFixed(6),
-              volume: +tick.volume.toFixed(2)
-            };
-          } else if (unixSeconds === this.currentCandle.time) {
-            // Update current candle bounds
-            this.currentCandle.high = +Math.max(this.currentCandle.high, tick.mid).toFixed(6);
-            this.currentCandle.low = +Math.min(this.currentCandle.low, tick.mid).toFixed(6);
-            this.currentCandle.close = +tick.mid.toFixed(6);
-            this.currentCandle.volume = +(this.currentCandle.volume + tick.volume).toFixed(2);
-          } else if (unixSeconds > this.currentCandle.time) {
-            // Current candle is completed!
-            this.closedCandles.push({ ...this.currentCandle });
-            
-            // Retain max 500 closed candles in history
-            if (this.closedCandles.length > 500) {
-              this.closedCandles.shift();
-            }
-
-            // Start new candle
-            this.currentCandle = {
-              time: unixSeconds,
-              open: +tick.mid.toFixed(6),
-              high: +tick.mid.toFixed(6),
-              low: +tick.mid.toFixed(6),
-              close: +tick.mid.toFixed(6),
-              volume: +tick.volume.toFixed(2)
-            };
-          }
-        });
+        if (sess.isBinance) {
+          await this.pollBinanceTick(sess);
+        } else {
+          await this.pollDukascopyTick(sess);
+        }
       } catch (err) {
-        console.warn(`[CandleBuilder] Tick poll error for ${this.instrument}:`, err.message);
+        console.warn(
+          `[CandleBuilder] Tick poll error for ${sess.instrument}:`,
+          err.message
+        );
       }
-    }, 1000);
+    }, pollInterval);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Binance live tick polling
+  // ---------------------------------------------------------------------------
+  async pollBinanceTick(sess) {
+    const symbol = BINANCE_SYMBOLS[sess.instrument];
+    if (!symbol) return;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const res = await fetch(
+        `${BINANCE_API}/ticker/bookTicker?symbol=${symbol}`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeout);
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+      let bid = parseFloat(data.bidPrice);
+      let ask = parseFloat(data.askPrice);
+
+      // Fallback: some pairs have empty order books — use ticker/price
+      if (bid === 0 && ask === 0) {
+        try {
+          const fbRes = await fetch(
+            `${BINANCE_API}/ticker/price?symbol=${symbol}`
+          );
+          if (fbRes.ok) {
+            const fbData = await fbRes.json();
+            const price = parseFloat(fbData.price);
+            if (price > 0) {
+              bid = price;
+              ask = price;
+            }
+          }
+        } catch { /* ignore fallback errors */ }
+      }
+
+      const mid = (bid + ask) / 2;
+      if (mid === 0) return; // Skip if still no valid data
+
+      const durationMs = DURATION_MAP[sess.timeframe];
+
+      this.processTick(sess, {
+        timestamp: Date.now(),
+        mid,
+        volume: 0,
+      }, durationMs);
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err.name !== "AbortError") throw err;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dukascopy live tick polling
+  // ---------------------------------------------------------------------------
+  async pollDukascopyTick(sess) {
+    const targetSymbol = DUKASCOPY_SYMBOLS[sess.instrument];
+    if (!targetSymbol) return;
+
+    const durationMs = DURATION_MAP[sess.timeframe];
+
+    // Timeout protection
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Dukascopy tick timeout (5s)")), 5000);
+    });
+
+    const fetchPromise = getRealTimeRates({
+      instrument: targetSymbol,
+      timeframe: "tick",
+      last: 20,
+      format: "json",
+    });
+
+    const raw = await Promise.race([fetchPromise, timeoutPromise]);
+
+    if (!raw || !raw.length) return;
+
+    // Process ticks in chronological order
+    const ticks = raw
+      .map((item) => {
+        let timestamp = Date.now();
+        let bid = 0;
+        let ask = 0;
+        let bidVol = 0;
+        let askVol = 0;
+
+        if (Array.isArray(item)) {
+          timestamp = item[0] || Date.now();
+          const p1 = item[1] || 0;
+          const p2 = item[2] || 0;
+          bid = Math.min(p1, p2);
+          ask = Math.max(p1, p2);
+          bidVol = item[3] || 0;
+          askVol = item[4] || 0;
+        } else if (item && typeof item === "object") {
+          timestamp = item.timestamp || Date.now();
+          const p1 = item.askPrice !== undefined ? item.askPrice : 0;
+          const p2 = item.bidPrice !== undefined ? item.bidPrice : 0;
+          bid = Math.min(p1, p2);
+          ask = Math.max(p1, p2);
+          bidVol = item.bidVolume || 0;
+          askVol = item.askVolume || 0;
+        }
+
+        const mid = (bid + ask) / 2;
+        return { timestamp, mid, volume: bidVol + askVol };
+      })
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    // Feed ticks into OHLC candle accumulator
+    ticks.forEach((tick) => {
+      if (tick.timestamp <= sess.lastProcessedTimestamp) return;
+      this.processTick(sess, tick, durationMs);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared tick → candle accumulator
+  // ---------------------------------------------------------------------------
+  processTick(sess, tick, durationMs) {
+    if (tick.timestamp <= sess.lastProcessedTimestamp) return;
+    sess.lastProcessedTimestamp = tick.timestamp;
+
+    const boundaryMs = Math.floor(tick.timestamp / durationMs) * durationMs;
+    const unixSeconds = boundaryMs / 1000;
+
+    if (!sess.currentCandle) {
+      // First live candle
+      sess.currentCandle = {
+        time: unixSeconds,
+        open: +tick.mid.toFixed(8),
+        high: +tick.mid.toFixed(8),
+        low: +tick.mid.toFixed(8),
+        close: +tick.mid.toFixed(8),
+        volume: +(tick.volume || 0).toFixed(2),
+      };
+    } else if (unixSeconds === sess.currentCandle.time) {
+      // Update current candle bounds
+      sess.currentCandle.high = +Math.max(
+        sess.currentCandle.high,
+        tick.mid
+      ).toFixed(8);
+      sess.currentCandle.low = +Math.min(
+        sess.currentCandle.low,
+        tick.mid
+      ).toFixed(8);
+      sess.currentCandle.close = +tick.mid.toFixed(8);
+      sess.currentCandle.volume = +(
+        sess.currentCandle.volume + (tick.volume || 0)
+      ).toFixed(2);
+    } else if (unixSeconds > sess.currentCandle.time) {
+      // Current candle is completed!
+      sess.closedCandles.push({ ...sess.currentCandle });
+
+      // Retain max 500 closed candles in history
+      if (sess.closedCandles.length > 500) {
+        sess.closedCandles.shift();
+      }
+
+      // Start new candle
+      sess.currentCandle = {
+        time: unixSeconds,
+        open: +tick.mid.toFixed(8),
+        high: +tick.mid.toFixed(8),
+        low: +tick.mid.toFixed(8),
+        close: +tick.mid.toFixed(8),
+        volume: +(tick.volume || 0).toFixed(2),
+      };
+    }
   }
 }
 

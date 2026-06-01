@@ -3,6 +3,7 @@ import { PriceTicker } from "./PriceTicker.jsx";
 import { ChartToolbar } from "./ChartToolbar.jsx";
 import { IndicatorPanel } from "./IndicatorPanel.jsx";
 import { ChartContainer } from "./ChartContainer.jsx";
+import { WatchlistSidebar } from "./WatchlistSidebar.jsx";
 import { useChartData } from "./useChartData.js";
 
 export function LiveChart() {
@@ -83,73 +84,94 @@ export function LiveChart() {
   return (
     <div className={fullscreenClasses}>
       
-      {/* 1. Real-Time Price Metrics Bar */}
-      {isLoading ? (
-        <div className="h-[74px] bg-[#161616] border border-[#1e1e1e] rounded-xl w-full animate-pulse flex items-center justify-between px-5">
-          <div className="flex items-center gap-4">
-            <div className="h-5 w-24 bg-zinc-800 rounded" />
-            <div className="h-7 w-32 bg-zinc-800 rounded" />
-          </div>
-          <div className="h-4 w-60 bg-zinc-800 rounded hidden md:block" />
-        </div>
-      ) : (
-        <PriceTicker
-          instrument={instrument}
-          currentCandle={currentCandle}
-          closedCandles={closedCandles}
-          feedStatus={feedStatus}
-        />
-      )}
+      {/* 2-Column Grid Dashboard Terminal */}
+      <div className="flex flex-col lg:flex-row flex-1 w-full gap-6 min-h-0 overflow-hidden">
+        
+        {/* Left Column: Tickers, Controls, Canvas (75%) */}
+        <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
+          
+          {/* 1. Real-Time Price Metrics Bar */}
+          {isLoading ? (
+            <div className="h-[74px] bg-[#161616] border border-[#1e1e1e] rounded-xl w-full animate-pulse flex items-center justify-between px-5 shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="h-5 w-24 bg-zinc-800 rounded" />
+                <div className="h-7 w-32 bg-zinc-800 rounded" />
+              </div>
+              <div className="h-4 w-60 bg-zinc-800 rounded hidden md:block" />
+            </div>
+          ) : (
+            <PriceTicker
+              instrument={instrument}
+              currentCandle={currentCandle}
+              closedCandles={closedCandles}
+              feedStatus={feedStatus}
+            />
+          )}
 
-      {/* 2. Controls & timeframes switcher toolbar */}
-      <ChartToolbar
-        instrument={instrument}
-        onInstrumentChange={handleInstrumentChange}
-        timeframe={timeframe}
-        onTimeframeChange={handleTimeframeChange}
-        seriesType={seriesType}
-        onSeriesTypeChange={setSeriesType}
-        onFitContent={handleFitContent}
-        onToggleFullscreen={handleToggleFullscreen}
-        isFullscreen={isFullscreen}
-        indicatorsOpen={indicatorsOpen}
-        setIndicatorsOpen={setIndicatorsOpen}
-      />
-
-      {/* 3. Sliding Technical Indicators Settings tray */}
-      <IndicatorPanel
-        isOpen={indicatorsOpen}
-        activeIndicators={activeIndicators}
-        onToggleIndicator={handleToggleIndicator}
-      />
-
-      {/* 4. Ticking Lightweight Charts Container Canvas */}
-      {isLoading ? (
-        <div className="flex-1 w-full mt-6 bg-[#161616] border border-[#1e1e1e] rounded-xl flex flex-col items-center justify-center gap-3">
-          <div className="relative flex h-5 w-5 items-center justify-center shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F0B90B] opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-[#F0B90B]"></span>
-          </div>
-          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none">
-            Prefilling historical data...
-          </span>
-        </div>
-      ) : (
-        <div key={renderKey} className="flex-1 w-full mt-6 overflow-hidden flex flex-col min-h-0 border border-[#1e1e1e] rounded-xl bg-[#161616]">
-          <ChartContainer
+          {/* 2. Controls & timeframes switcher toolbar */}
+          <ChartToolbar
             instrument={instrument}
+            onInstrumentChange={handleInstrumentChange}
             timeframe={timeframe}
-            closedCandles={closedCandles}
-            currentCandle={currentCandle}
+            onTimeframeChange={handleTimeframeChange}
             seriesType={seriesType}
-            activeIndicators={activeIndicators}
-            fitTrigger={fitTrigger}
-            isSwitching={isSwitching}
+            onSeriesTypeChange={setSeriesType}
+            onFitContent={handleFitContent}
+            onToggleFullscreen={handleToggleFullscreen}
+            isFullscreen={isFullscreen}
+            indicatorsOpen={indicatorsOpen}
+            setIndicatorsOpen={setIndicatorsOpen}
           />
+
+          {/* 3. Sliding Technical Indicators Settings tray */}
+          <IndicatorPanel
+            isOpen={indicatorsOpen}
+            activeIndicators={activeIndicators}
+            onToggleIndicator={handleToggleIndicator}
+          />
+
+          {/* 4. Ticking Lightweight Charts Container Canvas */}
+          {isLoading ? (
+            <div className="flex-1 w-full mt-6 bg-[#161616] border border-[#1e1e1e] rounded-xl flex flex-col items-center justify-center gap-3 min-h-[350px]">
+              <div className="relative flex h-5 w-5 items-center justify-center shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F0B90B] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-[#F0B90B]"></span>
+              </div>
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none">
+                Prefilling historical data...
+              </span>
+            </div>
+          ) : (
+            <div key={renderKey} className="flex-1 w-full mt-6 overflow-hidden flex flex-col min-h-[350px] border border-[#1e1e1e] rounded-xl bg-[#161616]">
+              <ChartContainer
+                instrument={instrument}
+                timeframe={timeframe}
+                closedCandles={closedCandles}
+                currentCandle={currentCandle}
+                seriesType={seriesType}
+                activeIndicators={activeIndicators}
+                fitTrigger={fitTrigger}
+                isSwitching={isSwitching}
+              />
+            </div>
+          )}
+
         </div>
-      )}
+
+        {/* Right Column: Beautiful Live Watchlist Sidebar (25% on desktop, full-width or scrollable on mobile) */}
+        {!isFullscreen && (
+          <div className="w-full lg:w-[300px] shrink-0 flex flex-col h-[350px] lg:h-auto border border-[#1e1e1e] rounded-xl overflow-hidden bg-[#161616] shadow-2xl transition-all duration-300">
+            <WatchlistSidebar
+              activeInstrument={instrument}
+              onSelectInstrument={handleInstrumentChange}
+            />
+          </div>
+        )}
+
+      </div>
 
     </div>
   );
 }
+
 export default LiveChart;
