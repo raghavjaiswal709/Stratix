@@ -475,6 +475,64 @@ export function BacktestingPage() {
     }
   }, [activeSession, displayCandles.length]);
 
+  // ── Replay keyboard shortcuts ─────────────────────────────────────────────
+  // Space     → Play / Pause          Home → Jump to start
+  // →         → Next candle (+1/+10/+50 with Shift/Ctrl)
+  // ←         → Prev candle (-1/-10/-50 with Shift/Ctrl)
+  // R         → Restart from start    S → Stop replay
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+      if (!activeSession) return;
+      const r = replay;
+
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          if (!r.active) break;
+          if (r.playing) handlePause(); else handlePlay();
+          break;
+
+        case "ArrowRight":
+          e.preventDefault();
+          if (!r.active || r.playing) break;
+          setReplay(s => ({
+            ...s,
+            currentIdx: Math.min(displayRef.current.length - 1,
+              s.currentIdx + (e.ctrlKey || e.metaKey ? 50 : e.shiftKey ? 10 : 1)),
+          }));
+          break;
+
+        case "ArrowLeft":
+          e.preventDefault();
+          if (!r.active || r.playing) break;
+          setReplay(s => ({
+            ...s,
+            currentIdx: Math.max(s.startIdx,
+              s.currentIdx - (e.ctrlKey || e.metaKey ? 50 : e.shiftKey ? 10 : 1)),
+            playing: false,
+          }));
+          break;
+
+        case "Home":
+          e.preventDefault();
+          if (r.active) handleJumpToStart();
+          break;
+
+        case "r": case "R":
+          if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); if (r.active) handleRestartFromStart(); }
+          break;
+
+        case "s": case "S":
+          if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); if (r.active) handleStop(); }
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [replay, activeSession, handlePlay, handlePause, handleJumpToStart,
+      handleRestartFromStart, handleStop]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Derived real-time session stats
   const activeMetrics = useMemo(() => {
     if (!activeSession) return { totalTrades: 0, winRate: 0, totalPnl: 0, profitFactor: 0 };

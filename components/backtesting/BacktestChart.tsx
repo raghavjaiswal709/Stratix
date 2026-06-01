@@ -679,19 +679,19 @@ export function BacktestChart({
 
   // ── Price scale zoom & interaction ───────────────────────────────────────────
   // Design goals (matching TradingView):
-  //   • Wheel over price scale in LOCKED mode → linear zoom, applied directly to
-  //     the chart via ref (zero React re-renders, zero flicker).
-  //   • Wheel over price scale in AUTO mode → ignored; lightweight-charts handles
-  //     it natively and re-fits the visible data.
-  //   • Double-click on price scale → reset to default margins.
-  //   • Wheel anywhere else → forward to chart for horizontal scroll.
+  // ── Price-scale & chart scroll handling ──────────────────────────────────────
+  // Design:
+  //   • Wheel over chart area  → lightweight-charts handles it natively (h-scroll/zoom).
+  //   • Wheel over price scale → INFINITE vertical zoom via synthetic mouse-drag.
+  //       We simulate mousedown→mousemove→mouseup directly on the chart canvas so
+  //       lightweight-charts' own price-scale drag logic runs — this is the ONLY way
+  //       to get a true unlimited price range zoom (scaleMargins only adjusts padding,
+  //       not the actual visible price range).
+  //   • Double-click on price scale → reset to auto-scale + default margins.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // Linear step per wheel tick — avoids the multiplicative error accumulation
-    // that made the old implementation drift and feel unstable.
-    const STEP          = 0.013;
     const PRICE_SCALE_W = 65; // approximate pixel width of the right price-scale column
 
     const handleInteraction = () => setRedrawTrigger(t => t + 1);
@@ -701,42 +701,46 @@ export function BacktestChart({
       const overPriceScale = rect.right - e.clientX <= PRICE_SCALE_W;
 
       if (!overPriceScale) {
-        // ── Chart canvas area: let lightweight-charts handle horizontal scroll
-        //    and time-scale zoom natively — we do NOT intercept here.
+        // Chart canvas area: let lightweight-charts handle natively (h-scroll/time zoom).
         setRedrawTrigger(t => t + 1);
         return;
       }
 
-      // ── Price-scale column: vertical zoom only ─────────────────────────────
+      // ── Price-scale: true infinite vertical zoom ───────────────────────────
+      // Prevent the event from reaching the chart canvas horizontally.
       e.preventDefault();
       e.stopPropagation();
 
-      // Normalise delta so trackpads (tiny floats) and mice (multiples of 100)
-      // produce the same step size.
-      const norm  = Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) / 53);
-      const delta = norm * STEP;
+      // Find the chart's canvas element (lightweight-charts renders into one canvas).
+      const canvas = container.querySelector('canvas');
+      if (!canvas) { setRedrawTrigger(t => t + 1); return; }
 
-      const { top, bottom } = marginsRef.current;
-      // Scroll down (deltaY > 0) → zoom OUT → more padding around bars
-      // Scroll up   (deltaY < 0) → zoom IN  → less padding, bars fill chart
-      const newTop    = Math.max(0.001, Math.min(0.498, top    + delta));
-      const newBottom = Math.max(0.001, Math.min(0.498, bottom + delta));
-      marginsRef.current = { top: newTop, bottom: newBottom };
+      // Normalise: trackpads produce tiny floats, mice produce multiples of 100.
+      const norm = Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) / 53);
+      // Scroll-down (deltaY>0) = zoom OUT = drag price-scale DOWN (positive move).
+      // Scroll-up   (deltaY<0) = zoom IN  = drag price-scale UP   (negative move).
+      const move = norm * 20; // pixels; tune for feel
 
-      // Apply directly to chart — zero React state, zero re-render, zero flicker.
-      chartRef.current?.priceScale("right").applyOptions({
-        scaleMargins: { top: newTop, bottom: newBottom },
-      });
+      const cx = e.clientX; // already over the price scale column
+      const cy = e.clientY;
+
+      // Simulate a short press-drag-release on the price scale.
+      // lightweight-charts enters "price-scale drag mode" on mousedown when the
+      // click is in the price-scale column, then adjusts the scale on mousemove.
+      canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy,        buttons: 1, button: 0 }));
+      canvas.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: cx, clientY: cy + move, buttons: 1, button: 0 }));
+      canvas.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true, clientX: cx, clientY: cy + move,             button: 0 }));
+
       setRedrawTrigger(t => t + 1);
     };
 
     const handleDblClick = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
       if (rect.right - e.clientX <= PRICE_SCALE_W) {
-        // Double-click on price scale → reset to symmetric default margins
+        // Double-click: reset price scale to auto-fit
         const def = { top: 0.10, bottom: 0.10 };
         marginsRef.current = def;
-        chartRef.current?.priceScale("right").applyOptions({ scaleMargins: def });
+        chartRef.current?.priceScale("right").applyOptions({ autoScale: true, scaleMargins: def });
         setRedrawTrigger(t => t + 1);
       }
     };

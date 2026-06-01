@@ -62,30 +62,30 @@ export function ReplayBar({
 
       {/* ── Transport buttons ─────────────────────────────────────────── */}
       <div className="flex items-center gap-1.5">
-        <CtrlBtn title="Restart — show only the first replay candle" disabled={!active} onClick={onRestartFromStart}>
+        <CtrlBtn title="Restart (R) — rewind to first replay candle" disabled={!active} onClick={onRestartFromStart}>
           <RotateCcw className="w-3 h-3" />
         </CtrlBtn>
-        <CtrlBtn title="Jump to start" disabled={!active || atStart} onClick={onJumpToStart}>
+        <CtrlBtn title="Jump to start (Home)" disabled={!active || atStart} onClick={onJumpToStart}>
           <ChevronsLeft className="w-3.5 h-3.5" />
         </CtrlBtn>
-        <CtrlBtn title="Previous candle" disabled={!active || atStart || playing} onClick={onPrev}>
+        <CtrlBtn title="Previous candle (← Left  |  Shift+← ×10  |  Ctrl+← ×50)" disabled={!active || atStart || playing} onClick={onPrev}>
           <ChevronLeft className="w-3.5 h-3.5" />
         </CtrlBtn>
 
         {playing ? (
-          <CtrlBtn title="Pause" disabled={!active} onClick={onPause} highlight>
+          <CtrlBtn title="Pause (Space)" disabled={!active} onClick={onPause} highlight>
             <Pause className="w-3.5 h-3.5 fill-black text-black" />
           </CtrlBtn>
         ) : (
-          <CtrlBtn title="Play" disabled={!active || atEnd} onClick={onPlay} highlight>
+          <CtrlBtn title="Play (Space)" disabled={!active || atEnd} onClick={onPlay} highlight>
             <Play className="w-3.5 h-3.5 fill-black text-black ml-0.5" />
           </CtrlBtn>
         )}
 
-        <CtrlBtn title="Next candle" disabled={!active || atEnd || playing} onClick={onNext}>
+        <CtrlBtn title="Next candle (→ Right  |  Shift+→ ×10  |  Ctrl+→ ×50)" disabled={!active || atEnd || playing} onClick={onNext}>
           <ChevronRight className="w-3.5 h-3.5" />
         </CtrlBtn>
-        <CtrlBtn title="Stop replay — returns to full chart" disabled={!active} onClick={onStop}>
+        <CtrlBtn title="Stop replay (S)" disabled={!active} onClick={onStop}>
           <Square className="w-2.5 h-2.5 fill-red-500 text-red-500" />
         </CtrlBtn>
       </div>
