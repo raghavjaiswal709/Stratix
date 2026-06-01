@@ -10,6 +10,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import type { Candle, ControlsState, ReplayState, LiveStatus, ManualTrade, ReplaySpeed, Session, Drawing } from "./types";
+import { getLotSpec, snapLot } from "./lotSpecs";
 import { fetchCandleRange, clearCandleCache, resampleCandles, getLastFetchedSource } from "./dataFetcher";
 import {
   initialReplayState, enterSelectMode, confirmStartBar,
@@ -36,6 +37,9 @@ const formatPrice = (p: number) => {
 };
 
 export function BacktestingPage() {
+  // ── R/R drawing selected in chart (shown in side panel) ───────────────────
+  const [rrDrawing, setRRDrawing] = useState<Drawing | null>(null);
+
   // ── Session State & Local Storage Persistence ──────────────────────────────
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
@@ -69,8 +73,8 @@ export function BacktestingPage() {
   const [unrealised,    setUnrealised]   = useState(0);
   const [dataSource,    setDataSource]   = useState<string | null>(null);
 
-  // Active Symbol Lot Sizing & Settings
-  const [lotSize, setLotSize] = useState(10);
+  // Active Symbol Lot Sizing & Settings (starts at minimum for each instrument)
+  const [lotSize, setLotSize] = useState(0.01);
   const [activeTimeframe, setActiveTimeframe] = useState<"1m" | "5m" | "15m" | "1H" | "4H" | "1D">("15m");
 
   // ── Refs ─────────────────────────────────────────────────────────────────
@@ -210,9 +214,14 @@ export function BacktestingPage() {
     setUnrealised(0);
     setDataSource(null);
     
-    // Sync tracking engine with session's closed trades list
+    // Sync tracking engine with session's closed trades list and symbol
     trackerRef.current.reset();
+    trackerRef.current.setSymbol(session.symbol);
     trackerRef.current.closed = [...session.trades];
+
+    // Reset lot size to the instrument's minimum
+    const spec = getLotSpec(session.symbol);
+    setLotSize(spec.minLot);
 
     // Load data from the static CSV downloader or fall back to live API
     abortRef.current?.abort();
@@ -361,12 +370,38 @@ export function BacktestingPage() {
   // ── Timeframe resampling without re-fetching ──
   const handleTimeframeChange = (tf: typeof activeTimeframe) => {
     setActiveTimeframe(tf);
-    if (rawCandles.length > 0) {
-      const resampled = resampleCandles(rawCandles, tf);
-      setDisplay(resampled);
-      stopPlayTimer();
-      setReplay(initialReplayState());
-    }
+    if (rawCandles.length === 0) return;
+
+    const resampled = resampleCandles(rawCandles, tf);
+    setDisplay(resampled);
+    stopPlayTimer();
+
+    setReplay(prev => {
+      // If replay was not active, just reset normally
+      if (!prev.active) return initialReplayState();
+
+      // Replay IS active — remap startIdx and currentIdx to the new timeframe
+      // by finding the nearest candle time in the resampled array.
+      const startTime   = displayRef.current[prev.startIdx]?.time;
+      const currentTime = displayRef.current[prev.currentIdx]?.time;
+
+      const findIdx = (t: number | undefined) => {
+        if (!t) return 0;
+        // Find index of first resampled candle at or after the stored time
+        const i = resampled.findIndex(c => c.time >= t);
+        return i === -1 ? resampled.length - 1 : i;
+      };
+
+      const newStart   = findIdx(startTime);
+      const newCurrent = Math.max(newStart, findIdx(currentTime));
+
+      return {
+        ...prev,
+        startIdx:   newStart,
+        currentIdx: newCurrent,
+        playing:    false,   // always pause on TF change
+      };
+    });
   };
 
   // ── Replay Actions ──
@@ -404,6 +439,12 @@ export function BacktestingPage() {
   const handleJumpToStart = useCallback(() => {
     stopPlayTimer();
     setReplay(jumpToStart);
+  }, []);
+
+  // Restart from the very first candle of the replay (sets currentIdx back to startIdx)
+  const handleRestartFromStart = useCallback(() => {
+    stopPlayTimer();
+    setReplay(s => ({ ...s, currentIdx: s.startIdx, playing: false }));
   }, []);
 
   const handleSpeedChange = useCallback((speed: ReplaySpeed) => {
@@ -573,6 +614,7 @@ export function BacktestingPage() {
               // Custom drawings canvas support
               drawings={activeSession.drawings || []}
               onDrawingsChange={handleDrawingsChange}
+              onRRDrawingSelect={setRRDrawing}
             />
 
             {/* Floating Replay Controls (Curved Island Floating at bottom middle of chart) */}
@@ -588,6 +630,7 @@ export function BacktestingPage() {
                 onNext={handleNext}
                 onPrev={handlePrev}
                 onJumpToStart={handleJumpToStart}
+                onRestartFromStart={handleRestartFromStart}
                 onStop={handleStop}
                 onSpeedChange={handleSpeedChange}
               />
@@ -631,10 +674,17 @@ export function BacktestingPage() {
             symbol={activeSession.symbol}
             currentPrice={currentPrice}
             lotSize={lotSize}
-            onLotSizeChange={setLotSize}
+            onLotSizeChange={(v) => {
+              const spec = getLotSpec(activeSession.symbol);
+              setLotSize(snapLot(v, spec));
+            }}
             onBuy={handleBuy}
             onSell={handleSell}
-            
+
+            // R/R drawing from chart selection
+            rrDrawing={rrDrawing}
+            onOpenRROrder={(side) => side === "buy" ? handleBuy() : handleSell()}
+
             // Stats feeds
             totalTrades={activeMetrics.totalTrades}
             winRate={activeMetrics.winRate}

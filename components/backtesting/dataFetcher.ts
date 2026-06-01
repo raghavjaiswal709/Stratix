@@ -1,245 +1,245 @@
 // ─── dataFetcher.ts ───────────────────────────────────────────────────────────
-// Fetches historical candle data in monthly chunks, caches each month in memory,
-// and resamples 1-minute base data to any target timeframe on the client side.
+// Fetches historical candle data in monthly chunks, caches each month first in
+// IndexedDB (persists across refreshes) then in a fast in-memory Map.
+// Resamples 1-minute base data to any target timeframe on the client side.
 
 import type { Candle, InstrumentKey, Timeframe } from "./types";
 
-// In-memory cache: "INSTRUMENT-YYYY-MM" → raw 1m Candle[]
-const monthCache = new Map<string, Candle[]>();
+// ── IndexedDB persistence layer ───────────────────────────────────────────────
+const IDB_DB_NAME    = "stratix-candles-v1";
+const IDB_STORE      = "months";
+const IDB_TTL_MS     = 8 * 24 * 60 * 60 * 1000; // 8 days — historical data doesn't change
 
-// Track where the last backtest data was successfully loaded from
-let lastFetchedSource: "GitHub CDN" | "Local Static" | "Dukascopy API" = "Dukascopy API";
+let dbPromise: Promise<IDBDatabase | null> | null = null;
 
-export function getLastFetchedSource(): string {
-  return lastFetchedSource;
+function openIDB(): Promise<IDBDatabase | null> {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise<IDBDatabase | null>((resolve) => {
+    if (typeof indexedDB === "undefined") { resolve(null); return; }
+    const req = indexedDB.open(IDB_DB_NAME, 1);
+    req.onerror   = () => resolve(null);
+    req.onsuccess = () => resolve(req.result as IDBDatabase);
+    req.onupgradeneeded = (ev) => {
+      const db = (ev.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE, { keyPath: "key" });
+      }
+    };
+  }).catch(() => null);
+  return dbPromise;
 }
 
-// ── Timeframe bucket sizes in seconds ─────────────────────────────────────────
+async function idbGet(key: string): Promise<Candle[] | null> {
+  try {
+    const db = await openIDB();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      const tx  = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onerror   = () => resolve(null);
+      req.onsuccess = () => {
+        const rec = req.result as { key: string; data: Candle[]; ts: number } | undefined;
+        if (rec && Date.now() - rec.ts < IDB_TTL_MS) resolve(rec.data);
+        else resolve(null);
+      };
+    });
+  } catch { return null; }
+}
+
+async function idbSet(key: string, data: Candle[]): Promise<void> {
+  try {
+    const db = await openIDB();
+    if (!db) return;
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put({ key, data, ts: Date.now() });
+  } catch { /* silently ignore */ }
+}
+
+// ── In-memory cache (fastest path, lost on refresh) ──────────────────────────
+const memCache = new Map<string, Candle[]>();
+
+let lastFetchedSource: "IndexedDB" | "GitHub CDN" | "Local Static" | "Dukascopy API" = "Dukascopy API";
+
+export function getLastFetchedSource(): string { return lastFetchedSource; }
+
+// ── Timeframe resampling ──────────────────────────────────────────────────────
 
 const TF_SECONDS: Record<Timeframe, number> = {
-  "1m":  60,
-  "5m":  300,
-  "15m": 900,
-  "1H":  3600,
-  "4H":  14400,
-  "1D":  86400,
+  "1m": 60, "5m": 300, "15m": 900, "1H": 3600, "4H": 14400, "1D": 86400,
 };
 
-// Floor a unix-second timestamp to the start of its bucket for the given timeframe
 function getBucketTime(ts: number, tf: Timeframe): number {
-  const sec = TF_SECONDS[tf];
-  return Math.floor(ts / sec) * sec;
+  return Math.floor(ts / TF_SECONDS[tf]) * TF_SECONDS[tf];
 }
 
-// Resample an array of 1m candles into a larger timeframe
 export function resampleCandles(candles: Candle[], timeframe: Timeframe): Candle[] {
-  if (timeframe === "1m") return candles; // no resampling needed
+  if (timeframe === "1m") return candles;
   const buckets = new Map<number, Candle>();
-
   for (const c of candles) {
     const bt = getBucketTime(c.time, timeframe);
-    const existing = buckets.get(bt);
-    if (!existing) {
-      // First candle in this bucket becomes the open
+    const ex = buckets.get(bt);
+    if (!ex) {
       buckets.set(bt, { time: bt, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume });
     } else {
-      // Merge into existing bucket
-      existing.high   = Math.max(existing.high, c.high);
-      existing.low    = Math.min(existing.low, c.low);
-      existing.close  = c.close; // last close wins
-      existing.volume += c.volume;
+      ex.high   = Math.max(ex.high, c.high);
+      ex.low    = Math.min(ex.low,  c.low);
+      ex.close  = c.close;
+      ex.volume += c.volume;
     }
   }
-
-  // Return buckets sorted by time
   return Array.from(buckets.values()).sort((a, b) => a.time - b.time);
 }
 
-// Helper to parse static CSV candle data in the browser
+// ── CSV parser ────────────────────────────────────────────────────────────────
+
 function parseCandlesCSV(text: string): Candle[] {
   const lines = text.split(/\r?\n/);
   if (lines.length < 2) return [];
-
-  const headers = lines[0].split(",");
-  const timeIdx = headers.indexOf("time");
-  const openIdx = headers.indexOf("open");
-  const highIdx = headers.indexOf("high");
-  const lowIdx = headers.indexOf("low");
-  const closeIdx = headers.indexOf("close");
-  const volumeIdx = headers.indexOf("volume");
-
-  if (timeIdx === -1 || openIdx === -1 || highIdx === -1 || lowIdx === -1 || closeIdx === -1 || volumeIdx === -1) {
-    throw new Error("Invalid CSV format: missing required headers");
-  }
-
-  const candles: Candle[] = [];
+  const h = lines[0].split(",");
+  const ti = h.indexOf("time"), oi = h.indexOf("open"),
+        hi = h.indexOf("high"), li = h.indexOf("low"),
+        ci = h.indexOf("close"), vi = h.indexOf("volume");
+  if ([ti, oi, hi, li, ci, vi].some(i => i === -1)) throw new Error("Invalid CSV format");
+  const out: Candle[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const parts = line.split(",");
-    if (parts.length < 6) continue;
-
-    candles.push({
-      time:   parseInt(parts[timeIdx], 10),
-      open:   parseFloat(parts[openIdx]),
-      high:   parseFloat(parts[highIdx]),
-      low:    parseFloat(parts[lowIdx]),
-      close:  parseFloat(parts[closeIdx]),
-      volume: parseFloat(parts[volumeIdx]),
-    });
+    const p = lines[i].trim().split(",");
+    if (p.length < 6) continue;
+    out.push({ time: parseInt(p[ti], 10), open: parseFloat(p[oi]),
+      high: parseFloat(p[hi]), low: parseFloat(p[li]),
+      close: parseFloat(p[ci]), volume: parseFloat(p[vi]) });
   }
-  return candles;
+  return out;
 }
 
-// Fetch a single calendar month of 1m data from local CSV or the API
-// Returns cached result if available; skips and logs on error
+// ── Single month fetch with three-tier cache: mem → IDB → network ────────────
+
 async function fetchMonth(
   instrument: InstrumentKey,
   year: number,
-  month: number, // 0-indexed (Jan=0)
+  month: number,   // 0-indexed
   signal?: AbortSignal,
 ): Promise<Candle[]> {
   const key = `${instrument}-${year}-${String(month + 1).padStart(2, "0")}`;
 
-  // Return cached data if already fetched
-  if (monthCache.has(key)) return monthCache.get(key)!;
+  // 1. In-memory (instant)
+  if (memCache.has(key)) return memCache.get(key)!;
+
+  // 2. IndexedDB (fast, persistent across refreshes)
+  const cached = await idbGet(key);
+  if (cached) {
+    memCache.set(key, cached);
+    lastFetchedSource = "IndexedDB";
+    return cached;
+  }
 
   const monthStr = String(month + 1).padStart(2, "0");
+  const set = (data: Candle[]) => { memCache.set(key, data); idbSet(key, data); return data; };
 
-  // Load from static CSV if available for any instrument
+  // 3. Local / CDN static CSV
   const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
   const csvUrl = `${baseCandlesUrl}/${instrument}/${instrument}_${year}_${monthStr}.csv`;
-
   try {
     const res = await fetch(csvUrl, { signal });
     if (res.ok) {
-      const csvText = await res.text();
-      const candles = parseCandlesCSV(csvText);
-      monthCache.set(key, candles);
-
-      if (csvUrl.startsWith("https://cdn.jsdelivr.net")) {
-        lastFetchedSource = "GitHub CDN";
-      } else {
-        lastFetchedSource = "Local Static";
-      }
-
-      return candles;
+      const data = parseCandlesCSV(await res.text());
+      lastFetchedSource = csvUrl.startsWith("https://cdn.jsdelivr.net") ? "GitHub CDN" : "Local Static";
+      return set(data);
     }
-    console.warn(`[dataFetcher] Static CSV not found (${csvUrl}), trying local fallback`);
   } catch (err: unknown) {
     if ((err as Error).name === "AbortError") throw err;
-    console.warn(`[dataFetcher] Static CSV fetch failed for ${key}, trying local fallback:`, (err as Error).message);
   }
 
-  // ─── Local public directory fallback ───
+  // 4. NEXT_PUBLIC_CANDLES_URL local fallback
   if (process.env.NEXT_PUBLIC_CANDLES_URL) {
-    const localCsvUrl = `/data/candles/${instrument}/${instrument}_${year}_${monthStr}.csv`;
+    const localUrl = `/data/candles/${instrument}/${instrument}_${year}_${monthStr}.csv`;
     try {
-      const res = await fetch(localCsvUrl, { signal });
+      const res = await fetch(localUrl, { signal });
       if (res.ok) {
-        const csvText = await res.text();
-        const candles = parseCandlesCSV(csvText);
-        monthCache.set(key, candles);
+        const data = parseCandlesCSV(await res.text());
         lastFetchedSource = "Local Static";
-        return candles;
+        return set(data);
       }
-      console.warn(`[dataFetcher] Local static CSV not found (${localCsvUrl}), falling back to API`);
     } catch (err: unknown) {
       if ((err as Error).name === "AbortError") throw err;
-      console.warn(`[dataFetcher] Local static CSV fetch failed for ${key}, falling back to API:`, (err as Error).message);
     }
   }
 
-  // Fallback API path (or for non-xauusd instruments)
-  const from = new Date(Date.UTC(year, month, 1));
-  const to   = new Date(Date.UTC(year, month + 1, 1)); // first day of next month
-
+  // 5. Dukascopy API (slowest, always fresh)
+  const from = new Date(Date.UTC(year, month,     1));
+  const to   = new Date(Date.UTC(year, month + 1, 1));
   const params = new URLSearchParams({
-    instrument,
-    timeframe: "1m",
+    instrument, timeframe: "1m",
     from: from.toISOString().slice(0, 10),
     to:   to.toISOString().slice(0, 10),
   });
-
   try {
     const res = await fetch(`/api/backtesting/candles?${params}`, { signal });
     if (!res.ok) {
-      const body = await res.json().catch(() => ({})) as { error?: string };
-      console.warn(`[dataFetcher] Skipping ${key} API fallback: HTTP ${res.status} — ${body.error ?? ""}`);
+      const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+      console.warn(`[dataFetcher] Skipping ${key}: HTTP ${res.status} —`, (body as { error?: string }).error ?? "");
       return [];
     }
     const json = await res.json() as { candles?: Candle[] };
-    const candles = json.candles ?? [];
-    // Cache the successful result
-    monthCache.set(key, candles);
+    const data = json.candles ?? [];
     lastFetchedSource = "Dukascopy API";
-    return candles;
+    return set(data);
   } catch (err: unknown) {
-    if ((err as Error).name === "AbortError") throw err; // propagate cancellation
-    console.warn(`[dataFetcher] Skipping ${key} API fallback: fetch failed —`, (err as Error).message);
+    if ((err as Error).name === "AbortError") throw err;
+    console.warn(`[dataFetcher] Skipping ${key}: fetch failed —`, (err as Error).message);
     return [];
   }
 }
 
-// Build a list of { year, month } tuples covering fromDate..toDate (inclusive)
-function buildMonthList(fromDate: Date, toDate: Date): { year: number; month: number; label: string }[] {
+// ── Build list of calendar months covering a date range ───────────────────────
+
+function buildMonthList(from: Date, to: Date) {
+  const NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const months: { year: number; month: number; label: string }[] = [];
-  const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-  let y = fromDate.getUTCFullYear();
-  let m = fromDate.getUTCMonth();
-  const endY = toDate.getUTCFullYear();
-  const endM = toDate.getUTCMonth();
-
-  while (y < endY || (y === endY && m <= endM)) {
-    months.push({ year: y, month: m, label: `${MONTH_NAMES[m]} ${y}` });
-    m++;
-    if (m > 11) { m = 0; y++; }
+  let y = from.getUTCFullYear(), m = from.getUTCMonth();
+  const ey = to.getUTCFullYear(), em = to.getUTCMonth();
+  while (y < ey || (y === ey && m <= em)) {
+    months.push({ year: y, month: m, label: `${NAMES[m]} ${y}` });
+    if (++m > 11) { m = 0; y++; }
   }
   return months;
 }
 
-// Fetch all 1m data for the given date range using monthly chunks, then resample
+// ── Public API ────────────────────────────────────────────────────────────────
+
 export async function fetchCandleRange(
   instrument: InstrumentKey,
-  fromDate: string,  // YYYY-MM-DD
-  toDate: string,    // YYYY-MM-DD
+  fromDate: string,
+  toDate: string,
   onProgress: (pct: number, label: string) => void,
   signal?: AbortSignal,
 ): Promise<Candle[]> {
-  const from  = new Date(fromDate + "T00:00:00Z");
-  const to    = new Date(toDate   + "T00:00:00Z");
+  const from   = new Date(fromDate + "T00:00:00Z");
+  const to     = new Date(toDate   + "T00:00:00Z");
   const months = buildMonthList(from, to);
-
   if (months.length === 0) return [];
 
-  const allCandles: Candle[] = [];
-
+  const all: Candle[] = [];
   for (let i = 0; i < months.length; i++) {
     const { year, month, label } = months[i];
-    const pct = Math.round(((i) / months.length) * 100);
-    onProgress(pct, `Loading ${label}… (${i + 1}/${months.length})`);
-
+    onProgress(Math.round((i / months.length) * 100), `Loading ${label}… (${i + 1}/${months.length})`);
     const data = await fetchMonth(instrument, year, month, signal);
-    allCandles.push(...data);
+    all.push(...data);
   }
-
   onProgress(100, "Done");
 
-  // Deduplicate and sort (safety against overlapping month boundaries)
+  // Deduplicate, sort, trim to exact range
   const seen = new Set<number>();
-  const clean: Candle[] = [];
-  for (const c of allCandles.sort((a, b) => a.time - b.time)) {
-    if (!seen.has(c.time)) { seen.add(c.time); clean.push(c); }
-  }
-
-  // Trim to exact date range requested
   const fromTs = from.getTime() / 1000;
   const toTs   = to.getTime()   / 1000;
-  return clean.filter(c => c.time >= fromTs && c.time < toTs);
+  return all
+    .sort((a, b) => a.time - b.time)
+    .filter(c => {
+      if (c.time < fromTs || c.time >= toTs || seen.has(c.time)) return false;
+      seen.add(c.time); return true;
+    });
 }
 
-// Clear the entire candle cache (e.g. on instrument switch)
 export function clearCandleCache(): void {
-  monthCache.clear();
+  memCache.clear();
+  // Leave IDB intact — it's meant to persist across refreshes
 }

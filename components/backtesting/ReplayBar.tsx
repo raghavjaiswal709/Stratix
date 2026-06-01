@@ -6,7 +6,7 @@
 
 import type { ReplayState, ReplaySpeed } from "./types";
 import {
-  Play, Pause, ChevronsLeft, ChevronLeft, ChevronRight, Square, Star
+  Play, Pause, ChevronsLeft, ChevronLeft, ChevronRight, Square, RotateCcw
 } from "lucide-react";
 
 const SPEEDS: ReplaySpeed[] = [0.5, 1, 2, 5, 10, "max"];
@@ -22,13 +22,15 @@ interface Props {
   onNext:           () => void;
   onPrev:           () => void;
   onJumpToStart:    () => void;
+  onRestartFromStart: () => void;   // show only the first replay candle
   onStop:           () => void;
   onSpeedChange:    (speed: ReplaySpeed) => void;
 }
 
 export function ReplayBar({
   replay, currentCandle, totalCandles, hasData,
-  onSelectStart, onPlay, onPause, onNext, onPrev, onJumpToStart, onStop,
+  onSelectStart, onPlay, onPause, onNext, onPrev,
+  onJumpToStart, onRestartFromStart, onStop,
   onSpeedChange,
 }: Props) {
   const { active, playing, currentIdx, startIdx, speed, selectingStart } = replay;
@@ -60,6 +62,9 @@ export function ReplayBar({
 
       {/* ── Transport buttons ─────────────────────────────────────────── */}
       <div className="flex items-center gap-1.5">
+        <CtrlBtn title="Restart — show only the first replay candle" disabled={!active} onClick={onRestartFromStart}>
+          <RotateCcw className="w-3 h-3" />
+        </CtrlBtn>
         <CtrlBtn title="Jump to start" disabled={!active || atStart} onClick={onJumpToStart}>
           <ChevronsLeft className="w-3.5 h-3.5" />
         </CtrlBtn>
@@ -119,7 +124,15 @@ export function ReplayBar({
               {"/"}{totalCandles - startIdx - 1}
             </span>
             <span className="text-gray-400">
-              {new Date(currentCandle.time * 1000).toISOString().replace("T", " ").slice(0, 16)}
+              {new Date(currentCandle.time * 1000).toLocaleString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+              }).replace(',', '')} IST
             </span>
             <span className="text-[#F0B90B] font-bold">{currentCandle.close.toFixed(2)}</span>
           </div>

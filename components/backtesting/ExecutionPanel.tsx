@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Minus, TrendingUp, TrendingDown } from "lucide-react";
+import type { Drawing } from "./types";
+import { getLotSpec, pipValue, snapLot } from "./lotSpecs";
 
 interface Props {
   symbol: string;
@@ -10,7 +12,11 @@ interface Props {
   onLotSizeChange: (lots: number) => void;
   onBuy: () => void;
   onSell: () => void;
-  
+
+  // R/R drawing selected/previewed in chart
+  rrDrawing?: Drawing | null;
+  onOpenRROrder?: (side: "buy" | "sell") => void;
+
   // Real-time session stats
   totalTrades: number;
   winRate: number;
@@ -20,13 +26,37 @@ interface Props {
 
 export function ExecutionPanel({
   symbol, currentPrice, lotSize, onLotSizeChange, onBuy, onSell,
+  rrDrawing, onOpenRROrder,
   totalTrades, winRate, totalPnl, profitFactor
 }: Props) {
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // Lot spec for the active instrument
+  const spec = getLotSpec(symbol);
+
   // Format price beautifully: e.g. 1.17455
   const formattedPrice = currentPrice > 0 ? currentPrice.toFixed(5) : "—";
+
+  // Pip value per lot at current price (for display)
+  const pvPerLot = currentPrice > 0
+    ? pipValue(spec, lotSize, currentPrice)
+    : null;
+
+  // Lot display format: 2 decimals for step < 0.1, 1 decimal otherwise
+  const lotDecimals = spec.lotStep < 0.1 ? 2 : 1;
+  const fmtLot = (n: number) => n.toFixed(lotDecimals);
+
+  // Price formatter for R/R panel
+  const fmtP = (n: number) => {
+    if (n < 0.001) return n.toFixed(8);
+    if (n < 0.01)  return n.toFixed(7);
+    if (n < 0.1)   return n.toFixed(6);
+    if (n < 1)     return n.toFixed(5);
+    if (n < 10)    return n.toFixed(4);
+    if (n < 100)   return n.toFixed(3);
+    return n.toFixed(2);
+  };
 
   return (
     <div className="w-full h-full flex flex-col bg-transparent text-white/65 select-none font-sans">
@@ -84,33 +114,92 @@ export function ExecutionPanel({
           </button>
         </div>
 
-        {/* Lots size increment controller */}
+        {/* ── Lot size controller (MT5-accurate) ── */}
         <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Volume</span>
-          <div className="flex items-center bg-white/[0.04] border border-white/[0.08] rounded-lg overflow-hidden p-1.5 gap-2">
-            <button
-              onClick={() => onLotSizeChange(Math.max(1, lotSize - 10))}
-              className="p-1 rounded-md text-white/40 hover:text-white hover:bg-white/[0.06] active:scale-90 transition-all shrink-0"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <div className="flex-1 flex items-baseline justify-center gap-1">
-              <input
-                type="number"
-                value={lotSize}
-                onChange={(e) => onLotSizeChange(Number(e.target.value))}
-                min={1}
-                className="w-16 bg-transparent text-center text-sm font-bold text-white font-mono focus:outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              />
-              <span className="text-[10px] text-white/35 font-bold uppercase">Lots</span>
-            </div>
-            <button
-              onClick={() => onLotSizeChange(lotSize + 10)}
-              className="p-1 rounded-md text-white/40 hover:text-white hover:bg-white/[0.06] active:scale-90 transition-all shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Volume (Lots)</span>
+            <span className="text-[9px] text-white/25 font-mono">
+              min {fmtLot(spec.minLot)} · step {fmtLot(spec.lotStep)}
+            </span>
           </div>
+
+          {/* Increment strip: ×0.1 ×1 ×10 on left, main control center, mirror on right */}
+          <div className="flex items-center gap-1.5">
+            {/* Quick sub-steps (left) */}
+            <div className="flex flex-col gap-0.5">
+              {[10, 1, 0.1].map(mult => {
+                const delta = +(spec.lotStep * mult).toFixed(2);
+                return (
+                  <button
+                    key={mult}
+                    onClick={() => onLotSizeChange(snapLot(lotSize - delta, spec))}
+                    className="px-1.5 py-0.5 rounded text-[8px] font-bold font-mono text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
+                    title={`-${fmtLot(delta)} lots`}
+                  >
+                    -{fmtLot(delta)}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Main input */}
+            <div className="flex-1 flex flex-col items-center gap-0.5 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onLotSizeChange(snapLot(lotSize - spec.lotStep, spec))}
+                  className="p-0.5 rounded text-white/35 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+                <input
+                  type="number"
+                  value={fmtLot(lotSize)}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    if (!isNaN(v)) onLotSizeChange(snapLot(v, spec));
+                  }}
+                  min={spec.minLot}
+                  max={spec.maxLot}
+                  step={spec.lotStep}
+                  className="w-16 bg-transparent text-center text-[15px] font-bold text-white font-mono focus:outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <button
+                  onClick={() => onLotSizeChange(snapLot(lotSize + spec.lotStep, spec))}
+                  className="p-0.5 rounded text-white/35 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              </div>
+              <span className="text-[9px] text-white/25 font-mono">lots</span>
+            </div>
+
+            {/* Quick add-steps (right) */}
+            <div className="flex flex-col gap-0.5">
+              {[0.1, 1, 10].map(mult => {
+                const delta = +(spec.lotStep * mult).toFixed(2);
+                return (
+                  <button
+                    key={mult}
+                    onClick={() => onLotSizeChange(snapLot(lotSize + delta, spec))}
+                    className="px-1.5 py-0.5 rounded text-[8px] font-bold font-mono text-white/30 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer"
+                    title={`+${fmtLot(delta)} lots`}
+                  >
+                    +{fmtLot(delta)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Pip value display */}
+          {pvPerLot != null && (
+            <div className="flex items-center justify-between text-[9px] font-mono px-0.5">
+              <span className="text-white/25">Pip value ({fmtLot(lotSize)} lot)</span>
+              <span className="text-white/50 font-bold">
+                ${pvPerLot < 0.01 ? pvPerLot.toFixed(4) : pvPerLot < 1 ? pvPerLot.toFixed(3) : pvPerLot.toFixed(2)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Advanced Accordion */}
@@ -144,6 +233,78 @@ export function ExecutionPanel({
         </div>
 
         <div className="flex-1" />
+
+        {/* ── Risk / Reward Panel (shown when long/short drawing is selected) ── */}
+        {rrDrawing && rrDrawing.riskSettings && (
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden shrink-0">
+            {/* Header */}
+            <div className={`px-3.5 py-2.5 border-b border-white/[0.06] flex items-center gap-2 ${
+              rrDrawing.type === "long" ? "bg-emerald-500/[0.07]" : "bg-red-500/[0.07]"
+            }`}>
+              {rrDrawing.type === "long"
+                ? <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                : <TrendingDown className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                rrDrawing.type === "long" ? "text-emerald-400" : "text-red-400"
+              }`}>
+                {rrDrawing.type === "long" ? "Long" : "Short"} Position
+              </span>
+              <span className="ml-auto text-[9px] font-bold text-white/30 font-mono">
+                R/R 1:{rrDrawing.riskSettings.riskRewardRatio.toFixed(2)}
+              </span>
+            </div>
+
+            {/* Price levels */}
+            <div className="px-3.5 py-3 flex flex-col gap-2 font-mono text-[11px]">
+              {/* Entry */}
+              <div className="flex items-center justify-between">
+                <span className="text-white/40 text-[9px] uppercase font-semibold tracking-wide">Entry</span>
+                <span className="text-white font-bold">{fmtP(rrDrawing.riskSettings.entry)}</span>
+              </div>
+              {/* Stop Loss */}
+              <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-red-500/[0.07] border border-red-500/[0.12]">
+                <span className="text-red-400/70 text-[9px] uppercase font-semibold tracking-wide">Stop Loss</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[8px] text-white/20 font-mono">
+                    {Math.abs(rrDrawing.riskSettings.entry - rrDrawing.riskSettings.stopLoss).toFixed(
+                      rrDrawing.riskSettings.entry < 10 ? 5 : rrDrawing.riskSettings.entry < 100 ? 4 : 2
+                    )} pts
+                  </span>
+                  <span className="text-red-400 font-bold">{fmtP(rrDrawing.riskSettings.stopLoss)}</span>
+                </div>
+              </div>
+              {/* Take Profit */}
+              <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-emerald-500/[0.07] border border-emerald-500/[0.12]">
+                <span className="text-emerald-400/70 text-[9px] uppercase font-semibold tracking-wide">Take Profit</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[8px] text-white/20 font-mono">
+                    {Math.abs(rrDrawing.riskSettings.entry - rrDrawing.riskSettings.takeProfit).toFixed(
+                      rrDrawing.riskSettings.entry < 10 ? 5 : rrDrawing.riskSettings.entry < 100 ? 4 : 2
+                    )} pts
+                  </span>
+                  <span className="text-emerald-400 font-bold">{fmtP(rrDrawing.riskSettings.takeProfit)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Execute button */}
+            {onOpenRROrder && (
+              <div className="px-3.5 pb-3.5">
+                <button
+                  onClick={() => onOpenRROrder(rrDrawing.type === "long" ? "buy" : "sell")}
+                  className={`w-full py-2 rounded-lg font-bold text-[12px] tracking-tight transition-all active:scale-95 cursor-pointer ${
+                    rrDrawing.type === "long"
+                      ? "bg-emerald-600 hover:bg-emerald-500 text-white"
+                      : "bg-red-600 hover:bg-red-500 text-white"
+                  }`}
+                >
+                  {rrDrawing.type === "long" ? "Open Long" : "Open Short"}
+                </button>
+                <p className="text-[8px] text-white/20 text-center mt-1.5">Opens at current candle price</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Real-time Session Stats Card */}
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 flex flex-col gap-3 shrink-0">

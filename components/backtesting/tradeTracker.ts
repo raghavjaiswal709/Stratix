@@ -1,18 +1,25 @@
 // ─── tradeTracker.ts ─────────────────────────────────────────────────────────
 // Tracks manually placed trades during bar replay.
-// BUY = enter LONG (or flip from SHORT); SELL = enter SHORT (or flip from LONG).
+// P&L is calculated with proper MT5-style formulas using LotSpec.
 
 import type { Candle, ManualTrade, ReplayMetrics } from "./types";
+import { getLotSpec, calcPnl, calcUnrealisedPnl } from "./lotSpecs";
 
 export class TradeTracker {
   private nextId = 1;
-  open:   ManualTrade | null  = null;
-  closed: ManualTrade[]       = [];
+  private symbol = "xauusd";   // tracks which instrument we're on
+  open:   ManualTrade | null = null;
+  closed: ManualTrade[]      = [];
 
-  // Enter a trade — if already in the same direction, ignore; if opposite, close then open
+  setSymbol(symbol: string): void {
+    this.symbol = symbol.toLowerCase();
+  }
+
+  // Enter a trade. If already in the same direction, ignore.
+  // If opposite direction, close then open.
   enter(direction: "LONG" | "SHORT", candle: Candle, lotSize: number): boolean {
-    if (this.open?.direction === direction) return false; // already in this direction, ignore
-    if (this.open) this.close(candle);                   // flip: close opposite first
+    if (this.open?.direction === direction) return false;
+    if (this.open) this.close(candle);
 
     this.open = {
       id:         this.nextId++,
@@ -24,14 +31,20 @@ export class TradeTracker {
     return true;
   }
 
-  // Close the open trade at the given candle's close price
+  // Close the open trade at the given candle's close price.
   close(candle: Candle): ManualTrade | null {
     if (!this.open) return null;
 
-    const mult     = this.open.direction === "LONG" ? 1 : -1;
-    const priceDiff = (candle.close - this.open.entryPrice) * mult;
-    const pnl      = (priceDiff / this.open.entryPrice) * this.open.lotSize;
-    const pnlPct   = (priceDiff / this.open.entryPrice) * 100;
+    const spec = getLotSpec(this.symbol);
+    const pnl  = calcPnl(
+      this.open.direction,
+      this.open.entryPrice,
+      candle.close,
+      this.open.lotSize,
+      spec,
+    );
+    const pnlPct = ((candle.close - this.open.entryPrice) / this.open.entryPrice) *
+      (this.open.direction === "LONG" ? 100 : -100);
 
     const closed: ManualTrade = {
       ...this.open,
@@ -46,14 +59,19 @@ export class TradeTracker {
     return closed;
   }
 
-  // Compute unrealized P&L for the open trade at the current price
+  // Unrealised P&L for the open trade at the current price.
   unrealizedPnl(currentPrice: number): number {
     if (!this.open) return 0;
-    const mult = this.open.direction === "LONG" ? 1 : -1;
-    return mult * ((currentPrice - this.open.entryPrice) / this.open.entryPrice) * this.open.lotSize;
+    const spec = getLotSpec(this.symbol);
+    return calcUnrealisedPnl(
+      this.open.direction,
+      this.open.entryPrice,
+      currentPrice,
+      this.open.lotSize,
+      spec,
+    );
   }
 
-  // Reset all trade state
   reset(): void {
     this.open   = null;
     this.closed = [];
@@ -61,7 +79,7 @@ export class TradeTracker {
   }
 }
 
-// Compute summary metrics from a list of closed manual trades
+// Compute summary metrics from a list of closed manual trades.
 export function computeMetrics(trades: ManualTrade[], initialCapital: number): ReplayMetrics {
   if (trades.length === 0) {
     return {
@@ -71,15 +89,13 @@ export function computeMetrics(trades: ManualTrade[], initialCapital: number): R
     };
   }
 
-  const pnls   = trades.map(t => t.pnl ?? 0);
-  const wins   = pnls.filter(p => p > 0);
-  const losses = pnls.filter(p => p <= 0);
-  const totalPnl = pnls.reduce((a, b) => a + b, 0);
-
+  const pnls        = trades.map(t => t.pnl ?? 0);
+  const wins        = pnls.filter(p => p > 0);
+  const losses      = pnls.filter(p => p <= 0);
+  const totalPnl    = pnls.reduce((a, b) => a + b, 0);
   const grossProfit = wins.reduce((a, b) => a + b, 0);
   const grossLoss   = Math.abs(losses.reduce((a, b) => a + b, 0));
 
-  // Build equity curve over time
   let equity = initialCapital;
   const equityCurve = trades.map(t => {
     equity += t.pnl ?? 0;

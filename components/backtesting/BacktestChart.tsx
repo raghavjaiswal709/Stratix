@@ -18,6 +18,9 @@ import {
   Trash2, Search,
   Magnet, Lock, Unlock, Eye, EyeOff, PenTool,
   Settings, X, Star, GripVertical,
+  TrendingUp, BarChart2, Clock,
+  ChevronDown, ChevronUp, Minus, Plus as PlusIcon,
+  Activity, Layers,
 } from "lucide-react";
 
 interface Props {
@@ -34,6 +37,7 @@ interface Props {
   isInReplay:          boolean;
   onBuy:               () => void;
   onSell:              () => void;
+  onRRDrawingSelect?:  (drawing: Drawing | null) => void;
   drawings:            Drawing[];
   onDrawingsChange:    (drawings: Drawing[]) => void;
   symbol?:             string;
@@ -58,7 +62,7 @@ const TOOL_POINTS: Partial<Record<DrawingType, number>> = {
   hline: 1, vline: 1, smiley: 1,
   trendline: 2, ray: 2, arrow: 2, rectangle: 2, circle: 2, fib: 2,
   long: 2, short: 2, ruler: 2, text: 1,
-  channel: 3, triangle: 3, patterns: 2,
+  channel: 3, triangle: 3, patterns: 5,
 };
 
 const CHART_BG = "#0f0f0f";
@@ -81,6 +85,7 @@ export function BacktestChart({
   candles, replayIndex, replayStartIndex, isSelectingStart,
   onStartBarSelect, manualTrades, openTrade, openTradeUnrealised,
   liveCandle, liveStatus, drawings, onDrawingsChange, settings, onSettingsChange,
+  onBuy, onSell, onRRDrawingSelect,
 }: Props) {
   const containerRef    = useRef<HTMLDivElement>(null);
   const chartRef        = useRef<IChartApi | null>(null);
@@ -99,8 +104,11 @@ export function BacktestChart({
   const [draggingAnchor, setDraggingAnchor]         = useState<{ drawingId: string; pointIndex: number } | null>(null);
   const isDraggingDrawingRef                         = useRef(false);
 
-  // Price scale margins for expand/contract zooming
-  const [margins, setMargins] = useState({ top: 0.2, bottom: 0.1 });
+  // Price scale margins — ref-only (no React state) for stable, flicker-free zoom
+  const marginsRef = useRef({ top: 0.20, bottom: 0.10 });
+  // Whether Y-axis lock is active — needs a ref so the wheel handler (created once) stays current
+  const isYLockedRef = useRef(settings.isYAxisLocked);
+  useEffect(() => { isYLockedRef.current = settings.isYAxisLocked; }, [settings.isYAxisLocked]);
 
   // Draggable Favorites Toolbar Position & Dragging State
   const [favsPos, setFavsPos] = useState<{ x: number | null; y: number }>({ x: null, y: 12 });
@@ -161,9 +169,256 @@ export function BacktestChart({
     setLocalDrawings(drawings || []);
   }, [drawings]);
 
+  // ── Undo / Redo history ───────────────────────────────────────────────────
+  // Each entry is a snapshot of localDrawings BEFORE the change.
+  const undoStack = useRef<Drawing[][]>([]);
+  const redoStack = useRef<Drawing[][]>([]);
+
+  // Wrap onDrawingsChange so every external change is preceded by a history push.
+  const commitDrawings = useCallback((next: Drawing[]) => {
+    undoStack.current.push([...localDrawingsRef.current]);
+    if (undoStack.current.length > 60) undoStack.current.shift();
+    redoStack.current = [];               // new action clears redo future
+    onDrawingsChange(next);
+  }, [onDrawingsChange]);
+
   const [stayInDrawingMode, setStayInDrawingMode] = useState(false);
   const [isLocked, setIsLocked]                   = useState(false);
   const [areDrawingsHidden, setAreDrawingsHidden] = useState(false);
+
+  // Ref for rrDrawingSelect (avoid stale closure in effects)
+  const onRRDrawingSelectRef = useRef(onRRDrawingSelect);
+  useEffect(() => { onRRDrawingSelectRef.current = onRRDrawingSelect; }, [onRRDrawingSelect]);
+
+  // ── Indicator Panel ────────────────────────────────────────────────────────
+  const [indicatorPanelOpen, setIndicatorPanelOpen] = useState(false);
+  const [indicatorCfg, setIndicatorCfg] = useState({
+    sma:  { active: false, period: 20, color: "#f59e0b" },
+    sma2: { active: false, period: 50, color: "#ec4899" },
+    ema:  { active: false, period: 9,  color: "#10b981" },
+    ema2: { active: false, period: 21, color: "#14b8a6" },
+    bb:   { active: false, period: 20, stddev: 2, color: "#a3a3a3" },
+    vwap: { active: false, color: "#f97316" },
+    rsi:  { active: false, period: 14 },
+  });
+  // Refs for indicator series
+  const smaSeriesRef  = useRef<ISeriesApi<"Line"> | null>(null);
+  const sma2SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const emaSeriesRef  = useRef<ISeriesApi<"Line"> | null>(null);
+  const ema2SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbUpperRef    = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbMiddleRef   = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbLowerRef    = useRef<ISeriesApi<"Line"> | null>(null);
+  const vwapSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const rsiSeriesRef  = useRef<ISeriesApi<"Line"> | null>(null);
+
+  // ── Sessions Indicator ────────────────────────────────────────────────────
+  const [sessionsPanelOpen, setSessionsPanelOpen] = useState(false);
+  const [sessionsCfg, setSessionsCfg] = useState({
+    asian:  { active: true, color: "#22d3ee", opacity: 0.0, startH: 5, startM: 30, endH: 9, endM: 30 },
+    london: { active: true, color: "#f59e0b", opacity: 0.0, startH: 11, startM: 30, endH: 14, endM: 30 },
+    ny:     { active: true, color: "#c084fc", opacity: 0.0, startH: 16, startM: 30, endH: 21, endM: 30 },
+  });
+
+  // ── Hover X position for the "select start" vertical guide line ──────────
+  const [selectHoverX, setSelectHoverX] = useState<number | null>(null);
+
+  // ── Rectangle edge handle dragging (constrained to one axis) ─────────────
+  const [draggingEdge, setDraggingEdge] = useState<{
+    drawingId: string; pointIndex: number; axis: "x" | "y";
+  } | null>(null);
+  const draggingEdgeRef = useRef<typeof draggingEdge>(null);
+  useEffect(() => { draggingEdgeRef.current = draggingEdge; }, [draggingEdge]);
+
+  // ── Emit selected/previewed long-short drawing to side panel ─────────────
+  useEffect(() => {
+    const emit = onRRDrawingSelectRef.current;
+    if (!emit) return;
+    // While actively creating a long/short tool
+    if ((activeTool === "long" || activeTool === "short") && previewDrawing) {
+      emit(previewDrawing); return;
+    }
+    // An existing long/short drawing is selected
+    if (selectedDrawingId) {
+      const found = localDrawings.find(d => d.id === selectedDrawingId);
+      if (found && (found.type === "long" || found.type === "short")) {
+        emit(found); return;
+      }
+    }
+    emit(null);
+  }); // intentionally runs on every render — cheap and always correct
+
+  // ── Indicator math helpers ────────────────────────────────────────────────
+  const calcSMA = (cs: Candle[], p: number) => {
+    if (cs.length < p) return [] as {time: number; value: number}[];
+    const out: {time:number;value:number}[] = [];
+    let sum = 0;
+    for (let i = 0; i < p; i++) sum += cs[i].close;
+    out.push({ time: cs[p-1].time, value: +(sum/p).toFixed(8) });
+    for (let i = p; i < cs.length; i++) {
+      sum += cs[i].close - cs[i-p].close;
+      out.push({ time: cs[i].time, value: +(sum/p).toFixed(8) });
+    }
+    return out;
+  };
+
+  const calcEMA = (cs: Candle[], p: number) => {
+    if (cs.length < p) return [] as {time:number;value:number}[];
+    const out: {time:number;value:number}[] = [];
+    let sum = 0;
+    for (let i = 0; i < p; i++) sum += cs[i].close;
+    let ema = sum / p;
+    const k = 2 / (p + 1);
+    out.push({ time: cs[p-1].time, value: +ema.toFixed(8) });
+    for (let i = p; i < cs.length; i++) {
+      ema = cs[i].close * k + ema * (1 - k);
+      out.push({ time: cs[i].time, value: +ema.toFixed(8) });
+    }
+    return out;
+  };
+
+  const calcBB = (cs: Candle[], p: number, dev: number) => {
+    const upper: {time:number;value:number}[] = [];
+    const middle: {time:number;value:number}[] = [];
+    const lower: {time:number;value:number}[] = [];
+    for (let i = p - 1; i < cs.length; i++) {
+      let sum = 0;
+      for (let j = i - p + 1; j <= i; j++) sum += cs[j].close;
+      const sma = sum / p;
+      let varSum = 0;
+      for (let j = i - p + 1; j <= i; j++) varSum += Math.pow(cs[j].close - sma, 2);
+      const sd = Math.sqrt(varSum / p) * dev;
+      middle.push({ time: cs[i].time, value: +sma.toFixed(8) });
+      upper.push({ time: cs[i].time, value: +(sma + sd).toFixed(8) });
+      lower.push({ time: cs[i].time, value: +(sma - sd).toFixed(8) });
+    }
+    return { upper, middle, lower };
+  };
+
+  const calcVWAP = (cs: Candle[]) => {
+    let cumTPV = 0, cumVol = 0;
+    return cs.map(c => {
+      const tp = (c.high + c.low + c.close) / 3;
+      cumTPV += tp * c.volume; cumVol += c.volume;
+      return { time: c.time, value: +(cumVol > 0 ? cumTPV / cumVol : tp).toFixed(8) };
+    });
+  };
+
+  const calcRSI = (cs: Candle[], p: number) => {
+    if (cs.length < p + 1) return [] as {time:number;value:number}[];
+    const out: {time:number;value:number}[] = [];
+    let gains = 0, losses = 0;
+    for (let i = 1; i <= p; i++) {
+      const d = cs[i].close - cs[i-1].close;
+      if (d > 0) gains += d; else losses -= d;
+    }
+    let ag = gains / p, al = losses / p;
+    out.push({ time: cs[p].time, value: +(al === 0 ? 100 : 100 - 100/(1 + ag/al)).toFixed(2) });
+    for (let i = p + 1; i < cs.length; i++) {
+      const d = cs[i].close - cs[i-1].close;
+      ag = (ag * (p-1) + Math.max(0, d)) / p;
+      al = (al * (p-1) + Math.max(0, -d)) / p;
+      out.push({ time: cs[i].time, value: +(al === 0 ? 100 : 100 - 100/(1 + ag/al)).toFixed(2) });
+    }
+    return out;
+  };
+
+  // ── Indicator series management ───────────────────────────────────────────
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || candles.length === 0) return;
+
+    const mkLine = (color: string, width: number, title: string, scaleId = "right") =>
+      chart.addLineSeries({ color, lineWidth: width as any, title, priceScaleId: scaleId,
+        lastValueVisible: true, priceLineVisible: false });
+
+    // SMA
+    if (indicatorCfg.sma.active) {
+      if (!smaSeriesRef.current) smaSeriesRef.current = mkLine(indicatorCfg.sma.color, 1.5, `SMA(${indicatorCfg.sma.period})`);
+      smaSeriesRef.current.applyOptions({ color: indicatorCfg.sma.color, title: `SMA(${indicatorCfg.sma.period})` });
+      try { smaSeriesRef.current.setData(calcSMA(candles, indicatorCfg.sma.period) as any); } catch { /* noop */ }
+    } else if (!indicatorCfg.sma.active && smaSeriesRef.current) {
+      try { chart.removeSeries(smaSeriesRef.current); } catch { /* noop */ }
+      smaSeriesRef.current = null;
+    }
+
+    // SMA2
+    if (indicatorCfg.sma2.active) {
+      if (!sma2SeriesRef.current) sma2SeriesRef.current = mkLine(indicatorCfg.sma2.color, 1.5, `SMA(${indicatorCfg.sma2.period})`);
+      sma2SeriesRef.current.applyOptions({ color: indicatorCfg.sma2.color, title: `SMA(${indicatorCfg.sma2.period})` });
+      try { sma2SeriesRef.current.setData(calcSMA(candles, indicatorCfg.sma2.period) as any); } catch { /* noop */ }
+    } else if (!indicatorCfg.sma2.active && sma2SeriesRef.current) {
+      try { chart.removeSeries(sma2SeriesRef.current); } catch { /* noop */ }
+      sma2SeriesRef.current = null;
+    }
+
+    // EMA
+    if (indicatorCfg.ema.active) {
+      if (!emaSeriesRef.current) emaSeriesRef.current = mkLine(indicatorCfg.ema.color, 1.5, `EMA(${indicatorCfg.ema.period})`);
+      emaSeriesRef.current.applyOptions({ color: indicatorCfg.ema.color, title: `EMA(${indicatorCfg.ema.period})` });
+      try { emaSeriesRef.current.setData(calcEMA(candles, indicatorCfg.ema.period) as any); } catch { /* noop */ }
+    } else if (!indicatorCfg.ema.active && emaSeriesRef.current) {
+      try { chart.removeSeries(emaSeriesRef.current); } catch { /* noop */ }
+      emaSeriesRef.current = null;
+    }
+
+    // EMA2
+    if (indicatorCfg.ema2.active) {
+      if (!ema2SeriesRef.current) ema2SeriesRef.current = mkLine(indicatorCfg.ema2.color, 1.5, `EMA(${indicatorCfg.ema2.period})`);
+      ema2SeriesRef.current.applyOptions({ color: indicatorCfg.ema2.color, title: `EMA(${indicatorCfg.ema2.period})` });
+      try { ema2SeriesRef.current.setData(calcEMA(candles, indicatorCfg.ema2.period) as any); } catch { /* noop */ }
+    } else if (!indicatorCfg.ema2.active && ema2SeriesRef.current) {
+      try { chart.removeSeries(ema2SeriesRef.current); } catch { /* noop */ }
+      ema2SeriesRef.current = null;
+    }
+
+    // Bollinger Bands
+    if (indicatorCfg.bb.active) {
+      const { upper, middle, lower } = calcBB(candles, indicatorCfg.bb.period, indicatorCfg.bb.stddev);
+      if (!bbUpperRef.current)  bbUpperRef.current  = mkLine(indicatorCfg.bb.color, 1, `BB Upper`);
+      if (!bbMiddleRef.current) bbMiddleRef.current = mkLine(indicatorCfg.bb.color, 1.5, `BB Mid`);
+      if (!bbLowerRef.current)  bbLowerRef.current  = mkLine(indicatorCfg.bb.color, 1, `BB Lower`);
+      const col = indicatorCfg.bb.color;
+      bbUpperRef.current.applyOptions({ color: col, title: `BB+${indicatorCfg.bb.stddev}σ` });
+      bbMiddleRef.current.applyOptions({ color: col, title: `BB(${indicatorCfg.bb.period})` });
+      bbLowerRef.current.applyOptions({ color: col, title: `BB-${indicatorCfg.bb.stddev}σ` });
+      try {
+        bbUpperRef.current.setData(upper as any);
+        bbMiddleRef.current.setData(middle as any);
+        bbLowerRef.current.setData(lower as any);
+      } catch { /* noop */ }
+    } else if (!indicatorCfg.bb.active) {
+      [bbUpperRef, bbMiddleRef, bbLowerRef].forEach(r => {
+        if (r.current) { try { chart.removeSeries(r.current); } catch { /* noop */ } r.current = null; }
+      });
+    }
+
+    // VWAP
+    if (indicatorCfg.vwap.active) {
+      if (!vwapSeriesRef.current) vwapSeriesRef.current = mkLine(indicatorCfg.vwap.color, 1.5, "VWAP");
+      vwapSeriesRef.current.applyOptions({ color: indicatorCfg.vwap.color });
+      try { vwapSeriesRef.current.setData(calcVWAP(candles) as any); } catch { /* noop */ }
+    } else if (!indicatorCfg.vwap.active && vwapSeriesRef.current) {
+      try { chart.removeSeries(vwapSeriesRef.current); } catch { /* noop */ }
+      vwapSeriesRef.current = null;
+    }
+
+    // RSI — separate price scale at bottom
+    if (indicatorCfg.rsi.active) {
+      if (!rsiSeriesRef.current) {
+        rsiSeriesRef.current = chart.addLineSeries({
+          color: "#f59e0b", lineWidth: 1.5 as any, title: `RSI(${indicatorCfg.rsi.period})`,
+          priceScaleId: "rsi", lastValueVisible: true, priceLineVisible: false,
+        });
+        chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.80, bottom: 0.02 }, autoScale: true });
+      }
+      rsiSeriesRef.current.applyOptions({ title: `RSI(${indicatorCfg.rsi.period})` });
+      try { rsiSeriesRef.current.setData(calcRSI(candles, indicatorCfg.rsi.period) as any); } catch { /* noop */ }
+    } else if (!indicatorCfg.rsi.active && rsiSeriesRef.current) {
+      try { chart.removeSeries(rsiSeriesRef.current); } catch { /* noop */ }
+      rsiSeriesRef.current = null;
+    }
+  }, [indicatorCfg, candles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopEvent = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -373,14 +628,36 @@ export function BacktestChart({
   }, [settings.showVolume]);
 
   useEffect(() => {
-    chartRef.current?.priceScale("right").applyOptions({ autoScale: !settings.isYAxisLocked });
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (!settings.isYAxisLocked) {
+      // AUTO mode — reset to symmetric margins so bars are always centred, then
+      // force lightweight-charts to re-compute the scale immediately.
+      const def = { top: 0.10, bottom: 0.10 };
+      marginsRef.current = def;
+      // Toggle trick: off → on forces an immediate re-fit instead of waiting
+      // for the next user interaction (which would leave the chart blank).
+      chart.priceScale("right").applyOptions({ autoScale: false });
+      chart.priceScale("right").applyOptions({ autoScale: true, scaleMargins: def });
+      // Also bring the time range into view in case the user panned far away
+      // while in locked mode — keeps the candles visible after switching modes.
+      requestAnimationFrame(() => {
+        if (chartRef.current) chartRef.current.timeScale().fitContent();
+      });
+    } else {
+      // LOCK mode — disable autoScale; user controls the price scale manually.
+      chart.priceScale("right").applyOptions({
+        autoScale: false,
+        scaleMargins: marginsRef.current,
+      });
+    }
   }, [settings.isYAxisLocked]);
 
   useEffect(() => {
     chartRef.current?.applyOptions({ layout: { background: { color: settings.bgColor || "#0f0f0f" } } });
   }, [settings.bgColor]);
 
-  // Lock chart panning when drawing
+  // Lock chart panning/scaling when a drawing tool is active
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -400,65 +677,92 @@ export function BacktestChart({
     return () => container.removeEventListener("mousedown", handler);
   }, []);
 
-  // Redraw on scroll/zoom and vertical price scale expand/contract zooming
+  // ── Price scale zoom & interaction ───────────────────────────────────────────
+  // Design goals (matching TradingView):
+  //   • Wheel over price scale in LOCKED mode → linear zoom, applied directly to
+  //     the chart via ref (zero React re-renders, zero flicker).
+  //   • Wheel over price scale in AUTO mode → ignored; lightweight-charts handles
+  //     it natively and re-fits the visible data.
+  //   • Double-click on price scale → reset to default margins.
+  //   • Wheel anywhere else → forward to chart for horizontal scroll.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    // Linear step per wheel tick — avoids the multiplicative error accumulation
+    // that made the old implementation drift and feel unstable.
+    const STEP          = 0.013;
+    const PRICE_SCALE_W = 65; // approximate pixel width of the right price-scale column
+
     const handleInteraction = () => setRedrawTrigger(t => t + 1);
 
     const handleWheel = (e: WheelEvent) => {
-      const rect = container.getBoundingClientRect();
-      // The right price scale of lightweight-charts is roughly 50-60 pixels wide.
-      const isOverPriceScale = rect.right - e.clientX <= 60;
-      
-      if (isOverPriceScale) {
-        e.preventDefault();
-        e.stopPropagation();
+      const rect           = container.getBoundingClientRect();
+      const overPriceScale = rect.right - e.clientX <= PRICE_SCALE_W;
 
-        // scroll down (deltaY > 0) -> contract / zoom out -> increase margins
-        // scroll up (deltaY < 0) -> expand / zoom in -> decrease margins
-        const zoomFactor = e.deltaY > 0 ? 1.15 : 0.85;
-
-        setMargins((prev) => {
-          let newTop = Math.max(0.01, prev.top * zoomFactor);
-          let newBottom = Math.max(0.01, prev.bottom * zoomFactor);
-          if (newTop + newBottom > 0.8) {
-            const factor = 0.8 / (newTop + newBottom);
-            newTop *= factor;
-            newBottom *= factor;
-          }
-          return { top: newTop, bottom: newBottom };
-        });
+      if (!overPriceScale) {
+        // ── Chart canvas area: let lightweight-charts handle horizontal scroll
+        //    and time-scale zoom natively — we do NOT intercept here.
         setRedrawTrigger(t => t + 1);
-      } else {
-        setRedrawTrigger(t => t + 1);
+        return;
       }
+
+      // ── Price-scale column: vertical zoom only ─────────────────────────────
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Normalise delta so trackpads (tiny floats) and mice (multiples of 100)
+      // produce the same step size.
+      const norm  = Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) / 53);
+      const delta = norm * STEP;
+
+      const { top, bottom } = marginsRef.current;
+      // Scroll down (deltaY > 0) → zoom OUT → more padding around bars
+      // Scroll up   (deltaY < 0) → zoom IN  → less padding, bars fill chart
+      const newTop    = Math.max(0.001, Math.min(0.498, top    + delta));
+      const newBottom = Math.max(0.001, Math.min(0.498, bottom + delta));
+      marginsRef.current = { top: newTop, bottom: newBottom };
+
+      // Apply directly to chart — zero React state, zero re-render, zero flicker.
+      chartRef.current?.priceScale("right").applyOptions({
+        scaleMargins: { top: newTop, bottom: newBottom },
+      });
+      setRedrawTrigger(t => t + 1);
     };
 
     const handleDblClick = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
-      const isOverPriceScale = rect.right - e.clientX <= 60;
-      if (isOverPriceScale) {
-        setMargins({ top: 0.2, bottom: 0.1 });
+      if (rect.right - e.clientX <= PRICE_SCALE_W) {
+        // Double-click on price scale → reset to symmetric default margins
+        const def = { top: 0.10, bottom: 0.10 };
+        marginsRef.current = def;
+        chartRef.current?.priceScale("right").applyOptions({ scaleMargins: def });
         setRedrawTrigger(t => t + 1);
       }
     };
 
-    container.addEventListener("mousemove", handleInteraction, { passive: true });
-    container.addEventListener("wheel", handleWheel, { passive: false });
-    container.addEventListener("dblclick", handleDblClick, { passive: true });
+    container.addEventListener("mousemove",  handleInteraction, { passive: true });
+    // capture: true — our handler fires BEFORE the chart canvas's own wheel
+    // listeners. When over the price scale we call stopPropagation() which
+    // prevents the event reaching the canvas entirely, so the chart never
+    // horizontally scrolls. When over the chart area we do nothing and let
+    // the event fall through to the canvas normally.
+    container.addEventListener("wheel",      handleWheel,       { passive: false, capture: true });
+    container.addEventListener("dblclick",   handleDblClick,    { passive: true });
 
     return () => {
       container.removeEventListener("mousemove", handleInteraction);
-      container.removeEventListener("wheel", handleWheel);
-      container.removeEventListener("dblclick", handleDblClick);
+      container.removeEventListener("wheel",     handleWheel,     { capture: true } as EventListenerOptions);
+      container.removeEventListener("dblclick",  handleDblClick);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Escape key handling
+  // Escape + Undo/Redo keyboard handling
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Skip when typing in an input field
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+
       if (e.key === "Escape") {
         activeDrawingRef.current = null;
         setPreviewDrawing(null);
@@ -468,11 +772,38 @@ export function BacktestChart({
         setSelectedDrawingIds([]);
         setTextOverlay(null);
         if (!activeDrawingRef.current) setActiveTool("cursor");
+        return;
+      }
+
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      // Ctrl+Z — undo last drawing action
+      if (ctrl && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        const prev = undoStack.current.pop();
+        if (prev !== undefined) {
+          redoStack.current.push([...localDrawingsRef.current]);
+          setLocalDrawings(prev);
+          onDrawingsChange(prev);
+        }
+        return;
+      }
+
+      // Ctrl+Shift+Z or Ctrl+Y — redo
+      if (ctrl && ((e.key === "z" && e.shiftKey) || e.key === "y")) {
+        e.preventDefault();
+        const next = redoStack.current.pop();
+        if (next !== undefined) {
+          undoStack.current.push([...localDrawingsRef.current]);
+          setLocalDrawings(next);
+          onDrawingsChange(next);
+        }
+        return;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [onDrawingsChange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cmd / Ctrl key modifier tracker for drag-selection pointer capture
   useEffect(() => {
@@ -499,17 +830,8 @@ export function BacktestChart({
     };
   }, []);
 
-  // Dynamically update price scale margins (expansion/contraction)
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    chart.priceScale("right").applyOptions({
-      scaleMargins: {
-        top: margins.top,
-        bottom: margins.bottom,
-      }
-    });
-  }, [margins]);
+  // (Price scale margins are now applied directly in the wheel handler
+  //  and the isYAxisLocked effect — no separate React-state-driven effect needed.)
 
   // Close template menu when selected drawing changes
   useEffect(() => {
@@ -596,10 +918,10 @@ export function BacktestChart({
       if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
       if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedDrawingIds.length > 0) {
-          onDrawingsChange(localDrawingsRef.current.filter(d => !selectedDrawingIds.includes(d.id)));
+          commitDrawings(localDrawingsRef.current.filter(d => !selectedDrawingIds.includes(d.id)));
           setSelectedDrawingIds([]);
         } else if (selectedDrawingId) {
-          onDrawingsChange(localDrawingsRef.current.filter(d => d.id !== selectedDrawingId));
+          commitDrawings(localDrawingsRef.current.filter(d => d.id !== selectedDrawingId));
           setSelectedDrawingId(null);
         }
       }
@@ -616,16 +938,18 @@ export function BacktestChart({
     const handleGlobalMouseUp = () => {
       const anchor = draggingAnchorRef.current;
       const moving = draggingDrawingRef.current;
-      if (anchor || moving) {
-        // Only persist if the pointer actually moved — avoids spurious saves on plain clicks
+      const edge   = draggingEdgeRef.current;
+      if (anchor || moving || edge) {
         if (dragMovedRef.current) {
-          onDrawingsChange(localDrawingsRef.current);
+          commitDrawings(localDrawingsRef.current);
         }
         dragMovedRef.current = false;
         setDraggingAnchor(null);
         setDraggingDrawing(null);
+        setDraggingEdge(null);
         draggingAnchorRef.current = null;
         draggingDrawingRef.current = null;
+        draggingEdgeRef.current = null;
       }
     };
     window.addEventListener("mouseup", handleGlobalMouseUp);
@@ -637,7 +961,8 @@ export function BacktestChart({
     const handleGlobalMove = (e: MouseEvent) => {
       const anchor = draggingAnchorRef.current;
       const moving = draggingDrawingRef.current;
-      if (!anchor && !moving) return;
+      const edge   = draggingEdgeRef.current;
+      if (!anchor && !moving && !edge) return;
 
       const coords = getTimePriceFromEventNative(e);
       if (!coords) return;
@@ -645,14 +970,19 @@ export function BacktestChart({
       const price = settings.isMagnetActive ? getMagnetSnappedPrice(timeSec, rawPrice) : rawPrice;
       const p: TimePricePoint = { time: timeSec, price };
 
-      dragMovedRef.current = true; // mark that real movement occurred
+      dragMovedRef.current = true;
 
       if (anchor) {
         const { drawingId, pointIndex } = anchor;
         setLocalDrawings(prev => prev.map(draw => {
           if (draw.id !== drawingId) return draw;
           const pts = [...draw.points];
-          pts[pointIndex] = p;
+          // Long/short anchors: only move price (y), keep time fixed to entry
+          if (draw.type === "long" || draw.type === "short") {
+            pts[pointIndex] = { time: pts[0].time, price };
+          } else {
+            pts[pointIndex] = p;
+          }
           return rebuildRiskSettings({ ...draw, points: pts });
         }));
         setRedrawTrigger(t => t + 1);
@@ -666,6 +996,21 @@ export function BacktestChart({
           if (draw.id !== id) return draw;
           const pts = startPoints.map(pt => ({ time: pt.time + deltaTime, price: pt.price + deltaPrice }));
           return rebuildRiskSettings({ ...draw, points: pts });
+        }));
+        setRedrawTrigger(t => t + 1);
+      }
+
+      // Rectangle edge handle: constrain to one axis
+      if (edge) {
+        const { drawingId, pointIndex, axis } = edge;
+        setLocalDrawings(prev => prev.map(draw => {
+          if (draw.id !== drawingId) return draw;
+          const pts = [...draw.points];
+          const existing = pts[pointIndex];
+          pts[pointIndex] = axis === "y"
+            ? { time: existing.time, price }
+            : { time: timeSec, price: existing.price };
+          return { ...draw, points: pts };
         }));
         setRedrawTrigger(t => t + 1);
       }
@@ -692,6 +1037,18 @@ export function BacktestChart({
     return () => chart.unsubscribeCrosshairMove(handler);
   }, []);
 
+  // ── Hover guide line for select-start mode ────────────────────────────────
+  useEffect(() => {
+    if (!isSelectingStart) { setSelectHoverX(null); return; }
+    const chart = chartRef.current;
+    if (!chart) return;
+    const h = (param: { point?: { x: number; y: number } }) => {
+      setSelectHoverX(param.point ? param.point.x : null);
+    };
+    chart.subscribeCrosshairMove(h);
+    return () => { chart.unsubscribeCrosshairMove(h); setSelectHoverX(null); };
+  }, [isSelectingStart]);
+
   // ── Coordinate helpers ────────────────────────────────────────────────────
   const getMagnetSnappedPrice = useCallback((time: number, price: number) => {
     const candle = candles.find(c => c.time === time);
@@ -705,15 +1062,52 @@ export function BacktestChart({
     return closest;
   }, [candles]);
 
+  // ── Shared helper: extrapolate pixel-X for a time that may be outside data range ──
+  const extrapolateX = useCallback((chart: IChartApi, time: number): number | null => {
+    // First try the native call (works when time is within loaded data)
+    const direct = chart.timeScale().timeToCoordinate(time as Time);
+    if (direct != null) return direct as number;
+
+    // Fallback: derive pixels-per-unit-time from the visible range and extrapolate
+    const vis = chart.timeScale().getVisibleRange();
+    if (!vis) return null;
+    const fromX = chart.timeScale().timeToCoordinate(vis.from) as number | null;
+    const toX   = chart.timeScale().timeToCoordinate(vis.to)   as number | null;
+    if (fromX == null || toX == null) return null;
+    const timeSpan  = (vis.to as number) - (vis.from as number);
+    const pixelSpan = toX - fromX;
+    if (timeSpan <= 0 || pixelSpan <= 0) return null;
+    return fromX + ((time - (vis.from as number)) * pixelSpan) / timeSpan;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const getXY = useCallback((pt: TimePricePoint) => {
     const chart  = chartRef.current;
     const series = candleSeriesRef.current;
     if (!chart || !series) return null;
-    const x = chart.timeScale().timeToCoordinate(pt.time as Time);
+    const x = extrapolateX(chart, pt.time);
     const y = series.priceToCoordinate(pt.price);
     if (x == null || y == null) return null;
-    return { x: x as number, y: y as number };
-  }, [redrawTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+    return { x, y: y as number };
+  }, [redrawTrigger, extrapolateX]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Shared helper: extrapolate time for a pixel-X that may be beyond data ──
+  const extrapolateTime = useCallback((chart: IChartApi, x: number): number | null => {
+    // Try native first (works when x is within loaded candles)
+    const direct = chart.timeScale().coordinateToTime(x);
+    if (direct != null) return direct as number;
+
+    // Fallback: derive units-per-pixel from the visible range and extrapolate
+    const vis = chart.timeScale().getVisibleRange();
+    if (!vis) return null;
+    const fromX = chart.timeScale().timeToCoordinate(vis.from) as number | null;
+    const toX   = chart.timeScale().timeToCoordinate(vis.to)   as number | null;
+    if (fromX == null || toX == null) return null;
+    const timeSpan  = (vis.to as number) - (vis.from as number);
+    const pixelSpan = toX - fromX;
+    if (timeSpan <= 0 || pixelSpan <= 0) return null;
+    // Round to nearest second (same resolution as loaded candle timestamps)
+    return Math.round((vis.from as number) + ((x - fromX) * timeSpan) / pixelSpan);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getTimePriceFromEvent = useCallback((e: React.MouseEvent | MouseEvent): { time: number; price: number } | null => {
     const chart     = chartRef.current;
@@ -723,11 +1117,11 @@ export function BacktestChart({
     const rect  = container.getBoundingClientRect();
     const x     = e.clientX - rect.left;
     const y     = e.clientY - rect.top;
-    const time  = chart.timeScale().coordinateToTime(x);
+    const time  = extrapolateTime(chart, x);
     const price = series.coordinateToPrice(y);
     if (time == null || price == null) return null;
-    return { time: time as number, price: price as number };
-  }, []);
+    return { time, price: price as number };
+  }, [extrapolateTime]);
 
   const getTimePriceFromEventNative = useCallback((e: MouseEvent): { time: number; price: number } | null => {
     const chart     = chartRef.current;
@@ -737,27 +1131,36 @@ export function BacktestChart({
     const rect  = container.getBoundingClientRect();
     const x     = e.clientX - rect.left;
     const y     = e.clientY - rect.top;
-    const time  = chart.timeScale().coordinateToTime(x);
+    const time  = extrapolateTime(chart, x);
     const price = series.coordinateToPrice(y);
     if (time == null || price == null) return null;
-    return { time: time as number, price: price as number };
-  }, []);
+    return { time, price: price as number };
+  }, [extrapolateTime]);
 
-  // Rebuild riskSettings when anchors change
+  // Rebuild riskSettings when anchors change.
+  // CRITICAL: always snap SL/TP times to entry time so the bracket stays at
+  // one x-position and never drifts horizontally when anchors are dragged.
   const rebuildRiskSettings = (draw: Drawing): Drawing => {
     if (draw.type !== "long" && draw.type !== "short") return draw;
     const pts = draw.points;
     if (pts.length < 2) return draw;
+    const entryTime = pts[0].time;          // anchor for all horizontal positions
     const entry = pts[0].price;
     const stop  = pts[1].price;
     const dist  = Math.abs(entry - stop);
     const tp    = pts[2]?.price ?? (draw.type === "long" ? entry + dist * 2 : entry - dist * 2);
-    const risk   = Math.abs(entry - stop);
+    const risk   = dist;
     const reward = Math.abs(tp - entry);
-    const riskSettings = { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: risk > 0 ? reward / risk : 2 };
-    const newPts = [...pts];
-    if (newPts.length < 3) newPts[2] = { time: pts[1].time, price: tp };
-    return { ...draw, points: newPts, riskSettings };
+    const rr     = risk > 0 ? reward / risk : 0;
+    return {
+      ...draw,
+      points: [
+        { time: entryTime, price: entry },
+        { time: entryTime, price: stop },   // SL always at entry time
+        { time: entryTime, price: tp },     // TP always at entry time
+      ],
+      riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: rr },
+    };
   };
 
   // ── Finalize drawing ──────────────────────────────────────────────────────
@@ -771,28 +1174,20 @@ export function BacktestChart({
     let finished: Drawing = { ...activeDrawingRef.current };
 
     if (finished.type === "long" || finished.type === "short") {
+      const entryTime = finished.points[0].time;  // keep all at entry time
       const entry = finished.points[0].price;
       const stop  = p.price;
       const dist  = Math.abs(entry - stop);
       const tp    = finished.type === "long" ? entry + dist * 2 : entry - dist * 2;
-      finished = {
-        ...finished,
-        points: [finished.points[0], p, { time: p.time, price: tp }],
-        riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: 2 },
-      };
-    } else if (finished.type === "patterns") {
-      const p1 = finished.points[0];
-      const dx = p.time - p1.time;
-      const dy = p.price - p1.price;
+      const rr    = dist > 0 ? Math.abs(tp - entry) / dist : 2;
       finished = {
         ...finished,
         points: [
-          p1,
-          { time: p1.time + dx * 0.25, price: p1.price + dy * 0.85 },
-          { time: p1.time + dx * 0.50, price: p1.price + dy * 0.25 },
-          { time: p1.time + dx * 0.75, price: p1.price + dy * 0.90 },
-          p,
+          { time: entryTime, price: entry },
+          { time: entryTime, price: stop },  // SL at entry time, not mouse time
+          { time: entryTime, price: tp },    // TP at entry time
         ],
+        riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: rr },
       };
     } else if (finished.type === "hline" || finished.type === "vline") {
       finished = { ...finished, points: [p] };
@@ -812,7 +1207,7 @@ export function BacktestChart({
           y: xy.y,
           onSubmit: (text: string) => {
             const withText = { ...pendingDrawing, text: text || "Text" };
-            onDrawingsChange([...localDrawingsRef.current, withText]);
+            commitDrawings([...localDrawingsRef.current, withText]);
             setSelectedDrawingId(withText.id);
             setTextOverlay(null);
             setTextInputVal("");
@@ -827,14 +1222,14 @@ export function BacktestChart({
       return;
     }
 
-    onDrawingsChange([...localDrawingsRef.current, finished]);
+    commitDrawings([...localDrawingsRef.current, finished]);
     setSelectedDrawingId(finished.id);
     activeDrawingRef.current = null;
     setPreviewDrawing(null);
     setIsClickCreating(false);
     isDraggingDrawingRef.current = false;
     if (!stayInDrawingMode) setActiveTool("cursor");
-  }, [settings.isMagnetActive, getMagnetSnappedPrice, onDrawingsChange, stayInDrawingMode, getXY]);
+  }, [settings.isMagnetActive, getMagnetSnappedPrice, commitDrawings, stayInDrawingMode, getXY]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SVG event handlers ────────────────────────────────────────────────────
   const handleSvgMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -876,8 +1271,8 @@ export function BacktestChart({
       return;
     }
 
-    // Multi-point tools (channel, triangle) — accumulate clicks
-    if (needed === 3) {
+    // Multi-point tools (channel=3, triangle=3, patterns=5) — accumulate clicks
+    if (needed >= 3) {
       const current = multiCreatingRef.current;
       if (!current) {
         const nd: Drawing = { id: String(Date.now()), type: activeTool, points: [p, p] };
@@ -888,7 +1283,7 @@ export function BacktestChart({
         dragStartPosRef.current = { x: e.clientX, y: e.clientY };
         return;
       }
-      if (current.points.length === 1) {
+      if (current.points.length < needed - 1) {
         const updated = { ...current, points: [...current.points, p] };
         setMultiCreating(updated);
         const nd: Drawing = { ...activeDrawingRef.current!, points: [...current.points, p, p] };
@@ -896,11 +1291,11 @@ export function BacktestChart({
         setPreviewDrawing(nd);
         return;
       }
-      if (current.points.length === 2) {
-        // Third click: finalize
+      if (current.points.length === needed - 1) {
+        // Final click: finalize
         const allPts = [...current.points, p];
         const finished: Drawing = { id: String(Date.now()), type: activeTool, points: allPts };
-        onDrawingsChange([...localDrawingsRef.current, finished]);
+        commitDrawings([...localDrawingsRef.current, finished]);
         setSelectedDrawingId(finished.id);
         activeDrawingRef.current = null;
         setPreviewDrawing(null);
@@ -1068,14 +1463,32 @@ export function BacktestChart({
       const cData  = slice.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }));
       const vData  = slice.map(c => ({ time: c.time as Time, value: c.volume, color: c.close >= c.open ? `${up}26` : `${dn}26` }));
       const ts     = chartRef.current?.timeScale();
-      const range  = ts?.getVisibleRange();
+
+      // Save the scroll offset (bars from right edge) BEFORE setData so we
+      // can restore it afterwards — `setVisibleRange` often fails when the range
+      // includes times outside the new dataset (e.g. after cutting the chart),
+      // causing an unwanted jump to the right edge.
+      const scrollPos = ts?.scrollPosition();
+
       cs.setData(cData);
       vs.setData(vData);
-      if (range) {
-        try { ts?.setVisibleRange(range); } catch { /* safe */ }
+
+      if (replayIndex != null && scrollPos != null) {
+        // REPLAY / CUT mode: keep the chart exactly where the user was looking.
+        // Use scrollToPosition so the right edge stays at the same bar offset.
+        requestAnimationFrame(() => {
+          chartRef.current?.timeScale().scrollToPosition(scrollPos, false);
+        });
       } else if (replayIndex == null) {
-        chartRef.current?.timeScale().fitContent();
+        // Normal (live / full chart): fit everything in view on initial load.
+        const range = ts?.getVisibleRange();
+        if (range) {
+          try { ts?.setVisibleRange(range); } catch { /* safe */ }
+        } else {
+          chartRef.current?.timeScale().fitContent();
+        }
       }
+
       lastRenderedIdxRef.current = targetIdx;
     }
     setRedrawTrigger(t => t + 1);
@@ -1110,7 +1523,7 @@ export function BacktestChart({
 
   // ── Delete helpers ────────────────────────────────────────────────────────
   const handleClearAllDrawings = () => {
-    onDrawingsChange([]);
+    commitDrawings([]);
     setPreviewDrawing(null);
     activeDrawingRef.current = null;
     setSelectedDrawingId(null);
@@ -1118,10 +1531,9 @@ export function BacktestChart({
   };
 
   const handleDeleteDrawing = useCallback((id: string) => {
-    // Use localDrawingsRef to get the freshest list
-    onDrawingsChange(localDrawingsRef.current.filter(d => d.id !== id));
+    commitDrawings(localDrawingsRef.current.filter(d => d.id !== id));
     setSelectedDrawingId(null);
-  }, [onDrawingsChange]);
+  }, [commitDrawings]);
 
   const handleToggleFavorite = (tool: DrawingType) => {
     const current = settings.favoriteTools || [];
@@ -1138,7 +1550,7 @@ export function BacktestChart({
       }
       return draw;
     });
-    onDrawingsChange(updatedDrawings);
+    commitDrawings(updatedDrawings);
     setRedrawTrigger((t) => t + 1);
   };
 
@@ -1249,6 +1661,7 @@ export function BacktestChart({
     const isPreview  = draw.id === previewDrawing?.id;
     const stroke     = draw.color || (isSelected ? SEL_COLOR : LINE_COLOR);
     const dashArray  = isPreview ? "5 4" : "0";
+    const sw         = draw.strokeWidth ?? 1.5; // user-configurable stroke width
 
     // Drawings are only interactive in cursor mode.
     // In any drawing tool mode, <g> elements are pointer-events-none so clicks
@@ -1283,7 +1696,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke="transparent" strokeWidth={12} />
-          <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
+          <line x1={0} y1={p1.y} x2={svgW} y2={p1.y} stroke={stroke} strokeWidth={isSelected ? sw + 0.5 : sw} strokeDasharray={dashArray} />
           <text x={svgW - 8} y={p1.y - 4} fill={stroke} fontSize={8} fontFamily="monospace" textAnchor="end">
             {formatPrice(draw.points[0].price, minPriceRef.current)}
           </text>
@@ -1298,7 +1711,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={0} x2={p1.x} y2={svgH} stroke="transparent" strokeWidth={12} />
-          <line x1={p1.x} y1={0} x2={p1.x} y2={svgH} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
+          <line x1={p1.x} y1={0} x2={p1.x} y2={svgH} stroke={stroke} strokeWidth={isSelected ? sw + 0.5 : sw} strokeDasharray={dashArray} />
           {isSelected && makeAnchor(p1.x, 40, draw.id, 0, "anc0")}
         </g>
       );
@@ -1311,7 +1724,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
-          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray={dashArray} />
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={isSelected ? sw + 1 : sw} strokeDasharray={dashArray} />
           {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
         </g>
       );
@@ -1325,7 +1738,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={ext.x} y2={ext.y} stroke="transparent" strokeWidth={12} />
-          <line x1={p1.x} y1={p1.y} x2={ext.x} y2={ext.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray={dashArray} />
+          <line x1={p1.x} y1={p1.y} x2={ext.x} y2={ext.y} stroke={stroke} strokeWidth={isSelected ? sw + 1 : sw} strokeDasharray={dashArray} />
           {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
         </g>
       );
@@ -1338,7 +1751,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
-          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.8} />
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={stroke} strokeWidth={isSelected ? sw + 1 : sw} />
           <polygon points={arrowHead(p1.x, p1.y, p2.x, p2.y, 10)} fill={stroke} />
           {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
         </g>
@@ -1352,21 +1765,39 @@ export function BacktestChart({
       const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y);
       const w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
       const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
+      // Midpoint of each edge (for TradingView-style constrained resize)
+      const edgeHandleStyle = inCursorMode ? "pointer-events-auto" : "pointer-events-none";
+      const makeEdgeHandle = (ex: number, ey: number, ptIdx: number, axis: "x"|"y", cursorClass: string) => (
+        <rect x={ex - 4} y={ey - 4} width={8} height={8} rx={2}
+          fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.5}
+          className={`${edgeHandleStyle} ${inCursorMode ? cursorClass : ""}`}
+          onMouseDown={inCursorMode ? (e => {
+            stopEvent(e);
+            const nd = { drawingId: draw.id, pointIndex: ptIdx, axis };
+            draggingEdgeRef.current = nd; setDraggingEdge(nd);
+            dragMovedRef.current = false;
+          }) : undefined} />
+      );
       return (
         <g key={draw.id} {...groupProps}>
-          <rect x={x} y={y} width={w} height={h} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
+          <rect x={x} y={y} width={w} height={h} stroke={stroke} strokeWidth={isSelected ? sw + 1 : sw}
             fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(16,185,129,0.05)")} strokeDasharray={dashArray} />
           {isSelected && <>
+            {/* Corner anchors */}
             {makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
             {makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}
-            {/* Opposite corners — visually shown, clicking moves to nearest real anchor */}
             <circle cx={p2.x} cy={p1.y} r={5.5} fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.8}
               className={inCursorMode ? "cursor-nesw-resize pointer-events-auto" : "pointer-events-none"}
               onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 1 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
             <circle cx={p1.x} cy={p2.y} r={5.5} fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.8}
               className={inCursorMode ? "cursor-nesw-resize pointer-events-auto" : "pointer-events-none"}
               onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 0 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
-            {/* Center handle for whole-drawing movement */}
+            {/* Edge midpoint handles — TradingView-style: adjust only width or height */}
+            {makeEdgeHandle(cx,   p1.y, 0, "y", "cursor-n-resize")}  {/* top edge → Y of p1 */}
+            {makeEdgeHandle(cx,   p2.y, 1, "y", "cursor-s-resize")}  {/* bottom edge → Y of p2 */}
+            {makeEdgeHandle(p1.x, cy,   0, "x", "cursor-w-resize")}  {/* left edge → X of p1 */}
+            {makeEdgeHandle(p2.x, cy,   1, "x", "cursor-e-resize")}  {/* right edge → X of p2 */}
+            {/* Center handle */}
             <circle cx={cx} cy={cy} r={4} fill={SEL_COLOR} fillOpacity={0.4}
               className={inCursorMode ? "cursor-move pointer-events-auto" : "pointer-events-none"}
               onMouseDown={inCursorMode ? startDrag : undefined} />
@@ -1383,7 +1814,7 @@ export function BacktestChart({
       const ry = Math.abs(p2.y - p1.y);
       return (
         <g key={draw.id} {...groupProps}>
-          <ellipse cx={p1.x} cy={p1.y} rx={rx || 1} ry={ry || 1} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
+          <ellipse cx={p1.x} cy={p1.y} rx={rx || 1} ry={ry || 1} stroke={stroke} strokeWidth={isSelected ? sw + 1 : sw}
             fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(16,185,129,0.05)")} strokeDasharray={dashArray} />
           {isSelected && <>{makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}{makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}</>}
         </g>
@@ -1404,7 +1835,7 @@ export function BacktestChart({
       const pts = `${c1.x},${c1.y} ${c2.x},${c2.y} ${c3.x},${c3.y}`;
       return (
         <g key={draw.id} {...groupProps}>
-          <polygon points={pts} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5}
+          <polygon points={pts} stroke={stroke} strokeWidth={isSelected ? sw + 1 : sw}
             fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(16,185,129,0.05)")} strokeDasharray={dashArray} />
           {isSelected && draw.points.map((_, i) => {
             const xy = getXY(draw.points[i])!;
@@ -1428,9 +1859,9 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           {/* First line */}
-          <line x1={c1.x} y1={c1.y} x2={c2.x} y2={c2.y} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
+          <line x1={c1.x} y1={c1.y} x2={c2.x} y2={c2.y} stroke={stroke} strokeWidth={isSelected ? sw + 0.5 : sw} strokeDasharray={dashArray} />
           {/* Second parallel line */}
-          <line x1={c1.x} y1={c1.y + dy} x2={c2.x} y2={c2.y + dy} stroke={stroke} strokeWidth={isSelected ? 2 : 1.5} strokeDasharray={dashArray} />
+          <line x1={c1.x} y1={c1.y + dy} x2={c2.x} y2={c2.y + dy} stroke={stroke} strokeWidth={isSelected ? sw + 0.5 : sw} strokeDasharray={dashArray} />
           {/* Fill */}
           <polygon
             points={`${c1.x},${c1.y} ${c2.x},${c2.y} ${c2.x},${c2.y + dy} ${c1.x},${c1.y + dy}`}
@@ -1511,7 +1942,7 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={12} />
-          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? SEL_COLOR : (draw.color || "#f59e0b")} strokeWidth={isSelected ? 2.5 : 1.5} strokeDasharray="4 3" />
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? SEL_COLOR : (draw.color || "#f59e0b")} strokeWidth={isSelected ? sw + 1 : sw} strokeDasharray="4 3" />
           <rect x={bx} y={by} width={108} height={17} rx={4} fill={isSelected ? SEL_COLOR : (draw.color || "#f59e0b")} />
           <text x={bx + 54} y={by + 11} textAnchor="middle" fill="#000" fontSize={8} fontFamily="monospace" fontWeight="bold">
             {pips.toFixed(1)} Pips | {bars} Bars
@@ -1557,24 +1988,59 @@ export function BacktestChart({
       );
     }
 
-    // ── Harmonic XABCD ────────────────────────────────────────────────────
+    // ── Harmonic XABCD Pattern (5-click: X, A, B, C, D) ─────────────────────
     if (draw.type === "patterns") {
       const ptsXY = draw.points.map(pt => getXY(pt));
-      if (draw.points.length < 5 || ptsXY.some(p => !p)) return null;
+      const validXY = ptsXY.filter(Boolean) as { x: number; y: number }[];
+      const col = draw.color || "#10b981";
+      const sw  = draw.strokeWidth ?? 1.5;
+      const labels = ["X", "A", "B", "C", "D"];
+
+      if (draw.points.length >= 2 && draw.points.length < 5) {
+        // Partial preview: show lines + placed points so far
+        return (
+          <g key={draw.id}>
+            {validXY.length >= 2 && validXY.map((pt, i) => {
+              if (i === 0) return null;
+              const prev = validXY[i - 1];
+              return <line key={i} x1={prev.x} y1={prev.y} x2={pt.x} y2={pt.y}
+                stroke={col} strokeWidth={sw} strokeDasharray="5 3" strokeLinecap="round" />;
+            })}
+            {validXY.map((pt, i) => (
+              <g key={i}>
+                <circle cx={pt.x} cy={pt.y} r={4} fill={col} fillOpacity={0.8} />
+                <text x={pt.x} y={pt.y - 8} fill={col} fontSize={9} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{labels[i]}</text>
+              </g>
+            ))}
+          </g>
+        );
+      }
+
+      if (draw.points.length < 5 || ptsXY.some(v => !v)) return null;
       const [pX, pA, pB, pC, pD] = ptsXY as { x: number; y: number }[];
+      const fillAlpha = isSelected ? 0.15 : 0.07;
+      const fillColor = draw.color ? hexToRgba(draw.color, fillAlpha) : `rgba(16,185,129,${fillAlpha})`;
       return (
         <g key={draw.id} {...groupProps}>
+          {/* XAB wing */}
           <polygon points={`${pX.x},${pX.y} ${pA.x},${pA.y} ${pB.x},${pB.y}`}
-            stroke={isSelected ? SEL_COLOR : (draw.color || "#10b981")} strokeWidth={isSelected ? 2 : 1.5}
-            fill={isSelected ? "rgba(139,92,246,0.2)" : (draw.color ? hexToRgba(draw.color, 0.1) : "rgba(139,92,246,0.1)")} />
+            stroke={isSelected ? SEL_COLOR : col} strokeWidth={isSelected ? 2 : sw}
+            fill={isSelected ? "rgba(255,255,255,0.10)" : fillColor} />
+          {/* BCD wing */}
           <polygon points={`${pB.x},${pB.y} ${pC.x},${pC.y} ${pD.x},${pD.y}`}
-            stroke={isSelected ? SEL_COLOR : (draw.color || "#10b981")} strokeWidth={isSelected ? 2 : 1.5}
-            fill={isSelected ? "rgba(139,92,246,0.2)" : (draw.color ? hexToRgba(draw.color, 0.1) : "rgba(139,92,246,0.1)")} />
+            stroke={isSelected ? SEL_COLOR : col} strokeWidth={isSelected ? 2 : sw}
+            fill={isSelected ? "rgba(255,255,255,0.10)" : fillColor} />
+          {/* Connecting line X→D */}
+          <line x1={pX.x} y1={pX.y} x2={pD.x} y2={pD.y}
+            stroke={col} strokeWidth={1} strokeOpacity={0.35} strokeDasharray="4 3" />
+          {/* Labels */}
           {[{ p: pX, l: "X" }, { p: pA, l: "A" }, { p: pB, l: "B" }, { p: pC, l: "C" }, { p: pD, l: "D" }].map((v, i) => (
-            <text key={i} x={v.p.x} y={v.p.y - 8} fill="#c084fc" fontSize={9} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{v.l}</text>
+            <text key={i} x={v.p.x} y={v.p.y - 9} fill={isSelected ? SEL_COLOR : col}
+              fontSize={9} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{v.l}</text>
           ))}
           {isSelected && draw.points.map((_, idx) => {
-            const xy = getXY(draw.points[idx])!;
+            const xy = getXY(draw.points[idx]);
+            if (!xy) return null;
             return makeAnchor(xy.x, xy.y, draw.id, idx, `a${idx}`);
           })}
         </g>
@@ -1582,33 +2048,93 @@ export function BacktestChart({
     }
 
     // ── Long / Short Risk Bracket ─────────────────────────────────────────
+    // Stability contract:
+    //   • All three points share the same time (entry time) → same x coordinate
+    //   • Bracket width is a fixed pixel constant — never depends on point x diff
+    //   • SL/TP y-coords derived from priceToCoordinate, not from stored pixel state
     if (draw.type === "long" || draw.type === "short") {
-      const p2 = getXY(draw.points[1]);
-      if (!p1 || !p2) return null;
-      const isLong = draw.type === "long";
-      const entry  = draw.points[0].price;
-      const stop   = draw.points[1].price;
-      const dist   = Math.abs(entry - stop);
-      const tp     = draw.points[2]?.price ?? (isLong ? entry + dist * 2 : entry - dist * 2);
-      const tpPt   = draw.points[2] ? getXY(draw.points[2]) : null;
-      const tpY    = tpPt?.y ?? (p1.y - (p2.y - p1.y) * 2);
-      const xStart = p1.x;
-      const width  = Math.max(90, Math.abs(p2.x - p1.x) + 40);
-      const rrRatio = Math.abs(tp - entry) / (dist || 1);
+      const cs = candleSeriesRef.current;
+      if (!p1 || !cs) return null;
+
+      const isLong  = draw.type === "long";
+      const entry   = draw.points[0].price;
+      const stop    = draw.points[1]?.price ?? entry;
+      const dist    = Math.abs(entry - stop);
+      const tp      = draw.points[2]?.price ?? (isLong ? entry + dist * 2 : entry - dist * 2);
+      const rrRatio = dist > 0 ? Math.abs(tp - entry) / dist : 0;
+
+      // Convert prices to pixel Y (driven by price scale, extrapolate if outside view)
+      const rawSlY = cs.priceToCoordinate(stop);
+      const rawTpY = cs.priceToCoordinate(tp);
+      // priceToCoordinate can return null when price is far outside visible range;
+      // fall back to entry-based pixel offset using a simple price-per-pixel estimate.
+      const priceFallback = (refPrice: number, refY: number, targetPrice: number): number => {
+        const refH = cs.priceToCoordinate(refPrice * 0.999) as number | null;
+        const refH2 = refH != null ? refH : refY + 10;
+        const pxPerUnit = (refH2 - refY) / (refPrice * -0.001 || 1);
+        return refY + (refPrice - targetPrice) * pxPerUnit;
+      };
+      const slY = rawSlY != null ? rawSlY as number : priceFallback(entry, p1.y, stop);
+      const tpY = rawTpY != null ? rawTpY as number : priceFallback(entry, p1.y, tp);
+      const entryY = p1.y;
+
+      const BRACKET_W = 140;  // fixed pixel width — never shifts on zoom/pan
+      const xL = p1.x;
+      const xR = xL + BRACKET_W;
+
+      // Zone rectangles
+      const tpZoneTop = Math.min(entryY, tpY);
+      const tpZoneH   = Math.max(1, Math.abs(entryY - tpY));
+      const slZoneTop = Math.min(entryY, slY);
+      const slZoneH   = Math.max(1, Math.abs(entryY - slY));
+
+      const fmt = (n: number) => formatPrice(n, minPriceRef.current);
+
       return (
         <g key={draw.id} {...groupProps}>
-          <rect x={xStart} y={Math.min(p1.y, tpY)} width={width} height={Math.abs(tpY - p1.y)}
-            fill={isSelected ? "rgba(34,197,94,0.18)" : "rgba(34,197,94,0.12)"} stroke={isSelected ? SEL_COLOR : "#22c55e"} strokeWidth={isSelected ? 1.5 : 0.75} />
-          <rect x={xStart} y={Math.min(p1.y, p2.y)} width={width} height={Math.abs(p2.y - p1.y)}
-            fill={isSelected ? "rgba(239,68,68,0.18)" : "rgba(239,68,68,0.12)"} stroke={isSelected ? SEL_COLOR : "#ef4444"} strokeWidth={isSelected ? 1.5 : 0.75} />
-          <rect x={xStart + 6} y={p1.y - 9} width={70} height={17} rx={4} fill={CHART_BG} stroke={isSelected ? SEL_COLOR : "#23262f"} strokeWidth={1} />
-          <text x={xStart + 41} y={p1.y + 3} textAnchor="middle" fill="#d1d5db" fontSize={8} fontFamily="monospace" fontWeight="bold">
-            R/R: {rrRatio.toFixed(2)}
+          {/* TP zone (profit) */}
+          <rect x={xL} y={tpZoneTop} width={BRACKET_W} height={tpZoneH}
+            fill={isSelected ? "rgba(34,197,94,0.22)" : "rgba(34,197,94,0.10)"} />
+          {/* SL zone (loss) */}
+          <rect x={xL} y={slZoneTop} width={BRACKET_W} height={slZoneH}
+            fill={isSelected ? "rgba(239,68,68,0.22)" : "rgba(239,68,68,0.10)"} />
+
+          {/* Left edge border */}
+          <line x1={xL} y1={Math.min(slZoneTop, tpZoneTop)} x2={xL} y2={Math.max(slZoneTop + slZoneH, tpZoneTop + tpZoneH)}
+            stroke={isSelected ? SEL_COLOR : "rgba(255,255,255,0.15)"} strokeWidth={1} />
+
+          {/* TP line */}
+          <line x1={xL} y1={tpY} x2={xR} y2={tpY} stroke="#22c55e" strokeWidth={isSelected ? 1.5 : 1} />
+          {/* Entry line */}
+          <line x1={xL} y1={entryY} x2={xR} y2={entryY} stroke="rgba(255,255,255,0.75)" strokeWidth={isSelected ? 2 : 1.5} />
+          {/* SL line */}
+          <line x1={xL} y1={slY} x2={xR} y2={slY} stroke="#ef4444" strokeWidth={isSelected ? 1.5 : 1} />
+
+          {/* Labels (left side) */}
+          <rect x={xL + 2} y={tpY - 9}   width={50} height={11} rx={2} fill={CHART_BG} fillOpacity={0.9} />
+          <text x={xL + 5} y={tpY - 1}   fill="#22c55e"            fontSize={7} fontFamily="monospace" fontWeight="bold">TP {fmt(tp)}</text>
+          <rect x={xL + 2} y={entryY - 9} width={62} height={11} rx={2} fill={CHART_BG} fillOpacity={0.9} />
+          <text x={xL + 5} y={entryY - 1} fill="rgba(255,255,255,0.80)" fontSize={7} fontFamily="monospace" fontWeight="bold">EN {fmt(entry)}</text>
+          <rect x={xL + 2} y={slY - 9}   width={50} height={11} rx={2} fill={CHART_BG} fillOpacity={0.9} />
+          <text x={xL + 5} y={slY - 1}   fill="#ef4444"            fontSize={7} fontFamily="monospace" fontWeight="bold">SL {fmt(stop)}</text>
+
+          {/* R/R badge (center-right) */}
+          <rect x={xR - 56} y={entryY - 9} width={54} height={14} rx={3} fill={CHART_BG} stroke={isSelected ? SEL_COLOR : "#2a2a2a"} strokeWidth={0.8} />
+          <text x={xR - 29} y={entryY + 1} textAnchor="middle" fill="#d1d5db" fontSize={8} fontFamily="monospace" fontWeight="bold">
+            {isLong ? "↑" : "↓"} 1:{rrRatio.toFixed(1)}
           </text>
+
+          {/* Anchors — price-only drag (circles on left for entry, right for SL/TP) */}
           {isSelected && <>
-            {makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
-            {makeAnchor(p2.x, p2.y, draw.id, 1, "a1")}
-            {makeAnchor(p2.x, tpY, draw.id, 2, "a2")}
+            <circle cx={xL} cy={entryY} r={5.5} fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.8}
+              className={inCursorMode ? "cursor-ns-resize pointer-events-auto" : "pointer-events-none"}
+              onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 0 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
+            <circle cx={xR} cy={slY} r={5.5} fill={CHART_BG} stroke="#ef4444" strokeWidth={1.8}
+              className={inCursorMode ? "cursor-ns-resize pointer-events-auto" : "pointer-events-none"}
+              onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 1 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
+            <circle cx={xR} cy={tpY} r={5.5} fill={CHART_BG} stroke="#22c55e" strokeWidth={1.8}
+              className={inCursorMode ? "cursor-ns-resize pointer-events-auto" : "pointer-events-none"}
+              onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 2 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
           </>}
         </g>
       );
@@ -1704,6 +2230,38 @@ export function BacktestChart({
         <Sep />
 
         {/* Utilities */}
+        {/* Undo / Redo */}
+        <TB active={false}
+          onClick={() => {
+            const prev = undoStack.current.pop();
+            if (prev !== undefined) {
+              redoStack.current.push([...localDrawingsRef.current]);
+              setLocalDrawings(prev);
+              onDrawingsChange(prev);
+            }
+          }}
+          icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 7L2 4L5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 4C3.5 1.5 7 1 9.5 2.5C12 4 13 7 12 10C11 13 8 14.5 5 13.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+          } label="Undo  (Ctrl+Z)" />
+        <TB active={false}
+          onClick={() => {
+            const next = redoStack.current.pop();
+            if (next !== undefined) {
+              undoStack.current.push([...localDrawingsRef.current]);
+              setLocalDrawings(next);
+              onDrawingsChange(next);
+            }
+          }}
+          icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M13 7L14 4L11 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M14 4C12.5 1.5 9 1 6.5 2.5C4 4 3 7 4 10C5 13 8 14.5 11 13.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+          } label="Redo  (Ctrl+Y)" />
+
         <TB active={false} onClick={() => chartRef.current?.timeScale().fitContent()}
           icon={<Search className="w-4 h-4" />} label="Fit / Reset Zoom" />
         <TB active={settings.isMagnetActive} onClick={() => onSettingsChange({ isMagnetActive: !settings.isMagnetActive })}
@@ -1793,7 +2351,174 @@ export function BacktestChart({
             onMouseUp={handleSvgMouseUp}
             onWheel={forwardWheelToChart}
           >
+            {/* ── Sessions Indicator (Background shading + High/Low Lines) ── */}
+            {(() => {
+              const chart = chartRef.current;
+              const series = candleSeriesRef.current;
+              if (!chart || !series || candles.length === 0) return null;
+
+              const sLabels = { asian: "Asian", london: "London", ny: "New-York" };
+
+              return (["asian", "london", "ny"] as const).map(sKey => {
+                const s = sessionsCfg[sKey];
+                if (!s.active) return null;
+
+                const startMin = s.startH * 60 + (s.startM ?? 0);
+                const endMin = s.endH * 60 + (s.endM ?? 0);
+
+                // Group all candles in history into session blocks
+                const blocks: { startTime: number; endTime: number; high: number; low: number }[] = [];
+                let currentBlock: { startTime: number; endTime: number; high: number; low: number; lastTime: number } | null = null;
+
+                for (let i = 0; i < candles.length; i++) {
+                  const c = candles[i];
+                  // Convert to IST hour & minute (+5.5 hours = +19800 seconds)
+                  const date = new Date((c.time + 19800) * 1000);
+                  const h = date.getUTCHours();
+                  const m = date.getUTCMinutes();
+                  const candleMin = h * 60 + m;
+
+                  let inSess = false;
+                  if (startMin <= endMin) {
+                    inSess = candleMin >= startMin && candleMin < endMin;
+                  } else {
+                    inSess = candleMin >= startMin || candleMin < endMin;
+                  }
+
+                  if (inSess) {
+                    if (!currentBlock || (c.time - currentBlock.lastTime > 3600 * 12)) {
+                      if (currentBlock) {
+                        blocks.push({
+                          startTime: currentBlock.startTime,
+                          endTime: currentBlock.endTime,
+                          high: currentBlock.high,
+                          low: currentBlock.low,
+                        });
+                      }
+                      currentBlock = {
+                        startTime: c.time,
+                        endTime: c.time,
+                        high: c.high,
+                        low: c.low,
+                        lastTime: c.time,
+                      };
+                    } else {
+                      currentBlock.endTime = c.time;
+                      currentBlock.high = Math.max(currentBlock.high, c.high);
+                      currentBlock.low = Math.min(currentBlock.low, c.low);
+                      currentBlock.lastTime = c.time;
+                    }
+                  } else {
+                    if (currentBlock) {
+                      blocks.push({
+                        startTime: currentBlock.startTime,
+                        endTime: currentBlock.endTime,
+                        high: currentBlock.high,
+                        low: currentBlock.low,
+                      });
+                      currentBlock = null;
+                    }
+                  }
+                }
+
+                if (currentBlock) {
+                  blocks.push({
+                    startTime: currentBlock.startTime,
+                    endTime: currentBlock.endTime,
+                    high: currentBlock.high,
+                    low: currentBlock.low,
+                  });
+                }
+
+                // Filter to blocks visible on/near the screen for rendering performance
+                const visibleBlocks = blocks.filter(b => {
+                  const x1 = chart.timeScale().timeToCoordinate(b.startTime as any);
+                  const x2 = chart.timeScale().timeToCoordinate(b.endTime as any);
+                  return (x1 != null && x1 >= -500 && x1 <= svgW + 500) ||
+                         (x2 != null && x2 >= -500 && x2 <= svgW + 500);
+                });
+
+                return (
+                  <g key={sKey}>
+                    {visibleBlocks.map((block, idx) => {
+                      const x1 = chart.timeScale().timeToCoordinate(block.startTime as any) as number;
+                      const x2 = chart.timeScale().timeToCoordinate(block.endTime as any) as number;
+                      const y1 = series.priceToCoordinate(block.high) as number;
+                      const y2 = series.priceToCoordinate(block.low) as number;
+
+                      if (x1 == null || x2 == null || y1 == null || y2 == null) return null;
+
+                      const finalX1 = x1 - 4;
+                      const finalX2 = x2 + 4;
+
+                      return (
+                        <g key={`${sKey}-${idx}`} className="pointer-events-none">
+                          {/* Shading (optional based on configured opacity) */}
+                          {s.opacity > 0 && (
+                            <rect
+                              x={finalX1}
+                              y={0}
+                              width={Math.max(1, finalX2 - finalX1)}
+                              height={svgH}
+                              fill={s.color}
+                              fillOpacity={s.opacity}
+                            />
+                          )}
+
+                          {/* High Line */}
+                          <line
+                            x1={finalX1}
+                            y1={y1}
+                            x2={finalX2}
+                            y2={y1}
+                            stroke={s.color}
+                            strokeWidth={1.2}
+                          />
+
+                          {/* Low Line */}
+                          <line
+                            x1={finalX1}
+                            y1={y2}
+                            x2={finalX2}
+                            y2={y2}
+                            stroke={s.color}
+                            strokeWidth={1.2}
+                          />
+
+                          {/* Label placed above the high line */}
+                          <text
+                            x={finalX1 + 4}
+                            y={y1 - 6}
+                            fill={s.color}
+                            fontSize={9}
+                            fontWeight="bold"
+                            fontFamily="sans-serif"
+                          >
+                            {sLabels[sKey]}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
+              });
+            })()}
+
             {allDrawings.map(draw => renderDrawing(draw))}
+
+            {/* ── Select-start hover guide line ── */}
+            {isSelectingStart && selectHoverX != null && (
+              <g pointerEvents="none">
+                <line x1={selectHoverX} y1={0} x2={selectHoverX} y2={svgH}
+                  stroke="rgba(255,255,255,0.85)" strokeWidth={1.5} strokeDasharray="5 3" />
+                <rect x={selectHoverX - 24} y={4} width={48} height={13} rx={3}
+                  fill="#F0B90B" fillOpacity={0.9} />
+                <text x={selectHoverX} y={13} textAnchor="middle"
+                  fill="#000" fontSize={7} fontFamily="monospace" fontWeight="bold">
+                  CUT HERE
+                </text>
+              </g>
+            )}
 
             {/* Lasso Selector Box */}
             {lassoBox && (
@@ -1826,7 +2551,7 @@ export function BacktestChart({
             <button
               onClick={() => {
                 const freshDrawings = localDrawings.filter(d => !selectedDrawingIds.includes(d.id));
-                onDrawingsChange(freshDrawings);
+                commitDrawings(freshDrawings);
                 setSelectedDrawingIds([]);
               }}
               className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-500 text-white font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer focus:outline-none"
@@ -1870,9 +2595,11 @@ export function BacktestChart({
         {/* ── Multi-point hint ── */}
         {multiCreating && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-lg px-3 py-1.5 text-[10px] font-mono text-white/50 pointer-events-none">
-            {multiCreating.points.length === 1
-              ? `Click to set 2nd point (${multiCreating.type})`
-              : `Click to set 3rd point and finalize`}
+            {multiCreating.type === "patterns"
+              ? `Click point ${multiCreating.points.length + 1}/5 — ${["X", "A", "B", "C", "D"][multiCreating.points.length]}`
+              : multiCreating.points.length === 1
+                ? `Click to set 2nd point (${multiCreating.type})`
+                : `Click to set 3rd point and finalize`}
           </div>
         )}
 
@@ -1940,6 +2667,31 @@ export function BacktestChart({
                       title="Choose Custom Color"
                     />
                   </div>
+                </div>
+
+                <div className="w-px h-3.5 bg-white/[0.08]" />
+
+                {/* Stroke width control */}
+                <div className="flex items-center gap-1" title="Stroke width">
+                  <button
+                    onClick={() => {
+                      const cur = sel.strokeWidth ?? 1.5;
+                      const next = Math.max(0.5, +(cur - 0.5).toFixed(1));
+                      const updated = localDrawings.map(d => d.id === sel.id ? { ...d, strokeWidth: next } : d);
+                      commitDrawings(updated);
+                    }}
+                    className="w-4 h-4 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+                  ><Minus className="w-2.5 h-2.5" /></button>
+                  <span className="text-white/60 w-5 text-center font-bold">{(sel.strokeWidth ?? 1.5).toFixed(1)}</span>
+                  <button
+                    onClick={() => {
+                      const cur = sel.strokeWidth ?? 1.5;
+                      const next = Math.min(8, +(cur + 0.5).toFixed(1));
+                      const updated = localDrawings.map(d => d.id === sel.id ? { ...d, strokeWidth: next } : d);
+                      commitDrawings(updated);
+                    }}
+                    className="w-4 h-4 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+                  ><PlusIcon className="w-2.5 h-2.5" /></button>
                 </div>
 
                 <div className="w-px h-3.5 bg-white/[0.08]" />
@@ -2027,13 +2779,27 @@ export function BacktestChart({
 
         {/* ── Bottom-right controls ── */}
         <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-lg p-1 z-20 select-none font-mono text-[9px]">
+          {/* Indicators */}
+          <button onClick={() => { setIndicatorPanelOpen(p => !p); setSessionsPanelOpen(false); }}
+            className={`px-2 py-1 rounded font-bold transition-all flex items-center gap-1 cursor-pointer border ${indicatorPanelOpen ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+            title="Indicators">
+            <Activity className="w-3 h-3" /><span>IND</span>
+          </button>
+          <div className="w-px h-4 bg-white/[0.08]" />
+          {/* Sessions */}
+          <button onClick={() => { setSessionsPanelOpen(p => !p); setIndicatorPanelOpen(false); }}
+            className={`px-2 py-1 rounded font-bold transition-all flex items-center gap-1 cursor-pointer border ${sessionsPanelOpen ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+            title="Market Sessions">
+            <Clock className="w-3 h-3" /><span>SESS</span>
+          </button>
+          <div className="w-px h-4 bg-white/[0.08]" />
           <button
             onClick={() => onSettingsChange({ isYAxisLocked: !settings.isYAxisLocked })}
             className={`px-2 py-1 rounded font-bold transition-all active:scale-95 flex items-center gap-1 cursor-pointer border ${
               settings.isYAxisLocked ? "bg-white/[0.08] border-white/[0.12] text-white/80" : "bg-white/[0.04] border-white/[0.12] text-white/60 hover:bg-white/[0.08]"
             }`} title={settings.isYAxisLocked ? "Y-Axis LOCKED" : "Y-Axis AUTO"}>
             {settings.isYAxisLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-            <span>{settings.isYAxisLocked ? "LOCKED SCALE" : "AUTO SCALE"}</span>
+            <span>{settings.isYAxisLocked ? "LOCK" : "AUTO"}</span>
           </button>
           <div className="w-px h-4 bg-white/[0.08]" />
           <button onClick={() => setIsSettingsModalOpen(true)}
@@ -2042,6 +2808,151 @@ export function BacktestChart({
             <Settings className="w-3.5 h-3.5" />
           </button>
         </div>
+
+        {/* ── Indicator Panel ── */}
+        {indicatorPanelOpen && (
+          <div className="absolute bottom-14 right-3 z-40 bg-black/92 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl w-72 font-mono pointer-events-auto select-none overflow-hidden"
+            onMouseDown={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5 text-white/50" />
+                <span className="text-[10px] font-bold text-white/80 uppercase tracking-wider">Indicators</span>
+              </div>
+              <button onClick={() => setIndicatorPanelOpen(false)} className="p-1 rounded text-white/30 hover:text-white cursor-pointer"><X className="w-3.5 h-3.5" /></button>
+            </div>
+            <div className="p-3 flex flex-col gap-2 max-h-[70vh] overflow-y-auto">
+              {[
+                { key: "sma"  as const, label: "SMA",  hasPeriod: true,  hasStddev: false },
+                { key: "sma2" as const, label: "SMA 2",hasPeriod: true,  hasStddev: false },
+                { key: "ema"  as const, label: "EMA",  hasPeriod: true,  hasStddev: false },
+                { key: "ema2" as const, label: "EMA 2",hasPeriod: true,  hasStddev: false },
+                { key: "bb"   as const, label: "Bollinger Bands", hasPeriod: true, hasStddev: true },
+                { key: "vwap" as const, label: "VWAP", hasPeriod: false, hasStddev: false },
+                { key: "rsi"  as const, label: "RSI",  hasPeriod: true,  hasStddev: false },
+              ].map(({ key, label, hasPeriod, hasStddev }) => {
+                const cfg = indicatorCfg[key] as any;
+                return (
+                  <div key={key} className={`rounded-lg border p-2.5 transition-colors ${cfg.active ? "border-white/[0.12] bg-white/[0.04]" : "border-white/[0.05] bg-white/[0.02]"}`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className={`text-[10px] font-bold ${cfg.active ? "text-white/80" : "text-white/35"}`}>{label}</span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked={cfg.active}
+                          onChange={e => setIndicatorCfg(prev => ({ ...prev, [key]: { ...prev[key], active: e.target.checked } }))}
+                          className="sr-only peer" />
+                        <div className="w-8 h-4 bg-white/[0.08] rounded-full peer peer-checked:bg-emerald-600/70 peer-checked:after:translate-x-4 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white/60 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-white" />
+                      </label>
+                    </div>
+                    {cfg.active && (
+                      <div className="flex items-center gap-2">
+                        {hasPeriod && (
+                          <div className="flex items-center gap-1 flex-1">
+                            <span className="text-[8px] text-white/30 uppercase">Period</span>
+                            <input type="number" min={2} max={500} value={cfg.period}
+                              onChange={e => setIndicatorCfg(prev => ({ ...prev, [key]: { ...prev[key], period: +e.target.value } }))}
+                              className="w-14 bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]" />
+                          </div>
+                        )}
+                        {hasStddev && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] text-white/30 uppercase">σ</span>
+                            <input type="number" min={0.5} max={5} step={0.5} value={(cfg as any).stddev}
+                              onChange={e => setIndicatorCfg(prev => ({ ...prev, [key]: { ...prev[key], stddev: +e.target.value } }))}
+                              className="w-10 bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none" />
+                          </div>
+                        )}
+                        {key !== "rsi" && (
+                          <input type="color" value={cfg.color}
+                            onChange={e => setIndicatorCfg(prev => ({ ...prev, [key]: { ...prev[key], color: e.target.value } }))}
+                            className="w-6 h-6 rounded border-0 bg-transparent cursor-pointer" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Sessions Panel ── */}
+        {sessionsPanelOpen && (
+          <div className="absolute bottom-14 right-3 z-40 bg-black/92 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl w-72 font-mono pointer-events-auto select-none overflow-hidden"
+            onMouseDown={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-white/50" />
+                <span className="text-[10px] font-bold text-white/80 uppercase tracking-wider">Market Sessions</span>
+              </div>
+              <button onClick={() => setSessionsPanelOpen(false)} className="p-1 rounded text-white/30 hover:text-white cursor-pointer"><X className="w-3.5 h-3.5" /></button>
+            </div>
+            <div className="p-3 flex flex-col gap-2">
+              {(["asian", "london", "ny"] as const).map(sKey => {
+                const sLabels = { asian: "Asian", london: "London", ny: "New York" };
+                const s = sessionsCfg[sKey];
+                return (
+                  <div key={sKey} className={`rounded-lg border p-2.5 transition-colors ${s.active ? "border-white/[0.12] bg-white/[0.04]" : "border-white/[0.05] bg-white/[0.02]"}`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                        <span className={`text-[10px] font-bold ${s.active ? "text-white/80" : "text-white/35"}`}>{sLabels[sKey]}</span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked={s.active}
+                          onChange={e => setSessionsCfg(prev => ({ ...prev, [sKey]: { ...prev[sKey], active: e.target.checked } }))}
+                          className="sr-only peer" />
+                        <div className="w-8 h-4 bg-white/[0.08] rounded-full peer peer-checked:bg-emerald-600/70 peer-checked:after:translate-x-4 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white/60 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-white" />
+                      </label>
+                    </div>
+                    {s.active && (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] text-white/30">START (IST)</span>
+                            <div className="flex items-center bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5">
+                              <input type="number" min={0} max={23} value={s.startH}
+                                onChange={e => setSessionsCfg(prev => ({ ...prev, [sKey]: { ...prev[sKey], startH: +e.target.value } }))}
+                                className="w-5 bg-transparent border-0 text-[9px] text-white focus:outline-none p-0 text-center" />
+                              <span className="text-[8px] text-white/30 px-0.5">:</span>
+                              <input type="number" min={0} max={59} value={s.startM ?? 0}
+                                onChange={e => setSessionsCfg(prev => ({ ...prev, [sKey]: { ...prev[sKey], startM: +e.target.value } }))}
+                                className="w-5 bg-transparent border-0 text-[9px] text-white focus:outline-none p-0 text-center" />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] text-white/30">END (IST)</span>
+                            <div className="flex items-center bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5">
+                              <input type="number" min={0} max={23} value={s.endH}
+                                onChange={e => setSessionsCfg(prev => ({ ...prev, [sKey]: { ...prev[sKey], endH: +e.target.value } }))}
+                                className="w-5 bg-transparent border-0 text-[9px] text-white focus:outline-none p-0 text-center" />
+                              <span className="text-[8px] text-white/30 px-0.5">:</span>
+                              <input type="number" min={0} max={59} value={s.endM ?? 0}
+                                onChange={e => setSessionsCfg(prev => ({ ...prev, [sKey]: { ...prev[sKey], endM: +e.target.value } }))}
+                                className="w-5 bg-transparent border-0 text-[9px] text-white focus:outline-none p-0 text-center" />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 mt-0.5 border-t border-white/[0.04] pt-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[8px] text-white/30">SHADING</span>
+                            <input type="range" min={0.00} max={0.3} step={0.01} value={s.opacity}
+                              onChange={e => setSessionsCfg(prev => ({ ...prev, [sKey]: { ...prev[sKey], opacity: +e.target.value } }))}
+                              className="w-18 accent-white/60" />
+                            <span className="text-[7.5px] font-mono text-white/40">{Math.round(s.opacity * 100)}%</span>
+                          </div>
+                          <input type="color" value={s.color}
+                            onChange={e => setSessionsCfg(prev => ({ ...prev, [sKey]: { ...prev[sKey], color: e.target.value } }))}
+                            className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <p className="text-[8px] text-white/20 text-center mt-1">Times in IST (Indian Standard Time)</p>
+            </div>
+          </div>
+        )}
 
         {/* ── Settings Modal ── */}
         {isSettingsModalOpen && (
