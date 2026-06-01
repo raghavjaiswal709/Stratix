@@ -1,7 +1,7 @@
 "use client";
 
-// Chart service is temporarily paused.
-// Dynamic import and candle stream are disabled — no Binance/Dukascopy calls.
+// Live Chart service is temporarily paused.
+// Dynamic import and chart engine are disabled — no Binance/Dukascopy calls.
 // import dynamic from "next/dynamic";
 // const LiveChart = dynamic(
 //   () => import("@/chart-page/client/LiveChart").then((m) => ({ default: m.LiveChart })),
@@ -11,12 +11,13 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { ChartCandlestick } from "lucide-react";
+import { LineChart } from "lucide-react"; // using LineChart icon with a slash/cross style
 
 export default function Page() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
+  // Redirect to signin if unauthenticated, or to dashboard if not admin
   useEffect(() => {
     if (status === "loading") return;
     if (!session?.user) {
@@ -34,14 +35,18 @@ export default function Page() {
     <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f]">
       <div className="flex flex-col items-center gap-5 text-center max-w-xs px-6">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.04] border border-white/[0.08]">
-          <ChartCandlestick className="h-6 w-6 text-white/25" />
+          {/* Custom overlay to represent "disabled" / crossed chart */}
+          <div className="relative">
+            <LineChart className="h-6 w-6 text-white/25" />
+            <div className="absolute top-1/2 left-0 w-6 h-0.5 bg-red-500/40 -rotate-45 transform -translate-y-1/2" />
+          </div>
         </div>
         <div className="space-y-1.5">
           <h2 className="text-[14px] font-semibold text-white/60 tracking-tight">
             Live Chart — Service Paused
           </h2>
           <p className="text-[12px] text-white/25 leading-relaxed">
-            Real-time chart streaming has been temporarily disabled. This page
+            Real-time interactive charting has been temporarily disabled. This page
             will be available once the service is restored.
           </p>
         </div>

@@ -1,16 +1,12 @@
 // ─── liveDataFeed.ts ──────────────────────────────────────────────────────────
 // Polls /api/backtesting/live every 2 seconds to stream the latest candle.
-// Automatically retries with exponential back-off when the feed fails.
+// SERVICE TEMPORARILY DISABLED — NO ACTIVE RECONNECTS OR LIVE PRICE FEEDS
+// TO RE-ENABLE: Restore the start() and poll() methods to original state.
 
 import type { Candle, InstrumentKey, LiveStatus } from "./types";
 
-const POLL_INTERVAL_MS = 2000;
-const RETRY_DELAY_MS   = 5000;
-
 export class LiveDataFeed {
-  private pollTimer:  ReturnType<typeof setInterval>  | null = null;
-  private retryTimer: ReturnType<typeof setTimeout>   | null = null;
-  private stopped = false;
+  private stopped = true;
 
   constructor(
     private instrument: InstrumentKey,
@@ -20,18 +16,14 @@ export class LiveDataFeed {
 
   // Start polling immediately and schedule subsequent polls
   start(): void {
-    this.stopped = false;
-    this.poll();
-    this.pollTimer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
+    // Disabled entirely as requested by the user
+    this.stopped = true;
+    this.onStatus("stopped");
   }
 
   // Stop the feed and clear all timers
   stop(): void {
     this.stopped = true;
-    if (this.pollTimer)  clearInterval(this.pollTimer);
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.pollTimer  = null;
-    this.retryTimer = null;
     this.onStatus("stopped");
   }
 
@@ -40,26 +32,9 @@ export class LiveDataFeed {
     this.instrument = instrument;
   }
 
-  // Fetch one live candle from the API
+  // Fetch one live candle from the API (Disabled)
   private async poll(): Promise<void> {
-    if (this.stopped) return;
-
-    try {
-      const res = await fetch(`/api/backtesting/live?instrument=${this.instrument}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const json = await res.json() as { candle?: Candle | null };
-      if (json.candle) {
-        this.onCandle(json.candle);
-        this.onStatus("live");
-      }
-    } catch {
-      if (this.stopped) return;
-      this.onStatus("reconnecting");
-      // Schedule a one-shot retry after RETRY_DELAY_MS (in addition to the regular poll)
-      this.retryTimer = setTimeout(() => {
-        if (!this.stopped) this.poll();
-      }, RETRY_DELAY_MS);
-    }
+    // No-op: service disabled
+    return;
   }
 }

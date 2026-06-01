@@ -243,14 +243,14 @@ export function BacktestingPage() {
       setDisplay(resampled);
       setDataSource(getLastFetchedSource());
 
-      // Start the real-time live feed for updating the chart
+      // Start the real-time live feed for updating the chart (Disabled)
       const feed = new LiveDataFeed(
         session.symbol,
         (candle) => setLiveCandle(candle),
         (status) => setLiveStatus(status),
       );
       liveFeedRef.current = feed;
-      feed.start();
+      // feed.start(); // Turned off entirely by user request
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setError(String(err));
