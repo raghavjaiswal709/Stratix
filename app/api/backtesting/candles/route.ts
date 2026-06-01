@@ -26,6 +26,17 @@ const INSTRUMENT_MAP: Record<string, string> = {
   us100: Instrument.usatechidxusd,
 };
 
+// Decimal precision per instrument.
+// Forex majors/minors are quoted to 5dp (1 point = 0.00001).
+// JPY pairs to 3dp (1 point = 0.001). Metals/crypto/indices to 2dp.
+const PRICE_PRECISION: Record<string, number> = {
+  eurusd: 5, gbpusd: 5, usdcad: 5, nzdusd: 5, audusd: 5, usdchf: 5,
+  usdjpy: 3,
+  xauusd: 2, xagusd: 3,
+  ethusd: 2, btcusdt: 2,
+  dxy: 3, usoil: 2, us100: 2,
+};
+
 // Map UI timeframe labels to dukascopy-node Timeframe enum values
 const TF_MAP: Record<string, string> = {
   "1m":  Timeframe.m1,
@@ -81,13 +92,16 @@ export async function GET(request: Request) {
       cacheFolderPath: "/tmp/.dukascopy-cache",
     }) as { timestamp: number; open: number; high: number; low: number; close: number; volume: number }[];
 
-    // Convert to lightweight-charts-compatible OHLCV (timestamp in seconds)
+    // Convert to lightweight-charts-compatible OHLCV (timestamp in seconds).
+    // Use instrument-specific precision so forex pairs (e.g. EURUSD at 1.08xxx)
+    // are not truncated to 3dp — which would destroy sub-0.001 intra-minute moves.
+    const dp = PRICE_PRECISION[instrumentKey] ?? 5;
     const candles = raw.map(({ timestamp, open, high, low, close, volume }) => ({
       time:   Math.floor(timestamp / 1000),
-      open:   +open.toFixed(3),
-      high:   +high.toFixed(3),
-      low:    +low.toFixed(3),
-      close:  +close.toFixed(3),
+      open:   +open.toFixed(dp),
+      high:   +high.toFixed(dp),
+      low:    +low.toFixed(dp),
+      close:  +close.toFixed(dp),
       volume: +volume.toFixed(2),
     }));
 

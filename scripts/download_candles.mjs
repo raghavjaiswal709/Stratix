@@ -29,6 +29,17 @@ const INSTRUMENT_MAP = {
   us100: Instrument.usatechidxusd, // mapped to usatechidxusd
 };
 
+// Decimal precision per instrument.
+// Forex majors/minors: 5dp (1 pip = 0.0001, 1 point = 0.00001).
+// JPY pairs: 3dp. Metals/crypto/indices: 2-3dp.
+const PRICE_PRECISION = {
+  eurusd: 5, gbpusd: 5, usdcad: 5, nzdusd: 5, audusd: 5, usdchf: 5,
+  usdjpy: 3,
+  xauusd: 2, xagusd: 3,
+  ethusd: 2, btcusdt: 2,
+  dxy: 3, usoil: 2, us100: 2,
+};
+
 // Parse command line arguments
 const args = process.argv.slice(2);
 let years = 10; // Default to 10 years
@@ -48,6 +59,9 @@ if (symbolArgIdx !== -1 && args[symbolArgIdx + 1]) {
     process.exit(1);
   }
 }
+
+// --force: overwrite existing CSV files (use when regenerating with corrected precision)
+const forceOverwrite = args.includes('--force');
 
 // Generate the list of months to download (up to 10 years back from today)
 const today = new Date();
@@ -94,7 +108,7 @@ for (const symbol of symbols) {
 
     console.log(`[${symbol.toUpperCase()}] [${i + 1}/${months.length}] Processing ${year}-${monthStr}...`);
 
-    if (fs.existsSync(filePath)) {
+    if (fs.existsSync(filePath) && !forceOverwrite) {
       console.log(`  CSV file already exists, skipping.`);
       continue;
     }
@@ -118,15 +132,18 @@ for (const symbol of symbols) {
       }
 
       // Format to CSV: time,open,high,low,close,volume
+      // Use instrument-specific precision: forex pairs need 5dp so that
+      // intra-minute moves (2-5 pips = 0.0002-0.0005) are not destroyed by rounding.
+      const dp = PRICE_PRECISION[symbol] ?? 5;
       const sorted = raw.sort((a, b) => a.timestamp - b.timestamp);
       const csvLines = ['time,open,high,low,close,volume'];
 
       for (const c of sorted) {
         const timeSec = Math.floor(c.timestamp / 1000);
-        const open = Number(c.open).toFixed(3);
-        const high = Number(c.high).toFixed(3);
-        const low = Number(c.low).toFixed(3);
-        const close = Number(c.close).toFixed(3);
+        const open = Number(c.open).toFixed(dp);
+        const high = Number(c.high).toFixed(dp);
+        const low = Number(c.low).toFixed(dp);
+        const close = Number(c.close).toFixed(dp);
         const volume = Number(c.volume).toFixed(2);
         csvLines.push(`${timeSec},${open},${high},${low},${close},${volume}`);
       }
