@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
-import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences, ApiTrade } from "@/types";
+import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences, ApiTrade, TradingProfile } from "@/types";
 
 interface AppData {
   habitData: HabitData;
@@ -13,6 +13,8 @@ interface AppData {
   preferences: UserPreferences;
   scoreWeights: ScoreWeights;
   theme: "light" | "dark";
+  tradingProfiles: TradingProfile[];
+  activeProfileId: string;
 }
 
 interface AppContextType extends AppData {
@@ -30,6 +32,11 @@ interface AppContextType extends AppData {
   loading: boolean;
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (val: boolean) => void;
+  // Trading profiles
+  setActiveProfileId: (id: string) => void;
+  createProfile: (profile: Omit<TradingProfile, "id" | "createdAt">) => void;
+  updateProfile: (id: string, updates: Partial<Omit<TradingProfile, "id" | "createdAt">>) => void;
+  deleteProfile: (id: string) => void;
 }
 
 const defaultPreferences: UserPreferences = {
@@ -42,8 +49,8 @@ const defaultPreferences: UserPreferences = {
 const defaultData: AppData = {
   habitData: { habits: [], logs: [] },
   todoData: { todos: [], tags: [] },
-  tradeData: { 
-    trades: [], 
+  tradeData: {
+    trades: [],
     customStrategies: [],
     tradeNotes: {
       notes: [],
@@ -60,6 +67,8 @@ const defaultData: AppData = {
   preferences: defaultPreferences,
   scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },
   theme: "dark",
+  tradingProfiles: [],
+  activeProfileId: "",
 };
 
 const AppContext = createContext<AppContextType>({
@@ -77,7 +86,13 @@ const AppContext = createContext<AppContextType>({
   loading: true,
   hasUnsavedChanges: false,
   setHasUnsavedChanges: () => {},
+  setActiveProfileId: () => {},
+  createProfile: () => {},
+  updateProfile: () => {},
+  deleteProfile: () => {},
 });
+
+const LS_ACTIVE_PROFILE_KEY = "stratix_activeProfileId";
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
@@ -86,6 +101,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sharedTrades, setSharedTrades] = useState<ApiTrade[]>([]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingUpdatesRef = useRef<Partial<AppData>>({});
 
   // Load data from API
   useEffect(() => {
@@ -98,6 +114,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     fetch("/api/user-data")
       .then((res) => res.json())
       .then((userData) => {
+        // Prefer localStorage for activeProfileId (instant, no round-trip)
+        const localActiveId = typeof window !== "undefined"
+          ? (localStorage.getItem(LS_ACTIVE_PROFILE_KEY) ?? "")
+          : "";
+
         const timer = setTimeout(() => {
           setData({
             habitData: userData.habitData || defaultData.habitData,
@@ -108,6 +129,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             preferences: userData.preferences || defaultPreferences,
             scoreWeights: userData.scoreWeights || defaultData.scoreWeights,
             theme: userData.theme || defaultData.theme,
+            tradingProfiles: Array.isArray(userData.tradingProfiles) ? userData.tradingProfiles : [],
+            activeProfileId: localActiveId || userData.activeProfileId || "",
           });
           setLoading(false);
         }, 0);
@@ -124,15 +147,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (updates: Partial<AppData>) => {
       if (!session?.user) return;
 
+      pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...updates };
+
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
 
       saveTimeoutRef.current = setTimeout(() => {
+        const updatesToSend = pendingUpdatesRef.current;
+        pendingUpdatesRef.current = {};
+        
         fetch("/api/user-data", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updates),
+          body: JSON.stringify(updatesToSend),
         }).catch(console.error);
       }, 500);
     },
@@ -203,6 +231,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [saveToApi]
   );
 
+  // ── Trading profiles ──────────────────────────────────────────────────────────
+
+  const setActiveProfileId = useCallback(
+    (id: string) => {
+      setData((prev) => ({ ...prev, activeProfileId: id }));
+      if (typeof window !== "undefined") {
+        localStorage.setItem(LS_ACTIVE_PROFILE_KEY, id);
+      }
+      saveToApi({ activeProfileId: id });
+    },
+    [saveToApi]
+  );
+
+  const createProfile = useCallback(
+    (profile: Omit<TradingProfile, "id" | "createdAt">) => {
+      const newProfile: TradingProfile = {
+        ...profile,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+      };
+      
+      const newTradingProfiles = [...data.tradingProfiles, newProfile];
+      setData((prev) => ({ ...prev, tradingProfiles: newTradingProfiles }));
+      saveToApi({ tradingProfiles: newTradingProfiles });
+    },
+    [data.tradingProfiles, saveToApi]
+  );
+
+  const updateProfile = useCallback(
+    (id: string, updates: Partial<Omit<TradingProfile, "id" | "createdAt">>) => {
+      const newTradingProfiles = data.tradingProfiles.map((p) =>
+        p.id === id ? { ...p, ...updates } : p
+      );
+      setData((prev) => ({ ...prev, tradingProfiles: newTradingProfiles }));
+      saveToApi({ tradingProfiles: newTradingProfiles });
+    },
+    [data.tradingProfiles, saveToApi]
+  );
+
+  const deleteProfile = useCallback(
+    (id: string) => {
+      const newTradingProfiles = data.tradingProfiles.filter((p) => p.id !== id);
+      const activeProfileId = data.activeProfileId === id ? "" : data.activeProfileId;
+      
+      setData((prev) => ({ ...prev, tradingProfiles: newTradingProfiles, activeProfileId }));
+      
+      const apiUpdates: Partial<AppData> = { tradingProfiles: newTradingProfiles };
+      if (activeProfileId !== data.activeProfileId) {
+        apiUpdates.activeProfileId = activeProfileId;
+        if (typeof window !== "undefined") {
+          localStorage.setItem(LS_ACTIVE_PROFILE_KEY, "");
+        }
+      }
+      saveToApi(apiUpdates);
+    },
+    [data.tradingProfiles, data.activeProfileId, saveToApi]
+  );
+
   // Apply theme
   useEffect(() => {
     const root = document.documentElement;
@@ -235,6 +321,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loading,
         hasUnsavedChanges,
         setHasUnsavedChanges,
+        setActiveProfileId,
+        createProfile,
+        updateProfile,
+        deleteProfile,
       }}
     >
       {children}

@@ -10,6 +10,7 @@ import { SyncButton } from "@/components/trade/sync/sync-button";
 import { TradesTable } from "@/components/trade/sync/trades-table";
 import { ConnectMT5Form, DisconnectMT5Button } from "@/components/trade/mt5/connect-form";
 import { format } from "date-fns";
+import { useAppContext } from "@/lib/context";
 
 interface Trade {
   _id: string;
@@ -35,22 +36,25 @@ interface MT5Info {
 }
 
 export default function DashboardPage() {
+  const { activeProfileId, tradingProfiles } = useAppContext();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [mt5Info, setMt5Info] = useState<MT5Info | null>(null);
   const [mt5Loading, setMt5Loading] = useState(true);
   const [syncRefreshKey, setSyncRefreshKey] = useState(0);
 
-  // Load manual trades
+  // Load manual trades — re-fetch when active profile changes
   useEffect(() => {
-    fetch("/api/trade")
+    setLoading(true);
+    const url = activeProfileId ? `/api/trade?profileId=${encodeURIComponent(activeProfileId)}` : "/api/trade";
+    fetch(url)
       .then((r) => r.json())
       .then((data) => {
         setTrades(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [activeProfileId]);
 
   // Load MT5 status
   useEffect(() => {
@@ -91,6 +95,7 @@ export default function DashboardPage() {
 
   const today = new Date();
   const mt5Connected = mt5Info?.connected === true;
+  const activeProfile = tradingProfiles.find((p) => p.id === activeProfileId);
 
   return (
     <div className="flex-1 space-y-6 p-4 md:p-6">
@@ -100,7 +105,14 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">{format(today, "EEEE, MMMM d")}</p>
+          <p className="text-sm text-muted-foreground">
+            {format(today, "EEEE, MMMM d")}
+            {activeProfile && (
+              <span className="ml-2 text-white/40">
+                · {activeProfile.name}
+              </span>
+            )}
+          </p>
         </div>
       </div>
 

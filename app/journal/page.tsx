@@ -61,7 +61,7 @@ function UnsavedDialog({
 }
 
 export default function JournalPage() {
-  const { setHasUnsavedChanges, sharedTrades, setSharedTrades } = useAppContext();
+  const { setHasUnsavedChanges, sharedTrades, setSharedTrades, activeProfileId } = useAppContext();
 
   // Pre-populate from the shared cache so navigating trades→journal shows latest data instantly
   const [trades, setTrades] = useState<JournalTrade[]>(
@@ -83,8 +83,9 @@ export default function JournalPage() {
     };
   }, [isDirty, setHasUnsavedChanges]);
 
-  const load = useCallback(() => {
-    fetch("/api/trade")
+  const load = useCallback((profileId: string) => {
+    const url = profileId ? `/api/trade?profileId=${encodeURIComponent(profileId)}` : "/api/trade";
+    fetch(url)
       .then((r) => r.json())
       .then((data: JournalTrade[]) => {
         const arr = Array.isArray(data) ? data : [];
@@ -101,7 +102,7 @@ export default function JournalPage() {
       .catch(() => setLoading(false));
   }, [selectedId, setSharedTrades]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(activeProfileId); }, [activeProfileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reactively merge any trade edits made on the trades page into local state.
   // sharedTrades is updated immediately when a trade is edited, so this keeps

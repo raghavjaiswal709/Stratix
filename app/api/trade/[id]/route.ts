@@ -49,7 +49,7 @@ export async function PUT(
     "entryTime", "exitTime", "stopLoss", "takeProfit", "profit",
     "status", "leverage", "margin", "timeframe", "journaled", "executionChecklist", "screenshots",
     "preTradeAnalysis", "postTradeReview", "riskRatio", "rewardRatio",
-    "emotions", "lessonsLearned", "tags", "rating",
+    "emotions", "lessonsLearned", "tags", "rating", "profileId",
   ];
 
   const updateData: Record<string, unknown> = {};

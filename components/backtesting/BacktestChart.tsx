@@ -697,8 +697,20 @@ export function BacktestChart({
     const handleInteraction = () => setRedrawTrigger(t => t + 1);
 
     const handleWheel = (e: WheelEvent) => {
-      const rect           = container.getBoundingClientRect();
-      const overPriceScale = rect.right - e.clientX <= PRICE_SCALE_W;
+      const cx = e.clientX;
+      const cy = e.clientY;
+
+      const canvases = container.querySelectorAll('canvas');
+      if (canvases.length === 0) {
+        setRedrawTrigger(t => t + 1);
+        return;
+      }
+
+      const mainCanvas = canvases[0];
+      const mainRect = mainCanvas.getBoundingClientRect();
+
+      // Check if cursor is over the right price scale column (physically to the right of the main pane)
+      const overPriceScale = cx > mainRect.right;
 
       if (!overPriceScale) {
         // Chart canvas area: let lightweight-charts handle natively (h-scroll/time zoom).
@@ -711,25 +723,63 @@ export function BacktestChart({
       e.preventDefault();
       e.stopPropagation();
 
-      // Find the chart's canvas element (lightweight-charts renders into one canvas).
-      const canvas = container.querySelector('canvas');
-      if (!canvas) { setRedrawTrigger(t => t + 1); return; }
+      // Find the price-axis TOP canvas — LWC creates two canvases per widget
+      // (bottom z-index:1 for drawing, top z-index:2 for mouse events). The
+      // MouseEventHandler is attached to the TOP canvas only. We must NOT break
+      // early; iterating without break gives us the LAST matching canvas, which
+      // is the top canvas. Breaking early stops at the bottom canvas and the
+      // synthetic mousedown never reaches LWC's handler.
+      let targetEl: HTMLElement | null = null;
+      for (const canvas of Array.from(canvases)) {
+        const cRect = canvas.getBoundingClientRect();
+        if (cx >= cRect.left && cx <= cRect.right && cy >= cRect.top && cy <= cRect.bottom) {
+          targetEl = canvas; // no break — keep overwriting; last match = top canvas
+        }
+      }
+
+      // Fallback: use document.elementFromPoint, temporarily bypassing the SVG overlay
+      if (!targetEl) {
+        const svg = container.querySelector('svg');
+        let oldPointerEvents = '';
+        if (svg) {
+          oldPointerEvents = svg.style.pointerEvents;
+          svg.style.pointerEvents = 'none';
+        }
+        targetEl = document.elementFromPoint(cx, cy) as HTMLElement | null;
+        if (svg) {
+          svg.style.pointerEvents = oldPointerEvents;
+        }
+      }
+
+      if (!targetEl) {
+        setRedrawTrigger(t => t + 1);
+        return;
+      }
 
       // Normalise: trackpads produce tiny floats, mice produce multiples of 100.
       const norm = Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) / 53);
       // Scroll-down (deltaY>0) = zoom OUT = drag price-scale DOWN (positive move).
       // Scroll-up   (deltaY<0) = zoom IN  = drag price-scale UP   (negative move).
-      const move = norm * 20; // pixels; tune for feel
+      let move = norm * 20; // pixels; tune for feel
+      // LWC's mouseMoveWithDownHandler requires manhattan distance >= 5px to fire
+      // pressedMouseMoveEvent. Ensure we always exceed that threshold.
+      if (move !== 0 && Math.abs(move) < 6) {
+        move = Math.sign(move) * 6;
+      }
 
-      const cx = e.clientX; // already over the price scale column
-      const cy = e.clientY;
+      // Per-tick approach: each wheel event fires a complete sequence
+      // using PointerEvent (which Lightweight Charts requires).
+      const eventInit: PointerEventInit = {
+        bubbles: true, cancelable: true, clientX: cx, clientY: cy,
+        pointerId: 1, isPrimary: true, pointerType: 'mouse', buttons: 1, button: 0
+      };
+      
+      chartRef.current?.priceScale("right").applyOptions({ autoScale: false });
+      onSettingsChange({ isYAxisLocked: true });
 
-      // Simulate a short press-drag-release on the price scale.
-      // lightweight-charts enters "price-scale drag mode" on mousedown when the
-      // click is in the price-scale column, then adjusts the scale on mousemove.
-      canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy,        buttons: 1, button: 0 }));
-      canvas.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: cx, clientY: cy + move, buttons: 1, button: 0 }));
-      canvas.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true, clientX: cx, clientY: cy + move,             button: 0 }));
+      targetEl.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+      targetEl.dispatchEvent(new PointerEvent('pointermove', { ...eventInit, clientY: cy + move }));
+      targetEl.dispatchEvent(new PointerEvent('pointerup',   { ...eventInit, clientY: cy + move, buttons: 0 }));
 
       setRedrawTrigger(t => t + 1);
     };

@@ -32,6 +32,7 @@ export interface ITradeEntry extends Document<string> {
   // Status & source
   status: TradeStatus;
   source: TradeSource;
+  profileId?: string;
 
   // Chart timeframe preference
   timeframe?: string;
@@ -84,6 +85,7 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
 
     status: { type: String, enum: ["open", "closed"], default: "open" },
     source: { type: String, enum: ["manual", "mt5"], default: "manual" },
+    profileId: { type: String, default: undefined },
 
     timeframe: { type: String, default: "" },
 
@@ -114,6 +116,7 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
 // Compound index for fast user queries
 TradeEntrySchema.index({ userId: 1, entryTime: -1 });
 TradeEntrySchema.index({ userId: 1, ticket: 1 }, { sparse: true });
+TradeEntrySchema.index({ userId: 1, profileId: 1 });
 
 export const TradeEntryModel =
   mongoose.models.TradeEntry ||

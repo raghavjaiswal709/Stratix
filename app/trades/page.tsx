@@ -101,7 +101,7 @@ function SortBtn({
 }
 
 export default function TradesPage() {
-  const { preferences, setPreferences, setSharedTrades } = useAppContext();
+  const { preferences, setPreferences, setSharedTrades, activeProfileId, tradingProfiles } = useAppContext();
   const prefsRef = useRef(preferences);
   
   useEffect(() => {
@@ -163,10 +163,11 @@ export default function TradesPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortBy, sortDir, filterSymbol, filterDirection, filterStatus, filterSource]);
 
-  const load = useCallback(() => {
+  const load = useCallback((profileId: string) => {
     setLoading(true);
+    const tradeUrl = profileId ? `/api/trade?profileId=${encodeURIComponent(profileId)}` : "/api/trade";
     Promise.all([
-      fetch("/api/trade").then((r) => r.json()),
+      fetch(tradeUrl).then((r) => r.json()),
       fetch("/api/mt5/status").then((r) => r.json()),
     ])
       .then(([t, m]) => {
@@ -184,10 +185,11 @@ export default function TradesPage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      load();
+      load(activeProfileId);
     }, 0);
     return () => clearTimeout(timer);
-  }, [load]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProfileId]);
 
   // Apply filter
   const filtered = trades.filter((t) => {
@@ -269,11 +271,22 @@ export default function TradesPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-[18px] md:text-[20px] font-bold text-foreground">Trades</h1>
-          <div className="flex items-center gap-1.5 mt-0.5">
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
             {mt5?.connected ? (
               <><Wifi className="h-3 w-3 text-emerald-400" /><span className="text-[11px] text-emerald-400">MT5 Connected</span></>
             ) : (
               <><WifiOff className="h-3 w-3 text-muted-foreground" /><span className="text-[11px] text-muted-foreground">Not connected</span></>
+            )}
+            {activeProfileId && tradingProfiles.find((p) => p.id === activeProfileId) && (
+              <>
+                <span className="text-[11px] text-white/20">·</span>
+                <span
+                  className="text-[11px] font-medium"
+                  style={{ color: tradingProfiles.find((p) => p.id === activeProfileId)?.color }}
+                >
+                  {tradingProfiles.find((p) => p.id === activeProfileId)?.name}
+                </span>
+              </>
             )}
           </div>
         </div>
@@ -669,7 +682,8 @@ export default function TradesPage() {
       {showAdd && (
         <AddTradeModal
           onClose={() => setShowAdd(false)}
-          onSaved={() => { setShowAdd(false); load(); }}
+          onSaved={() => { setShowAdd(false); load(activeProfileId); }}
+          profileId={activeProfileId || undefined}
         />
       )}
       {editingTrade && (
@@ -688,7 +702,7 @@ export default function TradesPage() {
                 return next;
               });
             } else {
-              load();
+              load(activeProfileId);
             }
           }}
         />
@@ -696,7 +710,7 @@ export default function TradesPage() {
       {showImport && (
         <ImportModal
           onClose={() => setShowImport(false)}
-          onImported={() => { setShowImport(false); load(); }}
+          onImported={() => { setShowImport(false); load(activeProfileId); }}
         />
       )}
 

@@ -50,7 +50,7 @@ export async function PUT(req: NextRequest) {
   const body = await req.json();
 
   // Only allow updating specific fields
-  const allowedFields = ["habitData", "todoData", "tradeData", "diaryData", "notesData", "preferences", "scoreWeights", "theme"];
+  const allowedFields = ["habitData", "todoData", "tradeData", "diaryData", "notesData", "preferences", "scoreWeights", "theme", "tradingProfiles", "activeProfileId"];
   const updateData: Record<string, unknown> = {};
 
   for (const field of allowedFields) {

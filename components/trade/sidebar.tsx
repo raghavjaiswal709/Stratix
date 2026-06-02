@@ -24,10 +24,13 @@ import {
   PinOff,
   ChartCandlestick,
   Radio,
+  Plus,
+  Check,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { ProfileSwitcher, ProfileDot, ManageModal } from "@/components/trade/profile-switcher";
 
 interface NavItem {
   href: string;
@@ -71,8 +74,9 @@ function CollapsedSidebar({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme } = useAppContext();
+  const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme, tradingProfiles, activeProfileId, setActiveProfileId } = useAppContext();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [showManage, setShowManage] = useState(false);
 
   function handleSignOut() {
     if (hasUnsavedChanges) {
@@ -122,6 +126,11 @@ function CollapsedSidebar({
 
       {/* Nav */}
       <nav className="flex-1 flex flex-col items-center px-2 pt-4 gap-1 overflow-y-auto">
+        {/* Profile dot */}
+        <ProfileDot />
+
+        <div className="w-8 my-0.5 border-t border-white/[0.05]" />
+
         {/* Trading */}
         {tradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
@@ -251,6 +260,51 @@ function CollapsedSidebar({
                   <p className="text-[12px] font-semibold text-white/80 truncate">{session.user.name}</p>
                   <p className="text-[10px] text-white/35 truncate">{session.user.email}</p>
                 </div>
+
+                {/* Trading Profiles section */}
+                <div className="border-b border-white/[0.06] py-1">
+                  <div className="px-3 py-1 text-[9px] font-bold text-white/20 uppercase tracking-wider">
+                    Trading Profiles
+                  </div>
+                  
+                  {/* All Profiles */}
+                  <button
+                    onClick={() => { setActiveProfileId(""); setProfileOpen(false); }}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-all hover:bg-white/[0.05]",
+                      !activeProfileId ? "text-white font-medium" : "text-white/55 hover:text-white/80"
+                    )}
+                  >
+                    <div className="h-1.5 w-1.5 rounded-full bg-white/20 shrink-0" />
+                    <span className="truncate">All Profiles</span>
+                    {!activeProfileId && <Check className="h-3.5 w-3.5 ml-auto text-white/60 shrink-0" />}
+                  </button>
+
+                  {/* Individual Profiles */}
+                  {tradingProfiles.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { setActiveProfileId(p.id); setProfileOpen(false); }}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-all hover:bg-white/[0.05]",
+                        activeProfileId === p.id ? "text-white font-medium" : "text-white/55 hover:text-white/80"
+                      )}
+                    >
+                      <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+                      <span className="truncate flex-1 text-left">{p.name}</span>
+                      {activeProfileId === p.id && <Check className="h-3.5 w-3.5 ml-auto text-white/60 shrink-0" />}
+                    </button>
+                  ))}
+
+                  {/* Create / Manage */}
+                  <button
+                    onClick={() => { setProfileOpen(false); setShowManage(true); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-white/35 hover:text-white/65 hover:bg-white/[0.05] transition-all"
+                  >
+                    <Plus className="h-3 w-3 text-white/35" />
+                    <span>Manage Profiles</span>
+                  </button>
+                </div>
                 {session.user.role === "admin" && (
                   <Link
                     href="/admin"
@@ -280,6 +334,7 @@ function CollapsedSidebar({
           )}
         </div>
       )}
+      {showManage && <ManageModal onClose={() => setShowManage(false)} />}
     </aside>
   );
 }
@@ -296,8 +351,9 @@ function ExpandedSidebar({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme } = useAppContext();
+  const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme, tradingProfiles, activeProfileId, setActiveProfileId } = useAppContext();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [showManage, setShowManage] = useState(false);
 
   function handleSignOut() {
     if (hasUnsavedChanges) {
@@ -362,6 +418,11 @@ function ExpandedSidebar({
 
       {/* Navigation */}
       <nav className="flex-1 px-2 pt-4 space-y-0.5 overflow-y-auto">
+        {/* Profile switcher */}
+        <div className="mb-3">
+          <ProfileSwitcher />
+        </div>
+
         <p className="px-2 mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-white/20">Trading</p>
         {tradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
@@ -452,6 +513,51 @@ function ExpandedSidebar({
                   <p className="text-[12px] font-semibold text-white/80 truncate">{session.user.name}</p>
                   <p className="text-[10px] text-white/35 truncate">{session.user.email}</p>
                 </div>
+
+                {/* Trading Profiles section */}
+                <div className="border-b border-white/[0.06] py-1">
+                  <div className="px-3 py-1 text-[9px] font-bold text-white/20 uppercase tracking-wider">
+                    Trading Profiles
+                  </div>
+                  
+                  {/* All Profiles */}
+                  <button
+                    onClick={() => { setActiveProfileId(""); setProfileOpen(false); }}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-all hover:bg-white/[0.05]",
+                      !activeProfileId ? "text-white font-medium" : "text-white/55 hover:text-white/80"
+                    )}
+                  >
+                    <div className="h-1.5 w-1.5 rounded-full bg-white/20 shrink-0" />
+                    <span className="truncate">All Profiles</span>
+                    {!activeProfileId && <Check className="h-3.5 w-3.5 ml-auto text-white/60 shrink-0" />}
+                  </button>
+
+                  {/* Individual Profiles */}
+                  {tradingProfiles.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { setActiveProfileId(p.id); setProfileOpen(false); }}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-all hover:bg-white/[0.05]",
+                        activeProfileId === p.id ? "text-white font-medium" : "text-white/55 hover:text-white/80"
+                      )}
+                    >
+                      <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+                      <span className="truncate flex-1 text-left">{p.name}</span>
+                      {activeProfileId === p.id && <Check className="h-3.5 w-3.5 ml-auto text-white/60 shrink-0" />}
+                    </button>
+                  ))}
+
+                  {/* Create / Manage */}
+                  <button
+                    onClick={() => { setProfileOpen(false); setShowManage(true); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-white/35 hover:text-white/65 hover:bg-white/[0.05] transition-all"
+                  >
+                    <Plus className="h-3 w-3 text-white/35" />
+                    <span>Manage Profiles</span>
+                  </button>
+                </div>
                 {session.user.role === "admin" && (
                   <Link
                     href="/admin"
@@ -504,6 +610,7 @@ function ExpandedSidebar({
           </button>
         </div>
       )}
+      {showManage && <ManageModal onClose={() => setShowManage(false)} />}
     </aside>
   );
 }

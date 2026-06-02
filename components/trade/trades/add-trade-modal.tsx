@@ -49,9 +49,10 @@ interface AddTradeModalProps {
   onClose: () => void;
   onSaved: (updated: Record<string, unknown> | null) => void;
   editTrade?: EditableTrade;
+  profileId?: string;
 }
 
-export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProps) {
+export function AddTradeModal({ onClose, onSaved, editTrade, profileId }: AddTradeModalProps) {
   const isEdit = !!editTrade;
 
   const [direction, setDirection] = useState<"buy" | "sell">(editTrade?.direction ?? "buy");
@@ -152,6 +153,7 @@ export function AddTradeModal({ onClose, onSaved, editTrade }: AddTradeModalProp
       const url = isEdit ? `/api/trade/${editTrade._id}` : "/api/trade";
       const method = isEdit ? "PUT" : "POST";
       if (!isEdit) body.notes = notes;
+      if (!isEdit && profileId) body.profileId = profileId;
 
       const res = await fetch(url, {
         method,

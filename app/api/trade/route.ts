@@ -7,14 +7,22 @@ import { getContractSize } from "@/lib/contract-sizes";
 export const dynamic = 'force-dynamic';
 
 // GET /api/trade — list all trades for current user
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(req.url);
+  const profileId = searchParams.get("profileId");
+
   await dbConnect();
-  const trades = await TradeEntryModel.find({ userId: session.user.id })
+  const filter: Record<string, unknown> = { userId: session.user.id };
+  if (profileId && profileId !== "all") {
+    filter.profileId = profileId;
+  }
+
+  const trades = await TradeEntryModel.find(filter)
     .sort({ entryTime: -1 })
     .lean();
 
@@ -44,6 +52,7 @@ export async function POST(req: NextRequest) {
     notes,
     executionChecklist,
     leverage,
+    profileId,
   } = body;
 
   if (!symbol || !direction || !lots || !entryPrice || !entryTime) {
@@ -89,6 +98,7 @@ export async function POST(req: NextRequest) {
     source: "manual",
     preTradeAnalysis: notes ?? "",
     executionChecklist: executionChecklist ?? undefined,
+    profileId: profileId ?? undefined,
   });
 
   return NextResponse.json(trade, { status: 201 });

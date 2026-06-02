@@ -279,3 +279,16 @@ export interface ApiTrade {
   mistakes?: string;
   lessons?: string;
 }
+
+// ============ TRADING PROFILES ============
+export interface TradingProfile {
+  id: string;
+  name: string;
+  broker?: string;
+  accountType: "live" | "demo" | "paper";
+  currency: string;
+  color: string;        // hex color for visual identification
+  initialBalance?: number;
+  description?: string;
+  createdAt: string;
+}
