@@ -14,6 +14,7 @@ import {
   type CandlestickData, type HistogramData,
 } from "lightweight-charts";
 import type { Candle, ManualTrade, LiveStatus, Drawing, DrawingType, TimePricePoint } from "./types";
+import { getLotSpec, calcPnl } from "./lotSpecs";
 import {
   Trash2, Search,
   Magnet, Lock, Unlock, Eye, EyeOff, PenTool,
@@ -42,6 +43,7 @@ interface Props {
   onDrawingsChange:    (drawings: Drawing[]) => void;
   symbol?:             string;
   timeframe?:          string;
+  lotSize?:            number;
   settings: {
     themeName:      string;
     upColor:        string;
@@ -86,6 +88,7 @@ export function BacktestChart({
   onStartBarSelect, manualTrades, openTrade, openTradeUnrealised,
   liveCandle, liveStatus, drawings, onDrawingsChange, settings, onSettingsChange,
   onBuy, onSell, onRRDrawingSelect,
+  symbol, lotSize = 0.01,
 }: Props) {
   const containerRef    = useRef<HTMLDivElement>(null);
   const chartRef        = useRef<IChartApi | null>(null);
@@ -214,6 +217,7 @@ export function BacktestChart({
   const rsiSeriesRef  = useRef<ISeriesApi<"Line"> | null>(null);
 
   // ── Sessions Indicator ────────────────────────────────────────────────────
+  const [sessionsGlobalActive, setSessionsGlobalActive] = useState(false);
   const [sessionsPanelOpen, setSessionsPanelOpen] = useState(false);
   const [sessionsCfg, setSessionsCfg] = useState({
     asian:  { active: true, color: "#22d3ee", opacity: 0.0, startH: 5, startM: 30, endH: 9, endM: 30 },
@@ -2227,12 +2231,20 @@ export function BacktestChart({
 
       // ── Helpers ─────────────────────────────────────────────────────────────
       const fmtP = (n: number) => formatPrice(n, minPriceRef.current);
-      const pctStr = (n: number) =>
-        entry > 0 ? ((Math.abs(n - entry) / entry) * 100).toFixed(2) + "%" : "";
 
-      // Right-side label block: hugs the right edge, never wider than half the bracket
+      // ── $ P&L from current lot size ─────────────────────────────────────────
+      const _spec        = getLotSpec(symbol || "xauusd");
+      const _dir         = isLong ? "LONG" : "SHORT";
+      const profitDollar = calcPnl(_dir, entry, tp,   lotSize, _spec); // > 0
+      const lossDollar   = calcPnl(_dir, entry, stop, lotSize, _spec); // < 0
+      const fmtDollar    = (v: number) =>
+        (v >= 0 ? "+" : "-") + "$" + Math.abs(v).toLocaleString("en-US", {
+          minimumFractionDigits: 2, maximumFractionDigits: 2,
+        });
+
+      // Right-side label block: slightly wider to fit dollar amounts
       const LH  = 17;                               // label box height px
-      const LW  = Math.min(118, Math.floor(W * 0.55)); // label box width px
+      const LW  = Math.min(148, Math.floor(W * 0.60)); // label box width px
       const lx  = xR - LW - 3;                     // label left-x
 
       // Direction badge sits inside the profit zone top-left corner
@@ -2255,10 +2267,34 @@ export function BacktestChart({
           {/* ── Profit zone (emerald) ── */}
           <rect x={xL} y={profitTop} width={W} height={profitH}
             fill={isSelected ? "rgba(16,185,129,0.20)" : "rgba(16,185,129,0.09)"} />
+          {/* Dollar profit centred inside zone (only when tall enough) */}
+          {profitH > 28 && W > 80 && (
+            <text
+              x={xL + W / 2} y={profitTop + profitH / 2 + 4}
+              textAnchor="middle"
+              fill="rgba(16,185,129,0.75)"
+              fontSize={Math.min(13, Math.max(9, profitH * 0.35))}
+              fontFamily="monospace" fontWeight="bold"
+              pointerEvents="none">
+              {fmtDollar(profitDollar)}
+            </text>
+          )}
 
           {/* ── Loss zone (red) ── */}
           <rect x={xL} y={lossTop} width={W} height={lossH}
             fill={isSelected ? "rgba(239,68,68,0.20)" : "rgba(239,68,68,0.09)"} />
+          {/* Dollar loss centred inside zone (only when tall enough) */}
+          {lossH > 28 && W > 80 && (
+            <text
+              x={xL + W / 2} y={lossTop + lossH / 2 + 4}
+              textAnchor="middle"
+              fill="rgba(239,68,68,0.75)"
+              fontSize={Math.min(13, Math.max(9, lossH * 0.35))}
+              fontFamily="monospace" fontWeight="bold"
+              pointerEvents="none">
+              {fmtDollar(lossDollar)}
+            </text>
+          )}
 
           {/* ── Price lines ── */}
           {/* TP */}
@@ -2308,12 +2344,12 @@ export function BacktestChart({
           {/* ── Right-side price labels ── */}
           {LW >= 50 && (
             <>
-              {/* TP label */}
+              {/* TP label — price + dollar profit */}
               <rect x={lx} y={tpY - LH / 2} width={LW} height={LH} rx={2}
                 fill="rgba(3,12,7,0.95)" stroke="#10b981" strokeWidth={0.8} />
               <text x={lx + 4} y={tpY + 4}
                 fill="#10b981" fontSize={8} fontFamily="monospace" fontWeight="bold">
-                {`TP ${fmtP(tp)}  +${pctStr(tp)}`}
+                {`TP ${fmtP(tp)}  ${fmtDollar(profitDollar)}`}
               </text>
 
               {/* Entry label */}
@@ -2324,12 +2360,12 @@ export function BacktestChart({
                 {`EN ${fmtP(entry)}`}
               </text>
 
-              {/* SL label */}
+              {/* SL label — price + dollar loss */}
               <rect x={lx} y={slY - LH / 2} width={LW} height={LH} rx={2}
                 fill="rgba(12,3,3,0.95)" stroke="#ef4444" strokeWidth={0.8} />
               <text x={lx + 4} y={slY + 4}
                 fill="#ef4444" fontSize={8} fontFamily="monospace" fontWeight="bold">
-                {`SL ${fmtP(stop)}  -${pctStr(stop)}`}
+                {`SL ${fmtP(stop)}  ${fmtDollar(lossDollar)}`}
               </text>
             </>
           )}
@@ -2530,8 +2566,10 @@ export function BacktestChart({
         </button>
       </div>
 
-      {/* ── Chart area ── */}
-      <div className="flex-1 min-w-0 h-full relative">
+      {/* ── Chart area: flex-col so controls live in a real strip below ── */}
+      <div className="flex-1 min-w-0 h-full flex flex-col relative">
+        {/* Inner canvas area — fills all remaining space */}
+        <div className="flex-1 min-h-0 relative">
         <div ref={containerRef} className="w-full h-full" />
 
         {/* ── Floating Favorites Toolbar ── */}
@@ -2609,7 +2647,7 @@ export function BacktestChart({
 
               return (["asian", "london", "ny"] as const).map(sKey => {
                 const s = sessionsCfg[sKey];
-                if (!s.active) return null;
+                if (!sessionsGlobalActive || !s.active) return null;
 
                 const startMin = s.startH * 60 + (s.startM ?? 0);
                 const endMin = s.endH * 60 + (s.endM ?? 0);
@@ -3025,8 +3063,10 @@ export function BacktestChart({
           );
         })()}
 
-        {/* ── Bottom-right controls ── */}
-        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-lg p-1 z-20 select-none font-mono text-[9px]">
+        </div>{/* end inner canvas area */}
+
+        {/* ── Bottom controls strip — below the chart, no overlap ── */}
+        <div className="shrink-0 h-8 border-t border-white/[0.08] bg-[#0a0a0a] flex items-center justify-end px-2 gap-1 select-none font-mono text-[9px] z-20">
           {/* Trade markers toggle */}
           <button onClick={() => setShowTradeMarkers(p => !p)}
             className={`px-2 py-1 rounded font-bold transition-all flex items-center gap-1 cursor-pointer border ${showTradeMarkers ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
@@ -3041,12 +3081,19 @@ export function BacktestChart({
             <Activity className="w-3 h-3" /><span>IND</span>
           </button>
           <div className="w-px h-4 bg-white/[0.08]" />
-          {/* Sessions */}
-          <button onClick={() => { setSessionsPanelOpen(p => !p); setIndicatorPanelOpen(false); }}
-            className={`px-2 py-1 rounded font-bold transition-all flex items-center gap-1 cursor-pointer border ${sessionsPanelOpen ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
-            title="Market Sessions">
-            <Clock className="w-3 h-3" /><span>SESS</span>
-          </button>
+          {/* Sessions Toggle UI */}
+          <div className="flex">
+            <button onClick={() => setSessionsGlobalActive(p => !p)}
+              className={`px-2 py-1 rounded-l font-bold transition-all flex items-center gap-1 cursor-pointer border-y border-l ${sessionsGlobalActive ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+              title="Toggle Market Sessions">
+              <Clock className="w-3 h-3" /><span>SESS</span>
+            </button>
+            <button onClick={() => { setSessionsPanelOpen(p => !p); setIndicatorPanelOpen(false); }}
+              className={`px-1 py-1 rounded-r transition-all flex items-center justify-center cursor-pointer border ${sessionsPanelOpen ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+              title="Session Settings">
+              <ChevronUp className={`w-3 h-3 transition-transform ${sessionsPanelOpen ? "rotate-180" : ""}`} />
+            </button>
+          </div>
           <div className="w-px h-4 bg-white/[0.08]" />
           <button
             onClick={() => onSettingsChange({ isYAxisLocked: !settings.isYAxisLocked })}
@@ -3066,7 +3113,7 @@ export function BacktestChart({
 
         {/* ── Indicator Panel ── */}
         {indicatorPanelOpen && (
-          <div className="absolute bottom-14 right-3 z-40 bg-black/92 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl w-72 font-mono pointer-events-auto select-none overflow-hidden"
+          <div className="absolute bottom-8 right-3 z-40 bg-black/92 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl w-72 font-mono pointer-events-auto select-none overflow-hidden"
             onMouseDown={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3131,7 +3178,7 @@ export function BacktestChart({
 
         {/* ── Sessions Panel ── */}
         {sessionsPanelOpen && (
-          <div className="absolute bottom-14 right-3 z-40 bg-black/92 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl w-72 font-mono pointer-events-auto select-none overflow-hidden"
+          <div className="absolute bottom-8 right-3 z-40 bg-black/92 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl w-72 font-mono pointer-events-auto select-none overflow-hidden"
             onMouseDown={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
               <div className="flex items-center gap-2">

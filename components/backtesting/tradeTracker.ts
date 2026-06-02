@@ -89,7 +89,11 @@ export class TradeTracker {
 
 // Compute summary metrics from a list of closed manual trades.
 export function computeMetrics(trades: ManualTrade[], initialCapital: number): ReplayMetrics {
-  if (trades.length === 0) {
+  // Only use properly closed trades that have a real numeric pnl.
+  // Trades with undefined/null pnl would default to 0 and silently dilute win rate.
+  const validTrades = trades.filter(t => t.exitTime != null && t.pnl != null);
+
+  if (validTrades.length === 0) {
     return {
       totalTrades: 0, winRate: 0, totalPnl: 0,
       profitFactor: 0, avgWin: 0, avgLoss: 0,
@@ -97,7 +101,7 @@ export function computeMetrics(trades: ManualTrade[], initialCapital: number): R
     };
   }
 
-  const pnls        = trades.map(t => t.pnl ?? 0);
+  const pnls        = validTrades.map(t => t.pnl!);
   const wins        = pnls.filter(p => p > 0);   // strictly positive = win
   const losses      = pnls.filter(p => p < 0);   // strictly negative = loss (breakeven excluded)
   const totalPnl    = pnls.reduce((a, b) => a + b, 0);
@@ -105,14 +109,14 @@ export function computeMetrics(trades: ManualTrade[], initialCapital: number): R
   const grossLoss   = Math.abs(losses.reduce((a, b) => a + b, 0));
 
   let equity = initialCapital;
-  const equityCurve = trades.map(t => {
-    equity += t.pnl ?? 0;
+  const equityCurve = validTrades.map(t => {
+    equity += t.pnl!;
     return { time: t.exitTime!, value: equity };
   });
 
   return {
-    totalTrades:  trades.length,
-    winRate:      (wins.length / trades.length) * 100,
+    totalTrades:  validTrades.length,
+    winRate:      (wins.length / validTrades.length) * 100,
     totalPnl,
     profitFactor: grossLoss === 0 ? 999 : grossProfit / grossLoss,
     avgWin:       wins.length   ? grossProfit / wins.length   : 0,

@@ -246,6 +246,12 @@ export async function POST(req: NextRequest) {
   const userId = session.user.id;
   const tickets = trades.map((t) => t.ticket);
 
+  // Profile-scoped filter: isolate each trading profile so the same ticket can
+  // exist independently in different profiles without triggering false conflicts.
+  const profileScopeFilter = profileId
+    ? { userId, profileId }
+    : { userId, profileId: { $exists: false } };
+
   // --- Conflict detection (first call, no resolution) ---
   if (!resolution) {
     type ExistingDoc = {
@@ -259,7 +265,7 @@ export async function POST(req: NextRequest) {
     };
 
     const existing = (await TradeEntryModel.find(
-      { userId, ticket: { $in: tickets } },
+      { ...profileScopeFilter, ticket: { $in: tickets } },
       { ticket: 1, symbol: 1, direction: 1, lots: 1, entryPrice: 1, profit: 1, status: 1 }
     ).lean()) as ExistingDoc[];
 
@@ -310,7 +316,7 @@ export async function POST(req: NextRequest) {
   if (resolution === "skip") {
     // Re-query to be safe (state may have changed between two requests)
     const existing = (await TradeEntryModel.find(
-      { userId, ticket: { $in: tickets } },
+      { ...profileScopeFilter, ticket: { $in: tickets } },
       { ticket: 1 }
     ).lean()) as { ticket: string }[];
     const existingSet = new Set(existing.map((e) => e.ticket));
@@ -337,7 +343,7 @@ export async function POST(req: NextRequest) {
 
     return {
       updateOne: {
-        filter: { userId, ticket: t.ticket },
+        filter: { ...profileScopeFilter, ticket: t.ticket },
         update: {
           $set: {
             userId,

@@ -104,6 +104,7 @@ export async function PUT(req: Request) {
     // lastCandleTime is a newer field — use strict:false so it persists even if
     // the Mongoose model was cached before this field was added to the schema.
     if (body.lastCandleTime !== undefined) $set.lastCandleTime  = body.lastCandleTime;
+    if (body.lastStartTime  !== undefined) $set.lastStartTime   = body.lastStartTime;
 
     if (Object.keys($set).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });

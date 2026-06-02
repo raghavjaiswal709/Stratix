@@ -11,7 +11,7 @@ import {
 
 interface Props {
   sessions: Session[];
-  onSelectSession: (session: Session) => void;
+  onSelectSession: (session: Session, restart?: boolean) => void;
   onDeleteSession: (id: string) => void;
   onOpenNewSessionModal: () => void;
 }
@@ -59,11 +59,18 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
         worstStreak: 0,
       };
     }
-    const trades = selectedSession.trades || [];
+    // Only include fully-closed trades that have a real pnl value.
+    // Trades with pnl=undefined (e.g. open positions saved by mistake) would
+    // map to pnl??0 inside computeMetrics and silently inflate the denominator,
+    // making the win rate look lower than it is.
+    const rawTrades = selectedSession.trades || [];
+    const trades = rawTrades.filter(
+      (t) => t.exitTime != null && t.pnl != null
+    );
     const metrics = computeMetrics(trades, selectedSession.startingBalance);
 
     // Deep analysis for streaks, records, and splits
-    const closed = trades.filter((t) => t.exitTime != null);
+    const closed = trades; // already filtered above
     let wins = 0;
     let losses = 0;
     let longWins = 0, longLosses = 0;
@@ -220,16 +227,30 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
                           <span className="text-[11px] font-bold font-mono text-white/70">${s.startingBalance}</span>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSession(s);
-                            }}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black active:scale-95 transition-all text-xs font-extrabold shadow-[0_2px_10px_rgba(16,185,129,0.2)] border border-transparent"
-                          >
-                            <Play className="w-3 h-3 fill-current" />
-                            {s.lastCandleTime ? "Continue" : "Start Replay"}
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectSession(s);
+                              }}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black active:scale-95 transition-all text-xs font-extrabold shadow-[0_2px_10px_rgba(16,185,129,0.2)] border border-transparent"
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                              {s.lastCandleTime ? "Continue" : "Start Replay"}
+                            </button>
+                            {s.lastCandleTime && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSelectSession(s, true);
+                                }}
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white active:scale-95 transition-all text-xs font-extrabold"
+                                title="Restart from first candle"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();

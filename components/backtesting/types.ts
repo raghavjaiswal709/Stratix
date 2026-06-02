@@ -143,5 +143,6 @@ export interface Session {
   trades: ManualTrade[];
   drawings: Drawing[];
   lastCandleTime?: number;   // Unix-second timestamp of the last viewed candle
+  lastStartTime?:  number;   // Unix-second timestamp of the replay start (cut) bar
 }
 

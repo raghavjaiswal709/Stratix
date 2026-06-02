@@ -18,6 +18,8 @@ interface Trade {
   _id: string;
   entryTime: string;
   profit: number;
+  swap?: number;
+  commission?: number;
   status: string;
 }
 
@@ -53,7 +55,8 @@ function buildChartData(trades: Trade[], start: Date | null) {
   const byDay = new Map<string, number>();
   for (const t of filtered) {
     const key = format(parseISO(t.entryTime), "yyyy-MM-dd");
-    byDay.set(key, (byDay.get(key) ?? 0) + t.profit);
+    const netProfit = t.profit + (t.swap || 0) + (t.commission || 0);
+    byDay.set(key, (byDay.get(key) ?? 0) + netProfit);
   }
 
   let cumPnL = 0;

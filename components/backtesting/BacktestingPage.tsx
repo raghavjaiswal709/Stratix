@@ -211,16 +211,35 @@ export function BacktestingPage() {
     }
   };
 
-  // ── Persist the last viewed candle time to the session (fire-and-forget) ──
-  const persistLastCandle = useCallback((sessionId: string, candleTime: number) => {
+  // ── Persist last played candle + last cut (start) bar to DB (fire-and-forget) ──
+  const persistLastCandle = useCallback((
+    sessionId: string,
+    candleTime: number,
+    startTime?: number,
+  ) => {
+    // ── 1. Update in-memory sessions state immediately ──────────────────────
+    // This is the critical step: when the user returns to the dashboard and
+    // clicks "Continue", handleSelectSession receives the session from the
+    // `sessions` array. If that array isn't updated here, the session object
+    // will have lastCandleTime=null and the restore logic will never trigger.
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId
+        ? { ...s, lastCandleTime: candleTime, ...(startTime != null ? { lastStartTime: startTime } : {}) }
+        : s
+    ));
+
+    // ── 2. Persist to DB (fire-and-forget) ──────────────────────────────────
     fetch(`/api/backtesting/sessions?id=${sessionId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lastCandleTime: candleTime }),
+      body: JSON.stringify({
+        lastCandleTime: candleTime,
+        ...(startTime != null ? { lastStartTime: startTime } : {}),
+      }),
     }).catch(() => {});
-  }, []);
+  }, [setSessions]);
 
-  const handleSelectSession = useCallback(async (session: Session) => {
+  const handleSelectSession = useCallback(async (session: Session, restart: boolean = false) => {
     setActiveSession(session);
     setClosedTrades(session.trades || []);
     setOpenTrade(null);
@@ -265,20 +284,29 @@ export function BacktestingPage() {
       setDisplay(resampled);
       setDataSource(getLastFetchedSource());
 
-      // ── Restore last candle position if the session was previously visited ──
-      if (session.lastCandleTime && resampled.length > 1) {
+      // ── Restore last played candle + last cut (start) bar ──
+      if (!restart && session.lastCandleTime && resampled.length > 0) {
         let lastIdx = resampled.findIndex(c => c.time >= session.lastCandleTime!);
         if (lastIdx === -1) lastIdx = resampled.length - 1;
-        if (lastIdx > 0) {
-          setReplay({
-            active: true,
-            playing: false,
-            startIdx: 0,
-            currentIdx: lastIdx,
-            speed: 1,
-            selectingStart: false,
-          });
+        // clamp to valid range
+        lastIdx = Math.max(0, Math.min(lastIdx, resampled.length - 1));
+
+        // Restore the cut bar; default to 0
+        let startIdx = 0;
+        if (session.lastStartTime) {
+          const si = resampled.findIndex(c => c.time >= session.lastStartTime!);
+          startIdx = si === -1 ? 0 : Math.min(si, resampled.length - 1);
         }
+
+        // Always restore — condition was previously `> 0` which skipped index 0
+        setReplay({
+          active:         true,
+          playing:        false,
+          startIdx:       startIdx,
+          currentIdx:     Math.max(startIdx, lastIdx),
+          speed:          1,
+          selectingStart: false,
+        });
       }
 
       // Start the real-time live feed for updating the chart (Disabled)
@@ -302,12 +330,13 @@ export function BacktestingPage() {
   }, [activeTimeframe]);
 
   const handleExitToDashboard = () => {
-    // Save current candle position before leaving so the session can be resumed
+    // Save current candle + start (cut) bar position before leaving
     const r   = replayRef.current;
     const ses = activeSessionRef.current;
     if (ses && r.active) {
-      const candle = displayRef.current[r.currentIdx];
-      if (candle) persistLastCandle(ses.id, candle.time);
+      const candle      = displayRef.current[r.currentIdx];
+      const startCandle = displayRef.current[r.startIdx];
+      if (candle) persistLastCandle(ses.id, candle.time, startCandle?.time);
     }
 
     stopPlayTimer();
@@ -463,12 +492,13 @@ export function BacktestingPage() {
   const handlePause = useCallback(() => {
     stopPlayTimer();
     setReplay(pausePlaying);
-    // Save position on every pause (fire-and-forget, uses always-current refs)
+    // Save last played candle + cut bar on every pause
     const ses = activeSessionRef.current;
     const r   = replayRef.current;
     if (ses && r.active) {
-      const candle = displayRef.current[r.currentIdx];
-      if (candle) persistLastCandle(ses.id, candle.time);
+      const candle      = displayRef.current[r.currentIdx];
+      const startCandle = displayRef.current[r.startIdx];
+      if (candle) persistLastCandle(ses.id, candle.time, startCandle?.time);
     }
   }, [persistLastCandle]);
 
@@ -516,6 +546,8 @@ export function BacktestingPage() {
       setClosedTrades(updatedTrades);
       updateActiveSessionTrades(updatedTrades);
     }
+    // Always clear the tracker's open slot so next replay run starts clean
+    trackerRef.current.open = null;
 
     // Reset replay bar + open-trade UI, but DO NOT wipe closed trades or DB history.
     // Trade history accumulates across multiple replay runs so the dashboard win rate
@@ -628,67 +660,54 @@ export function BacktestingPage() {
   return (
     <div className="flex flex-col w-full h-full bg-[#0f0f0f] overflow-hidden text-white/75">
       
-      {/* ── Active Session top bar header (Image 2 styling) ── */}
-      <div className="h-14 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center justify-between px-4">
-        <div className="flex items-center gap-4">
+      {/* ── Active Session top bar — single thin row ── */}
+      <div className="h-10 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center justify-between px-3 gap-3">
+
+        {/* Left: back + symbol + meta */}
+        <div className="flex items-center gap-2 min-w-0">
           <button
             onClick={handleExitToDashboard}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] hover:border-white/[0.20] text-white/45 hover:text-white transition-all text-xs font-bold active:scale-95"
+            className="flex items-center gap-1 px-2 py-1 rounded border border-white/[0.08] hover:border-white/[0.20] text-white/45 hover:text-white transition-all text-[10px] font-bold active:scale-95 shrink-0"
             title="Exit Session"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeft className="w-3 h-3" />
             Sessions
           </button>
-          
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-white uppercase tracking-tight">{activeSession.symbol}</span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] bg-white/[0.06] text-white/65 font-bold border border-white/[0.08]">Active</span>
-              <span className="text-[10px] text-white/35 font-mono">Lev {activeSession.leverage}</span>
-            </div>
-            <span className="text-[9px] text-white/30 font-mono">{activeSession.name}</span>
-          </div>
+          <div className="w-px h-4 bg-white/[0.08] shrink-0" />
+          <span className="text-[11px] font-bold text-white uppercase tracking-tight shrink-0">{activeSession.symbol}</span>
+          <span className="px-1 py-0.5 rounded text-[8px] bg-white/[0.06] text-white/55 font-bold border border-white/[0.06] shrink-0">Active</span>
+          <span className="text-[9px] text-white/30 font-mono shrink-0">Lev {activeSession.leverage}</span>
+          <span className="text-[9px] text-white/20 font-mono truncate">· {activeSession.name}</span>
         </div>
 
-        {/* Live balance and P&L indicators */}
-        <div className="flex items-center gap-6 text-xs font-mono select-none">
-          <div className="flex flex-col">
-            <span className="text-white/40 text-[9px] uppercase font-semibold">Balance</span>
-            <span className="text-white font-bold">${(activeSession.startingBalance + activeMetrics.totalPnl).toFixed(2)}</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-white/40 text-[9px] uppercase font-semibold">P&L</span>
-            <span className={`font-bold ${activeMetrics.totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
-              {activeMetrics.totalPnl >= 0 ? "+" : ""}${activeMetrics.totalPnl.toFixed(2)}
-            </span>
-          </div>
+        {/* Center: balance + P&L */}
+        <div className="flex items-center gap-4 text-[10px] font-mono select-none shrink-0">
+          <span className="text-white/40">Bal <b className="text-white">${(activeSession.startingBalance + activeMetrics.totalPnl).toFixed(2)}</b></span>
+          <span className="text-white/40">P&amp;L <b className={activeMetrics.totalPnl >= 0 ? "text-green-500" : "text-red-500"}>
+            {activeMetrics.totalPnl >= 0 ? "+" : ""}${activeMetrics.totalPnl.toFixed(2)}
+          </b></span>
         </div>
 
-        {/* Timeframe selector + candle nav buttons */}
-        <div className="flex items-center gap-3">
-          {/* "From First Candle" — jumps to absolute index 0 of the loaded data */}
+        {/* Right: first-candle + timeframes */}
+        <div className="flex items-center gap-2 shrink-0">
           {displayCandles.length > 0 && (
             <button
               onClick={handleFromFirstCandle}
               title="Jump to first candle of session range"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.08] hover:border-white/[0.20] text-white/45 hover:text-white transition-all text-[10px] font-bold active:scale-95"
+              className="flex items-center gap-1 px-2 py-1 rounded border border-white/[0.08] hover:border-white/[0.20] text-white/40 hover:text-white transition-all text-[9px] font-bold active:scale-95"
             >
               <RotateCcw className="w-3 h-3" />
               First Candle
             </button>
           )}
-
-          {/* Timeframe switchers */}
-          <div className="flex p-0.5 rounded-lg bg-white/[0.04] border border-white/[0.08]">
+          <div className="flex p-0.5 rounded bg-white/[0.04] border border-white/[0.08]">
             {(["1m", "5m", "15m", "1H", "4H", "1D"] as const).map((tf) => (
               <button
                 key={tf}
                 disabled={isLoading}
                 onClick={() => handleTimeframeChange(tf)}
-                className={`px-2.5 py-1 text-[10px] font-bold rounded transition-all ${
-                  activeTimeframe === tf
-                    ? "bg-white/[0.10] text-white"
-                    : "text-white/40 hover:text-white"
+                className={`px-2 py-0.5 text-[9px] font-bold rounded transition-all ${
+                  activeTimeframe === tf ? "bg-white/[0.10] text-white" : "text-white/40 hover:text-white"
                 }`}
               >
                 {tf}
@@ -717,10 +736,10 @@ export function BacktestingPage() {
       {/* ── Main Workspace Body (Chart + Replay controls + Order panel) ── */}
       <div className="flex-1 min-h-0 flex w-full relative">
         
-        {/* Left Side: Chart Canvas & Bottom controls */}
+        {/* Left Side: Chart Canvas + Replay strip + Position panel */}
         <div className="flex-1 min-w-0 flex flex-col h-full bg-[#0f0f0f]">
-          
-          {/* Lightweight-charts Canvas Overlay Container */}
+
+          {/* Chart canvas — fills all remaining space, no overlapping controls */}
           <div className="flex-1 min-h-0 relative w-full">
             <BacktestChart
               symbol={activeSession.symbol}
@@ -740,15 +759,15 @@ export function BacktestingPage() {
               isInReplay={replay.active}
               onBuy={handleBuy}
               onSell={handleSell}
-              
-              // Custom drawings canvas support
               drawings={activeSession.drawings || []}
               onDrawingsChange={handleDrawingsChange}
               onRRDrawingSelect={setRRDrawing}
             />
+          </div>
 
-            {/* Floating Replay Controls (Curved Island Floating at bottom middle of chart) */}
-            {displayCandles.length > 0 && (
+          {/* ── Replay controls row — sits BELOW the chart, no overlap ── */}
+          {displayCandles.length > 0 && (
+            <div className="shrink-0 border-t border-white/[0.08] bg-[#0a0a0a] flex items-center justify-center px-2 py-1">
               <ReplayBar
                 replay={replay}
                 currentCandle={currentCandle}
@@ -764,8 +783,8 @@ export function BacktestingPage() {
                 onStop={handleStop}
                 onSpeedChange={handleSpeedChange}
               />
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Bottom Open Positions Panel */}
           {openTrade && (

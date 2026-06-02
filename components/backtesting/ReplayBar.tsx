@@ -39,8 +39,8 @@ export function ReplayBar({
   const revealed = active ? currentIdx - startIdx : 0;
 
   return (
-    <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 px-4.5 py-2 bg-black/30 backdrop-blur-[20px] border rounded-full z-35 shadow-[0_20px_50px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all duration-300 font-mono text-[9px] pointer-events-auto select-none ${
-      selectingStart ? "border-[#F0B90B] bg-[#F0B90B]/10" : "border-white/10 border-t-white/20"
+    <div className={`flex items-center gap-3 px-4 py-1.5 bg-black/20 backdrop-blur-[20px] border rounded-full font-mono text-[9px] pointer-events-auto select-none transition-all duration-300 ${
+      selectingStart ? "border-[#F0B90B] bg-[#F0B90B]/10" : "border-white/[0.10]"
     }`}>
 
       {/* ── Select-start-bar toggle ───────────────────────────────────── */}

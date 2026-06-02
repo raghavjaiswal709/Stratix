@@ -20,6 +20,8 @@ interface Trade {
   _id: string;
   entryTime: string;
   profit: number;
+  swap?: number;
+  commission?: number;
   status: string;
 }
 
@@ -33,7 +35,7 @@ const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 function getPnLForDay(trades: Trade[], date: Date): number {
   return trades
     .filter((t) => isSameDay(parseISO(t.entryTime), date))
-    .reduce((sum, t) => sum + t.profit, 0);
+    .reduce((sum, t) => sum + t.profit + (t.swap || 0) + (t.commission || 0), 0);
 }
 
 function getCountForDay(trades: Trade[], date: Date): number {

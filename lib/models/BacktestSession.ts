@@ -13,6 +13,7 @@ export interface IBacktestSession extends Document {
   trades: any[];
   drawings: any[];
   lastCandleTime?: number;
+  lastStartTime?:  number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,6 +32,7 @@ const BacktestSessionSchema = new Schema<IBacktestSession>(
     trades: { type: Schema.Types.Mixed, default: [] },
     drawings: { type: Schema.Types.Mixed, default: [] },
     lastCandleTime: { type: Number, default: null },
+    lastStartTime:  { type: Number, default: null },
   },
   { timestamps: true }
 );

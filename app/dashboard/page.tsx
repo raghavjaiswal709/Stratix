@@ -22,6 +22,8 @@ interface Trade {
   entryTime: string;
   exitTime?: string;
   profit: number;
+  swap?: number;
+  commission?: number;
   status: "open" | "closed";
   stopLoss?: number;
   takeProfit?: number;
@@ -82,10 +84,12 @@ export default function DashboardPage() {
   const stats = useMemo(() => {
     const closed = trades.filter((t) => t.status === "closed");
     const open = trades.filter((t) => t.status === "open");
-    const realized = closed.reduce((s, t) => s + t.profit, 0);
-    const unrealized = open.reduce((s, t) => s + t.profit, 0);
-    const wins = closed.filter((t) => t.profit > 0).length;
-    const winRate = closed.length > 0 ? Math.round((wins / closed.length) * 100) : 0;
+    const netProfit = (t: Trade) => t.profit + (t.swap || 0) + (t.commission || 0);
+    const realized = closed.reduce((s, t) => s + netProfit(t), 0);
+    const unrealized = open.reduce((s, t) => s + netProfit(t), 0);
+    const wins = closed.filter((t) => netProfit(t) > 0).length;
+    const losses = closed.filter((t) => netProfit(t) < 0).length;
+    const winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
     return {
       totalPnL: realized + unrealized,
       unrealized,

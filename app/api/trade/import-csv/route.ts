@@ -227,13 +227,20 @@ export async function POST(req: NextRequest) {
   const now = new Date();
   const leverage = 100;
 
+  // Build a profile-scoped filter so trades in different profiles never collide.
+  // Profiles are isolated: the same ticket can exist independently in each profile.
+  const profileFilter = (ticket: string) =>
+    profileId
+      ? { userId, ticket, profileId }
+      : { userId, ticket, profileId: { $exists: false } };
+
   const ops = parsed.map((t) => {
     const contractSize = getContractSize(t.symbol);
     const margin = (t.entryPrice * t.lots * contractSize) / leverage;
 
     return {
       updateOne: {
-        filter: { userId, ticket: t.ticket },
+        filter: profileFilter(t.ticket),
         update: {
           $set: {
             userId,
