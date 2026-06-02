@@ -100,6 +100,8 @@ function SortBtn({
   );
 }
 
+const PAGE_SIZE = 25;
+
 export default function TradesPage() {
   const { preferences, setPreferences, setSharedTrades, activeProfileId, tradingProfiles } = useAppContext();
   const prefsRef = useRef(preferences);
@@ -137,6 +139,7 @@ export default function TradesPage() {
   const [clearConfirm, setClearConfirm] = useState(false);
   const [editingTrade, setEditingTrade] = useState<EditableTrade | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Initialize sort/filter from saved preferences
   const saved = preferences.tradesSortFilter ?? DEFAULT_PREFS;
@@ -217,12 +220,19 @@ export default function TradesPage() {
     filterSource !== "all",
   ].filter(Boolean).length;
 
+  // Pagination — reset to page 1 whenever filter/sort changes
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginated = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   function toggleSort(col: TradesSortFilterPrefs["sortBy"]) {
+    setCurrentPage(1);
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortBy(col); setSortDir("desc"); }
   }
 
   function resetFilters() {
+    setCurrentPage(1);
     setFilterSymbol("");
     setFilterDirection("all");
     setFilterStatus("all");
@@ -335,6 +345,7 @@ export default function TradesPage() {
               <h3 className="text-[14px] font-semibold text-foreground">Trade History</h3>
               <p className="text-[11px] text-muted-foreground">
                 {sorted.length}{trades.length !== sorted.length ? `/${trades.length}` : ""} trade{sorted.length !== 1 ? "s" : ""}
+                {totalPages > 1 && <span className="ml-1 text-white/30">· page {safePage}/{totalPages}</span>}
               </p>
             </div>
             {/* Sort + filter controls */}
@@ -499,7 +510,7 @@ export default function TradesPage() {
           <>
             {/* Mobile: card list */}
             <div className="md:hidden divide-y divide-border">
-              {sorted.map((trade) => (
+              {paginated.map((trade) => (
                 <div key={trade._id} className="px-4 py-3.5 flex items-center gap-3">
                   <div className="h-9 w-9 rounded-full bg-amber-500/15 flex items-center justify-center text-[10px] font-bold text-amber-400 shrink-0">
                     {trade.symbol.slice(0, 2)}
@@ -557,7 +568,7 @@ export default function TradesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {sorted.map((trade) => (
+                  {paginated.map((trade) => (
                     <tr key={trade._id} className="hover:bg-muted/20 transition-colors group">
                       <td className="px-5 py-3.5">
                         <div className="text-[11px] text-muted-foreground">Open: {format(parseISO(trade.entryTime), "MMM d, hh:mm aa")}</div>
@@ -615,6 +626,47 @@ export default function TradesPage() {
                 </tbody>
               </table>
             </div>
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 md:px-5 py-3 border-t border-border/50">
+                <span className="text-[11px] text-muted-foreground">
+                  {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, sorted.length)} of {sorted.length}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={safePage === 1}
+                    className="px-2 py-1 rounded text-[11px] text-muted-foreground hover:text-white hover:bg-white/[0.06] disabled:opacity-30 disabled:pointer-events-none transition"
+                  >«</button>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    className="px-2.5 py-1 rounded text-[11px] text-muted-foreground hover:text-white hover:bg-white/[0.06] disabled:opacity-30 disabled:pointer-events-none transition"
+                  >‹ Prev</button>
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    const start = Math.max(1, Math.min(safePage - 2, totalPages - 4));
+                    const p = start + i;
+                    return p <= totalPages ? (
+                      <button
+                        key={p}
+                        onClick={() => setCurrentPage(p)}
+                        className={`w-7 h-7 rounded text-[11px] font-medium transition ${p === safePage ? "bg-white/[0.10] text-white border border-white/[0.12]" : "text-muted-foreground hover:text-white hover:bg-white/[0.06]"}`}
+                      >{p}</button>
+                    ) : null;
+                  })}
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    className="px-2.5 py-1 rounded text-[11px] text-muted-foreground hover:text-white hover:bg-white/[0.06] disabled:opacity-30 disabled:pointer-events-none transition"
+                  >Next ›</button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={safePage === totalPages}
+                    className="px-2 py-1 rounded text-[11px] text-muted-foreground hover:text-white hover:bg-white/[0.06] disabled:opacity-30 disabled:pointer-events-none transition"
+                  >»</button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -710,7 +762,11 @@ export default function TradesPage() {
       {showImport && (
         <ImportModal
           onClose={() => setShowImport(false)}
-          onImported={() => { setShowImport(false); load(activeProfileId); }}
+          onImported={() => {
+            setShowImport(false);
+            load(activeProfileId);
+          }}
+          profileId={activeProfileId || undefined}
         />
       )}
 

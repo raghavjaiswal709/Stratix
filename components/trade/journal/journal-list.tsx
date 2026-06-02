@@ -72,6 +72,7 @@ export function JournalList({
   }, [sortBy, sortDir, filterSymbol, filterDirection, filterOutcome]);
 
   function toggleSort(col: JournalSortFilterPrefs["sortBy"]) {
+    setCurrentPage(1);
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortBy(col); setSortDir("desc"); }
   }
@@ -110,11 +111,18 @@ export function JournalList({
       return sortDir === "asc" ? cmp : -cmp;
     });
 
+  const [currentPage, setCurrentPage] = useState(1);
+
   const counts = {
     all: trades.length,
     journaled: trades.filter((t) => t.journaled).length,
     pending: trades.filter((t) => !t.journaled).length,
   };
+
+  const J_PAGE_SIZE = 20;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / J_PAGE_SIZE));
+  const safePage   = Math.min(currentPage, totalPages);
+  const paginated  = filtered.slice((safePage - 1) * J_PAGE_SIZE, safePage * J_PAGE_SIZE);
 
   function SortChip({ col, label }: { col: JournalSortFilterPrefs["sortBy"]; label: string }) {
     return (
@@ -277,7 +285,7 @@ export function JournalList({
             <p className="text-[13px]">{trades.length === 0 ? "No trades" : "No matches"}</p>
             {trades.length > 0 && activeFilterCount > 0 && (
               <button
-                onClick={() => { setFilterSymbol(""); setFilterDirection("all"); setFilterOutcome("all"); }}
+                onClick={() => { setCurrentPage(1); setFilterSymbol(""); setFilterDirection("all"); setFilterOutcome("all"); }}
                 className="text-[11px] mt-1 text-white/35 hover:text-white/80 transition-colors"
               >
                 Clear filters
@@ -285,7 +293,7 @@ export function JournalList({
             )}
           </div>
         ) : (
-          filtered.map((trade) => (
+          paginated.map((trade) => (
             <button
               key={trade._id}
               onClick={() => onSelect(trade._id)}
@@ -361,6 +369,38 @@ export function JournalList({
           ))
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="px-3 py-2 border-t border-white/7 flex items-center justify-between shrink-0">
+          <span className="text-[10px] text-white/25">
+            {(safePage - 1) * J_PAGE_SIZE + 1}–{Math.min(safePage * J_PAGE_SIZE, filtered.length)} / {filtered.length}
+          </span>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              className="px-2 py-1 rounded text-[11px] text-white/35 hover:text-white hover:bg-white/[0.06] disabled:opacity-25 disabled:pointer-events-none transition"
+            >‹</button>
+            {Array.from({ length: Math.min(4, totalPages) }, (_, i) => {
+              const start = Math.max(1, Math.min(safePage - 1, totalPages - 3));
+              const p = start + i;
+              return p <= totalPages ? (
+                <button
+                  key={p}
+                  onClick={() => setCurrentPage(p)}
+                  className={`w-6 h-6 rounded text-[10px] font-medium transition ${p === safePage ? "bg-white/[0.10] text-white" : "text-white/30 hover:text-white hover:bg-white/[0.06]"}`}
+                >{p}</button>
+              ) : null;
+            })}
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              className="px-2 py-1 rounded text-[11px] text-white/35 hover:text-white hover:bg-white/[0.06] disabled:opacity-25 disabled:pointer-events-none transition"
+            >›</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

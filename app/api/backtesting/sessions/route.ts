@@ -93,25 +93,36 @@ export async function PUT(req: Request) {
     const body = await req.json();
     await dbConnect();
 
-    // Verify ownership before updating
-    const existing = await BacktestSessionModel.findOne({ _id: id, userId: session.user.id });
-    if (!existing) {
+    // Build $set payload — only include fields that were sent
+    const $set: Record<string, any> = {};
+    if (body.name !== undefined)           $set.name            = body.name;
+    if (body.description !== undefined)    $set.description     = body.description;
+    if (body.strategy !== undefined)       $set.strategy        = body.strategy;
+    if (body.trades !== undefined)         $set.trades          = body.trades;
+    if (body.drawings !== undefined)       $set.drawings        = body.drawings;
+    if (body.startingBalance !== undefined)$set.startingBalance = Number(body.startingBalance);
+    // lastCandleTime is a newer field — use strict:false so it persists even if
+    // the Mongoose model was cached before this field was added to the schema.
+    if (body.lastCandleTime !== undefined) $set.lastCandleTime  = body.lastCandleTime;
+
+    if (Object.keys($set).length === 0) {
+      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    }
+
+    // Use findOneAndUpdate so Mongoose strict mode does NOT silently drop new fields
+    const updated = await BacktestSessionModel.findOneAndUpdate(
+      { _id: id, userId: session.user.id },
+      { $set },
+      { new: true, strict: false } as any,
+    ) as any;
+
+    if (!updated) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Update fields dynamically
-    if (body.name !== undefined) existing.name = body.name;
-    if (body.description !== undefined) existing.description = body.description;
-    if (body.strategy !== undefined) existing.strategy = body.strategy;
-    if (body.trades !== undefined) existing.trades = body.trades;
-    if (body.drawings !== undefined) existing.drawings = body.drawings;
-    if (body.startingBalance !== undefined) existing.startingBalance = Number(body.startingBalance);
-
-    await existing.save();
-
     const formatted = {
-      ...existing.toObject(),
-      id: String(existing._id),
+      ...(updated.toObject ? updated.toObject() : updated),
+      id: String(updated._id),
       _id: undefined,
     };
 

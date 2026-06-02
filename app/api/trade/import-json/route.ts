@@ -199,6 +199,7 @@ export async function POST(req: NextRequest) {
   }
 
   const resolution = req.nextUrl.searchParams.get("resolution"); // "skip" | "replace" | null
+  const profileId = req.nextUrl.searchParams.get("profileId");
 
   // --- Read file body ---
   let jsonText: string;
@@ -357,6 +358,7 @@ export async function POST(req: NextRequest) {
             margin,
             status: t.status,
             source: "mt5" as const,
+            ...(profileId ? { profileId } : {}),
             updatedAt: now,
           },
           $setOnInsert: {

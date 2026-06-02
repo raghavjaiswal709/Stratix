@@ -185,6 +185,7 @@ export function BacktestChart({
   const [stayInDrawingMode, setStayInDrawingMode] = useState(false);
   const [isLocked, setIsLocked]                   = useState(false);
   const [areDrawingsHidden, setAreDrawingsHidden] = useState(false);
+  const [showTradeMarkers, setShowTradeMarkers]   = useState(false);
 
   // Ref for rrDrawingSelect (avoid stale closure in effects)
   const onRRDrawingSelectRef = useRef(onRRDrawingSelect);
@@ -229,6 +230,19 @@ export function BacktestChart({
   } | null>(null);
   const draggingEdgeRef = useRef<typeof draggingEdge>(null);
   useEffect(() => { draggingEdgeRef.current = draggingEdge; }, [draggingEdge]);
+
+  // ── Long/Short RR 8-handle resize ────────────────────────────────────────
+  const [draggingRRHandle, setDraggingRRHandle] = useState<{
+    drawingId: string;
+    moveTime0: boolean;    // shift left edge time (pts[0].time)
+    moveTime3: boolean;    // shift right edge time (pts[3].time)
+    movePriceIndices: number[]; // price indices to shift (y axis)
+    startPts: TimePricePoint[];
+    startMouseTime: number;
+    startMousePrice: number;
+  } | null>(null);
+  const draggingRRHandleRef = useRef<typeof draggingRRHandle>(null);
+  useEffect(() => { draggingRRHandleRef.current = draggingRRHandle; }, [draggingRRHandle]);
 
   // ── Emit selected/previewed long-short drawing to side panel ─────────────
   useEffect(() => {
@@ -767,19 +781,27 @@ export function BacktestChart({
         move = Math.sign(move) * 6;
       }
 
-      // Per-tick approach: each wheel event fires a complete sequence
-      // using PointerEvent (which Lightweight Charts requires).
-      const eventInit: PointerEventInit = {
-        bubbles: true, cancelable: true, clientX: cx, clientY: cy,
-        pointerId: 1, isPrimary: true, pointerType: 'mouse', buttons: 1, button: 0
-      };
-      
-      chartRef.current?.priceScale("right").applyOptions({ autoScale: false });
-      onSettingsChange({ isYAxisLocked: true });
-
-      targetEl.dispatchEvent(new PointerEvent('pointerdown', eventInit));
-      targetEl.dispatchEvent(new PointerEvent('pointermove', { ...eventInit, clientY: cy + move }));
-      targetEl.dispatchEvent(new PointerEvent('pointerup',   { ...eventInit, clientY: cy + move, buttons: 0 }));
+      // Per-tick: one complete mousedown→mousemove→mouseup per wheel event.
+      // CRITICAL: LWC's MouseEventHandler listens for 'mousedown' NOT 'pointerdown'.
+      // PointerEvents are completely ignored by LWC v4 — only MouseEvent works.
+      // We do NOT call onSettingsChange here: that would trigger the isYAxisLocked
+      // effect which resets scaleMargins mid-scroll and fights the zoom. LWC
+      // internally disables autoScale inside startScale (called from mousedown).
+      targetEl.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, cancelable: true,
+        clientX: cx, clientY: cy,
+        buttons: 1, button: 0,
+      }));
+      targetEl.dispatchEvent(new MouseEvent('mousemove', {
+        bubbles: true, cancelable: true,
+        clientX: cx, clientY: cy + move,
+        buttons: 1, button: 0,
+      }));
+      targetEl.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true, cancelable: true,
+        clientX: cx, clientY: cy + move,
+        buttons: 0, button: 0,
+      }));
 
       setRedrawTrigger(t => t + 1);
     };
@@ -993,7 +1015,8 @@ export function BacktestChart({
       const anchor = draggingAnchorRef.current;
       const moving = draggingDrawingRef.current;
       const edge   = draggingEdgeRef.current;
-      if (anchor || moving || edge) {
+      const rrH    = draggingRRHandleRef.current;
+      if (anchor || moving || edge || rrH) {
         if (dragMovedRef.current) {
           commitDrawings(localDrawingsRef.current);
         }
@@ -1001,9 +1024,11 @@ export function BacktestChart({
         setDraggingAnchor(null);
         setDraggingDrawing(null);
         setDraggingEdge(null);
+        setDraggingRRHandle(null);
         draggingAnchorRef.current = null;
         draggingDrawingRef.current = null;
         draggingEdgeRef.current = null;
+        draggingRRHandleRef.current = null;
       }
     };
     window.addEventListener("mouseup", handleGlobalMouseUp);
@@ -1016,7 +1041,8 @@ export function BacktestChart({
       const anchor = draggingAnchorRef.current;
       const moving = draggingDrawingRef.current;
       const edge   = draggingEdgeRef.current;
-      if (!anchor && !moving && !edge) return;
+      const rrH    = draggingRRHandleRef.current;
+      if (!anchor && !moving && !edge && !rrH) return;
 
       const coords = getTimePriceFromEventNative(e);
       if (!coords) return;
@@ -1065,6 +1091,24 @@ export function BacktestChart({
             ? { time: existing.time, price }
             : { time: timeSec, price: existing.price };
           return { ...draw, points: pts };
+        }));
+        setRedrawTrigger(t => t + 1);
+      }
+
+      // Long/Short RR 8-handle resize
+      if (rrH) {
+        const { drawingId, moveTime0, moveTime3, movePriceIndices, startPts, startMouseTime, startMousePrice } = rrH;
+        const deltaTime  = timeSec - startMouseTime;
+        const deltaPrice = price  - startMousePrice;
+        setLocalDrawings(prev => prev.map(draw => {
+          if (draw.id !== drawingId) return draw;
+          const pts: TimePricePoint[] = startPts.map(q => ({ ...q }));
+          if (moveTime0) pts[0] = { ...pts[0], time: pts[0].time + deltaTime };
+          if (moveTime3 && pts[3]) pts[3] = { ...pts[3], time: pts[3].time + deltaTime };
+          movePriceIndices.forEach(idx => {
+            pts[idx] = { ...pts[idx], price: pts[idx].price + deltaPrice };
+          });
+          return rebuildRiskSettings({ ...draw, points: pts });
         }));
         setRedrawTrigger(t => t + 1);
       }
@@ -1194,6 +1238,7 @@ export function BacktestChart({
   // Rebuild riskSettings when anchors change.
   // CRITICAL: always snap SL/TP times to entry time so the bracket stays at
   // one x-position and never drifts horizontally when anchors are dragged.
+  // Preserve the 4th point (right-edge time anchor) if it exists.
   const rebuildRiskSettings = (draw: Drawing): Drawing => {
     if (draw.type !== "long" && draw.type !== "short") return draw;
     const pts = draw.points;
@@ -1206,13 +1251,16 @@ export function BacktestChart({
     const risk   = dist;
     const reward = Math.abs(tp - entry);
     const rr     = risk > 0 ? reward / risk : 0;
+    const newPts: TimePricePoint[] = [
+      { time: entryTime, price: entry },
+      { time: entryTime, price: stop },   // SL always at entry time
+      { time: entryTime, price: tp },     // TP always at entry time
+    ];
+    // Preserve 4th point (right-edge anchor) if it exists
+    if (pts[3]) newPts.push(pts[3]);
     return {
       ...draw,
-      points: [
-        { time: entryTime, price: entry },
-        { time: entryTime, price: stop },   // SL always at entry time
-        { time: entryTime, price: tp },     // TP always at entry time
-      ],
+      points: newPts,
       riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: rr },
     };
   };
@@ -1234,12 +1282,26 @@ export function BacktestChart({
       const dist  = Math.abs(entry - stop);
       const tp    = finished.type === "long" ? entry + dist * 2 : entry - dist * 2;
       const rr    = dist > 0 ? Math.abs(tp - entry) / dist : 2;
+
+      // Compute the right-edge time anchor: 15 bars to the right of entry.
+      // This is stored as a 4th point so the rendering uses getXY() for both
+      // edges, making them move in perfect lockstep during pan/zoom.
+      let barDuration = 900; // default to 15m
+      const entryIdx = candles.findIndex(c => c.time === entryTime);
+      if (entryIdx !== -1 && entryIdx < candles.length - 1) {
+        barDuration = (candles[entryIdx + 1].time as number) - (candles[entryIdx].time as number);
+      } else if (candles.length > 1) {
+        barDuration = (candles[1].time as number) - (candles[0].time as number);
+      }
+      const rightEdgeTime = entryTime + 15 * barDuration;
+
       finished = {
         ...finished,
         points: [
           { time: entryTime, price: entry },
           { time: entryTime, price: stop },  // SL at entry time, not mouse time
           { time: entryTime, price: tp },    // TP at entry time
+          { time: rightEdgeTime, price: entry },  // Right-edge anchor (price is irrelevant, only time matters)
         ],
         riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: rr },
       };
@@ -1556,24 +1618,26 @@ export function BacktestChart({
     setRedrawTrigger(t => t + 1);
   }, [liveCandle, replayIndex]);
 
-  // Trade markers
+  // Trade markers (only shown when showTradeMarkers is on — off by default)
   useEffect(() => {
     const cs = candleSeriesRef.current;
     if (!cs) return;
     const markers: SeriesMarker<Time>[] = [];
-    if (replayStartIndex != null && candles[replayStartIndex]) {
-      markers.push({ time: candles[replayStartIndex].time as Time, position: "belowBar", color: "#10b981", shape: "arrowUp", text: "START" });
-    }
-    manualTrades.forEach(t => {
-      markers.push({ time: t.entryTime as Time, position: t.direction === "LONG" ? "belowBar" : "aboveBar", color: t.direction === "LONG" ? "#22c55e" : "#ef4444", shape: t.direction === "LONG" ? "arrowUp" : "arrowDown", text: t.direction === "LONG" ? "BUY" : "SELL" });
-      if (t.exitTime != null) {
-        const win = (t.pnl ?? 0) >= 0;
-        markers.push({ time: t.exitTime as Time, position: t.direction === "LONG" ? "aboveBar" : "belowBar", color: win ? "#22c55e" : "#ef4444", shape: "circle", text: `EXIT (${win ? "+" : ""}${(t.pnl ?? 0).toFixed(0)})` });
+    if (showTradeMarkers) {
+      if (replayStartIndex != null && candles[replayStartIndex]) {
+        markers.push({ time: candles[replayStartIndex].time as Time, position: "belowBar", color: "#10b981", shape: "arrowUp", text: "START" });
       }
-    });
+      manualTrades.forEach(t => {
+        markers.push({ time: t.entryTime as Time, position: t.direction === "LONG" ? "belowBar" : "aboveBar", color: t.direction === "LONG" ? "#22c55e" : "#ef4444", shape: t.direction === "LONG" ? "arrowUp" : "arrowDown", text: t.direction === "LONG" ? "BUY" : "SELL" });
+        if (t.exitTime != null) {
+          const win = (t.pnl ?? 0) >= 0;
+          markers.push({ time: t.exitTime as Time, position: t.direction === "LONG" ? "aboveBar" : "belowBar", color: win ? "#22c55e" : "#ef4444", shape: "circle", text: `EXIT (${win ? "+" : ""}${(t.pnl ?? 0).toFixed(0)})` });
+        }
+      });
+    }
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     cs.setMarkers(markers);
-  }, [manualTrades, replayStartIndex, candles]);
+  }, [manualTrades, replayStartIndex, candles, showTradeMarkers]);
 
   // ── Delete helpers ────────────────────────────────────────────────────────
   const handleClearAllDrawings = () => {
@@ -2101,95 +2165,225 @@ export function BacktestChart({
       );
     }
 
-    // ── Long / Short Risk Bracket ─────────────────────────────────────────
-    // Stability contract:
-    //   • All three points share the same time (entry time) → same x coordinate
-    //   • Bracket width is a fixed pixel constant — never depends on point x diff
-    //   • SL/TP y-coords derived from priceToCoordinate, not from stored pixel state
+    // ── Long / Short Risk-Reward ─────────────────────────────────────────────
+    // Three stored prices: points[0]=entry, points[1]=stop, points[2]=takeProfit
+    // All share the same entry-bar time → same pixel X.
+    // Width is always dynamic: entry bar → right edge of chart (svgW - 70).
+    // No 4th point or fixed-pixel fallback: width reacts to chart resize because
+    // svgW is recomputed on every render that redrawTrigger fires.
     if (draw.type === "long" || draw.type === "short") {
       const cs = candleSeriesRef.current;
       if (!p1 || !cs) return null;
 
-      const isLong  = draw.type === "long";
-      const entry   = draw.points[0].price;
-      const stop    = draw.points[1]?.price ?? entry;
-      const dist    = Math.abs(entry - stop);
-      const tp      = draw.points[2]?.price ?? (isLong ? entry + dist * 2 : entry - dist * 2);
-      const rrRatio = dist > 0 ? Math.abs(tp - entry) / dist : 0;
+      const isLong = draw.type === "long";
 
-      // Convert prices to pixel Y (driven by price scale, extrapolate if outside view)
-      const rawSlY = cs.priceToCoordinate(stop);
-      const rawTpY = cs.priceToCoordinate(tp);
-      // priceToCoordinate can return null when price is far outside visible range;
-      // fall back to entry-based pixel offset using a simple price-per-pixel estimate.
-      const priceFallback = (refPrice: number, refY: number, targetPrice: number): number => {
-        const refH = cs.priceToCoordinate(refPrice * 0.999) as number | null;
-        const refH2 = refH != null ? refH : refY + 10;
-        const pxPerUnit = (refH2 - refY) / (refPrice * -0.001 || 1);
-        return refY + (refPrice - targetPrice) * pxPerUnit;
-      };
-      const slY = rawSlY != null ? rawSlY as number : priceFallback(entry, p1.y, stop);
-      const tpY = rawTpY != null ? rawTpY as number : priceFallback(entry, p1.y, tp);
+      // ── Prices ──────────────────────────────────────────────────────────────
+      const entry  = draw.points[0].price;
+      const stop   = draw.points[1]?.price ?? entry;
+      const risk   = Math.abs(entry - stop);
+      const tp     = draw.points[2]?.price ?? (isLong ? entry + risk * 2 : entry - risk * 2);
+      const reward = Math.abs(tp - entry);
+      const rr     = risk > 0 ? reward / risk : 0;
+
+      // ── X geometry ──────────────────────────────────────────────────────────
+      const xL = p1.x;                               // entry bar pixel-x
+      // Derive the right edge purely from the time of points[3].
+      // We bypass getXY() (which needs both x AND y to be non-null) and call
+      // extrapolateX directly so the bracket contracts/expands with every
+      // horizontal pan or zoom without any minimum-width floor.
+      const chartInst = chartRef.current;
+      const xRRaw = (draw.points[3] && chartInst)
+        ? extrapolateX(chartInst, draw.points[3].time)
+        : null;
+      const xR = xRRaw != null ? Math.max(xL + 2, xRRaw) : xL + 200;
+      const W  = xR - xL;
+
+      // ── Y geometry ──────────────────────────────────────────────────────────
       const entryY = p1.y;
+      // Convert price → pixel Y. If price is far outside visible range,
+      // priceToCoordinate returns null — use a linear extrapolation instead.
+      const toY = (price: number): number => {
+        const raw = cs.priceToCoordinate(price) as number | null;
+        if (raw != null) return raw;
+        // Derive px/price ratio from a tiny reference offset at the entry price
+        const refRaw = cs.priceToCoordinate(entry + (entry * 0.001 || 0.001)) as number | null;
+        const pxPerUnit = refRaw != null
+          ? (refRaw - entryY) / (entry * 0.001 || 0.001)
+          : -10; // fallback: 10px per unit downward
+        return entryY + (price - entry) * pxPerUnit;
+      };
+      const slY = toY(stop);
+      const tpY = toY(tp);
 
-      const BRACKET_W = 140;  // fixed pixel width — never shifts on zoom/pan
-      const xL = p1.x;
-      const xR = xL + BRACKET_W;
+      // ── Zone rectangles ──────────────────────────────────────────────────────
+      // For LONG: profit zone is ABOVE entry (tpY < entryY), loss zone is BELOW
+      // For SHORT: profit zone is BELOW entry (tpY > entryY), loss zone is ABOVE
+      const profitTop = Math.min(entryY, tpY);
+      const profitH   = Math.max(2, Math.abs(entryY - tpY));
+      const lossTop   = Math.min(entryY, slY);
+      const lossH     = Math.max(2, Math.abs(entryY - slY));
+      const outerTop  = Math.min(profitTop, lossTop);
+      const outerBot  = Math.max(profitTop + profitH, lossTop + lossH);
 
-      // Zone rectangles
-      const tpZoneTop = Math.min(entryY, tpY);
-      const tpZoneH   = Math.max(1, Math.abs(entryY - tpY));
-      const slZoneTop = Math.min(entryY, slY);
-      const slZoneH   = Math.max(1, Math.abs(entryY - slY));
+      // ── Helpers ─────────────────────────────────────────────────────────────
+      const fmtP = (n: number) => formatPrice(n, minPriceRef.current);
+      const pctStr = (n: number) =>
+        entry > 0 ? ((Math.abs(n - entry) / entry) * 100).toFixed(2) + "%" : "";
 
-      const fmt = (n: number) => formatPrice(n, minPriceRef.current);
+      // Right-side label block: hugs the right edge, never wider than half the bracket
+      const LH  = 17;                               // label box height px
+      const LW  = Math.min(118, Math.floor(W * 0.55)); // label box width px
+      const lx  = xR - LW - 3;                     // label left-x
+
+      // Direction badge sits inside the profit zone top-left corner
+      const dirBadgeText = isLong ? "▲ LONG" : "▼ SHORT";
+      const dirBadgeW    = isLong ? 50 : 58;
+      const dirBadgeX    = Math.max(0, xL + 6);
+      const dirBadgeY    = profitTop + 5;            // always inside profit zone
+
+      // RR badge centred on the entry line (only when bracket is wide enough)
+      const rrBadgeW = 74;
+      const rrBadgeX = xL + (W - rrBadgeW) / 2;
 
       return (
         <g key={draw.id} {...groupProps}>
-          {/* TP zone (profit) */}
-          <rect x={xL} y={tpZoneTop} width={BRACKET_W} height={tpZoneH}
-            fill={isSelected ? "rgba(34,197,94,0.22)" : "rgba(34,197,94,0.10)"} />
-          {/* SL zone (loss) */}
-          <rect x={xL} y={slZoneTop} width={BRACKET_W} height={slZoneH}
-            fill={isSelected ? "rgba(239,68,68,0.22)" : "rgba(239,68,68,0.10)"} />
 
-          {/* Left edge border */}
-          <line x1={xL} y1={Math.min(slZoneTop, tpZoneTop)} x2={xL} y2={Math.max(slZoneTop + slZoneH, tpZoneTop + tpZoneH)}
-            stroke={isSelected ? SEL_COLOR : "rgba(255,255,255,0.15)"} strokeWidth={1} />
+          {/* ── Large invisible hit zone ── */}
+          <rect x={xL} y={outerTop} width={W} height={outerBot - outerTop}
+            fill="transparent" />
 
-          {/* TP line */}
-          <line x1={xL} y1={tpY} x2={xR} y2={tpY} stroke="#22c55e" strokeWidth={isSelected ? 1.5 : 1} />
-          {/* Entry line */}
-          <line x1={xL} y1={entryY} x2={xR} y2={entryY} stroke="rgba(255,255,255,0.75)" strokeWidth={isSelected ? 2 : 1.5} />
-          {/* SL line */}
-          <line x1={xL} y1={slY} x2={xR} y2={slY} stroke="#ef4444" strokeWidth={isSelected ? 1.5 : 1} />
+          {/* ── Profit zone (emerald) ── */}
+          <rect x={xL} y={profitTop} width={W} height={profitH}
+            fill={isSelected ? "rgba(16,185,129,0.20)" : "rgba(16,185,129,0.09)"} />
 
-          {/* Labels (left side) */}
-          <rect x={xL + 2} y={tpY - 9}   width={50} height={11} rx={2} fill={CHART_BG} fillOpacity={0.9} />
-          <text x={xL + 5} y={tpY - 1}   fill="#22c55e"            fontSize={7} fontFamily="monospace" fontWeight="bold">TP {fmt(tp)}</text>
-          <rect x={xL + 2} y={entryY - 9} width={62} height={11} rx={2} fill={CHART_BG} fillOpacity={0.9} />
-          <text x={xL + 5} y={entryY - 1} fill="rgba(255,255,255,0.80)" fontSize={7} fontFamily="monospace" fontWeight="bold">EN {fmt(entry)}</text>
-          <rect x={xL + 2} y={slY - 9}   width={50} height={11} rx={2} fill={CHART_BG} fillOpacity={0.9} />
-          <text x={xL + 5} y={slY - 1}   fill="#ef4444"            fontSize={7} fontFamily="monospace" fontWeight="bold">SL {fmt(stop)}</text>
+          {/* ── Loss zone (red) ── */}
+          <rect x={xL} y={lossTop} width={W} height={lossH}
+            fill={isSelected ? "rgba(239,68,68,0.20)" : "rgba(239,68,68,0.09)"} />
 
-          {/* R/R badge (center-right) */}
-          <rect x={xR - 56} y={entryY - 9} width={54} height={14} rx={3} fill={CHART_BG} stroke={isSelected ? SEL_COLOR : "#2a2a2a"} strokeWidth={0.8} />
-          <text x={xR - 29} y={entryY + 1} textAnchor="middle" fill="#d1d5db" fontSize={8} fontFamily="monospace" fontWeight="bold">
-            {isLong ? "↑" : "↓"} 1:{rrRatio.toFixed(1)}
+          {/* ── Price lines ── */}
+          {/* TP */}
+          <line x1={xL} y1={tpY} x2={xR} y2={tpY}
+            stroke="#10b981" strokeWidth={isSelected ? 1.6 : 1.1} />
+          {/* Entry — slightly thicker / more opaque */}
+          <line x1={xL} y1={entryY} x2={xR} y2={entryY}
+            stroke="rgba(255,255,255,0.80)" strokeWidth={isSelected ? 2.2 : 1.7} />
+          {/* SL */}
+          <line x1={xL} y1={slY} x2={xR} y2={slY}
+            stroke="#ef4444" strokeWidth={isSelected ? 1.6 : 1.1} />
+
+          {/* ── Full border rect (all 4 sides) ── */}
+          <rect x={xL} y={outerTop} width={Math.max(1, W)} height={Math.max(1, outerBot - outerTop)}
+            fill="none"
+            stroke={isSelected ? SEL_COLOR : "rgba(255,255,255,0.22)"}
+            strokeWidth={isSelected ? 1.5 : 0.9}
+            pointerEvents="none"
+          />
+
+          {/* ── Direction badge (inside profit zone) ── */}
+          <rect x={dirBadgeX} y={dirBadgeY} width={dirBadgeW} height={15} rx={3}
+            fill={isLong ? "rgba(16,185,129,0.30)" : "rgba(239,68,68,0.30)"}
+            stroke={isLong ? "#10b981" : "#ef4444"} strokeWidth={0.7} />
+          <text
+            x={dirBadgeX + dirBadgeW / 2} y={dirBadgeY + 10}
+            textAnchor="middle"
+            fill={isLong ? "#10b981" : "#ef4444"}
+            fontSize={8} fontFamily="monospace" fontWeight="bold">
+            {dirBadgeText}
           </text>
 
-          {/* Anchors — price-only drag (circles on left for entry, right for SL/TP) */}
-          {isSelected && <>
-            <circle cx={xL} cy={entryY} r={5.5} fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.8}
-              className={inCursorMode ? "cursor-ns-resize pointer-events-auto" : "pointer-events-none"}
-              onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 0 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
-            <circle cx={xR} cy={slY} r={5.5} fill={CHART_BG} stroke="#ef4444" strokeWidth={1.8}
-              className={inCursorMode ? "cursor-ns-resize pointer-events-auto" : "pointer-events-none"}
-              onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 1 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
-            <circle cx={xR} cy={tpY} r={5.5} fill={CHART_BG} stroke="#22c55e" strokeWidth={1.8}
-              className={inCursorMode ? "cursor-ns-resize pointer-events-auto" : "pointer-events-none"}
-              onMouseDown={inCursorMode ? (e => { stopEvent(e); const na = { drawingId: draw.id, pointIndex: 2 }; draggingAnchorRef.current = na; setDraggingAnchor(na); }) : undefined} />
-          </>}
+          {/* ── RR ratio badge (centre of bracket on entry line) ── */}
+          {W >= 110 && (
+            <>
+              <rect x={rrBadgeX} y={entryY - 9} width={rrBadgeW} height={17} rx={3}
+                fill="rgba(0,0,0,0.82)"
+                stroke={isSelected ? SEL_COLOR : "rgba(255,255,255,0.20)"} strokeWidth={0.8} />
+              <text x={rrBadgeX + rrBadgeW / 2} y={entryY + 4}
+                textAnchor="middle"
+                fill="rgba(255,255,255,0.92)" fontSize={9} fontFamily="monospace" fontWeight="bold">
+                RR 1:{rr.toFixed(2)}
+              </text>
+            </>
+          )}
+
+          {/* ── Right-side price labels ── */}
+          {LW >= 50 && (
+            <>
+              {/* TP label */}
+              <rect x={lx} y={tpY - LH / 2} width={LW} height={LH} rx={2}
+                fill="rgba(3,12,7,0.95)" stroke="#10b981" strokeWidth={0.8} />
+              <text x={lx + 4} y={tpY + 4}
+                fill="#10b981" fontSize={8} fontFamily="monospace" fontWeight="bold">
+                {`TP ${fmtP(tp)}  +${pctStr(tp)}`}
+              </text>
+
+              {/* Entry label */}
+              <rect x={lx} y={entryY - LH / 2} width={LW} height={LH} rx={2}
+                fill="rgba(8,8,8,0.95)" stroke="rgba(255,255,255,0.40)" strokeWidth={0.8} />
+              <text x={lx + 4} y={entryY + 4}
+                fill="rgba(255,255,255,0.88)" fontSize={8} fontFamily="monospace" fontWeight="bold">
+                {`EN ${fmtP(entry)}`}
+              </text>
+
+              {/* SL label */}
+              <rect x={lx} y={slY - LH / 2} width={LW} height={LH} rx={2}
+                fill="rgba(12,3,3,0.95)" stroke="#ef4444" strokeWidth={0.8} />
+              <text x={lx + 4} y={slY + 4}
+                fill="#ef4444" fontSize={8} fontFamily="monospace" fontWeight="bold">
+                {`SL ${fmtP(stop)}  -${pctStr(stop)}`}
+              </text>
+            </>
+          )}
+
+          {/* ── 8 resize handles (selected only) ── */}
+          {isSelected && inCursorMode && (() => {
+            const hcx = xL + W / 2;
+            const hcy = (outerTop + outerBot) / 2;
+            // For LONG: TP is the top price (pts[2]), SL is the bottom (pts[1]).
+            // For SHORT: SL is the top price (pts[1]), TP is the bottom (pts[2]).
+            const topPtIdx    = isLong ? 2 : 1;
+            const bottomPtIdx = isLong ? 1 : 2;
+
+            const mkH = (
+              hx: number, hy: number, cursor: string,
+              mt0: boolean, mt3: boolean, priceIdxs: number[]
+            ) => (
+              <rect key={`${hx}-${hy}`}
+                x={hx - 5} y={hy - 5} width={10} height={10} rx={2}
+                fill={CHART_BG} stroke={SEL_COLOR} strokeWidth={1.6}
+                className={`${cursor} pointer-events-auto`}
+                onMouseDown={e => {
+                  stopEvent(e);
+                  const coords = getTimePriceFromEvent(e);
+                  if (!coords) return;
+                  const nd = {
+                    drawingId: draw.id,
+                    moveTime0: mt0,
+                    moveTime3: mt3,
+                    movePriceIndices: priceIdxs,
+                    startPts: draw.points.map(q => ({ ...q })),
+                    startMouseTime: coords.time,
+                    startMousePrice: coords.price,
+                  };
+                  draggingRRHandleRef.current = nd;
+                  setDraggingRRHandle(nd);
+                  dragMovedRef.current = false;
+                }}
+              />
+            );
+
+            return (
+              <>
+                {mkH(xL,  outerTop, "cursor-nw-resize", true,  false, [topPtIdx])}
+                {mkH(hcx, outerTop, "cursor-n-resize",  false, false, [topPtIdx])}
+                {mkH(xR,  outerTop, "cursor-ne-resize", false, true,  [topPtIdx])}
+                {mkH(xL,  hcy,      "cursor-w-resize",  true,  false, [])}
+                {mkH(xR,  hcy,      "cursor-e-resize",  false, true,  [])}
+                {mkH(xL,  outerBot, "cursor-sw-resize", true,  false, [bottomPtIdx])}
+                {mkH(hcx, outerBot, "cursor-s-resize",  false, false, [bottomPtIdx])}
+                {mkH(xR,  outerBot, "cursor-se-resize", false, true,  [bottomPtIdx])}
+              </>
+            );
+          })()}
         </g>
       );
     }
@@ -2833,6 +3027,13 @@ export function BacktestChart({
 
         {/* ── Bottom-right controls ── */}
         <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-lg p-1 z-20 select-none font-mono text-[9px]">
+          {/* Trade markers toggle */}
+          <button onClick={() => setShowTradeMarkers(p => !p)}
+            className={`px-2 py-1 rounded font-bold transition-all flex items-center gap-1 cursor-pointer border ${showTradeMarkers ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+            title="Toggle Entry/Exit Trade Markers">
+            <BarChart2 className="w-3 h-3" /><span>MARKS</span>
+          </button>
+          <div className="w-px h-4 bg-white/[0.08]" />
           {/* Indicators */}
           <button onClick={() => { setIndicatorPanelOpen(p => !p); setSessionsPanelOpen(false); }}
             className={`px-2 py-1 rounded font-bold transition-all flex items-center gap-1 cursor-pointer border ${indicatorPanelOpen ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}

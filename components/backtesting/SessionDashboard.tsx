@@ -73,14 +73,14 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
 
     closed.forEach((t) => {
       const pnl = t.pnl ?? 0;
-      if (pnl >= 0) {
+      if (pnl > 0) {           // strictly positive = win (matches tradeTracker)
         wins++;
         currentStreak++;
         currentLossStreak = 0;
         if (currentStreak > bestStreak) bestStreak = currentStreak;
         if (t.direction === "LONG") longWins++;
         else shortWins++;
-      } else {
+      } else if (pnl < 0) {    // strictly negative = loss
         losses++;
         currentLossStreak++;
         currentStreak = 0;
@@ -88,6 +88,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
         if (t.direction === "LONG") longLosses++;
         else shortLosses++;
       }
+      // pnl === 0 (breakeven) counts toward totalTrades but not wins or losses
       if (pnl > bestDay) bestDay = pnl;
       if (pnl < worstDay) worstDay = pnl;
     });
@@ -95,6 +96,8 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
     const longTotal = longWins + longLosses;
     const shortTotal = shortWins + shortLosses;
     const expectancy = closed.length > 0 ? metrics.totalPnl / closed.length : 0;
+    // Recalculate winRate from locally-counted wins so the % always matches the W/L numbers
+    const winRate = closed.length > 0 ? (wins / closed.length) * 100 : 0;
 
     // Calculate drawdown
     let maxBal = selectedSession.startingBalance;
@@ -116,6 +119,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
 
     return {
       ...metrics,
+      winRate,   // override computeMetrics value — now consistent with wins/losses counts above
       wins,
       losses,
       expectancy,
@@ -194,10 +198,19 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
                             <span className="px-1.5 py-0.5 rounded text-[8px] bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 uppercase tracking-wider shrink-0 font-mono">Selected</span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2.5 text-[10px] text-white/40 font-mono">
+                        <div className="flex items-center gap-2.5 text-[10px] text-white/40 font-mono flex-wrap">
                           <span className="text-[#F0B90B] font-bold shrink-0">{s.symbol.toUpperCase()}</span>
                           <span className="w-1.5 h-1.5 rounded-full bg-white/[0.10]" />
                           <span>Lev {s.leverage}</span>
+                          {s.lastCandleTime && (
+                            <>
+                              <span className="w-1.5 h-1.5 rounded-full bg-white/[0.10]" />
+                              <span className="px-1.5 py-0.5 rounded text-[7.5px] bg-white/[0.06] text-white/50 font-bold border border-white/[0.08] flex items-center gap-1">
+                                <span className="w-1 h-1 rounded-full bg-emerald-400 inline-block" />
+                                SAVED POS
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                       
@@ -215,7 +228,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
                             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black active:scale-95 transition-all text-xs font-extrabold shadow-[0_2px_10px_rgba(16,185,129,0.2)] border border-transparent"
                           >
                             <Play className="w-3 h-3 fill-current" />
-                            Start Replay
+                            {s.lastCandleTime ? "Continue" : "Start Replay"}
                           </button>
                           <button
                             onClick={(e) => {

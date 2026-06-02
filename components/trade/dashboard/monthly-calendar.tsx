@@ -8,103 +8,73 @@ import {
   eachDayOfInterval,
   addMonths,
   subMonths,
-  parseISO,
-  isSameDay,
   endOfWeek,
   eachWeekOfInterval,
+  parseISO,
+  isSameDay,
 } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Trade {
   _id: string;
-  exitTime?: string;
+  entryTime: string;
   profit: number;
   status: string;
 }
 
 interface MonthlyCalendarProps {
   trades: Trade[];
+  loading?: boolean;
 }
 
 const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 
 function getPnLForDay(trades: Trade[], date: Date): number {
   return trades
-    .filter(
-      (t) =>
-        t.status === "closed" &&
-        t.exitTime &&
-        isSameDay(parseISO(t.exitTime), date)
-    )
+    .filter((t) => isSameDay(parseISO(t.entryTime), date))
     .reduce((sum, t) => sum + t.profit, 0);
 }
 
-function getTradeCountForDay(trades: Trade[], date: Date): number {
-  return trades.filter(
-    (t) =>
-      t.status === "closed" &&
-      t.exitTime &&
-      isSameDay(parseISO(t.exitTime), date)
-  ).length;
+function getCountForDay(trades: Trade[], date: Date): number {
+  return trades.filter((t) => isSameDay(parseISO(t.entryTime), date)).length;
 }
 
-function getPnLForWeek(trades: Trade[], weekStart: Date, weekEnd: Date): number {
-  return trades
-    .filter((t) => {
-      if (!t.status || t.status !== "closed" || !t.exitTime) return false;
-      const d = parseISO(t.exitTime);
-      return d >= weekStart && d <= weekEnd;
-    })
-    .reduce((sum, t) => sum + t.profit, 0);
-}
-
-function getTradeCountForWeek(trades: Trade[], weekStart: Date, weekEnd: Date): number {
-  return trades.filter((t) => {
-    if (t.status !== "closed" || !t.exitTime) return false;
-    const d = parseISO(t.exitTime);
-    return d >= weekStart && d <= weekEnd;
-  }).length;
-}
-
-function fmt(n: number) {
+function fmt(n: number): string {
   const sign = n >= 0 ? "+" : "";
   return `${sign}$${Math.abs(n).toFixed(0)}`;
 }
 
-export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
+export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
   const [viewDate, setViewDate] = useState(new Date());
 
   const monthStart = startOfMonth(viewDate);
-  const monthEnd = endOfMonth(viewDate);
+  const monthEnd   = endOfMonth(viewDate);
 
+  // Monthly total: sum every day in the month using the same getPnLForDay
+  // function used by each calendar cell — guaranteed to match exactly.
   const monthlyTotal = useMemo(() => {
-    return trades
-      .filter((t) => {
-        if (t.status !== "closed" || !t.exitTime) return false;
-        const d = parseISO(t.exitTime);
-        return d >= monthStart && d <= monthEnd;
-      })
-      .reduce((sum, t) => sum + t.profit, 0);
-  }, [trades, monthStart, monthEnd]);
+    return eachDayOfInterval({ start: monthStart, end: monthEnd })
+      .reduce((sum, day) => sum + getPnLForDay(trades, day), 0);
+  }, [trades, monthStart, monthEnd]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Build weeks for the calendar grid (Mon-Sun)
-  const weeks = useMemo(() => {
-    return eachWeekOfInterval(
-      { start: monthStart, end: monthEnd },
-      { weekStartsOn: 1 }
-    );
-  }, [monthStart, monthEnd]);
+  // Weeks starting on Monday that cover the entire month
+  const weeks = useMemo(
+    () => eachWeekOfInterval({ start: monthStart, end: monthEnd }, { weekStartsOn: 1 }),
+    [monthStart, monthEnd]
+  );
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4 md:p-5">
-      {/* Header — stacks on mobile */}
+      {/* Header */}
       <div className="mb-3 md:mb-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-[13px] md:text-[14px] font-semibold text-card-foreground">Monthly P&L</h3>
+          <h3 className="text-[13px] md:text-[14px] font-semibold text-card-foreground">
+            Monthly P&L
+          </h3>
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setViewDate(subMonths(viewDate, 1))}
+              onClick={() => setViewDate((v) => subMonths(v, 1))}
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground/80 hover:bg-muted transition"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
@@ -113,98 +83,130 @@ export function MonthlyCalendar({ trades }: MonthlyCalendarProps) {
               {format(viewDate, "MMM yyyy")}
             </span>
             <button
-              onClick={() => setViewDate(addMonths(viewDate, 1))}
+              onClick={() => setViewDate((v) => addMonths(v, 1))}
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground/80 hover:bg-muted transition"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
-        <span className={`text-[11px] font-bold mt-0.5 inline-block ${monthlyTotal >= 0 ? "text-white/65" : "text-red-400"}`}>
+        <span
+          className={`text-[11px] font-bold mt-0.5 inline-block ${
+            monthlyTotal >= 0 ? "text-white/65" : "text-red-400"
+          }`}
+        >
           Monthly: {fmt(monthlyTotal)}
         </span>
       </div>
 
-      {/* Day labels + Weekly label */}
+      {/* Day labels */}
       <div className="grid gap-px mb-1" style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}>
         {DAY_LABELS.map((d, i) => (
-          <div key={i} className="text-center text-[10px] font-semibold text-muted-foreground uppercase py-1">
+          <div
+            key={i}
+            className="text-center text-[10px] font-semibold text-muted-foreground uppercase py-1"
+          >
             {d}
           </div>
         ))}
         <div className="text-center text-[10px] font-semibold text-muted-foreground uppercase py-1">
-          WEEKLY
+          WK
         </div>
       </div>
 
       {/* Calendar rows */}
-      <div className="space-y-px">
-        {weeks.map((weekStart) => {
-          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-          const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
-          const weekPnL = getPnLForWeek(trades, weekStart, weekEnd);
-          const weekCount = getTradeCountForWeek(trades, weekStart, weekEnd);
+      {loading ? (
+        <div className="flex items-center justify-center h-40">
+          <div className="h-4 w-4 rounded-full border-[1.5px] border-white/20 border-t-white/60 animate-spin" />
+        </div>
+      ) : (
+        <div className="space-y-px">
+          {weeks.map((weekStart) => {
+            const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+            const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
-          return (
-            <div key={weekStart.toISOString()} className="grid gap-px" style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}>
-              {days.map((day) => {
-                const isCurrentMonth =
-                  day >= monthStart && day <= monthEnd;
-                const pnl = isCurrentMonth ? getPnLForDay(trades, day) : null;
-                const count = isCurrentMonth ? getTradeCountForDay(trades, day) : 0;
-                const hasTraded = isCurrentMonth && count > 0;
+            let weekPnL   = 0;
+            let weekCount = 0;
 
-                return (
+            const cells = days.map((day) => {
+              const inMonth = day >= monthStart && day <= monthEnd;
+              const pnl     = inMonth ? getPnLForDay(trades, day)  : 0;
+              const count   = inMonth ? getCountForDay(trades, day) : 0;
+
+              if (inMonth) {
+                weekPnL   += pnl;
+                weekCount += count;
+              }
+
+              return { day, inMonth, pnl, count, hasTraded: inMonth && count > 0 };
+            });
+
+            return (
+              <div
+                key={weekStart.toISOString()}
+                className="grid gap-px"
+                style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}
+              >
+                {cells.map(({ day, inMonth, pnl, hasTraded }) => (
                   <div
                     key={day.toISOString()}
                     className={cn(
                       "min-h-[42px] flex flex-col items-center justify-center rounded-lg text-center p-1 transition",
-                      !isCurrentMonth && "opacity-0 pointer-events-none",
-                      hasTraded && pnl! >= 0 && "bg-white/[0.06] border border-white/[0.10]",
-                      hasTraded && pnl! < 0 && "bg-red-500/10 border border-red-500/20",
-                      !hasTraded && isCurrentMonth && "bg-muted/30 border border-transparent"
+                      !inMonth && "opacity-0 pointer-events-none",
+                      hasTraded && pnl >= 0 && "bg-white/[0.06] border border-white/[0.10]",
+                      hasTraded && pnl  < 0 && "bg-red-500/10 border border-red-500/20",
+                      !hasTraded && inMonth && "bg-muted/30 border border-transparent"
                     )}
                   >
-                    <span className="text-[10px] text-muted-foreground font-medium leading-none">{format(day, "d")}</span>
+                    <span className="text-[10px] text-muted-foreground font-medium leading-none">
+                      {format(day, "d")}
+                    </span>
                     {hasTraded && (
                       <span
                         className={cn(
                           "text-[9px] font-bold leading-tight mt-0.5",
-                          pnl! >= 0 ? "text-white/65" : "text-red-400"
+                          pnl >= 0 ? "text-white/65" : "text-red-400"
                         )}
                       >
-                        {fmt(pnl!)}
+                        {fmt(pnl)}
                       </span>
                     )}
                   </div>
-                );
-              })}
-              {/* Weekly summary */}
-              <div className="min-h-[42px] w-[56px] flex flex-col items-center justify-center">
-                <span
-                  className={cn(
-                    "text-[11px] font-bold",
-                    weekPnL > 0 ? "text-white/65" : weekPnL < 0 ? "text-red-400" : "text-muted-foreground"
+                ))}
+
+                {/* Weekly summary */}
+                <div className="min-h-[42px] w-[56px] flex flex-col items-center justify-center">
+                  <span
+                    className={cn(
+                      "text-[11px] font-bold",
+                      weekPnL > 0
+                        ? "text-white/65"
+                        : weekPnL < 0
+                        ? "text-red-400"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {weekCount > 0 ? fmt(weekPnL) : "—"}
+                  </span>
+                  {weekCount > 0 && (
+                    <span className="text-[9px] text-muted-foreground">{weekCount}t</span>
                   )}
-                >
-                  {fmt(weekPnL)}
-                </span>
-                <span className="text-[9px] text-muted-foreground">{weekCount}t</span>
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Legend */}
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06]">
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-white/50" />
-          <span className="text-[10px] text-white/35">Profit</span>
+          <span className="text-[10px] text-white/35">Profit day</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-red-400" />
-          <span className="text-[10px] text-white/35">Loss</span>
+          <span className="text-[10px] text-white/35">Loss day</span>
         </div>
       </div>
     </div>

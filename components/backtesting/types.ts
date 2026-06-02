@@ -142,5 +142,6 @@ export interface Session {
   createdAt: number;
   trades: ManualTrade[];
   drawings: Drawing[];
+  lastCandleTime?: number;   // Unix-second timestamp of the last viewed candle
 }
 

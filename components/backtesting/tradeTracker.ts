@@ -72,6 +72,14 @@ export class TradeTracker {
     );
   }
 
+  /** Restore a session's historical closed trades and advance nextId past them. */
+  initFromTrades(trades: ManualTrade[]): void {
+    this.closed = [...trades];
+    this.nextId = trades.length > 0
+      ? Math.max(...trades.map(t => t.id)) + 1
+      : 1;
+  }
+
   reset(): void {
     this.open   = null;
     this.closed = [];
@@ -90,8 +98,8 @@ export function computeMetrics(trades: ManualTrade[], initialCapital: number): R
   }
 
   const pnls        = trades.map(t => t.pnl ?? 0);
-  const wins        = pnls.filter(p => p > 0);
-  const losses      = pnls.filter(p => p <= 0);
+  const wins        = pnls.filter(p => p > 0);   // strictly positive = win
+  const losses      = pnls.filter(p => p < 0);   // strictly negative = loss (breakeven excluded)
   const totalPnl    = pnls.reduce((a, b) => a + b, 0);
   const grossProfit = wins.reduce((a, b) => a + b, 0);
   const grossLoss   = Math.abs(losses.reduce((a, b) => a + b, 0));

@@ -36,25 +36,37 @@ interface MT5Info {
 }
 
 export default function DashboardPage() {
-  const { activeProfileId, tradingProfiles } = useAppContext();
+  const { activeProfileId, tradingProfiles, loading: contextLoading } = useAppContext();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [mt5Info, setMt5Info] = useState<MT5Info | null>(null);
   const [mt5Loading, setMt5Loading] = useState(true);
   const [syncRefreshKey, setSyncRefreshKey] = useState(0);
 
-  // Load manual trades — re-fetch when active profile changes
+  // Load manual trades — re-fetch when active profile changes.
+  // AbortController cancels in-flight requests when the profile switches so
+  // stale data from a previous profile never flashes on screen.
   useEffect(() => {
+    if (contextLoading) return;
+
+    const controller = new AbortController();
     setLoading(true);
-    const url = activeProfileId ? `/api/trade?profileId=${encodeURIComponent(activeProfileId)}` : "/api/trade";
-    fetch(url)
+    const url = activeProfileId
+      ? `/api/trade?profileId=${encodeURIComponent(activeProfileId)}`
+      : "/api/trade";
+
+    fetch(url, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
         setTrades(Array.isArray(data) ? data : []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, [activeProfileId]);
+      .catch((err) => {
+        if (err.name !== "AbortError") setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [activeProfileId, contextLoading]);
 
   // Load MT5 status
   useEffect(() => {
@@ -85,7 +97,9 @@ export default function DashboardPage() {
     };
   }, [trades]);
 
-  if (loading) {
+  // Show full-page spinner while context resolves OR while trades are loading.
+  // This prevents stats/charts from flashing zeros before data arrives.
+  if (contextLoading || loading) {
     return (
       <div className="flex items-center justify-center h-full min-h-[60vh]">
         <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
@@ -119,10 +133,10 @@ export default function DashboardPage() {
       {/* Stats */}
       <StatsCards {...stats} />
 
-      {/* Charts */}
+      {/* Charts — each handles its own loading state */}
       <div className="grid gap-4 md:grid-cols-2">
-        <PerformanceChart trades={trades} />
-        <MonthlyCalendar trades={trades} />
+        <PerformanceChart trades={trades} loading={loading} />
+        <MonthlyCalendar  trades={trades} loading={loading} />
       </div>
 
       <OpenPositions trades={trades} />

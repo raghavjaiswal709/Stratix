@@ -78,13 +78,17 @@ export function BacktestingPage() {
   const [activeTimeframe, setActiveTimeframe] = useState<"1m" | "5m" | "15m" | "1H" | "4H" | "1D">("15m");
 
   // ── Refs ─────────────────────────────────────────────────────────────────
-  const trackerRef    = useRef(new TradeTracker());
-  const liveFeedRef   = useRef<LiveDataFeed | null>(null);
-  const playTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
-  const abortRef      = useRef<AbortController | null>(null);
-  const displayRef    = useRef<Candle[]>([]);
+  const trackerRef       = useRef(new TradeTracker());
+  const liveFeedRef      = useRef<LiveDataFeed | null>(null);
+  const playTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef         = useRef<AbortController | null>(null);
+  const displayRef       = useRef<Candle[]>([]);
+  const replayRef        = useRef<ReplayState>(replay);
+  const activeSessionRef = useRef<typeof activeSession>(activeSession);
 
-  useEffect(() => { displayRef.current = displayCandles; }, [displayCandles]);
+  useEffect(() => { displayRef.current       = displayCandles; },  [displayCandles]);
+  useEffect(() => { replayRef.current        = replay; },          [replay]);
+  useEffect(() => { activeSessionRef.current = activeSession; },   [activeSession]);
 
   // Fetch saved sessions and user theme preferences from MongoDB on mount
   const fetchSessions = useCallback(async () => {
@@ -207,17 +211,26 @@ export function BacktestingPage() {
     }
   };
 
+  // ── Persist the last viewed candle time to the session (fire-and-forget) ──
+  const persistLastCandle = useCallback((sessionId: string, candleTime: number) => {
+    fetch(`/api/backtesting/sessions?id=${sessionId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lastCandleTime: candleTime }),
+    }).catch(() => {});
+  }, []);
+
   const handleSelectSession = useCallback(async (session: Session) => {
     setActiveSession(session);
     setClosedTrades(session.trades || []);
     setOpenTrade(null);
     setUnrealised(0);
     setDataSource(null);
-    
-    // Sync tracking engine with session's closed trades list and symbol
+
+    // Sync tracking engine — restore historical trades so new trades append correctly
     trackerRef.current.reset();
     trackerRef.current.setSymbol(session.symbol);
-    trackerRef.current.closed = [...session.trades];
+    trackerRef.current.initFromTrades(session.trades || []);
 
     // Reset lot size to the instrument's minimum
     const spec = getLotSpec(session.symbol);
@@ -252,6 +265,22 @@ export function BacktestingPage() {
       setDisplay(resampled);
       setDataSource(getLastFetchedSource());
 
+      // ── Restore last candle position if the session was previously visited ──
+      if (session.lastCandleTime && resampled.length > 1) {
+        let lastIdx = resampled.findIndex(c => c.time >= session.lastCandleTime!);
+        if (lastIdx === -1) lastIdx = resampled.length - 1;
+        if (lastIdx > 0) {
+          setReplay({
+            active: true,
+            playing: false,
+            startIdx: 0,
+            currentIdx: lastIdx,
+            speed: 1,
+            selectingStart: false,
+          });
+        }
+      }
+
       // Start the real-time live feed for updating the chart (Disabled)
       const feed = new LiveDataFeed(
         session.symbol,
@@ -273,6 +302,14 @@ export function BacktestingPage() {
   }, [activeTimeframe]);
 
   const handleExitToDashboard = () => {
+    // Save current candle position before leaving so the session can be resumed
+    const r   = replayRef.current;
+    const ses = activeSessionRef.current;
+    if (ses && r.active) {
+      const candle = displayRef.current[r.currentIdx];
+      if (candle) persistLastCandle(ses.id, candle.time);
+    }
+
     stopPlayTimer();
     liveFeedRef.current?.stop();
     setActiveSession(null);
@@ -426,7 +463,14 @@ export function BacktestingPage() {
   const handlePause = useCallback(() => {
     stopPlayTimer();
     setReplay(pausePlaying);
-  }, []);
+    // Save position on every pause (fire-and-forget, uses always-current refs)
+    const ses = activeSessionRef.current;
+    const r   = replayRef.current;
+    if (ses && r.active) {
+      const candle = displayRef.current[r.currentIdx];
+      if (candle) persistLastCandle(ses.id, candle.time);
+    }
+  }, [persistLastCandle]);
 
   const handleNext = useCallback(() => {
     setReplay((s) => stepForward(s, displayRef.current.length - 1));
@@ -447,6 +491,12 @@ export function BacktestingPage() {
     setReplay(s => ({ ...s, currentIdx: s.startIdx, playing: false }));
   }, []);
 
+  // Jump to the absolute first candle of the loaded dataset (index 0)
+  const handleFromFirstCandle = useCallback(() => {
+    stopPlayTimer();
+    setReplay({ active: true, playing: false, startIdx: 0, currentIdx: 0, speed: 1, selectingStart: false });
+  }, []);
+
   const handleSpeedChange = useCallback((speed: ReplaySpeed) => {
     setReplay((s) => {
       const next = setSpeed(s, speed);
@@ -457,13 +507,23 @@ export function BacktestingPage() {
 
   const handleStop = useCallback(() => {
     stopPlayTimer();
-    trackerRef.current.reset();
+
+    // If there is an open position, force-close it at the current candle and save it
+    const currentCandle = displayRef.current[replayRef.current.currentIdx];
+    if (currentCandle && trackerRef.current.open) {
+      trackerRef.current.close(currentCandle);
+      const updatedTrades = [...trackerRef.current.closed];
+      setClosedTrades(updatedTrades);
+      updateActiveSessionTrades(updatedTrades);
+    }
+
+    // Reset replay bar + open-trade UI, but DO NOT wipe closed trades or DB history.
+    // Trade history accumulates across multiple replay runs so the dashboard win rate
+    // always reflects real cumulative performance.
     setReplay(stopReplay());
     setOpenTrade(null);
-    setClosedTrades([]);
     setUnrealised(0);
-    updateActiveSessionTrades([]);
-    
+
     if (displayCandles.length > 0 && activeSession) {
       const feed = new LiveDataFeed(
         activeSession.symbol,
@@ -604,8 +664,20 @@ export function BacktestingPage() {
           </div>
         </div>
 
-        {/* Timeframe selector header section */}
+        {/* Timeframe selector + candle nav buttons */}
         <div className="flex items-center gap-3">
+          {/* "From First Candle" — jumps to absolute index 0 of the loaded data */}
+          {displayCandles.length > 0 && (
+            <button
+              onClick={handleFromFirstCandle}
+              title="Jump to first candle of session range"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.08] hover:border-white/[0.20] text-white/45 hover:text-white transition-all text-[10px] font-bold active:scale-95"
+            >
+              <RotateCcw className="w-3 h-3" />
+              First Candle
+            </button>
+          )}
+
           {/* Timeframe switchers */}
           <div className="flex p-0.5 rounded-lg bg-white/[0.04] border border-white/[0.08]">
             {(["1m", "5m", "15m", "1H", "4H", "1D"] as const).map((tf) => (
@@ -748,6 +820,9 @@ export function BacktestingPage() {
             winRate={activeMetrics.winRate}
             totalPnl={activeMetrics.totalPnl}
             profitFactor={activeMetrics.profitFactor}
+
+            // Session trades list
+            sessionTrades={closedTrades}
           />
         </div>
       </div>

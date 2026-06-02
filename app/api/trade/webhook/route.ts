@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
           margin,
           status: "open",
           source: "mt5",
+          profileId: user.activeProfileId || undefined,
           timeframe: "",
           journaled: false,
           executionChecklist: [
@@ -163,6 +164,7 @@ export async function POST(req: NextRequest) {
           swap: num(body.swap),
           commission: num(body.commission),
           status: "closed",
+          profileId: user.activeProfileId || undefined,
           updatedAt: new Date(),
         },
       }
@@ -187,6 +189,7 @@ export async function POST(req: NextRequest) {
         margin,
         status: "closed",
         source: "mt5",
+        profileId: user.activeProfileId || undefined,
         timeframe: "",
         journaled: false,
         executionChecklist: [

@@ -12,6 +12,7 @@ export interface IBacktestSession extends Document {
   leverage: string;
   trades: any[];
   drawings: any[];
+  lastCandleTime?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,6 +30,7 @@ const BacktestSessionSchema = new Schema<IBacktestSession>(
     leverage: { type: String, required: true },
     trades: { type: Schema.Types.Mixed, default: [] },
     drawings: { type: Schema.Types.Mixed, default: [] },
+    lastCandleTime: { type: Number, default: null },
   },
   { timestamps: true }
 );

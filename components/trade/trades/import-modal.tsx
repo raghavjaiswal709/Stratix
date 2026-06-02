@@ -47,6 +47,7 @@ interface ConflictState {
 interface ImportModalProps {
   onClose: () => void;
   onImported: () => void;
+  profileId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +72,7 @@ function textToFile(text: string): File {
 // Component
 // ---------------------------------------------------------------------------
 
-export function ImportModal({ onClose, onImported }: ImportModalProps) {
+export function ImportModal({ onClose, onImported, profileId }: ImportModalProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [inputTab, setInputTab] = useState<InputTab>("file");
@@ -108,11 +109,11 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
     const form = new FormData();
     form.append("file", f);
 
-    const url = isJsonFile(f)
-      ? `/api/trade/import-json${resolution ? `?resolution=${resolution}` : ""}`
-      : "/api/trade/import-csv";
+    const urlObj = new URL(isJsonFile(f) ? `/api/trade/import-json` : `/api/trade/import-csv`, window.location.origin);
+    if (resolution) urlObj.searchParams.set("resolution", resolution);
+    if (profileId) urlObj.searchParams.set("profileId", profileId);
 
-    const res = await fetch(url, { method: "POST", body: form });
+    const res = await fetch(urlObj.toString(), { method: "POST", body: form });
     return { res, data: await res.json() };
   }
 

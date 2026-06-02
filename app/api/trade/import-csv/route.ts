@@ -177,6 +177,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const profileId = req.nextUrl.searchParams.get("profileId");
+
   let csvText: string;
   const contentType = req.headers.get("content-type") ?? "";
 
@@ -252,6 +254,7 @@ export async function POST(req: NextRequest) {
             margin,
             status: t.status,
             source: "mt5" as const,
+            ...(profileId ? { profileId } : {}),
             updatedAt: now,
           },
           $setOnInsert: {

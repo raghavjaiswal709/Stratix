@@ -16,13 +16,14 @@ import { cn } from "@/lib/utils";
 
 interface Trade {
   _id: string;
-  exitTime?: string;
+  entryTime: string;
   profit: number;
   status: string;
 }
 
 interface PerformanceChartProps {
   trades: Trade[];
+  loading?: boolean;
 }
 
 const PERIODS = ["1D", "1W", "1M", "3M", "ALL"] as const;
@@ -40,26 +41,38 @@ function getPeriodStart(period: Period): Date | null {
 }
 
 function buildChartData(trades: Trade[], start: Date | null) {
-  const closed = trades
-    .filter((t) => t.status === "closed" && t.exitTime)
-    .sort((a, b) => new Date(a.exitTime!).getTime() - new Date(b.exitTime!).getTime());
+  const sorted = [...trades]
+    .sort((a, b) => new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime());
 
   const filtered = start
-    ? closed.filter((t) => isAfter(parseISO(t.exitTime!), start))
-    : closed;
+    ? sorted.filter((t) => isAfter(parseISO(t.entryTime), start))
+    : sorted;
+
+  // Group by calendar day (local time) based on entryTime so each day has one cumulative point.
+  // Multiple trades on the same day are summed, avoiding duplicate X labels.
+  const byDay = new Map<string, number>();
+  for (const t of filtered) {
+    const key = format(parseISO(t.entryTime), "yyyy-MM-dd");
+    byDay.set(key, (byDay.get(key) ?? 0) + t.profit);
+  }
 
   let cumPnL = 0;
-  return filtered.map((t) => {
-    cumPnL += t.profit;
+  return Array.from(byDay.entries()).map(([key, dayPnL]) => {
+    cumPnL += dayPnL;
     return {
-      date: format(parseISO(t.exitTime!), "MMM d"),
+      date: format(parseISO(key), "MMM d"),
       pnl: parseFloat(cumPnL.toFixed(2)),
     };
   });
 }
 
-// Custom tooltip
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
+function CustomTooltip({
+  active, payload, label,
+}: {
+  active?: boolean;
+  payload?: { value: number }[];
+  label?: string;
+}) {
   if (!active || !payload?.length) return null;
   const val = payload[0].value;
   return (
@@ -72,8 +85,10 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   );
 }
 
-export function PerformanceChart({ trades }: PerformanceChartProps) {
-  const [period, setPeriod] = useState<Period>("1W");
+export function PerformanceChart({ trades, loading }: PerformanceChartProps) {
+  // Default to ALL so the chart is never empty for users who have trades
+  // from earlier periods. They can narrow down using the period buttons.
+  const [period, setPeriod] = useState<Period>("ALL");
 
   const data = useMemo(() => {
     const start = getPeriodStart(period);
@@ -119,16 +134,28 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
 
       {/* Chart */}
       <div className="flex-1 h-[200px]">
-        {data.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-            No trades taken
+        {loading ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="h-4 w-4 rounded-full border-[1.5px] border-white/20 border-t-white/60 animate-spin" />
+          </div>
+        ) : data.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
+            <p className="text-sm">No trades{period !== "ALL" ? ` in ${period}` : ""}</p>
+            {period !== "ALL" && (
+              <button
+                onClick={() => setPeriod("ALL")}
+                className="text-[11px] text-white/40 hover:text-white/70 underline underline-offset-2 transition"
+              >
+                View all time
+              </button>
+            )}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 8, right: 4, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0.25} />
+                  <stop offset="5%"  stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0.25} />
                   <stop offset="95%" stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0} />
                 </linearGradient>
               </defs>
