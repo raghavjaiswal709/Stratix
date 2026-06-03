@@ -161,10 +161,16 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
 
         const ivMins = INTERVAL_MINS[interval];
         const CONTEXT = 80;
-        const start = subMinutes(parseISO(entryTime), CONTEXT * ivMins);
+        // MT5 export times are broker-server time (commonly UTC+2/+3) but are
+        // stored as UTC. Twelve Data candles are true UTC, so the real entry/
+        // exit candles can sit a few hours away from the stated time. Pad the
+        // fetch window by SEARCH_PAD so those candles are always included, then
+        // we anchor the markers by price+time below.
+        const SEARCH_PAD = 360; // minutes (±6h) — covers any broker UTC offset
+        const start = subMinutes(parseISO(entryTime), CONTEXT * ivMins + SEARCH_PAD);
         const end = addMinutes(
           exitTime ? parseISO(exitTime) : new Date(),
-          CONTEXT * ivMins
+          CONTEXT * ivMins + SEARCH_PAD
         );
 
         let candles: Array<{ time: number; open: number; high: number; low: number; close: number }> = [];
@@ -312,13 +318,50 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           });
         }
 
-        // ── Entry / Exit markers ──────────────────────────────────────────────
-        // Snap to nearest candle using original UTC times, then shift the
-        // marker timestamp to match the shifted candle data.
-        const entryTsRaw = Math.floor(parseISO(entryTime).getTime() / 1000);
-        const entryCandle = candles.reduce((p, c) =>
-          Math.abs(c.time - entryTsRaw) < Math.abs(p.time - entryTsRaw) ? c : p
-        );
+        // ── Entry / Exit markers (price + time anchored) ──────────────────────
+        // Because the stored trade time can be skewed from candle UTC by the
+        // broker's offset, snapping purely by time lands the marker on the
+        // wrong candle. Instead we find the candle whose price RANGE is closest
+        // to the trade price, nearest in time to the stated moment. From the
+        // entry match we derive the broker offset and reuse it for the exit so
+        // both markers stay mutually consistent.
+        const SECS = (iso: string) => Math.floor(parseISO(iso).getTime() / 1000);
+        const MAX_OFFSET = 6 * 3600; // clamp: ignore matches further than ±6h
+
+        // Distance from a price to a candle's [low, high] range (0 if inside).
+        const rangeDist = (price: number, c: typeof candles[number]) =>
+          price >= c.low && price <= c.high ? 0 : Math.min(Math.abs(price - c.low), Math.abs(price - c.high));
+
+        // Pick the best candle for (price, statedTime): minimise price-range
+        // distance first, then time distance — but only consider candles within
+        // ±MAX_OFFSET of the stated time so we never match a far-away revisit.
+        function anchorCandle(price: number, statedTs: number) {
+          let best: typeof candles[number] | null = null;
+          let bestScore = Infinity;
+          let bestTimeDist = Infinity;
+          for (const c of candles) {
+            const td = Math.abs(c.time - statedTs);
+            if (td > MAX_OFFSET) continue;
+            const rd = rangeDist(price, c);
+            if (rd < bestScore || (rd === bestScore && td < bestTimeDist)) {
+              best = c; bestScore = rd; bestTimeDist = td;
+            }
+          }
+          // Fallback: nearest in time across all candles.
+          if (!best) {
+            best = candles.reduce((p, c) =>
+              Math.abs(c.time - statedTs) < Math.abs(p.time - statedTs) ? c : p
+            );
+          }
+          return best;
+        }
+
+        const entryTsRaw = SECS(entryTime);
+        const entryCandle = anchorCandle(entryPrice, entryTsRaw);
+        // Broker offset implied by the entry match (clamped for safety).
+        let brokerOffset = entryCandle.time - entryTsRaw;
+        if (Math.abs(brokerOffset) > MAX_OFFSET) brokerOffset = 0;
+
         const entryTs = (entryCandle.time + tzOffset) as UTCTimestamp;
 
         const markers: Array<{
@@ -337,11 +380,12 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           },
         ];
 
+        let exitCandle: typeof candles[number] | null = null;
         if (exitPrice != null && exitTime) {
-          const exitTsRaw = Math.floor(parseISO(exitTime).getTime() / 1000);
-          const exitCandle = candles.reduce((p, c) =>
-            Math.abs(c.time - exitTsRaw) < Math.abs(p.time - exitTsRaw) ? c : p
-          );
+          // Apply the SAME broker offset to the exit's stated time, then refine
+          // by price so the exit marker also sits on its real candle.
+          const exitTarget = SECS(exitTime) + brokerOffset;
+          exitCandle = anchorCandle(exitPrice, exitTarget);
           const exitTs = (exitCandle.time + tzOffset) as UTCTimestamp;
           if (exitCandle.time !== entryCandle.time) {
             markers.push({
@@ -358,14 +402,12 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           markers.sort((a, b) => (a.time as number) - (b.time as number))
         );
 
-        // ── Scroll to trade period ────────────────────────────────────────────
+        // ── Scroll to trade period (centre on the matched candles) ────────────
         const viewPad = 30 * ivMins * 60;
-        const viewFrom = (entryTsRaw + tzOffset - viewPad) as UTCTimestamp;
-        const viewTo = (
-          (exitTime
-            ? Math.floor(parseISO(exitTime).getTime() / 1000)
-            : Math.floor(Date.now() / 1000)) + tzOffset + viewPad
-        ) as UTCTimestamp;
+        const lo = Math.min(entryCandle.time, exitCandle ? exitCandle.time : entryCandle.time);
+        const hi = Math.max(entryCandle.time, exitCandle ? exitCandle.time : entryCandle.time);
+        const viewFrom = (lo + tzOffset - viewPad) as UTCTimestamp;
+        const viewTo = (hi + tzOffset + viewPad) as UTCTimestamp;
 
         try {
           chart.timeScale().setVisibleRange({ from: viewFrom, to: viewTo });

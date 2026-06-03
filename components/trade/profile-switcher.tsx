@@ -7,14 +7,20 @@ import { ChevronDown, Plus, Edit2, Trash2, X, Check, Settings } from "lucide-rea
 import { cn } from "@/lib/utils";
 
 const COLOR_PRESETS = [
-  "#e5e7eb", // white/silver
-  "#9ca3af", // gray
-  "#d1d5db", // light gray
-  "#6b7280", // medium gray
-  "#10b981", // emerald
-  "#34d399", // light emerald
-  "#ef4444", // red
-  "#f97316", // orange
+  // Neutrals
+  "#ffffff", "#d1d5db", "#9ca3af", "#6b7280",
+  // Greens / emerald
+  "#10b981", "#34d399", "#22c55e", "#4ade80",
+  // Lime
+  "#84cc16", "#a3e635",
+  // Yellow / amber
+  "#eab308", "#facc15", "#f59e0b", "#fbbf24",
+  // Orange
+  "#f97316", "#fb923c",
+  // Red
+  "#ef4444", "#f87171",
+  // Rose / pink
+  "#f43f5e", "#ec4899",
 ];
 
 interface ProfileFormData {
@@ -116,7 +122,7 @@ function ProfileForm({
       </div>
 
       {/* Color */}
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1.5">
         <label className="text-[11px] font-medium text-white/50 uppercase tracking-wider">Color</label>
         <div className="flex items-center gap-2 flex-wrap">
           {COLOR_PRESETS.map((c) => (
@@ -126,11 +132,51 @@ function ProfileForm({
               onClick={() => setForm((f) => ({ ...f, color: c }))}
               className={cn(
                 "h-6 w-6 rounded-full border-2 transition-all",
-                form.color === c ? "border-white/70 scale-110" : "border-transparent hover:border-white/30"
+                form.color.toLowerCase() === c.toLowerCase() ? "border-white/70 scale-110" : "border-transparent hover:border-white/30"
               )}
               style={{ backgroundColor: c }}
+              title={c}
             />
           ))}
+
+          {/* Custom color picker — pick any color */}
+          <label
+            className={cn(
+              "relative h-6 w-6 rounded-full border-2 cursor-pointer overflow-hidden flex items-center justify-center transition-all",
+              !COLOR_PRESETS.some((c) => c.toLowerCase() === form.color.toLowerCase())
+                ? "border-white/70 scale-110"
+                : "border-white/20 hover:border-white/40"
+            )}
+            title="Custom color"
+            style={{
+              background: COLOR_PRESETS.some((c) => c.toLowerCase() === form.color.toLowerCase())
+                ? "conic-gradient(#ef4444,#f59e0b,#22c55e,#10b981,#ec4899,#ef4444)"
+                : form.color,
+            }}
+          >
+            {COLOR_PRESETS.some((c) => c.toLowerCase() === form.color.toLowerCase()) && (
+              <Plus className="h-3 w-3 text-white drop-shadow" />
+            )}
+            <input
+              type="color"
+              value={form.color}
+              onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+            />
+          </label>
+
+          {/* Hex value display / manual entry */}
+          <input
+            type="text"
+            value={form.color}
+            onChange={(e) => {
+              const v = e.target.value.startsWith("#") ? e.target.value : `#${e.target.value}`;
+              setForm((f) => ({ ...f, color: v.slice(0, 7) }));
+            }}
+            className="w-[88px] bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1 text-[12px] font-mono text-white/80 placeholder-white/25 focus:outline-none focus:border-white/20"
+            placeholder="#10b981"
+            maxLength={7}
+          />
         </div>
       </div>
 
@@ -181,10 +227,10 @@ function ProfileForm({
 }
 
 // ── Manage Profiles Modal ─────────────────────────────────────────────────────
-export function ManageModal({ onClose }: { onClose: () => void }) {
+export function ManageModal({ onClose, initialEditId }: { onClose: () => void; initialEditId?: string }) {
   const { tradingProfiles, createProfile, updateProfile, deleteProfile } = useAppContext();
-  const [view, setView] = useState<"list" | "create" | "edit">("list");
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [view, setView] = useState<"list" | "create" | "edit">(initialEditId ? "edit" : "list");
+  const [editingId, setEditingId] = useState<string | null>(initialEditId ?? null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const editingProfile = tradingProfiles.find((p) => p.id === editingId);
@@ -358,10 +404,18 @@ export function ManageModal({ onClose }: { onClose: () => void }) {
 
 // ── ProfileSwitcher (full sidebar version) ────────────────────────────────────
 export function ProfileSwitcher() {
-  const { tradingProfiles, activeProfileId, setActiveProfileId } = useAppContext();
+  const { tradingProfiles, activeProfileId, setActiveProfileId, deleteProfile } = useAppContext();
   const [open, setOpen] = useState(false);
   const [showManage, setShowManage] = useState(false);
+  const [manageEditId, setManageEditId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  function openEdit(id: string) {
+    setManageEditId(id);
+    setShowManage(true);
+    setOpen(false);
+  }
 
   const activeProfile = tradingProfiles.find((p) => p.id === activeProfileId);
 
@@ -369,6 +423,7 @@ export function ProfileSwitcher() {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setConfirmDeleteId(null);
       }
     }
     if (open) document.addEventListener("mousedown", handleClickOutside);
@@ -410,18 +465,64 @@ export function ProfileSwitcher() {
             {tradingProfiles.length > 0 && (
               <div className="border-t border-white/[0.05]">
                 {tradingProfiles.map((profile) => (
-                  <button
+                  <div
                     key={profile.id}
-                    onClick={() => { setActiveProfileId(profile.id); setOpen(false); }}
                     className={cn(
-                      "w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] transition-all hover:bg-white/[0.05]",
-                      activeProfileId === profile.id ? "text-white font-medium" : "text-white/55 hover:text-white/80"
+                      "group/row flex items-center gap-2.5 px-3 py-2.5 text-[13px] transition-all hover:bg-white/[0.05]",
+                      activeProfileId === profile.id ? "text-white font-medium" : "text-white/55"
                     )}
                   >
-                    <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: profile.color }} />
-                    <span className="flex-1 text-left truncate">{profile.name}</span>
-                    {activeProfileId === profile.id && <Check className="h-3 w-3 ml-auto text-white/60 shrink-0" />}
-                  </button>
+                    {confirmDeleteId === profile.id ? (
+                      <>
+                        <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: profile.color }} />
+                        <span className="flex-1 text-left truncate text-white/60">Delete this profile?</span>
+                        <button
+                          onClick={() => { deleteProfile(profile.id); setConfirmDeleteId(null); }}
+                          className="p-1 rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/30 transition shrink-0"
+                          title="Confirm delete"
+                        >
+                          <Check className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="p-1 rounded-md hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition shrink-0"
+                          title="Cancel"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => { setActiveProfileId(profile.id); setOpen(false); }}
+                          className="flex items-center gap-2.5 flex-1 min-w-0 text-left hover:text-white/80 transition-colors"
+                        >
+                          <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: profile.color }} />
+                          <span className="flex-1 truncate">{profile.name}</span>
+                        </button>
+                        {activeProfileId === profile.id && (
+                          <Check className="h-3 w-3 text-white/60 shrink-0 group-hover/row:hidden" />
+                        )}
+                        {/* Inline edit / delete — revealed on hover */}
+                        <div className="hidden group-hover/row:flex items-center gap-0.5 shrink-0">
+                          <button
+                            onClick={() => openEdit(profile.id)}
+                            className="p-1 rounded-md hover:bg-white/[0.08] text-white/40 hover:text-white/80 transition"
+                            title="Edit profile"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(profile.id)}
+                            className="p-1 rounded-md hover:bg-red-500/10 text-white/40 hover:text-red-400 transition"
+                            title="Delete profile"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
@@ -439,7 +540,12 @@ export function ProfileSwitcher() {
         )}
       </div>
 
-      {showManage && <ManageModal onClose={() => setShowManage(false)} />}
+      {showManage && (
+        <ManageModal
+          initialEditId={manageEditId ?? undefined}
+          onClose={() => { setShowManage(false); setManageEditId(null); }}
+        />
+      )}
     </>
   );
 }

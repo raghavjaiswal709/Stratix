@@ -40,6 +40,7 @@ export async function GET() {
       })
       .sort({ time: -1 })
       .limit(500)
+      .batchSize(1000)
       .toArray(),
     db.collection("accounts").findOne({ accountId: config.mt5AccountId }),
   ]);

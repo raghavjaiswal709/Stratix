@@ -50,6 +50,8 @@ export interface ManualTrade {
   lotSize: number;
   exitTime?: number;
   exitPrice?: number;
+  takeProfit?: number;
+  stopLoss?: number;
   pnl?: number;     // absolute USD
   pnlPct?: number;  // percentage
 }
@@ -124,7 +126,18 @@ export interface Drawing {
     stopLoss: number;
     takeProfit: number;
     riskRewardRatio: number;
+    barWidth?: number;
   };
+}
+
+// ─── Draft Order (chart-side trade ticket before confirmation) ───────────────
+
+export interface DraftOrder {
+  side: "buy" | "sell";
+  entry: number;     // live price reference (follows current candle close)
+  sl: number;        // user-draggable stop loss price
+  tp: number;        // user-draggable take profit price
+  lotSize: number;   // snapshot of the lot size when the draft was opened
 }
 
 // ─── Backtest Session persistence ─────────────────────────────────────────────

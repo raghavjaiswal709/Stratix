@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Plus, Minus, TrendingUp, TrendingDown, ListOrdered } from "lucide-react";
 import type { Drawing, ManualTrade } from "./types";
-import { getLotSpec, pipValue, snapLot } from "./lotSpecs";
+import { getLotSpec, pipValue, snapLot, calcPnl } from "./lotSpecs";
 
 interface Props {
   symbol: string;
@@ -25,13 +25,16 @@ interface Props {
 
   // All closed trades in this session
   sessionTrades: ManualTrade[];
+  
+  // Active open trade
+  openTrade?: ManualTrade | null;
 }
 
 export function ExecutionPanel({
   symbol, currentPrice, lotSize, onLotSizeChange, onBuy, onSell,
   rrDrawing, onOpenRROrder,
   totalTrades, winRate, totalPnl, profitFactor,
-  sessionTrades,
+  sessionTrades, openTrade,
 }: Props) {
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -300,35 +303,79 @@ export function ExecutionPanel({
           )}
         </div>
 
-        {/* Advanced Accordion */}
-        <div className="border border-white/[0.08] rounded-lg overflow-hidden shrink-0">
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="w-full flex items-center justify-between px-3 py-2 bg-white/[0.04] hover:bg-white/[0.06] text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-all"
-          >
-            <span className="flex items-center gap-1.5">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4"/><path d="M8 1.5V3M8 13V14.5M1.5 8H3M13 8H14.5M3.2 3.2L4.2 4.2M11.8 11.8L12.8 12.8M12.8 3.2L11.8 4.2M4.2 11.8L3.2 12.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-              Advanced Settings
-            </span>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className={`transition-transform duration-200 ${showAdvanced ? "rotate-180" : ""}`}><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          </button>
-          {showAdvanced && (
+        {/* Active Trade Settings */}
+        {openTrade ? (
+          <div className="border border-white/[0.08] rounded-lg overflow-hidden shrink-0">
+            <div className="w-full flex items-center justify-between px-3 py-2 bg-white/[0.04] text-[10px] font-bold uppercase tracking-widest text-white/40">
+              <span className="flex items-center gap-1.5">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4"/><path d="M8 1.5V3M8 13V14.5M1.5 8H3M13 8H14.5M3.2 3.2L4.2 4.2M11.8 11.8L12.8 12.8M12.8 3.2L11.8 4.2M4.2 11.8L3.2 12.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                Active Position
+              </span>
+              <span className={`px-1.5 py-0.5 rounded text-[8px] ${openTrade.direction === "LONG" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+                {openTrade.direction}
+              </span>
+            </div>
             <div className="p-3 bg-transparent border-t border-white/[0.08] flex flex-col gap-3 text-xs text-white/45">
+              {/* Take Profit */}
               <div className="flex items-center justify-between">
-                <span>Take Profit (TP)</span>
-                <span className="text-white/35 font-mono">Not set</span>
+                <span>Take Profit</span>
+                <div className="flex flex-col items-end">
+                  <span className="text-emerald-400 font-bold font-mono">
+                    {openTrade.takeProfit ? fmtP(openTrade.takeProfit) : "Not set"}
+                  </span>
+                  {openTrade.takeProfit && (
+                    <span className="text-[9px] text-emerald-400/50">
+                      +${Math.abs(calcPnl(openTrade.direction, openTrade.entryPrice, openTrade.takeProfit, lotSize, spec)).toFixed(2)}
+                    </span>
+                  )}
+                </div>
               </div>
+              {/* Stop Loss */}
               <div className="flex items-center justify-between">
-                <span>Stop Loss (SL)</span>
-                <span className="text-white/35 font-mono">Not set</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Max Slippage</span>
-                <span className="text-white font-mono">1.0 Pip</span>
+                <span>Stop Loss</span>
+                <div className="flex flex-col items-end">
+                  <span className="text-red-400 font-bold font-mono">
+                    {openTrade.stopLoss ? fmtP(openTrade.stopLoss) : "Not set"}
+                  </span>
+                  {openTrade.stopLoss && (
+                    <span className="text-[9px] text-red-400/50">
+                      -${Math.abs(calcPnl(openTrade.direction, openTrade.entryPrice, openTrade.stopLoss, lotSize, spec)).toFixed(2)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="border border-white/[0.08] rounded-lg overflow-hidden shrink-0">
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="w-full flex items-center justify-between px-3 py-2 bg-white/[0.04] hover:bg-white/[0.06] text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-all"
+            >
+              <span className="flex items-center gap-1.5">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4"/><path d="M8 1.5V3M8 13V14.5M1.5 8H3M13 8H14.5M3.2 3.2L4.2 4.2M11.8 11.8L12.8 12.8M12.8 3.2L11.8 4.2M4.2 11.8L3.2 12.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+                Advanced Settings
+              </span>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className={`transition-transform duration-200 ${showAdvanced ? "rotate-180" : ""}`}><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            {showAdvanced && (
+              <div className="p-3 bg-transparent border-t border-white/[0.08] flex flex-col gap-3 text-xs text-white/45">
+                <div className="flex items-center justify-between">
+                  <span>Take Profit (TP)</span>
+                  <span className="text-white/35 font-mono">Not set</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Stop Loss (SL)</span>
+                  <span className="text-white/35 font-mono">Not set</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Max Slippage</span>
+                  <span className="text-white font-mono">1.0 Pip</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex-1" />
 

@@ -31,6 +31,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ProfileSwitcher, ProfileDot, ManageModal } from "@/components/trade/profile-switcher";
+import { GraffitiLogo, GraffitiMark } from "@/components/shared/graffiti-logo";
 
 interface NavItem {
   href: string;
@@ -103,12 +104,7 @@ function CollapsedSidebar({
     <aside className="flex flex-col w-14 h-full bg-sidebar border-r border-sidebar-border">
       {/* Logo + pin button */}
       <div className="flex flex-col items-center gap-2.5 py-4 border-b border-sidebar-border">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] border border-white/[0.10] shrink-0">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-white/75">
-            <path d="M2 11.5L5.5 7L9 9L14 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 13.5H14" stroke="currentColor" strokeWidth="0.75" strokeLinecap="round" strokeOpacity="0.35"/>
-          </svg>
-        </div>
+        <GraffitiMark size={32} />
         <Tooltip>
           <TooltipTrigger
             render={
@@ -380,14 +376,9 @@ function ExpandedSidebar({
     <aside className="flex flex-col w-55 h-full bg-sidebar border-r border-sidebar-border">
       {/* Header */}
       <div className="flex items-center gap-2.5 px-4 py-4 border-b border-sidebar-border">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] border border-white/[0.10] shrink-0">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className="text-white/75">
-            <path d="M2 11.5L5.5 7L9 9L14 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 13.5H14" stroke="currentColor" strokeWidth="0.75" strokeLinecap="round" strokeOpacity="0.35"/>
-          </svg>
-        </div>
+        <GraffitiMark size={32} />
         <div className="flex flex-col leading-none flex-1 min-w-0">
-          <span className="text-[16px] font-semibold text-white/90 tracking-tight">Stratix</span>
+          <GraffitiLogo size={20} className="mb-0.5" />
           <span className="text-[10px] mt-0.5 text-white/25 font-medium uppercase tracking-widest">Tradebook &amp; Life OS</span>
         </div>
         {/* Unpin / close button */}

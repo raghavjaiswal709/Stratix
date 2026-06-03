@@ -51,13 +51,24 @@ export async function GET(req: NextRequest) {
 
   const tdSymbol = SYMBOL_MAP[symbol.toUpperCase()] ?? symbol;
 
+  // Size the request so the FULL requested window comes back in one call.
+  // (A fixed 500 truncated wide windows, dropping the candles a trade's real
+  // entry/exit fell on once we widened the window to absorb broker-time skew.)
+  const INTERVAL_MIN: Record<string, number> = {
+    "1min": 1, "5min": 5, "15min": 15, "30min": 30,
+    "45min": 45, "1h": 60, "2h": 120, "4h": 240, "1day": 1440,
+  };
+  const ivMin = INTERVAL_MIN[interval] ?? 15;
+  const spanMin = Math.max(0, (new Date(to).getTime() - new Date(from).getTime()) / 60000);
+  const outputsize = Math.min(5000, Math.max(50, Math.ceil(spanMin / ivMin) + 20));
+
   try {
     const url = new URL("https://api.twelvedata.com/time_series");
     url.searchParams.set("symbol", tdSymbol);
     url.searchParams.set("interval", interval);
     url.searchParams.set("start_date", toUTCDateStr(new Date(from)));
     url.searchParams.set("end_date", toUTCDateStr(new Date(to)));
-    url.searchParams.set("outputsize", "500");
+    url.searchParams.set("outputsize", String(outputsize));
     url.searchParams.set("timezone", "UTC");
     url.searchParams.set("apikey", apiKey);
     url.searchParams.set("format", "JSON");

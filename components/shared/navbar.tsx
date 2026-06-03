@@ -7,6 +7,7 @@ import { useAppContext } from "@/lib/context";
 import { Sun, Activity, TrendingUp, Moon, LogOut, Menu, X, ChevronDown, Settings, Shield } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GlobalSearch } from "@/components/shared/global-search";
+import { GraffitiLogo, GraffitiMark } from "@/components/shared/graffiti-logo";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,16 +35,8 @@ export function Navbar() {
         {/* Left: Brand + links */}
         <div className="flex items-center gap-5">
           <Link href={preferences.defaultPage || "/trade/trades"} className="flex items-center gap-2 shrink-0">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-[8px]"
-              style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.10)",
-              }}
-            >
-              <Sun style={{ width: 15, height: 15 }} className="text-white/65" />
-            </div>
-            <span className="text-[18px] font-bold tracking-tight">Stratix</span>
+            <GraffitiMark size={28} />
+            <GraffitiLogo size={20} className="ml-0.5" />
           </Link>
 
           {/* Desktop nav */}

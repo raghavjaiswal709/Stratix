@@ -9,7 +9,7 @@
 //  • Step replay engines, live feeds, and real-time execution panels
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import type { Candle, ControlsState, ReplayState, LiveStatus, ManualTrade, ReplaySpeed, Session, Drawing } from "./types";
+import type { Candle, ControlsState, ReplayState, LiveStatus, ManualTrade, ReplaySpeed, Session, Drawing, DraftOrder } from "./types";
 import { getLotSpec, snapLot } from "./lotSpecs";
 import { fetchCandleRange, clearCandleCache, resampleCandles, getLastFetchedSource } from "./dataFetcher";
 import {
@@ -75,6 +75,9 @@ export function BacktestingPage() {
 
   // Active Symbol Lot Sizing & Settings (starts at minimum for each instrument)
   const [lotSize, setLotSize] = useState(0.01);
+
+  // ── Draft order ticket (Buy/Sell preview before confirmation) ──
+  const [draftOrder, setDraftOrder] = useState<DraftOrder | null>(null);
   const [activeTimeframe, setActiveTimeframe] = useState<"1m" | "5m" | "15m" | "1H" | "4H" | "1D">("15m");
 
   // ── Refs ─────────────────────────────────────────────────────────────────
@@ -382,27 +385,93 @@ export function BacktestingPage() {
   };
 
   // ── Orders Placement ──
-  const handleBuy = useCallback(() => {
+  // Internal helper — actually enter a trade now. Used by RR-drawing one-shot
+  // execution and by the draft-ticket Confirm button.
+  const enterTradeNow = useCallback((direction: "LONG" | "SHORT", sl: number, tp: number) => {
+    if (!activeSession) return;
     const candle = displayRef.current[replay.currentIdx];
     if (!candle) return;
-    const entered = trackerRef.current.enter("LONG", candle, lotSize);
-    if (entered) {
-      setOpenTrade({ ...trackerRef.current.open! });
-      setClosedTrades([...trackerRef.current.closed]);
-      updateActiveSessionTrades([...trackerRef.current.closed]);
-    }
-  }, [replay.currentIdx, lotSize, activeSession]);
-
-  const handleSell = useCallback(() => {
-    const candle = displayRef.current[replay.currentIdx];
-    if (!candle) return;
-    const entered = trackerRef.current.enter("SHORT", candle, lotSize);
+    const entered = trackerRef.current.enter(direction, candle, lotSize, sl, tp);
     if (entered) {
       setOpenTrade(trackerRef.current.open ? { ...trackerRef.current.open } : null);
       setClosedTrades([...trackerRef.current.closed]);
       updateActiveSessionTrades([...trackerRef.current.closed]);
     }
-  }, [replay.currentIdx, lotSize, activeSession]);
+  }, [activeSession, replay.currentIdx, lotSize]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Build a draft ticket from the current candle + lot size + side.
+  const buildDraft = useCallback((side: "buy" | "sell"): DraftOrder | null => {
+    if (!activeSession) return null;
+    const candle = displayRef.current[replay.currentIdx] ?? displayRef.current[displayRef.current.length - 1];
+    if (!candle) return null;
+    const spec   = getLotSpec(activeSession.symbol);
+    const entry  = candle.close;
+    // Default stop/target as a % of price so they're clearly separated on the
+    // chart for every instrument (gold's tiny pipSize made 20/40 pips invisible).
+    // 0.35% risk : 0.70% reward → a clean 1:2 R/R. Falls back to a pip-based
+    // distance for very low-priced symbols where % would collapse to ~0.
+    const slDist = Math.max(entry * 0.0035, spec.pipSize * 50);
+    const tpDist = Math.max(entry * 0.0070, spec.pipSize * 100);
+    return {
+      side,
+      entry,
+      sl: side === "buy" ? entry - slDist : entry + slDist,
+      tp: side === "buy" ? entry + tpDist : entry - tpDist,
+      lotSize,
+    };
+  }, [activeSession, replay.currentIdx, lotSize]);
+
+  // Buy/Sell button entry-point — opens the draft preview on the chart.
+  // If an SL/TP is provided (e.g. from an RR drawing), trade is entered immediately.
+  const handleBuy = useCallback((sl?: number, tp?: number) => {
+    if (!activeSession) return;
+    if (typeof sl === "number" && typeof tp === "number") { enterTradeNow("LONG", sl, tp); return; }
+    const draft = buildDraft("buy");
+    if (draft) setDraftOrder(draft);
+  }, [activeSession, buildDraft, enterTradeNow]);
+
+  const handleSell = useCallback((sl?: number, tp?: number) => {
+    if (!activeSession) return;
+    if (typeof sl === "number" && typeof tp === "number") { enterTradeNow("SHORT", sl, tp); return; }
+    const draft = buildDraft("sell");
+    if (draft) setDraftOrder(draft);
+  }, [activeSession, buildDraft, enterTradeNow]);
+
+  // Draft ticket controls
+  const handleUpdateDraft = useCallback((updates: Partial<DraftOrder>) => {
+    setDraftOrder(d => d ? { ...d, ...updates } : null);
+  }, []);
+
+  const handleFlipDraft = useCallback(() => {
+    setDraftOrder(d => {
+      if (!d) return null;
+      // Mirror SL/TP across entry so distances are preserved on flip
+      const slDist = d.sl - d.entry;
+      const tpDist = d.tp - d.entry;
+      return {
+        ...d,
+        side: d.side === "buy" ? "sell" : "buy",
+        sl: d.entry - slDist,
+        tp: d.entry - tpDist,
+      };
+    });
+  }, []);
+
+  const handleConfirmDraft = useCallback(() => {
+    setDraftOrder(d => {
+      if (!d) return null;
+      enterTradeNow(d.side === "buy" ? "LONG" : "SHORT", d.sl, d.tp);
+      return null;
+    });
+  }, [enterTradeNow]);
+
+  const handleDiscardDraft = useCallback(() => setDraftOrder(null), []);
+
+  // If symbol changes, draft becomes stale → clear.
+  useEffect(() => { setDraftOrder(null); }, [activeSession?.id]);
+
+  // If a real position is opened (e.g. via confirm), clear any lingering draft.
+  useEffect(() => { if (openTrade) setDraftOrder(null); }, [openTrade]);
 
   // Handle closing of open positions
   const handleClosePosition = () => {
@@ -416,11 +485,33 @@ export function BacktestingPage() {
     }
   };
 
-  // Update floating P&L on replay candle changes
+  // Update floating P&L and evaluate TP/SL on replay candle changes
   useEffect(() => {
     if (!openTrade) { setUnrealised(0); return; }
     const candle = displayCandles[replay.currentIdx];
-    if (candle) setUnrealised(trackerRef.current.unrealizedPnl(candle.close));
+    if (!candle) return;
+    
+    setUnrealised(trackerRef.current.unrealizedPnl(candle.close));
+
+    const hitTP = openTrade.takeProfit != null && (
+       (openTrade.direction === "LONG" && candle.high >= openTrade.takeProfit) ||
+       (openTrade.direction === "SHORT" && candle.low <= openTrade.takeProfit)
+    );
+    const hitSL = openTrade.stopLoss != null && (
+       (openTrade.direction === "LONG" && candle.low <= openTrade.stopLoss) ||
+       (openTrade.direction === "SHORT" && candle.high >= openTrade.stopLoss)
+    );
+    
+    if (hitTP || hitSL) {
+       // To be conservative, if both are hit in the same bar, assume SL hit first.
+       const exitPrice = hitSL ? openTrade.stopLoss! : openTrade.takeProfit!;
+       const closed = trackerRef.current.close(candle, exitPrice);
+       if (closed) {
+         setOpenTrade(null);
+         setClosedTrades([...trackerRef.current.closed]);
+         updateActiveSessionTrades([...trackerRef.current.closed]);
+       }
+    }
   }, [replay.currentIdx, openTrade, displayCandles]);
 
   // Clean play timers on unmount
@@ -754,6 +845,14 @@ export function BacktestingPage() {
               manualTrades={closedTrades}
               openTrade={openTrade}
               openTradeUnrealised={unrealised}
+              onUpdateOpenTrade={(updates) => {
+                if (!openTrade) return;
+                const newTrade = { ...openTrade, ...updates };
+                setOpenTrade(newTrade);
+                if (trackerRef.current.open) {
+                  trackerRef.current.open = newTrade;
+                }
+              }}
               liveCandle={liveCandle}
               liveStatus={liveStatus}
               isInReplay={replay.active}
@@ -762,6 +861,12 @@ export function BacktestingPage() {
               drawings={activeSession.drawings || []}
               onDrawingsChange={handleDrawingsChange}
               onRRDrawingSelect={setRRDrawing}
+              lotSize={lotSize}
+              draftOrder={draftOrder}
+              onDraftOrderChange={handleUpdateDraft}
+              onConfirmDraft={handleConfirmDraft}
+              onDiscardDraft={handleDiscardDraft}
+              onFlipDraft={handleFlipDraft}
             />
           </div>
 
@@ -830,9 +935,14 @@ export function BacktestingPage() {
             onBuy={handleBuy}
             onSell={handleSell}
 
-            // R/R drawing from chart selection
+            // R/R drawing from chart selection — execute immediately at the
+            // drawing's own SL/TP levels (one-click), not as a draft preview.
             rrDrawing={rrDrawing}
-            onOpenRROrder={(side) => side === "buy" ? handleBuy() : handleSell()}
+            onOpenRROrder={(side) => {
+              const rs = rrDrawing?.riskSettings;
+              if (side === "buy") handleBuy(rs?.stopLoss, rs?.takeProfit);
+              else handleSell(rs?.stopLoss, rs?.takeProfit);
+            }}
 
             // Stats feeds
             totalTrades={activeMetrics.totalTrades}
@@ -842,6 +952,7 @@ export function BacktestingPage() {
 
             // Session trades list
             sessionTrades={closedTrades}
+            openTrade={openTrade}
           />
         </div>
       </div>

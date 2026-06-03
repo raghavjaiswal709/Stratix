@@ -13,7 +13,7 @@ import {
   type IChartApi, type ISeriesApi, type SeriesMarker, type Time,
   type CandlestickData, type HistogramData,
 } from "lightweight-charts";
-import type { Candle, ManualTrade, LiveStatus, Drawing, DrawingType, TimePricePoint } from "./types";
+import type { Candle, ManualTrade, LiveStatus, Drawing, DrawingType, TimePricePoint, DraftOrder } from "./types";
 import { getLotSpec, calcPnl } from "./lotSpecs";
 import {
   Trash2, Search,
@@ -33,12 +33,19 @@ interface Props {
   manualTrades:        ManualTrade[];
   openTrade:           ManualTrade | null;
   openTradeUnrealised: number;
+  onUpdateOpenTrade?:  (updates: Partial<ManualTrade>) => void;
   liveCandle:          Candle | null;
   liveStatus:          LiveStatus;
   isInReplay:          boolean;
   onBuy:               () => void;
   onSell:              () => void;
   onRRDrawingSelect?:  (drawing: Drawing | null) => void;
+  // Draft trade ticket (Buy/Sell button preview)
+  draftOrder?:         DraftOrder | null;
+  onDraftOrderChange?: (updates: Partial<DraftOrder>) => void;
+  onConfirmDraft?:     () => void;
+  onDiscardDraft?:     () => void;
+  onFlipDraft?:        () => void;
   drawings:            Drawing[];
   onDrawingsChange:    (drawings: Drawing[]) => void;
   symbol?:             string;
@@ -85,9 +92,10 @@ const formatPrice = (p: number, minPrice: number) => {
 
 export function BacktestChart({
   candles, replayIndex, replayStartIndex, isSelectingStart,
-  onStartBarSelect, manualTrades, openTrade, openTradeUnrealised,
-  liveCandle, liveStatus, drawings, onDrawingsChange, settings, onSettingsChange,
+  onStartBarSelect, manualTrades, openTrade, openTradeUnrealised, onUpdateOpenTrade,
+  liveCandle, liveStatus, isInReplay, drawings, onDrawingsChange, settings, onSettingsChange,
   onBuy, onSell, onRRDrawingSelect,
+  draftOrder, onDraftOrderChange, onConfirmDraft, onDiscardDraft, onFlipDraft,
   symbol, lotSize = 0.01,
 }: Props) {
   const containerRef    = useRef<HTMLDivElement>(null);
@@ -244,9 +252,32 @@ export function BacktestChart({
     startPts: TimePricePoint[];
     startMouseTime: number;
     startMousePrice: number;
+    startBarWidth: number;
   } | null>(null);
   const draggingRRHandleRef = useRef<typeof draggingRRHandle>(null);
   useEffect(() => { draggingRRHandleRef.current = draggingRRHandle; }, [draggingRRHandle]);
+
+  // ── Open Trade TP/SL drag ────────────────────────────────────────────────
+  const [draggingOpenTradeLine, setDraggingOpenTradeLine] = useState<{
+    type: "tp" | "sl";
+    startMousePrice: number;
+    startValue: number;
+  } | null>(null);
+  const draggingOpenTradeLineRef = useRef<typeof draggingOpenTradeLine>(null);
+  useEffect(() => { draggingOpenTradeLineRef.current = draggingOpenTradeLine; }, [draggingOpenTradeLine]);
+
+  // ── Draft order line drag (entry/tp/sl) ──────────────────────────────────
+  const [draggingDraftLine, setDraggingDraftLine] = useState<{
+    type: "entry" | "tp" | "sl";
+    startMousePrice: number;
+    startValue: number;
+  } | null>(null);
+  const draggingDraftLineRef = useRef<typeof draggingDraftLine>(null);
+  useEffect(() => { draggingDraftLineRef.current = draggingDraftLine; }, [draggingDraftLine]);
+  const draftOrderRef = useRef<DraftOrder | null>(null);
+  useEffect(() => { draftOrderRef.current = draftOrder ?? null; }, [draftOrder]);
+  const onDraftOrderChangeRef = useRef(onDraftOrderChange);
+  useEffect(() => { onDraftOrderChangeRef.current = onDraftOrderChange; }, [onDraftOrderChange]);
 
   // ── Emit selected/previewed long-short drawing to side panel ─────────────
   useEffect(() => {
@@ -1020,8 +1051,10 @@ export function BacktestChart({
       const moving = draggingDrawingRef.current;
       const edge   = draggingEdgeRef.current;
       const rrH    = draggingRRHandleRef.current;
-      if (anchor || moving || edge || rrH) {
-        if (dragMovedRef.current) {
+      const otDrag = draggingOpenTradeLineRef.current;
+      const dfDrag = draggingDraftLineRef.current;
+      if (anchor || moving || edge || rrH || otDrag || dfDrag) {
+        if (dragMovedRef.current && (anchor || moving || edge || rrH)) {
           commitDrawings(localDrawingsRef.current);
         }
         dragMovedRef.current = false;
@@ -1029,10 +1062,14 @@ export function BacktestChart({
         setDraggingDrawing(null);
         setDraggingEdge(null);
         setDraggingRRHandle(null);
+        setDraggingOpenTradeLine(null);
+        setDraggingDraftLine(null);
         draggingAnchorRef.current = null;
         draggingDrawingRef.current = null;
         draggingEdgeRef.current = null;
         draggingRRHandleRef.current = null;
+        draggingOpenTradeLineRef.current = null;
+        draggingDraftLineRef.current = null;
       }
     };
     window.addEventListener("mouseup", handleGlobalMouseUp);
@@ -1046,9 +1083,26 @@ export function BacktestChart({
       const moving = draggingDrawingRef.current;
       const edge   = draggingEdgeRef.current;
       const rrH    = draggingRRHandleRef.current;
-      if (!anchor && !moving && !edge && !rrH) return;
+      const otl    = draggingOpenTradeLineRef.current;
+      const dfl    = draggingDraftLineRef.current;
+      // NOTE: must include the price-line drags (open trade + draft order) here.
+      // Omitting them made this handler return before their drag code ran,
+      // which is why the SL/TP/entry lines could not be dragged at all.
+      if (!anchor && !moving && !edge && !rrH && !otl && !dfl) return;
 
-      const coords = getTimePriceFromEventNative(e);
+      // For pure vertical price-line drags we only need the price; the time may
+      // be null when the cursor is past the last candle. Fall back to a
+      // price-only resolution so the line keeps tracking the cursor anywhere.
+      let coords = getTimePriceFromEventNative(e);
+      if (!coords && (otl || dfl)) {
+        const series = candleSeriesRef.current;
+        const container = containerRef.current;
+        if (series && container) {
+          const rect = container.getBoundingClientRect();
+          const pr = series.coordinateToPrice(e.clientY - rect.top);
+          if (pr != null) coords = { time: 0, price: pr as number };
+        }
+      }
       if (!coords) return;
       const { time: timeSec, price: rawPrice } = coords;
       const price = settings.isMagnetActive ? getMagnetSnappedPrice(timeSec, rawPrice) : rawPrice;
@@ -1076,10 +1130,34 @@ export function BacktestChart({
         const { id, startPoints, startMouseCoords } = moving;
         const deltaPrice = price - startMouseCoords.price;
         const deltaTime  = timeSec - startMouseCoords.time;
+        
+        const startMouseIdx = candles.findIndex(c => c.time === startMouseCoords.time);
+        const currMouseIdx = candles.findIndex(c => c.time === timeSec);
+        let deltaBars = 0;
+        if (startMouseIdx !== -1 && currMouseIdx !== -1) {
+          deltaBars = currMouseIdx - startMouseIdx;
+        }
+
         setLocalDrawings(prev => prev.map(draw => {
           if (draw.id !== id) return draw;
-          const pts = startPoints.map(pt => ({ time: pt.time + deltaTime, price: pt.price + deltaPrice }));
-          return rebuildRiskSettings({ ...draw, points: pts });
+          
+          if (draw.type === "long" || draw.type === "short") {
+            const entryIdx = candles.findIndex(c => c.time === startPoints[0].time);
+            let newEntryTime: number;
+            if (entryIdx !== -1) {
+              const newIdx = Math.max(0, Math.min(candles.length - 1, entryIdx + deltaBars));
+              newEntryTime = candles[newIdx].time as number;
+            } else {
+              // Entry time isn't on a candle boundary (e.g. after a TF resample)
+              // — fall back to raw deltaTime so the drawing still tracks the cursor.
+              newEntryTime = startPoints[0].time + deltaTime;
+            }
+            const pts = startPoints.map(pt => ({ time: newEntryTime, price: pt.price + deltaPrice }));
+            return rebuildRiskSettings({ ...draw, points: pts });
+          } else {
+            const pts = startPoints.map(pt => ({ time: pt.time + deltaTime, price: pt.price + deltaPrice }));
+            return rebuildRiskSettings({ ...draw, points: pts });
+          }
         }));
         setRedrawTrigger(t => t + 1);
       }
@@ -1101,20 +1179,73 @@ export function BacktestChart({
 
       // Long/Short RR 8-handle resize
       if (rrH) {
-        const { drawingId, moveTime0, moveTime3, movePriceIndices, startPts, startMouseTime, startMousePrice } = rrH;
-        const deltaTime  = timeSec - startMouseTime;
-        const deltaPrice = price  - startMousePrice;
+        const { drawingId, moveTime0, moveTime3, movePriceIndices, startPts, startMouseTime, startMousePrice, startBarWidth } = rrH;
+        const deltaPrice = price - startMousePrice;
+        
+        const startMouseIdx = candles.findIndex(c => c.time === startMouseTime);
+        const currMouseIdx = candles.findIndex(c => c.time === timeSec);
+        let deltaBars = 0;
+        if (startMouseIdx !== -1 && currMouseIdx !== -1) {
+          deltaBars = currMouseIdx - startMouseIdx;
+        }
+
         setLocalDrawings(prev => prev.map(draw => {
           if (draw.id !== drawingId) return draw;
           const pts: TimePricePoint[] = startPts.map(q => ({ ...q }));
-          if (moveTime0) pts[0] = { ...pts[0], time: pts[0].time + deltaTime };
-          if (moveTime3 && pts[3]) pts[3] = { ...pts[3], time: pts[3].time + deltaTime };
+          let newBarWidth = draw.riskSettings?.barWidth ?? 15;
+
+          if (moveTime0) {
+            pts[0] = { ...pts[0], time: timeSec }; // snap to current time
+            pts[1] = { ...pts[1], time: timeSec };
+            pts[2] = { ...pts[2], time: timeSec };
+            newBarWidth = Math.max(1, startBarWidth - deltaBars);
+          }
+          if (moveTime3) {
+            newBarWidth = Math.max(1, startBarWidth + deltaBars);
+          }
           movePriceIndices.forEach(idx => {
             pts[idx] = { ...pts[idx], price: pts[idx].price + deltaPrice };
           });
-          return rebuildRiskSettings({ ...draw, points: pts });
+          
+          const riskSettings = { ...(draw.riskSettings || {}), barWidth: newBarWidth };
+          return rebuildRiskSettings({ ...draw, points: pts, riskSettings: riskSettings as any });
         }));
         setRedrawTrigger(t => t + 1);
+      }
+
+      // Open Trade TP/SL drag
+      const draggingOTL = draggingOpenTradeLineRef.current;
+      if (draggingOTL && onUpdateOpenTrade) {
+        const deltaPrice = price - draggingOTL.startMousePrice;
+        const newPrice = draggingOTL.startValue + deltaPrice;
+        if (draggingOTL.type === "tp") {
+          onUpdateOpenTrade({ takeProfit: newPrice });
+        } else {
+          onUpdateOpenTrade({ stopLoss: newPrice });
+        }
+      }
+
+      // Draft order line drag (entry/tp/sl)
+      const draggingDF = draggingDraftLineRef.current;
+      const cbDraft    = onDraftOrderChangeRef.current;
+      const dOrder     = draftOrderRef.current;
+      if (draggingDF && cbDraft && dOrder) {
+        const deltaPrice = price - draggingDF.startMousePrice;
+        const newPrice = draggingDF.startValue + deltaPrice;
+        // Don't allow SL/TP to cross to the wrong side of entry — clamp instead
+        if (draggingDF.type === "entry") {
+          cbDraft({ entry: newPrice });
+        } else if (draggingDF.type === "tp") {
+          const safe = dOrder.side === "buy"
+            ? Math.max(newPrice, dOrder.entry + 1e-8)
+            : Math.min(newPrice, dOrder.entry - 1e-8);
+          cbDraft({ tp: safe });
+        } else {
+          const safe = dOrder.side === "buy"
+            ? Math.min(newPrice, dOrder.entry - 1e-8)
+            : Math.max(newPrice, dOrder.entry + 1e-8);
+          cbDraft({ sl: safe });
+        }
       }
     };
     window.addEventListener("mousemove", handleGlobalMove);
@@ -1246,26 +1377,30 @@ export function BacktestChart({
   const rebuildRiskSettings = (draw: Drawing): Drawing => {
     if (draw.type !== "long" && draw.type !== "short") return draw;
     const pts = draw.points;
-    if (pts.length < 2) return draw;
+    if (!pts || pts.length < 2) return draw;
     const entryTime = pts[0].time;          // anchor for all horizontal positions
     const entry = pts[0].price;
-    const stop  = pts[1].price;
+    // Guard against SL collapsing onto entry (which would zero-out the bracket)
+    const minTick = Math.max(Math.abs(entry) * 1e-8, 1e-8);
+    let stop = pts[1].price;
+    if (Math.abs(stop - entry) < minTick) {
+      stop = draw.type === "long" ? entry - minTick * 100 : entry + minTick * 100;
+    }
     const dist  = Math.abs(entry - stop);
     const tp    = pts[2]?.price ?? (draw.type === "long" ? entry + dist * 2 : entry - dist * 2);
     const risk   = dist;
     const reward = Math.abs(tp - entry);
     const rr     = risk > 0 ? reward / risk : 0;
+    const barWidth = Math.max(1, draw.riskSettings?.barWidth ?? 15);
     const newPts: TimePricePoint[] = [
       { time: entryTime, price: entry },
       { time: entryTime, price: stop },   // SL always at entry time
       { time: entryTime, price: tp },     // TP always at entry time
     ];
-    // Preserve 4th point (right-edge anchor) if it exists
-    if (pts[3]) newPts.push(pts[3]);
     return {
       ...draw,
       points: newPts,
-      riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: rr },
+      riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: rr, barWidth },
     };
   };
 
@@ -1282,22 +1417,18 @@ export function BacktestChart({
     if (finished.type === "long" || finished.type === "short") {
       const entryTime = finished.points[0].time;  // keep all at entry time
       const entry = finished.points[0].price;
-      const stop  = p.price;
+      // Avoid a zero-distance RR: if user released on the same price as entry,
+      // default to a 1% (or one-tick) stop so the bracket is still meaningful.
+      let stop = p.price;
+      const minTick = Math.max(Math.abs(entry) * 0.01, 1e-8);
+      if (Math.abs(stop - entry) < 1e-8) {
+        stop = finished.type === "long" ? entry - minTick : entry + minTick;
+      }
       const dist  = Math.abs(entry - stop);
       const tp    = finished.type === "long" ? entry + dist * 2 : entry - dist * 2;
       const rr    = dist > 0 ? Math.abs(tp - entry) / dist : 2;
 
-      // Compute the right-edge time anchor: 15 bars to the right of entry.
-      // This is stored as a 4th point so the rendering uses getXY() for both
-      // edges, making them move in perfect lockstep during pan/zoom.
-      let barDuration = 900; // default to 15m
-      const entryIdx = candles.findIndex(c => c.time === entryTime);
-      if (entryIdx !== -1 && entryIdx < candles.length - 1) {
-        barDuration = (candles[entryIdx + 1].time as number) - (candles[entryIdx].time as number);
-      } else if (candles.length > 1) {
-        barDuration = (candles[1].time as number) - (candles[0].time as number);
-      }
-      const rightEdgeTime = entryTime + 15 * barDuration;
+      const barWidth = 15;
 
       finished = {
         ...finished,
@@ -1305,9 +1436,8 @@ export function BacktestChart({
           { time: entryTime, price: entry },
           { time: entryTime, price: stop },  // SL at entry time, not mouse time
           { time: entryTime, price: tp },    // TP at entry time
-          { time: rightEdgeTime, price: entry },  // Right-edge anchor (price is irrelevant, only time matters)
         ],
-        riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: rr },
+        riskSettings: { entry, stopLoss: stop, takeProfit: tp, riskRewardRatio: rr, barWidth },
       };
     } else if (finished.type === "hline" || finished.type === "vline") {
       finished = { ...finished, points: [p] };
@@ -1778,6 +1908,7 @@ export function BacktestChart({
 
   // ── Render single drawing ─────────────────────────────────────────────────
   const renderDrawing = (draw: Drawing) => {
+    if (!draw.points || draw.points.length === 0) return null;
     const p1 = getXY(draw.points[0]);
     const isSelected = selectedDrawingId === draw.id || selectedDrawingIds.includes(draw.id);
     const isPreview  = draw.id === previewDrawing?.id;
@@ -2177,29 +2308,37 @@ export function BacktestChart({
     // svgW is recomputed on every render that redrawTrigger fires.
     if (draw.type === "long" || draw.type === "short") {
       const cs = candleSeriesRef.current;
-      if (!p1 || !cs) return null;
+      if (!p1 || !cs || !draw.points[0]) return null;
 
       const isLong = draw.type === "long";
 
       // ── Prices ──────────────────────────────────────────────────────────────
       const entry  = draw.points[0].price;
-      const stop   = draw.points[1]?.price ?? entry;
+      const rawStop = draw.points[1]?.price;
+      // If SL collapses onto entry (corrupt data), fall back to a visible offset
+      const stop   = rawStop != null && Math.abs(rawStop - entry) > 1e-8
+        ? rawStop
+        : (isLong ? entry * 0.99 : entry * 1.01);
       const risk   = Math.abs(entry - stop);
       const tp     = draw.points[2]?.price ?? (isLong ? entry + risk * 2 : entry - risk * 2);
       const reward = Math.abs(tp - entry);
       const rr     = risk > 0 ? reward / risk : 0;
 
       // ── X geometry ──────────────────────────────────────────────────────────
-      const xL = p1.x;                               // entry bar pixel-x
-      // Derive the right edge purely from the time of points[3].
-      // We bypass getXY() (which needs both x AND y to be non-null) and call
-      // extrapolateX directly so the bracket contracts/expands with every
-      // horizontal pan or zoom without any minimum-width floor.
+      const xL = p1.x; // entry bar pixel-x
+      
+      let pixelWidthPerBar = 10; // fallback
       const chartInst = chartRef.current;
-      const xRRaw = (draw.points[3] && chartInst)
-        ? extrapolateX(chartInst, draw.points[3].time)
-        : null;
-      const xR = xRRaw != null ? Math.max(xL + 2, xRRaw) : xL + 200;
+      if (chartInst) {
+        const tr = chartInst.timeScale().getVisibleLogicalRange();
+        const w = chartInst.timeScale().width();
+        if (tr && w && tr.to > tr.from) {
+          pixelWidthPerBar = w / (tr.to - tr.from);
+        }
+      }
+      
+      const barWidth = draw.riskSettings?.barWidth ?? 15;
+      const xR = Math.max(xL + 2, xL + barWidth * pixelWidthPerBar);
       const W  = xR - xL;
 
       // ── Y geometry ──────────────────────────────────────────────────────────
@@ -2399,6 +2538,7 @@ export function BacktestChart({
                     startPts: draw.points.map(q => ({ ...q })),
                     startMouseTime: coords.time,
                     startMousePrice: coords.price,
+                    startBarWidth: draw.riskSettings?.barWidth ?? 15,
                   };
                   draggingRRHandleRef.current = nd;
                   setDraggingRRHandle(nd);
@@ -2820,8 +2960,211 @@ export function BacktestChart({
                 pointerEvents="none"
               />
             )}
+
+            {/* ── Active Open Trade Lines ── */}
+            {openTrade && (() => {
+              const cs = candleSeriesRef.current;
+              if (!cs) return null;
+              const entryY = cs.priceToCoordinate(openTrade.entryPrice);
+              const tpY = openTrade.takeProfit != null ? cs.priceToCoordinate(openTrade.takeProfit) : null;
+              const slY = openTrade.stopLoss != null ? cs.priceToCoordinate(openTrade.stopLoss) : null;
+
+              // Resolve grab price from container rect (matches the global
+              // mousemove basis → no jump on drag start).
+              const grabPrice = (e: React.MouseEvent): number | null => {
+                const container = containerRef.current;
+                if (container) {
+                  const rect = container.getBoundingClientRect();
+                  const p = cs.coordinateToPrice(e.clientY - rect.top) as number | null;
+                  if (p != null) return p;
+                }
+                return cs.coordinateToPrice((e.nativeEvent as MouseEvent).offsetY) as number | null;
+              };
+
+              return (
+                <g pointerEvents="auto">
+                  {/* Entry Line */}
+                  {entryY != null && !isNaN(entryY) && (
+                    <g pointerEvents="none">
+                      <line x1={0} y1={entryY} x2={svgW} y2={entryY} stroke="rgba(255,255,255,0.4)" strokeWidth={1} strokeDasharray="3 3" />
+                      <rect x={0} y={entryY - 8} width={38} height={16} fill="#000" fillOpacity={0.6} rx={2} />
+                      <text x={4} y={entryY + 3} fill="rgba(255,255,255,0.7)" fontSize={9} fontFamily="monospace">ENTRY</text>
+                    </g>
+                  )}
+                  {/* Take Profit Line */}
+                  {tpY != null && !isNaN(tpY) && (
+                    <g style={{ cursor: "ns-resize" }}>
+                      <line x1={0} y1={tpY} x2={svgW} y2={tpY} stroke="rgba(16, 185, 129, 0.5)" strokeWidth={1.5} pointerEvents="none" />
+                      <rect x={0} y={tpY - 8} width={22} height={16} fill="rgba(16, 185, 129, 0.2)" rx={2} pointerEvents="none" />
+                      <text x={4} y={tpY + 3} fill="#10b981" fontSize={9} fontFamily="monospace" fontWeight="bold" pointerEvents="none">TP</text>
+                      <line x1={0} y1={tpY} x2={svgW} y2={tpY} stroke="transparent" strokeWidth={22}
+                        pointerEvents="stroke"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          const p = grabPrice(e);
+                          if (p != null) setDraggingOpenTradeLine({ type: "tp", startMousePrice: p, startValue: openTrade.takeProfit! });
+                        }}
+                      />
+                    </g>
+                  )}
+                  {/* Stop Loss Line */}
+                  {slY != null && !isNaN(slY) && (
+                    <g style={{ cursor: "ns-resize" }}>
+                      <line x1={0} y1={slY} x2={svgW} y2={slY} stroke="rgba(239, 68, 68, 0.5)" strokeWidth={1.5} pointerEvents="none" />
+                      <rect x={0} y={slY - 8} width={22} height={16} fill="rgba(239, 68, 68, 0.2)" rx={2} pointerEvents="none" />
+                      <text x={4} y={slY + 3} fill="#ef4444" fontSize={9} fontFamily="monospace" fontWeight="bold" pointerEvents="none">SL</text>
+                      <line x1={0} y1={slY} x2={svgW} y2={slY} stroke="transparent" strokeWidth={22}
+                        pointerEvents="stroke"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          const p = grabPrice(e);
+                          if (p != null) setDraggingOpenTradeLine({ type: "sl", startMousePrice: p, startValue: openTrade.stopLoss! });
+                        }}
+                      />
+                    </g>
+                  )}
+                </g>
+              );
+            })()}
+
+            {/* ── Draft Order Ticket Lines (Buy/Sell preview) ── */}
+            {draftOrder && (() => {
+              const cs = candleSeriesRef.current;
+              if (!cs) return null;
+              const entryY = cs.priceToCoordinate(draftOrder.entry) as number | null;
+              const tpY    = cs.priceToCoordinate(draftOrder.tp)    as number | null;
+              const slY    = cs.priceToCoordinate(draftOrder.sl)    as number | null;
+              const isBuy  = draftOrder.side === "buy";
+
+              const fmtP = (n: number) => formatPrice(n, minPriceRef.current);
+              const spec = getLotSpec(symbol || "xauusd");
+              const dir: "LONG" | "SHORT" = isBuy ? "LONG" : "SHORT";
+              const tpDollar = calcPnl(dir, draftOrder.entry, draftOrder.tp, draftOrder.lotSize, spec);
+              const slDollar = calcPnl(dir, draftOrder.entry, draftOrder.sl, draftOrder.lotSize, spec);
+              const fmtDollar = (v: number) =>
+                (v >= 0 ? "+" : "-") + "$" + Math.abs(v).toFixed(2);
+
+              const startDrag = (type: "entry" | "tp" | "sl", e: React.MouseEvent) => {
+                e.stopPropagation();
+                e.preventDefault();
+                // Resolve the grab price from the container rect (same basis the
+                // global mousemove handler uses) so there's no jump on drag start.
+                const container = containerRef.current;
+                let p: number | null = null;
+                if (container) {
+                  const rect = container.getBoundingClientRect();
+                  p = cs.coordinateToPrice(e.clientY - rect.top) as number | null;
+                }
+                if (p == null) p = cs.coordinateToPrice((e.nativeEvent as MouseEvent).offsetY) as number | null;
+                if (p == null) return;
+                const startValue = type === "entry" ? draftOrder.entry : type === "tp" ? draftOrder.tp : draftOrder.sl;
+                const drag = { type, startMousePrice: p as number, startValue };
+                draggingDraftLineRef.current = drag;
+                setDraggingDraftLine(drag);
+              };
+
+              return (
+                // pointerEvents="auto" on the wrapper re-enables hit-testing even
+                // though the parent SVG is pointer-events-none in cursor mode.
+                <g pointerEvents="auto">
+                  {/* TP line (emerald) */}
+                  {tpY != null && !isNaN(tpY) && (
+                    <g style={{ cursor: "ns-resize" }}>
+                      <line x1={0} y1={tpY} x2={svgW} y2={tpY} stroke="#10b981" strokeWidth={1.2} strokeDasharray="4 3" pointerEvents="none" />
+                      {/* Fat transparent hit zone — pointerEvents="stroke" makes it
+                          catch the grab even though the stroke is transparent. */}
+                      <line x1={0} y1={tpY} x2={svgW} y2={tpY} stroke="transparent" strokeWidth={22}
+                            pointerEvents="stroke" onMouseDown={(e) => startDrag("tp", e)} />
+                      <rect x={svgW - 178} y={tpY - 9} width={172} height={18} rx={3}
+                            fill="rgba(3,12,7,0.92)" stroke="#10b981" strokeWidth={0.8}
+                            onMouseDown={(e) => startDrag("tp", e)} />
+                      <text x={svgW - 172} y={tpY + 4} fill="#10b981" fontSize={9} fontFamily="monospace" fontWeight="bold" pointerEvents="none">
+                        {`TP ${fmtP(draftOrder.tp)}  ${fmtDollar(tpDollar)}`}
+                      </text>
+                    </g>
+                  )}
+
+                  {/* SL line (red) */}
+                  {slY != null && !isNaN(slY) && (
+                    <g style={{ cursor: "ns-resize" }}>
+                      <line x1={0} y1={slY} x2={svgW} y2={slY} stroke="#ef4444" strokeWidth={1.2} strokeDasharray="4 3" pointerEvents="none" />
+                      <line x1={0} y1={slY} x2={svgW} y2={slY} stroke="transparent" strokeWidth={22}
+                            pointerEvents="stroke" onMouseDown={(e) => startDrag("sl", e)} />
+                      <rect x={svgW - 178} y={slY - 9} width={172} height={18} rx={3}
+                            fill="rgba(12,3,3,0.92)" stroke="#ef4444" strokeWidth={0.8}
+                            onMouseDown={(e) => startDrag("sl", e)} />
+                      <text x={svgW - 172} y={slY + 4} fill="#ef4444" fontSize={9} fontFamily="monospace" fontWeight="bold" pointerEvents="none">
+                        {`SL ${fmtP(draftOrder.sl)}  ${fmtDollar(slDollar)}`}
+                      </text>
+                    </g>
+                  )}
+
+                  {/* Entry line (direction-colored) */}
+                  {entryY != null && !isNaN(entryY) && (
+                    <g style={{ cursor: "ns-resize" }}>
+                      <line x1={0} y1={entryY} x2={svgW} y2={entryY}
+                            stroke={isBuy ? "rgba(16,185,129,0.95)" : "rgba(239,68,68,0.95)"}
+                            strokeWidth={1.6} pointerEvents="none" />
+                      <line x1={0} y1={entryY} x2={svgW} y2={entryY} stroke="transparent" strokeWidth={22}
+                            pointerEvents="stroke" onMouseDown={(e) => startDrag("entry", e)} />
+                    </g>
+                  )}
+                </g>
+              );
+            })()}
           </svg>
         )}
+
+        {/* ── Draft Order Ticket — HTML controls (Discard / Confirm / flip) ── */}
+        {draftOrder && (() => {
+          const cs = candleSeriesRef.current;
+          if (!cs) return null;
+          const entryY = cs.priceToCoordinate(draftOrder.entry) as number | null;
+          if (entryY == null || isNaN(entryY)) return null;
+          const isBuy = draftOrder.side === "buy";
+          // Center the control bar roughly mid-chart so the user can always see it
+          return (
+            <div
+              className="absolute z-40 flex items-center gap-1.5 px-1.5 py-1 rounded-md bg-black/85 backdrop-blur-xl border border-white/[0.12] shadow-2xl font-mono text-[10px] select-none pointer-events-auto"
+              style={{
+                top: Math.max(0, entryY - 14),
+                left: "50%",
+                transform: "translateX(-50%)",
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => onFlipDraft?.()}
+                title="Flip direction"
+                className={`px-1.5 h-6 rounded text-[10px] font-bold transition-all active:scale-95 cursor-pointer ${
+                  isBuy ? "bg-emerald-600/80 hover:bg-emerald-500 text-white" : "bg-red-600/80 hover:bg-red-500 text-white"
+                }`}
+              >
+                ⇅
+              </button>
+              <button
+                onClick={() => onDiscardDraft?.()}
+                className="px-2.5 h-6 rounded bg-white/[0.08] hover:bg-white/[0.16] text-white font-bold transition-all active:scale-95 cursor-pointer"
+              >
+                Discard
+              </button>
+              <button
+                onClick={() => onConfirmDraft?.()}
+                className={`px-2.5 h-6 rounded font-bold text-white transition-all active:scale-95 cursor-pointer ${
+                  isBuy ? "bg-emerald-600 hover:bg-emerald-500" : "bg-red-600 hover:bg-red-500"
+                }`}
+              >
+                Confirm {isBuy ? "Buy" : "Sell"}
+              </button>
+              <span className={`px-1.5 h-6 inline-flex items-center rounded text-[9px] font-bold border ${
+                isBuy ? "border-emerald-500/40 text-emerald-400" : "border-red-500/40 text-red-400"
+              }`}>
+                {isBuy ? "BUY" : "SELL"} {draftOrder.lotSize.toFixed(2)}
+              </span>
+              <span className="text-white/60 px-1">{formatPrice(draftOrder.entry, minPriceRef.current)}</span>
+            </div>
+          );
+        })()}
 
         {/* ── Floating Multi-Selection Panel ── */}
         {selectedDrawingIds.length > 1 && (

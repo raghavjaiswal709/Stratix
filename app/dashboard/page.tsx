@@ -5,6 +5,7 @@ import { StatsCards } from "@/components/trade/dashboard/stats-cards";
 import { PerformanceChart } from "@/components/trade/dashboard/performance-chart";
 import { MonthlyCalendar } from "@/components/trade/dashboard/monthly-calendar";
 import { OpenPositions } from "@/components/trade/dashboard/open-positions";
+import { TradingInsights } from "@/components/trade/dashboard/trading-insights";
 import { TradingQuotesModal } from "@/components/shared/trading-quotes";
 import { SyncButton } from "@/components/trade/sync/sync-button";
 import { TradesTable } from "@/components/trade/sync/trades-table";
@@ -142,6 +143,9 @@ export default function DashboardPage() {
         <PerformanceChart trades={trades} loading={loading} />
         <MonthlyCalendar  trades={trades} loading={loading} />
       </div>
+
+      {/* Costs, profit factor, direction & symbol insights */}
+      <TradingInsights trades={trades} />
 
       <OpenPositions trades={trades} />
 

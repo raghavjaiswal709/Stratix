@@ -22,8 +22,13 @@ export async function GET(req: NextRequest) {
     filter.profileId = profileId;
   }
 
+  // Pull the whole result set in a single cursor round trip. The default
+  // batch size (101) forces a `getMore` per batch, which on a high-latency
+  // Atlas link turned a 0.66 MB / 728-doc query into a ~20s wall-clock fetch.
+  // A large batchSize collapses that to one round trip (~0.5s).
   const trades = await TradeEntryModel.find(filter)
     .sort({ entryTime: -1 })
+    .batchSize(1000)
     .lean();
 
   return NextResponse.json(trades);

@@ -17,7 +17,7 @@ export class TradeTracker {
 
   // Enter a trade. If already in the same direction, ignore.
   // If opposite direction, close then open.
-  enter(direction: "LONG" | "SHORT", candle: Candle, lotSize: number): boolean {
+  enter(direction: "LONG" | "SHORT", candle: Candle, lotSize: number, stopLoss?: number, takeProfit?: number): boolean {
     if (this.open?.direction === direction) return false;
     if (this.open) this.close(candle);
 
@@ -27,29 +27,32 @@ export class TradeTracker {
       entryTime:  candle.time,
       entryPrice: candle.close,
       lotSize,
+      stopLoss,
+      takeProfit,
     };
     return true;
   }
 
-  // Close the open trade at the given candle's close price.
-  close(candle: Candle): ManualTrade | null {
+  // Close the open trade at the given candle's close price (or exact exit price if provided).
+  close(candle: Candle, exactExitPrice?: number): ManualTrade | null {
     if (!this.open) return null;
 
+    const exitPrice = exactExitPrice ?? candle.close;
     const spec = getLotSpec(this.symbol);
     const pnl  = calcPnl(
       this.open.direction,
       this.open.entryPrice,
-      candle.close,
+      exitPrice,
       this.open.lotSize,
       spec,
     );
-    const pnlPct = ((candle.close - this.open.entryPrice) / this.open.entryPrice) *
+    const pnlPct = ((exitPrice - this.open.entryPrice) / this.open.entryPrice) *
       (this.open.direction === "LONG" ? 100 : -100);
 
     const closed: ManualTrade = {
       ...this.open,
       exitTime:  candle.time,
-      exitPrice: candle.close,
+      exitPrice,
       pnl,
       pnlPct,
     };
