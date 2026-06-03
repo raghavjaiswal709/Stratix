@@ -79,7 +79,7 @@ export class TradeTracker {
   initFromTrades(trades: ManualTrade[]): void {
     this.closed = [...trades];
     this.nextId = trades.length > 0
-      ? Math.max(...trades.map(t => t.id)) + 1
+      ? trades.reduce((max, t) => t.id > max ? t.id : max, trades[0].id) + 1
       : 1;
   }
 
@@ -124,8 +124,8 @@ export function computeMetrics(trades: ManualTrade[], initialCapital: number): R
     profitFactor: grossLoss === 0 ? 999 : grossProfit / grossLoss,
     avgWin:       wins.length   ? grossProfit / wins.length   : 0,
     avgLoss:      losses.length ? grossLoss   / losses.length : 0,
-    bestTrade:    Math.max(...pnls),
-    worstTrade:   Math.min(...pnls),
+    bestTrade:    pnls.reduce((max, p) => p > max ? p : max, pnls[0]),
+    worstTrade:   pnls.reduce((min, p) => p < min ? p : min, pnls[0]),
     equityCurve,
   };
 }

@@ -1,8 +1,8 @@
 export function generateSparklineSvgPath(ticks, width = 85, height = 30) {
   if (!ticks || ticks.length < 2) return "";
 
-  const min = Math.min(...ticks);
-  const max = Math.max(...ticks);
+  const min = ticks.reduce((m, val) => val < m ? val : m, ticks[0]);
+  const max = ticks.reduce((m, val) => val > m ? val : m, ticks[0]);
   const range = max - min;
 
   // Map each tick value to coordinates:

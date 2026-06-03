@@ -44,8 +44,8 @@ export function ExpandedModal({ id, onClose, isStarred, onToggleStar }) {
   }, [id]);
 
   // 2. Compute session high/low dynamically from rolling ticks buffer
-  const sessionHigh = ticks.length > 0 ? Math.max(...ticks) : mid;
-  const sessionLow = ticks.length > 0 ? Math.min(...ticks) : mid;
+  const sessionHigh = ticks.length > 0 ? ticks.reduce((max, val) => val > max ? val : max, ticks[0]) : mid;
+  const sessionLow = ticks.length > 0 ? ticks.reduce((min, val) => val < min ? val : min, ticks[0]) : mid;
 
   // 3. Initialize and mount Lightweight Chart
   useEffect(() => {

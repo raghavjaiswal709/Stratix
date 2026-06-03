@@ -61,7 +61,18 @@ interface Props {
     isMagnetActive: boolean;
     bgColor:        string;
     favoriteTools?: string[];
-    drawingTemplates?: { id: string; name: string; type: string; color: string }[];
+    drawingTemplates?: {
+      id: string;
+      name: string;
+      type: string;
+      color: string;
+      strokeWidth?: number;
+      fillOpacity?: number;
+      text?: string;
+      textColor?: string;
+      textPosition?: string;
+      fontSize?: number;
+    }[];
   };
   onSettingsChange: (settings: Partial<Props["settings"]>) => void;
 }
@@ -612,12 +623,11 @@ export function BacktestChart({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Dynamic price formatting based on candle prices
   useEffect(() => {
     const cs = candleSeriesRef.current;
     if (!cs || candles.length === 0) return;
 
-    const minPrice = Math.min(...candles.map(c => c.close));
+    const minPrice = candles.reduce((min, c) => c.close < min ? c.close : min, candles[0].close);
     minPriceRef.current = minPrice;
 
     let precision = 2;
@@ -2018,6 +2028,52 @@ export function BacktestChart({
       const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y);
       const w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
       const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
+      
+      // Calculate text position inside the rectangle
+      let tx = cx;
+      let ty = cy + 4;
+      let textAnchor: "inherit" | "middle" | "start" | "end" = "middle";
+      const pos = draw.textPosition || "center";
+      const fs = draw.fontSize || 9;
+      
+      if (pos === "top-left") {
+        tx = x + 8;
+        ty = y + fs + 4;
+        textAnchor = "start";
+      } else if (pos === "top-center") {
+        tx = cx;
+        ty = y + fs + 4;
+        textAnchor = "middle";
+      } else if (pos === "top-right") {
+        tx = x + w - 8;
+        ty = y + fs + 4;
+        textAnchor = "end";
+      } else if (pos === "middle-left") {
+        tx = x + 8;
+        ty = cy + fs/2 - 1;
+        textAnchor = "start";
+      } else if (pos === "center") {
+        tx = cx;
+        ty = cy + fs/2 - 1;
+        textAnchor = "middle";
+      } else if (pos === "middle-right") {
+        tx = x + w - 8;
+        ty = cy + fs/2 - 1;
+        textAnchor = "end";
+      } else if (pos === "bottom-left") {
+        tx = x + 8;
+        ty = y + h - 8;
+        textAnchor = "start";
+      } else if (pos === "bottom-center") {
+        tx = cx;
+        ty = y + h - 8;
+        textAnchor = "middle";
+      } else if (pos === "bottom-right") {
+        tx = x + w - 8;
+        ty = y + h - 8;
+        textAnchor = "end";
+      }
+
       // Midpoint of each edge (for TradingView-style constrained resize)
       const edgeHandleStyle = inCursorMode ? "pointer-events-auto" : "pointer-events-none";
       const makeEdgeHandle = (ex: number, ey: number, ptIdx: number, axis: "x"|"y", cursorClass: string) => (
@@ -2034,7 +2090,14 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <rect x={x} y={y} width={w} height={h} stroke={stroke} strokeWidth={isSelected ? sw + 1 : sw}
-            fill={isSelected ? "rgba(234,179,8,0.08)" : (draw.color ? hexToRgba(draw.color, 0.05) : "rgba(16,185,129,0.05)")} strokeDasharray={dashArray} />
+            fill={draw.color ? hexToRgba(draw.color, draw.fillOpacity !== undefined ? draw.fillOpacity : (isSelected ? 0.08 : 0.05)) : `rgba(16,185,129,${draw.fillOpacity !== undefined ? draw.fillOpacity : (isSelected ? 0.08 : 0.05)})`} strokeDasharray={dashArray} />
+          {draw.text && (
+            <text x={tx} y={ty} textAnchor={textAnchor}
+              fill={draw.textColor || draw.color || (isSelected ? SEL_COLOR : LINE_COLOR)}
+              fontSize={fs} fontFamily="monospace" fontWeight="bold" pointerEvents="none">
+              {draw.text}
+            </text>
+          )}
           {isSelected && <>
             {/* Corner anchors */}
             {makeAnchor(p1.x, p1.y, draw.id, 0, "a0")}
@@ -3347,6 +3410,169 @@ export function BacktestChart({
                 </button>
               </div>
 
+              {/* Row 2: Text inputs & settings (for rectangle & text drawings) */}
+              {(sel.type === "rectangle" || sel.type === "text") && (
+                <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-white/[0.08]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/45 uppercase text-[8px] tracking-wider shrink-0">Text:</span>
+                    <input
+                      type="text"
+                      value={sel.text || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const updated = localDrawings.map(d => d.id === sel.id ? { ...d, text: val } : d);
+                        commitDrawings(updated);
+                      }}
+                      placeholder="Add text inside drawing..."
+                      className="bg-black/50 border border-white/[0.12] rounded px-1.5 py-0.5 text-white text-[9px] font-mono focus:outline-none flex-grow"
+                    />
+                  </div>
+                  
+                  {sel.type === "rectangle" && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-white/45 uppercase text-[8px] tracking-wider shrink-0">Align:</span>
+                        <select
+                          value={sel.textPosition || "center"}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const updated = localDrawings.map(d => d.id === sel.id ? { ...d, textPosition: val } : d);
+                            commitDrawings(updated);
+                          }}
+                          className="bg-black/50 border border-white/[0.12] rounded px-1 text-white text-[8px] font-mono focus:outline-none cursor-pointer"
+                        >
+                          <option value="top-left">Top Left</option>
+                          <option value="top-center">Top Center</option>
+                          <option value="top-right">Top Right</option>
+                          <option value="middle-left">Middle Left</option>
+                          <option value="center">Center</option>
+                          <option value="middle-right">Middle Right</option>
+                          <option value="bottom-left">Bottom Left</option>
+                          <option value="bottom-center">Bottom Center</option>
+                          <option value="bottom-right">Bottom Right</option>
+                        </select>
+                      </div>
+                      
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-white/45 uppercase text-[8px] tracking-wider shrink-0">Size:</span>
+                        <select
+                          value={sel.fontSize || 9}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            const updated = localDrawings.map(d => d.id === sel.id ? { ...d, fontSize: val } : d);
+                            commitDrawings(updated);
+                          }}
+                          className="bg-black/50 border border-white/[0.12] rounded px-1 text-white text-[8px] font-mono focus:outline-none cursor-pointer"
+                        >
+                          {[8, 9, 10, 11, 12, 14, 16, 18, 20].map(sz => (
+                            <option key={sz} value={sz}>{sz}px</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {(() => {
+                        const idx0 = candles.findIndex(c => c.time === sel.points[0]?.time);
+                        const idx1 = candles.findIndex(c => c.time === sel.points[1]?.time);
+                        if (idx0 !== -1 && idx1 !== -1) {
+                          const currentBars = Math.abs(idx1 - idx0);
+                          return (
+                            <div className="flex items-center gap-1">
+                              <span className="text-white/45 uppercase text-[8px] tracking-wider shrink-0">Width (Bars):</span>
+                              <button
+                                onClick={() => {
+                                  const nextBars = Math.max(1, currentBars - 1);
+                                  const newIdx1 = idx0 < idx1 ? idx0 + nextBars : idx0 - nextBars;
+                                  const targetCandle = candles[Math.max(0, Math.min(candles.length - 1, newIdx1))];
+                                  if (targetCandle) {
+                                    const pts = [...sel.points];
+                                    pts[1] = { ...pts[1], time: targetCandle.time as number };
+                                    const updated = localDrawings.map(d => d.id === sel.id ? { ...d, points: pts } : d);
+                                    commitDrawings(updated);
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08]"
+                              >-</button>
+                              <span className="text-white/60 font-bold text-center w-5">{currentBars}</span>
+                              <button
+                                onClick={() => {
+                                  const nextBars = currentBars + 1;
+                                  const newIdx1 = idx0 < idx1 ? idx0 + nextBars : idx0 - nextBars;
+                                  const targetCandle = candles[Math.max(0, Math.min(candles.length - 1, newIdx1))];
+                                  if (targetCandle) {
+                                    const pts = [...sel.points];
+                                    pts[1] = { ...pts[1], time: targetCandle.time as number };
+                                    const updated = localDrawings.map(d => d.id === sel.id ? { ...d, points: pts } : d);
+                                    commitDrawings(updated);
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08]"
+                              >+</button>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-3 justify-between">
+                    {/* Text color dots */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-white/45 uppercase text-[8px] tracking-wider shrink-0">Text Color:</span>
+                      <div className="flex items-center gap-1">
+                        {paletteColors.map((col) => (
+                          <button
+                            key={col}
+                            onClick={() => {
+                              const updated = localDrawings.map(d => d.id === sel.id ? { ...d, textColor: col } : d);
+                              commitDrawings(updated);
+                            }}
+                            className="w-3 h-3 rounded-full border border-white/20 transition-all hover:scale-110 active:scale-90 cursor-pointer"
+                            style={{ backgroundColor: col }}
+                            title={`Text Color: ${col}`}
+                          />
+                        ))}
+                        {/* Custom picker */}
+                        <div className="relative w-3 h-3 rounded-full border border-white/20 overflow-hidden hover:scale-110 transition-all flex items-center justify-center cursor-pointer bg-gradient-to-tr from-red-500 via-green-500 to-blue-500">
+                          <input
+                            type="color"
+                            value={sel.textColor || "#ffffff"}
+                            onChange={(e) => {
+                              const col = e.target.value;
+                              const updated = localDrawings.map(d => d.id === sel.id ? { ...d, textColor: col } : d);
+                              commitDrawings(updated);
+                            }}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            title="Custom Text Color"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Fill Opacity (Rectangle only) */}
+                    {sel.type === "rectangle" && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-white/45 uppercase text-[8px] tracking-wider shrink-0 font-mono">Fill:</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={sel.fillOpacity !== undefined ? sel.fillOpacity : 0.05}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            const updated = localDrawings.map(d => d.id === sel.id ? { ...d, fillOpacity: val } : d);
+                            commitDrawings(updated);
+                          }}
+                          className="w-14 accent-emerald-500 cursor-pointer h-1.5 rounded-lg bg-white/[0.08]"
+                        />
+                        <span className="text-white/60 font-bold text-[8px]">{Math.round((sel.fillOpacity !== undefined ? sel.fillOpacity : 0.05) * 100)}%</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Templates Popover */}
               {isTemplateMenuOpen && (
                 <div className="absolute left-0 top-full mt-1.5 z-40 bg-black/90 backdrop-blur-xl border border-white/[0.10] rounded-lg p-2 shadow-2xl flex flex-col gap-1.5 min-w-[150px]">
@@ -3359,6 +3585,12 @@ export function BacktestChart({
                           name,
                           type: sel.type,
                           color: sel.color || "#10b981",
+                          strokeWidth: sel.strokeWidth ?? 1.5,
+                          fillOpacity: sel.fillOpacity,
+                          text: sel.text || "",
+                          textColor: sel.textColor || "",
+                          textPosition: sel.textPosition || "center",
+                          fontSize: sel.fontSize || 9,
                         };
                         const updatedTemplates = [...(settings.drawingTemplates || []), newTemplate];
                         onSettingsChange({ drawingTemplates: updatedTemplates });
@@ -3377,7 +3609,23 @@ export function BacktestChart({
                         <div key={t.id} className="flex items-center justify-between hover:bg-white/[0.06] rounded px-2 py-0.5 group/item">
                           <button
                             onClick={() => {
-                              handleUpdateDrawingColor(t.color);
+                              // Apply all styles from template!
+                              const updatedDrawings = localDrawings.map((draw) => {
+                                if (draw.id === sel.id) {
+                                  return {
+                                    ...draw,
+                                    color: t.color,
+                                    strokeWidth: t.strokeWidth !== undefined ? t.strokeWidth : draw.strokeWidth,
+                                    fillOpacity: t.fillOpacity !== undefined ? t.fillOpacity : draw.fillOpacity,
+                                    text: t.text !== undefined && t.text !== "" ? t.text : draw.text,
+                                    textColor: t.textColor !== undefined ? t.textColor : draw.textColor,
+                                    textPosition: t.textPosition !== undefined ? t.textPosition : draw.textPosition,
+                                    fontSize: t.fontSize !== undefined ? t.fontSize : draw.fontSize,
+                                  };
+                                }
+                                return draw;
+                              });
+                              commitDrawings(updatedDrawings);
                               setIsTemplateMenuOpen(false);
                             }}
                             className="text-left text-white/65 font-medium truncate w-[100px]"

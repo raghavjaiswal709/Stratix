@@ -67,8 +67,8 @@ export function TradingInsights({ trades }: Props) {
     const avgLoss = losses.length ? grossLoss / losses.length : 0;
     const netClosedTotal = nets.reduce((s, n) => s + n, 0);
     const expectancy = closed.length ? netClosedTotal / closed.length : 0;
-    const largestWin = wins.length ? Math.max(...wins) : 0;
-    const largestLoss = losses.length ? Math.min(...losses) : 0;
+    const largestWin = wins.length ? wins.reduce((max, w) => w > max ? w : max, wins[0]) : 0;
+    const largestLoss = losses.length ? losses.reduce((min, l) => l < min ? l : min, losses[0]) : 0;
 
     // ── Direction split ───────────────────────────────────────────────────
     const dir = (d: "buy" | "sell") => {

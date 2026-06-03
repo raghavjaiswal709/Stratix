@@ -55,7 +55,18 @@ export function BacktestingPage() {
     isMagnetActive: false,
     bgColor: "#0f0f0f",
     favoriteTools: [] as string[],
-    drawingTemplates: [] as { id: string; name: string; type: string; color: string }[],
+    drawingTemplates: [] as {
+      id: string;
+      name: string;
+      type: string;
+      color: string;
+      strokeWidth?: number;
+      fillOpacity?: number;
+      text?: string;
+      textColor?: string;
+      textPosition?: string;
+      fontSize?: number;
+    }[],
   });
 
   // ── Trading & Replay State ──

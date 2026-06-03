@@ -120,6 +120,10 @@ export interface Drawing {
   text?: string;
   color?: string;
   strokeWidth?: number; // border/line thickness (default: 1.5)
+  textColor?: string;
+  textPosition?: string;
+  fontSize?: number;
+  fillOpacity?: number;
   // Specific settings for long/short risk positions
   riskSettings?: {
     entry: number;
