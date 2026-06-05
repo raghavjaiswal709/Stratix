@@ -132,6 +132,11 @@ export function BacktestChart({
   const isYLockedRef = useRef(settings.isYAxisLocked);
   useEffect(() => { isYLockedRef.current = settings.isYAxisLocked; }, [settings.isYAxisLocked]);
 
+  // Draggable Drawing Settings Panel
+  const [settingsPanelPos, setSettingsPanelPos] = useState<{ x: number; y: number }>({ x: 60, y: 12 });
+  const settingsPanelDraggingRef = useRef(false);
+  const settingsPanelDragOffsetRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+
   // Draggable Favorites Toolbar Position & Dragging State
   const [favsPos, setFavsPos] = useState<{ x: number | null; y: number }>({ x: null, y: 12 });
   const [isFavsDragging, setIsFavsDragging] = useState(false);
@@ -613,6 +618,8 @@ export function BacktestChart({
       setRedrawTrigger(t => t + 1);
     });
     ro.observe(el);
+    // Trigger a redraw shortly after chart builds so svgW picks up the canvas width
+    setTimeout(() => setRedrawTrigger(t => t + 1), 100);
 
     return () => {
       ro.disconnect();
@@ -1085,6 +1092,26 @@ export function BacktestChart({
     window.addEventListener("mouseup", handleGlobalMouseUp);
     return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
   }, [onDrawingsChange]);
+
+  // Global handlers for dragging the settings island panel
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!settingsPanelDraggingRef.current) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const newX = Math.max(0, Math.min(rect.width - 260, e.clientX - rect.left - settingsPanelDragOffsetRef.current.dx));
+      const newY = Math.max(0, Math.min(rect.height - 60, e.clientY - rect.top - settingsPanelDragOffsetRef.current.dy));
+      setSettingsPanelPos({ x: newX, y: newY });
+    };
+    const onUp = () => { settingsPanelDraggingRef.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
 
   // Global mousemove for dragging existing drawings / anchors outside SVG bounds
   useEffect(() => {
@@ -1878,7 +1905,9 @@ export function BacktestChart({
   }, [getChartCanvas]);
 
   // ── SVG rendering helpers ─────────────────────────────────────────────────
-  const svgW = containerRef.current?.clientWidth ?? 3000;
+  // Use the main chart canvas width to avoid drawing into the right price axis
+  const _mainCanvas = containerRef.current?.querySelectorAll('canvas')[0] as HTMLCanvasElement | undefined;
+  const svgW = _mainCanvas?.clientWidth || (containerRef.current?.clientWidth ?? 3000);
   const svgH = containerRef.current?.clientHeight ?? 1000;
 
   // Anchors are only interactive in cursor mode — prevents accidental drags while drawing
@@ -1935,8 +1964,27 @@ export function BacktestChart({
 
     const startDrag = (e: React.MouseEvent) => {
       stopEvent(e);
+      if (isLocked) { setSelectedDrawingId(draw.id); return; }
+      // Cmd/Ctrl + drag → duplicate the drawing and drag the copy
+      if (e.metaKey || e.ctrlKey) {
+        const dupId = `draw_${Date.now()}_dup`;
+        const dupDrawing: Drawing = { ...draw, id: dupId };
+        const withDup = [...localDrawingsRef.current, dupDrawing];
+        // Commit immediately so the duplicate is saved even without a drag
+        undoStack.current.push([...localDrawingsRef.current]);
+        redoStack.current = [];
+        setLocalDrawings(withDup);
+        onDrawingsChange(withDup);
+        setSelectedDrawingId(dupId);
+        const coords = getTimePriceFromEvent(e);
+        if (coords) {
+          const nd = { id: dupId, startPoints: [...draw.points], startMouseCoords: coords };
+          draggingDrawingRef.current = nd;
+          setDraggingDrawing(nd);
+        }
+        return;
+      }
       setSelectedDrawingId(draw.id);
-      if (isLocked) return;
       const coords = getTimePriceFromEvent(e);
       if (coords) {
         const nd = { id: draw.id, startPoints: [...draw.points], startMouseCoords: coords };
@@ -2840,6 +2888,11 @@ export function BacktestChart({
             onMouseUp={handleSvgMouseUp}
             onWheel={forwardWheelToChart}
           >
+            <defs>
+              <clipPath id="drawing-chart-area">
+                <rect x="0" y="0" width={svgW} height={svgH} />
+              </clipPath>
+            </defs>
             {/* ── Sessions Indicator (Background shading + High/Low Lines) ── */}
             {(() => {
               const chart = chartRef.current;
@@ -2993,7 +3046,9 @@ export function BacktestChart({
               });
             })()}
 
-            {allDrawings.map(draw => renderDrawing(draw))}
+            <g clipPath="url(#drawing-chart-area)">
+              {allDrawings.map(draw => renderDrawing(draw))}
+            </g>
 
             {/* ── Select-start hover guide line ── */}
             {isSelectingStart && selectHoverX != null && (
@@ -3318,25 +3373,46 @@ export function BacktestChart({
           </div>
         )}
 
-        {/* ── Selected drawing context bubble ── */}
+        {/* ── Selected drawing settings island (draggable) ── */}
         {selectedDrawingId && (() => {
           const sel = localDrawings.find(d => d.id === selectedDrawingId);
           if (!sel) return null;
-          const xy = getXY(sel.points[0]);
-          if (!xy) return null;
 
           const paletteColors = ["#10b981", "#ef4444", "#eab308", "#f97316", "#ec4899", "#999BA5", "#ffffff"];
           const applicableTemplates = (settings.drawingTemplates || []).filter(t => t.type === sel.type);
 
           return (
-            <div className="absolute z-30 flex flex-col bg-black/85 backdrop-blur-xl border border-white/[0.10] rounded-lg p-2 shadow-2xl select-none font-mono text-[9px] min-w-[220px]"
-              style={{ left: `${Math.max(10, xy.x - 40)}px`, top: `${Math.max(10, xy.y - 65)}px`, transform: "translateY(-50%)" }}>
-              
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-white/80 uppercase tracking-wider">{sel.type}</span>
-                
-                <div className="w-px h-3.5 bg-white/[0.08]" />
-                
+            <div
+              className="absolute z-30 flex flex-col bg-black/90 backdrop-blur-xl border border-white/[0.12] rounded-xl shadow-2xl select-none font-mono text-[9px] min-w-[240px] pointer-events-auto"
+              style={{ left: `${settingsPanelPos.x}px`, top: `${settingsPanelPos.y}px` }}
+              onMouseDown={e => e.stopPropagation()}
+            >
+              {/* ── Drag handle title bar ── */}
+              <div
+                className="flex items-center gap-2 px-2.5 py-2 border-b border-white/[0.08] cursor-grab active:cursor-grabbing rounded-t-xl"
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  const container = containerRef.current;
+                  if (!container) return;
+                  const rect = container.getBoundingClientRect();
+                  settingsPanelDragOffsetRef.current = {
+                    dx: e.clientX - rect.left - settingsPanelPos.x,
+                    dy: e.clientY - rect.top - settingsPanelPos.y,
+                  };
+                  settingsPanelDraggingRef.current = true;
+                }}
+              >
+                <GripVertical className="w-3 h-3 text-white/25 shrink-0" />
+                <span className="font-bold text-white/70 uppercase tracking-wider text-[9px] flex-1">{sel.type}</span>
+                <button
+                  onClick={e => { e.stopPropagation(); setSelectedDrawingId(null); }}
+                  className="p-0.5 rounded text-white/25 hover:text-white/60 transition-colors cursor-pointer"
+                  title="Close"
+                ><X className="w-3 h-3" /></button>
+              </div>
+
+              {/* ── Controls row ── */}
+              <div className="flex flex-wrap items-center gap-2 px-2.5 py-2">
                 {/* Palette color dots */}
                 <div className="flex items-center gap-1">
                   {paletteColors.map((col) => (
@@ -3412,7 +3488,7 @@ export function BacktestChart({
 
               {/* Row 2: Text inputs & settings (for rectangle & text drawings) */}
               {(sel.type === "rectangle" || sel.type === "text") && (
-                <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-white/[0.08]">
+                <div className="flex flex-col gap-2 px-2.5 pb-2 pt-2 border-t border-white/[0.08]">
                   <div className="flex items-center gap-2">
                     <span className="text-white/45 uppercase text-[8px] tracking-wider shrink-0">Text:</span>
                     <input
@@ -3575,7 +3651,7 @@ export function BacktestChart({
 
               {/* Templates Popover */}
               {isTemplateMenuOpen && (
-                <div className="absolute left-0 top-full mt-1.5 z-40 bg-black/90 backdrop-blur-xl border border-white/[0.10] rounded-lg p-2 shadow-2xl flex flex-col gap-1.5 min-w-[150px]">
+                <div className="absolute left-0 bottom-full mb-1.5 z-40 bg-black/90 backdrop-blur-xl border border-white/[0.10] rounded-lg p-2 shadow-2xl flex flex-col gap-1.5 min-w-[160px]">
                   <button
                     onClick={() => {
                       const name = prompt("Enter template name:");

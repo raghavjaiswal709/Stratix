@@ -24,7 +24,7 @@ import { ReplayBar }     from "./ReplayBar";
 import { NewSessionModal } from "./NewSessionModal";
 import { SessionDashboard } from "./SessionDashboard";
 import { ExecutionPanel } from "./ExecutionPanel";
-import { ArrowLeft, Play, Layout, RotateCcw, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Play, Layout, RotateCcw, AlertTriangle, ChevronRight, ChevronLeft, Minus, Plus } from "lucide-react";
 
 const formatPrice = (p: number) => {
   if (p < 0.001) return p.toFixed(8);
@@ -90,6 +90,9 @@ export function BacktestingPage() {
   // ── Draft order ticket (Buy/Sell preview before confirmation) ──
   const [draftOrder, setDraftOrder] = useState<DraftOrder | null>(null);
   const [activeTimeframe, setActiveTimeframe] = useState<"1m" | "5m" | "15m" | "1H" | "4H" | "1D">("15m");
+
+  // ── Right execution panel visibility ──────────────────────────────────────
+  const [showRightPanel, setShowRightPanel] = useState(true);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
   const trackerRef       = useRef(new TradeTracker());
@@ -933,39 +936,85 @@ export function BacktestingPage() {
           )}
         </div>
 
-        {/* Right Side: High-Premium Execution Sidebar Panel */}
-        <div className="w-64 border-l border-white/[0.08] bg-[#0f0f0f] shrink-0 h-full">
-          <ExecutionPanel
-            symbol={activeSession.symbol}
-            currentPrice={currentPrice}
-            lotSize={lotSize}
-            onLotSizeChange={(v) => {
-              const spec = getLotSpec(activeSession.symbol);
-              setLotSize(snapLot(v, spec));
-            }}
-            onBuy={handleBuy}
-            onSell={handleSell}
+        {/* Right Side: Execution Sidebar Panel (collapsible) */}
+        {showRightPanel && (
+          <div className="w-64 border-l border-white/[0.08] bg-[#0f0f0f] shrink-0 h-full flex flex-col">
+            {/* Collapse toggle */}
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] shrink-0">
+              <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">Execution</span>
+              <button
+                onClick={() => setShowRightPanel(false)}
+                className="p-1 rounded text-white/25 hover:text-white/60 hover:bg-white/[0.06] transition-colors cursor-pointer"
+                title="Collapse panel"
+              ><ChevronRight className="w-3 h-3" /></button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto">
+              <ExecutionPanel
+                symbol={activeSession.symbol}
+                currentPrice={currentPrice}
+                lotSize={lotSize}
+                onLotSizeChange={(v) => {
+                  const spec = getLotSpec(activeSession.symbol);
+                  setLotSize(snapLot(v, spec));
+                }}
+                onBuy={handleBuy}
+                onSell={handleSell}
+                rrDrawing={rrDrawing}
+                onOpenRROrder={(side) => {
+                  const rs = rrDrawing?.riskSettings;
+                  if (side === "buy") handleBuy(rs?.stopLoss, rs?.takeProfit);
+                  else handleSell(rs?.stopLoss, rs?.takeProfit);
+                }}
+                totalTrades={activeMetrics.totalTrades}
+                winRate={activeMetrics.winRate}
+                totalPnl={activeMetrics.totalPnl}
+                profitFactor={activeMetrics.profitFactor}
+                sessionTrades={closedTrades}
+                openTrade={openTrade}
+              />
+            </div>
+          </div>
+        )}
 
-            // R/R drawing from chart selection — execute immediately at the
-            // drawing's own SL/TP levels (one-click), not as a draft preview.
-            rrDrawing={rrDrawing}
-            onOpenRROrder={(side) => {
-              const rs = rrDrawing?.riskSettings;
-              if (side === "buy") handleBuy(rs?.stopLoss, rs?.takeProfit);
-              else handleSell(rs?.stopLoss, rs?.takeProfit);
-            }}
-
-            // Stats feeds
-            totalTrades={activeMetrics.totalTrades}
-            winRate={activeMetrics.winRate}
-            totalPnl={activeMetrics.totalPnl}
-            profitFactor={activeMetrics.profitFactor}
-
-            // Session trades list
-            sessionTrades={closedTrades}
-            openTrade={openTrade}
-          />
-        </div>
+        {/* Mini trade island — shown when right panel is collapsed */}
+        {!showRightPanel && (
+          <div className="absolute top-3 right-3 z-30 bg-black/90 backdrop-blur-xl border border-white/[0.10] rounded-xl p-3 shadow-2xl select-none font-mono flex flex-col gap-2.5 pointer-events-auto">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Trade</span>
+              <button
+                onClick={() => setShowRightPanel(true)}
+                className="p-0.5 rounded text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors cursor-pointer"
+                title="Expand panel"
+              ><ChevronLeft className="w-3 h-3" /></button>
+            </div>
+            {/* Lot size */}
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-white/45 shrink-0">Lots</span>
+              <div className="flex items-center gap-1 ml-auto">
+                <button
+                  onClick={() => { const spec = getLotSpec(activeSession.symbol); setLotSize(snapLot(lotSize - spec.lotStep, spec)); }}
+                  className="w-5 h-5 flex items-center justify-center bg-white/[0.06] rounded border border-white/[0.08] text-white/50 hover:text-white hover:bg-white/[0.10] cursor-pointer"
+                ><Minus className="w-2.5 h-2.5" /></button>
+                <span className="text-white font-bold text-[10px] w-9 text-center">{lotSize.toFixed(2)}</span>
+                <button
+                  onClick={() => { const spec = getLotSpec(activeSession.symbol); setLotSize(snapLot(lotSize + spec.lotStep, spec)); }}
+                  className="w-5 h-5 flex items-center justify-center bg-white/[0.06] rounded border border-white/[0.08] text-white/50 hover:text-white hover:bg-white/[0.10] cursor-pointer"
+                ><Plus className="w-2.5 h-2.5" /></button>
+              </div>
+            </div>
+            {/* Buy / Sell buttons */}
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => handleBuy()}
+                className="flex-1 py-2 text-[11px] font-bold rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-white transition-all active:scale-95 cursor-pointer"
+              >BUY</button>
+              <button
+                onClick={() => handleSell()}
+                className="flex-1 py-2 text-[11px] font-bold rounded-lg bg-red-600/80 hover:bg-red-500 text-white transition-all active:scale-95 cursor-pointer"
+              >SELL</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
