@@ -1,44 +1,121 @@
-import { readdir } from "fs/promises";
+import { readdir, readFile } from "fs/promises";
 import { join } from "path";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import dbConnect from "@/lib/mongodb";
+import { MarketReportModel } from "@/lib/models/MarketReport";
+
+export const dynamic = "force-dynamic";
 
 export interface ReportEntry {
   date: string;
   session: string;
-  filename: string;
+  source: "db" | "file";
 }
 
 const SESSION_ORDER = ["asian", "london", "new_york"];
 
-export async function GET() {
-  const session = await auth();
-  if (session?.user?.role !== "admin") {
+// GET /api/ai-reports                        → sorted list (DB + filesystem merged)
+// GET /api/ai-reports?date=X&session=Y       → full report JSON (DB first, file fallback)
+export async function GET(req: NextRequest) {
+  const userSession = await auth();
+  if (userSession?.user?.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const dir = join(process.cwd(), "public", "reports");
+  const { searchParams } = new URL(req.url);
+  const date        = searchParams.get("date");
+  const sessionParam = searchParams.get("session");
 
-  let files: string[];
-  try {
-    files = await readdir(dir);
-  } catch {
-    return NextResponse.json([] as ReportEntry[]);
+  // ── Return a specific report's content ─────────────────────────────────
+  if (date && sessionParam) {
+    await dbConnect();
+
+    const dbDoc = await MarketReportModel
+      .findOne({ date, session: sessionParam })
+      .lean() as { data: unknown } | null;
+
+    if (dbDoc) return NextResponse.json(dbDoc.data);
+
+    // Filesystem fallback
+    const filepath = join(
+      process.cwd(),
+      "public",
+      "reports",
+      `${date}_${sessionParam}_session.json`,
+    );
+    try {
+      return NextResponse.json(JSON.parse(await readFile(filepath, "utf-8")));
+    } catch {
+      return NextResponse.json({ error: "Report not found" }, { status: 404 });
+    }
   }
 
-  const reports: ReportEntry[] = files
-    .filter((f) => f.endsWith("_session.json"))
-    .flatMap((f) => {
-      // filename: YYYY-MM-DD_session_session.json  e.g. 2026-06-06_new_york_session.json
-      const withoutExt = f.replace(/\.json$/, "");
-      const match = withoutExt.match(/^(\d{4}-\d{2}-\d{2})_(.+)_session$/);
-      if (!match) return [];
-      return [{ date: match[1], session: match[2], filename: f }];
-    })
-    .sort((a, b) => {
-      if (a.date !== b.date) return b.date.localeCompare(a.date);
-      return SESSION_ORDER.indexOf(a.session) - SESSION_ORDER.indexOf(b.session);
-    });
+  // ── Return index list (DB + filesystem, deduped) ───────────────────────
+  await dbConnect();
 
-  return NextResponse.json(reports);
+  const dbEntries = (await MarketReportModel
+    .find({}, { date: 1, session: 1, _id: 0 })
+    .lean()) as { date: string; session: string }[];
+
+  const dbSet = new Set(dbEntries.map((e) => `${e.date}||${e.session}`));
+
+  let fileEntries: { date: string; session: string }[] = [];
+  try {
+    const files = await readdir(join(process.cwd(), "public", "reports"));
+    fileEntries = files
+      .filter((f) => f.endsWith("_session.json"))
+      .flatMap((f) => {
+        const m = f.replace(/\.json$/, "").match(/^(\d{4}-\d{2}-\d{2})_(.+)_session$/);
+        if (!m) return [];
+        return [{ date: m[1], session: m[2] }];
+      });
+  } catch {
+    /* directory may not exist yet */
+  }
+
+  const all: ReportEntry[] = [
+    ...dbEntries.map((e) => ({ ...e, source: "db"   as const })),
+    ...fileEntries
+      .filter((e) => !dbSet.has(`${e.date}||${e.session}`))
+      .map((e)   => ({ ...e, source: "file" as const })),
+  ].sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return SESSION_ORDER.indexOf(a.session) - SESSION_ORDER.indexOf(b.session);
+  });
+
+  return NextResponse.json(all);
+}
+
+// POST /api/ai-reports  body: { date, session, data }  → upsert to DB
+export async function POST(req: NextRequest) {
+  const userSession = await auth();
+  if (userSession?.user?.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  let body: { date?: string; session?: string; data?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { date, session: sessionParam, data } = body;
+  if (!date || !sessionParam || data === undefined) {
+    return NextResponse.json(
+      { error: "date, session, and data are required" },
+      { status: 400 },
+    );
+  }
+
+  await dbConnect();
+
+  await MarketReportModel.findOneAndUpdate(
+    { date, session: sessionParam },
+    { $set: { data, updatedBy: userSession.user?.email ?? "admin" } },
+    { upsert: true, new: true },
+  );
+
+  return NextResponse.json({ ok: true });
 }
