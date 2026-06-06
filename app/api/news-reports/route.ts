@@ -8,15 +8,27 @@ import { NewsReportModel } from "@/lib/models/NewsReport";
 export const dynamic = "force-dynamic";
 
 export interface NewsEntry {
-  date: string;
-  session: string;
-  source: "db" | "file";
+  date:     string;
+  session:  string;
+  source:   "db" | "file";
+  count?:   number;     // number of saved versions
+  latestAt?: string;    // ISO timestamp of most-recent version
+  latestBy?: string;    // email of most-recent generator
+}
+
+export interface NewsVersion {
+  _id:         string;
+  generatedAt: string;  // ISO
+  generatedBy: string;
 }
 
 const SESSION_ORDER = ["asian", "london", "new_york"];
 
-// GET /api/news-reports                        → sorted list (DB + filesystem merged)
-// GET /api/news-reports?date=X&session=Y       → full report JSON (DB first, file fallback)
+// ─── GET ──────────────────────────────────────────────────────────────────────
+// GET /api/news-reports                           → sorted index (DB + filesystem)
+// GET /api/news-reports?id=<mongoId>              → specific version data
+// GET /api/news-reports?date=X&session=Y          → latest version data
+// GET /api/news-reports?date=X&session=Y&history  → version list (metadata only)
 export async function GET(req: NextRequest) {
   const userSession = await auth();
   if (userSession?.user?.role !== "admin") {
@@ -26,18 +38,44 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const date         = searchParams.get("date");
   const sessionParam = searchParams.get("session");
+  const historyMode  = searchParams.has("history");
+  const id           = searchParams.get("id");
 
-  // ── Return a specific report's content ─────────────────────────────────
+  await dbConnect();
+
+  // ── Fetch a specific version by _id ────────────────────────────────────
+  if (id) {
+    const doc = await NewsReportModel.findById(id).lean() as { data: unknown } | null;
+    if (!doc) return NextResponse.json({ error: "Version not found" }, { status: 404 });
+    return NextResponse.json(doc.data);
+  }
+
+  // ── Version history list for a date+session (metadata, no data payload) ─
+  if (date && sessionParam && historyMode) {
+    type RawVersion = { _id: unknown; generatedBy?: string; generatedAt?: Date; createdAt?: Date };
+    const docs = await NewsReportModel
+      .find({ date, session: sessionParam }, { data: 0 })
+      .sort({ generatedAt: -1 })
+      .lean() as RawVersion[];
+
+    const versions: NewsVersion[] = docs.map((d) => ({
+      _id:         String(d._id),
+      generatedBy: d.generatedBy ?? "unknown",
+      generatedAt: (d.generatedAt ?? d.createdAt)?.toISOString() ?? new Date().toISOString(),
+    }));
+    return NextResponse.json(versions);
+  }
+
+  // ── Latest version data for a specific date+session ───────────────────
   if (date && sessionParam) {
-    await dbConnect();
-
     const dbDoc = await NewsReportModel
       .findOne({ date, session: sessionParam })
+      .sort({ generatedAt: -1 })
       .lean() as { data: unknown } | null;
 
     if (dbDoc) return NextResponse.json(dbDoc.data);
 
-    // Static-asset fallback (HTTP fetch avoids nft tracing dynamic paths)
+    // Static-asset fallback — forward session cookie so auth middleware passes
     try {
       const origin  = new URL(req.url).origin;
       const fileRes = await fetch(
@@ -51,12 +89,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Return index list (DB + filesystem, deduped) ───────────────────────
-  await dbConnect();
-
-  const dbEntries = (await NewsReportModel
-    .find({}, { date: 1, session: 1, _id: 0 })
-    .lean()) as { date: string; session: string }[];
+  // ── Index list: unique date+session combos with count + latest metadata ─
+  type AggResult = { date: string; session: string; latestAt?: Date; latestBy?: string; count: number };
+  const dbEntries = await NewsReportModel.aggregate<AggResult>([
+    { $sort: { generatedAt: -1 } },
+    {
+      $group: {
+        _id:      { date: "$date", session: "$session" },
+        latestAt: { $first: "$generatedAt" },
+        latestBy: { $first: "$generatedBy" },
+        count:    { $sum: 1 },
+      },
+    },
+    {
+      $project: {
+        _id:      0,
+        date:     "$_id.date",
+        session:  "$_id.session",
+        latestAt: 1,
+        latestBy: 1,
+        count:    1,
+      },
+    },
+  ]);
 
   const dbSet = new Set(dbEntries.map((e) => `${e.date}||${e.session}`));
 
@@ -70,12 +125,17 @@ export async function GET(req: NextRequest) {
         if (!m) return [];
         return [{ date: m[1], session: m[2] }];
       });
-  } catch {
-    /* directory may not exist yet */
-  }
+  } catch { /* directory may not exist yet */ }
 
   const all: NewsEntry[] = [
-    ...dbEntries.map((e) => ({ ...e, source: "db"   as const })),
+    ...dbEntries.map((e) => ({
+      date:     e.date,
+      session:  e.session,
+      source:   "db" as const,
+      count:    e.count,
+      latestAt: e.latestAt?.toISOString(),
+      latestBy: e.latestBy,
+    })),
     ...fileEntries
       .filter((e) => !dbSet.has(`${e.date}||${e.session}`))
       .map((e)   => ({ ...e, source: "file" as const })),
@@ -87,7 +147,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(all);
 }
 
-// POST /api/news-reports  body: { date, session, data }  → upsert to DB
+// ─── POST — always creates a NEW version, never overwrites ───────────────────
 export async function POST(req: NextRequest) {
   const userSession = await auth();
   if (userSession?.user?.role !== "admin") {
@@ -109,13 +169,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  await dbConnect();
+  const doc = await new NewsReportModel({
+    date,
+    session:     sessionParam,
+    data,
+    generatedBy: userSession.user?.email ?? "admin",
+    generatedAt: new Date(),
+  }).save();
 
-  await NewsReportModel.findOneAndUpdate(
-    { date, session: sessionParam },
-    { $set: { data, updatedBy: userSession.user?.email ?? "admin" } },
-    { upsert: true, new: true },
-  );
-
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, _id: String(doc._id) });
 }

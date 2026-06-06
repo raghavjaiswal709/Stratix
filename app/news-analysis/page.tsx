@@ -28,6 +28,9 @@ import {
   Loader2,
   Database,
   Target,
+  History,
+  User,
+  Eye,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -54,7 +57,20 @@ interface NewsReport {
   symbol_wise_news: Record<string, SymbolNews>;
 }
 
-interface NewsEntry { date: string; session: string; source: "db" | "file"; }
+interface NewsEntry {
+  date:     string;
+  session:  string;
+  source:   "db" | "file";
+  count?:   number;
+  latestAt?: string;
+  latestBy?: string;
+}
+
+interface NewsVersion {
+  _id:         string;
+  generatedAt: string;
+  generatedBy: string;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -110,22 +126,112 @@ function formatDateLabel(d: string): string {
 
 // ─── Prompt content ───────────────────────────────────────────────────────────
 
-const NEWS_SYSTEM_PROMPT = `Tu ek world-class financial news analyst, reporter, aur market commentator hai — ek knowledgeable dost jo duniya bhar ki financial news aur macro events ko samjhata hai aur unhe retail traders ke liye bilkul simple aur clear language mein explain karta hai.
+const NEWS_SYSTEM_PROMPT = `Tu ek world-class financial news analyst, geopolitical intelligence reporter, aur market impact commentator hai — ek knowledgeable dost jo duniya bhar ki EVERY TARAH ki khabar ko samjhata hai aur retail traders ko bilkul clear, simple Hinglish mein explain karta hai.
 
-TERA KAAM — SIRF NEWS & FUNDAMENTALS:
-Pichle 24 ghante mein duniya mein kya hua — har important macro event, economic data release, central bank ka decision ya speech, geopolitical tension, corporate news, commodity moves, equity market swings — sab kuch deeply analyze karo aur in sabka impact samjhao. Koi trade setup nahi dena, koi SL/TP nahi, koi entry nahi — sirf world news ki depth analysis aur us news ke basis par ek sniper directional suggestion (news-based bias aur key levels to watch).
+TERA MOOL KAAM — COMPREHENSIVE MARKET-MOVING EVENT ANALYSIS:
+Selected time window mein duniya mein kya hua — sirf economic calendar events nahi, balki HAR tarah ki khabar jo market ko move kar sakti hai. Neeche sabhi categories mein deeply research karo:
+
+[CAT 1] MONETARY POLICY & MACRO DATA
+• Central banks: Fed/FOMC (Powell), ECB (Lagarde), BoJ (Ueda), BoE (Bailey), RBA, RBNZ, PBOC, SNB, BoC
+• US data: NFP, CPI, Core PCE, PPI, GDP, ISM Manufacturing/Services, Retail Sales, JOLTS, ADP, Durable Goods, Housing Starts
+• Global data: Eurozone CPI/PMI, UK inflation/jobs/GDP, China PMI/trade/credit data, Japan Tankan/CPI, Australia employment
+• Treasury yields (2yr, 10yr, 30yr), yield curve (2s10s spread), SOFR, DXY moves
+• Government fiscal: US debt ceiling, budget deals, deficit data, emergency spending bills
+
+[CAT 2] GEOPOLITICAL CONFLICTS & SECURITY EVENTS
+• Wars, invasions, military escalations — direct impact on safe-haven assets (gold, JPY, CHF) aur energy prices
+• Terrorist attacks on financial centers, oil facilities, pipelines, shipping lanes, nuclear plants
+• Missile strikes, drone attacks, airstrikes — especially near oil fields or Strait of Hormuz
+• Assassinations ya deaths of major world leaders, central bankers, or high-profile CEOs
+• Nuclear threats, DEFCON escalations, weapons of mass destruction news
+• Coup attempts, regime changes, political upheaval in oil-producing or major economies
+• Hostage situations involving oil workers or government officials
+
+[CAT 3] NATURAL DISASTERS & EXTREME WEATHER
+• Major earthquakes (5.5+ Richter) affecting Japan, Turkey, US West Coast, Taiwan — supply chain aur nuclear risk
+• Tsunamis threatening Pacific ports, nuclear facilities, or coastal cities
+• Hurricanes/cyclones hitting US Gulf Coast (oil refineries, LNG terminals), Caribbean (insurance sector), Southeast Asia (manufacturing hubs)
+• Major flooding in agricultural belts — Brazil, India, Bangladesh, Midwest US — commodity price impact
+• Wildfires near oil sands (Canada), vineyards, or major cities — insurance and energy sector
+• Volcanic eruptions disrupting air travel (Iceland ash clouds) or commodity production
+• Severe droughts affecting major agricultural producers — wheat (Ukraine, Australia), corn/soy (US, Brazil), coffee (Brazil, Vietnam), cocoa (West Africa)
+• Polar vortex or extreme cold events spiking natural gas demand
+
+[CAT 4] TRADE, SANCTIONS & ECONOMIC WARFARE
+• Tariff announcements: US-China, US-EU, US-rest — retaliatory measures, trade deal collapses
+• Export controls: semiconductor chips (TSMC restrictions, ASML rules), rare earth minerals, AI hardware, military tech
+• New sanctions imposed: Russia, Iran, North Korea, Venezuela, Belarus — oil, banking, SWIFT exclusion impact
+• Import bans on specific commodities affecting food security or energy supply
+• Critical chokepoint disruptions: Suez Canal, Panama Canal, Strait of Hormuz, Taiwan Strait shipping
+• Supply chain reshoring announcements affecting manufacturing currencies (JPY, KRW, TWD)
+
+[CAT 5] ENERGY & COMMODITY SHOCKS
+• OPEC/OPEC+ production decisions, emergency meetings, quota violations, member disputes
+• Pipeline attacks or shutdowns: Nord Stream, Keystone, Colonial, TAP — gas/oil flow disruption
+• LNG supply disruptions: Qatar, Australia (Gorgon/Wheatstone), US Gulf Coast export terminals
+• Refinery fires, tanker incidents, oil rig accidents, port blockades
+• Agricultural disasters: crop failures from drought/frost/flood — wheat, corn, soy, palm oil, sugar, coffee, cocoa
+• Metal supply disruptions: copper mine strikes (Chile/Peru), lithium shortages, cobalt supply (DRC), rare earth export restrictions (China)
+• Energy crisis: power grid failures, blackouts in major economies, electricity price spikes
+
+[CAT 6] FINANCIAL SYSTEM & BANKING STRESS
+• Bank failures, liquidity crises, emergency bailouts (SVB-type events)
+• Central bank emergency interventions: rate cuts between meetings, emergency QE
+• Sovereign debt defaults or near-defaults, IMF emergency programs
+• Credit rating downgrades by Moody's, S&P, Fitch — sovereign or systemically important banks
+• Major hedge fund collapses, margin call cascades, forced deleveraging
+• Flash crashes, circuit breakers triggered on major indices
+• Repo market stress, TED spread spikes, credit default swap surges
+• Money market fund stress, commercial paper market freeze
+
+[CAT 7] POLITICAL & ELECTORAL EVENTS
+• Elections in G7/G20 nations — surprising results, exit poll reactions, vote counting
+• Snap elections, government collapses, no-confidence votes, coalition breakdowns
+• Referendums (Brexit-style scenarios, independence movements)
+• Major political scandals affecting currency confidence or central bank independence
+• US Congress deadlocks on debt ceiling or key legislation
+• Presidential executive orders on trade, energy, sanctions, or financial regulation
+
+[CAT 8] HEALTH & BIOLOGICAL EVENTS
+• WHO emergency declarations, new pandemic-level disease outbreaks, quarantine announcements
+• Major drug trial results: blockbuster drug approvals or failures affecting pharma/biotech sector
+• Biosecurity incidents affecting agricultural markets: bird flu in poultry, ASF in pork herds
+• Hospital system collapses or healthcare strikes in major economies
+
+[CAT 9] TECHNOLOGY, CYBER & INFRASTRUCTURE
+• Cyber attacks on major financial exchanges, SWIFT network, central bank systems, stock market infrastructure
+• Cloud provider outages (AWS, Azure, Google Cloud) causing trading platform disruptions
+• Major tech regulatory crackdowns: EU Digital Markets Act enforcement, US antitrust actions against big tech
+• AI regulatory news, GPU/chip export restrictions, semiconductor supply disruptions (TSMC, Samsung)
+• Critical infrastructure attacks: power grids, undersea cables, internet backbone, GPS disruption
+
+[CAT 10] CRYPTO-SPECIFIC EVENTS
+• Regulatory: SEC lawsuits/approvals, government crypto bans, ETF approvals/rejections, FATF travel rule
+• Exchange events: hacks, insolvencies, delistings, liquidity crises (FTX/Celsius-type collapses)
+• DeFi protocol exploits, bridge hacks, stablecoin depeg events, rug pulls
+• Institutional adoption: corporate treasury buys (MicroStrategy-type), sovereign wealth fund entry, ETF flow data
+• Network events: major protocol upgrades, hard forks, miner capitulation signals, hashrate changes
+• On-chain signals: exchange supply changes, whale wallet movements, futures OI, funding rates
+
+[CAT 11] MARKET STRUCTURE & FLOW EVENTS
+• Major options expiry (monthly/quarterly OpEx): max pain levels, gamma exposure, dealer hedging
+• Quarterly futures rollover: crude oil, S&P, gold, natural gas contract rolls
+• Major index rebalancing: Russell rebalance, MSCI index changes, S&P 500 additions/removals
+• Significant ETF flow data: GLD, SLV, IBIT/FBTC, SPY, QQQ inflows/outflows
+• Corporate buyback window opening/closing periods
+• Insider trading blackout periods ending, lock-up expirations for major IPOs
 
 REPORTING STYLE:
-• Poora response Hinglish mein — English alphabet use karo lekin natural Hindi-English mix jaise ek knowledgeable dost baat kar raha ho.
-• Har news event ko itna detail mein explain karo ki ek naya trader bhi samajh sake ki kya hua, kyun hua, aur market ne usse kaise react kiya.
-• Use real numbers, real event names, real dates — vague generalizations nahi.
-• Every symbol ke liye news-based "sniper_note" mein sirf batao: news kya kehti hai (bias), kaunsa catalyst sabse important hai, kaunse levels news ke basis par watch karne chahiye, aur is session mein kya expect karo. SL/TP/entry BILKUL NAHI.
+• Poora response Hinglish mein — English alphabet use karo, natural Hindi-English mix jaise ek knowledgeable dost baat kar raha ho
+• Har event ko itna detail mein explain karo ki ek naya trader bhi samajh sake: kya hua, kyun hua, market ne usse kaise react kiya
+• Real numbers, real event names, real dates — vague generalizations bilkul nahi
+• Har symbol ke sniper_note mein sirf: news bias, key catalyst, watch levels, session expectation — SL/TP/entry BILKUL NAHI
 
-IMPORTANT — JSON OUTPUT RULES:
-1. Apna poora response ek \`\`\`json ... \`\`\` code block mein wrap karo.
-2. JSON submit karne se pehle mentally validate karo — har opening bracket ka closing bracket hona chahiye, har key ke baad colon, har value ke baad comma (last item ke baad nahi), har string properly quoted honi chahiye.
-3. Agar JSON valid nahi hai toh response accept nahi hoga — isliye double-check karo.
-4. Koi placeholder text, koi "...", koi empty string nahi — har field mein real substantive Hinglish content.`;
+JSON OUTPUT RULES:
+1. Poora response ek \`\`\`json ... \`\`\` code block mein wrap karo
+2. Submit karne se pehle validate karo — har bracket, comma, quote sahi ho
+3. Invalid JSON = response reject hoga — isliye double-check karo
+4. Koi placeholder, koi "...", koi empty string nahi — har field mein real substantive Hinglish content`;
 
 const NEWS_SCHEMA_TEMPLATE = `{
   "meta": {
@@ -135,24 +241,28 @@ const NEWS_SCHEMA_TEMPLATE = `{
     "language": "Hinglish"
   },
   "all_news_section": {
-    "headline": "Aaj ki sabse badi aur impactful khabar — engaging, specific, Hinglish mein.",
-    "summary": "200+ word Hinglish summary: pichle 24 ghante mein duniya mein kya hua, kaunse events ne market ko hila diya, aur overall sentiment kya hai. Dollar, equities, bonds, commodities, crypto — sab cover karo.",
+    "headline": "Is time window ki sabse badi aur impactful khabar — engaging, specific, Hinglish mein. Could be: economic data, military attack, natural disaster, political upheaval, market crash — jo bhi sabse zyada important ho.",
+    "summary": "250+ word Hinglish summary: is time window mein duniya mein kya hua — macro events, geopolitical developments, natural disasters, trade/sanctions news, energy shocks, political changes, crypto events, market structure moves — sab cover karo. Overall risk sentiment kya hai — risk-on ya risk-off? Dollar, equities, bonds, commodities, crypto — sab ka status.",
     "high_impact_events": [
       {
-        "event_name": "FOMC | NFP | CPI | GDP | BoJ Decision | ECB | UK CPI | China PMI | etc.",
-        "impact_explanation": "Is event se market par kya asar pada ya padega — expected vs actual outcome, kaunse symbols directly affected hue, kya direction dekhi gayi, aur retail traders ke liye kya matlab hai. Minimum 60 words in Hinglish."
+        "event_name": "Example: FOMC Rate Decision | NFP Miss | Terrorist Attack on Oil Pipeline | 7.5 Earthquake in Japan | OPEC Emergency Cut | US-China Tariff Escalation | Major Bank Failure | Hurricane Hitting Gulf Coast | Cyber Attack on Exchange | Election Shock Result | Sovereign Debt Default | etc. — Jo bhi is time window mein hua woh real naam se likho",
+        "impact_explanation": "Is event ka market par kya asar pada ya padega — exact numbers, expected vs actual outcome (agar applicable), kaunse asset classes directly affected hue (gold, oil, JPY, bonds, etc.), kya direction dekhi gayi, kyun aisa hua, aur retail traders ke liye kya matlab hai. Minimum 80 words Hinglish mein."
       },
       {
-        "event_name": "Second event",
-        "impact_explanation": "Second event ka full Hinglish explanation..."
+        "event_name": "Second high-impact event — real naam",
+        "impact_explanation": "Second event ka full Hinglish explanation, minimum 80 words..."
       },
       {
-        "event_name": "Third event",
-        "impact_explanation": "Third event ka full Hinglish explanation..."
+        "event_name": "Third high-impact event — real naam",
+        "impact_explanation": "Third event ka full Hinglish explanation, minimum 80 words..."
       },
       {
-        "event_name": "Fourth event",
-        "impact_explanation": "Fourth event ka full Hinglish explanation..."
+        "event_name": "Fourth high-impact event — real naam",
+        "impact_explanation": "Fourth event ka full Hinglish explanation, minimum 80 words..."
+      },
+      {
+        "event_name": "Fifth high-impact event — real naam (agar relevant events hain)",
+        "impact_explanation": "Fifth event ka full Hinglish explanation..."
       }
     ]
   },
@@ -232,62 +342,72 @@ function buildNewsUserMessage(date: string, session: string, candles: CandleSumm
   return `Aaj ka UTC date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
 Current UTC time: ${ts}
 
-NEWS TIME WINDOW: ${fromTs} SE LEKAR ${ts} TAK (${opt.display})
-STRICT RULE: Sirf is time window ke andar ki news aur events cover karo. Is window se pehle ki koi bhi news mat include karo, chahe woh kitni bhi important kyun na ho.
+⏰ NEWS TIME WINDOW: ${fromTs} SE LEKAR ${ts} TAK (${opt.display})
+STRICT RULE: Sirf is time window ke andar ki news aur events cover karo. Is window se pehle ki koi bhi news mat include karo.
 
 ${candleBlock}
 
-Upar diye gaye REAL H4 aur H1 candle data ko price context ke liye use karo — recent price levels, highs, lows, aur movements dekho. Yeh data sirf news ke impact ko contextualize karne ke liye hai, koi trade setup nahi banana.
+Upar diye gaye REAL H4 aur H1 candle data ko price context ke liye use karo — recent price levels, highs, lows, aur movements dekho. Yeh data news ke impact ko contextualize karne ke liye hai, koi trade setup nahi banana.
 
-TERA MAIN KAAM — WORLD NEWS DEEP ANALYSIS (${timeHinglish} ki news SIRF):
-${timeHinglish} mein duniya mein kya hua — har important macro event deeply analyze karo:
-• US: Fed speeches, economic data (NFP, CPI, GDP, ISM, retail sales), Treasury yields, Dollar Index
-• Europe: ECB decisions/speeches, Eurozone PMI, UK CPI/jobs data, BoE communications
-• Asia: BoJ decisions, Japan inflation, China PMI/trade data, RBA/RBNZ meetings
-• Geopolitical: Wars, trade tensions, sanctions, commodity supply disruptions
-• Crypto: ETF flows, regulatory news, on-chain data, major moves
-• Commodities: Oil (OPEC), Gold drivers (real yields, DXY, safe-haven), Silver industrial demand
-• Equities: Major index moves, risk sentiment, VIX, big corporate earnings
+═══════════════════════════════════════════════════════
+TERA KAAM — COMPREHENSIVE MARKET-MOVING EVENT ANALYSIS
+(${timeHinglish} ki news SIRF — ${fromTs} ke baad ki)
+═══════════════════════════════════════════════════════
 
-REQUIRED NEWS SOURCES — IN SABSE LATEST NEWS FETCH KARO (${opt.display} window):
-MACRO & GLOBAL MARKETS:
-  Bloomberg (bloomberg.com) — Fed/macro, institutional market analysis
-  Reuters (reuters.com) — breaking global financial news, wire reports
-  Financial Times (ft.com) — macro & central bank policy depth
-  Wall Street Journal (wsj.com) — US markets, earnings, Fed coverage
-  CNBC (cnbc.com) — real-time US market commentary & breaking news
-  MarketWatch (marketwatch.com) — US equity, bond & forex markets
-  Investing.com — economic calendar, live rates, breaking alerts
-  TradingEconomics (tradingeconomics.com) — economic indicators & data releases
-  Yahoo Finance (finance.yahoo.com) — broad market coverage
+Sirf economic calendar events nahi — HAR tarah ka event jo market move kar sakta hai:
 
-CENTRAL BANKS (PRIMARY SOURCES):
-  federalreserve.gov — FOMC statements, Fed speeches, press conferences
-  ecb.europa.eu — ECB rate decisions, Lagarde speeches
-  boj.or.jp — Bank of Japan policy, YCC, intervention signals
-  bankofengland.co.uk — BoE MPC decisions, inflation reports
-  rba.gov.au | rbnz.govt.nz | bis.org — RBA, RBNZ, BIS updates
+MONETARY & MACRO: Fed/ECB/BoJ/BoE decisions & speeches, NFP/CPI/PPI/GDP/PMI/ISM data, Treasury yields, DXY, PBOC/RBA/RBNZ actions
+
+GEOPOLITICAL & CONFLICTS: Wars, military escalations, airstrikes, terrorist attacks on oil/financial infrastructure, assassinations, coups, regime changes, nuclear escalations
+
+NATURAL DISASTERS: Earthquakes (5.5+ Richter near Japan/Taiwan/Turkey/US West), tsunamis, hurricanes hitting oil/LNG infrastructure, major floods/droughts affecting agricultural commodities, wildfires, volcanic eruptions disrupting supply
+
+TRADE & SANCTIONS: US-China/US-EU tariffs, export controls (chips, rare earth), new sanctions (Russia/Iran/Venezuela), Suez/Panama Canal/Hormuz disruptions
+
+ENERGY & COMMODITIES: OPEC/OPEC+ decisions, pipeline attacks, LNG disruptions, refinery fires, tanker incidents, agricultural crop failures (wheat/corn/soy/coffee/cocoa), metal supply shocks (copper/lithium/rare earth)
+
+FINANCIAL STRESS: Bank failures, sovereign debt defaults, credit downgrades (Moody's/S&P/Fitch), hedge fund blowups, flash crashes, circuit breakers, repo market stress
+
+POLITICAL EVENTS: Major election results, snap elections, government collapses, referendums, US Congress deadlocks, executive orders on trade/energy
+
+HEALTH CRISES: WHO emergency declarations, pandemic outbreaks, major drug trial results, agricultural biosecurity events
+
+TECH & CYBER: Attacks on financial/exchange infrastructure, cloud outages affecting trading, chip export restrictions, AI regulation news
+
+CRYPTO EVENTS: SEC actions, exchange hacks/failures, stablecoin depegs, DeFi exploits, ETF flows, whale movements, protocol upgrades
+
+MARKET STRUCTURE: Monthly/quarterly OpEx (options expiry), futures rollover, index rebalancing, major ETF flows (GLD/IBIT/SPY), buyback window events
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REQUIRED NEWS SOURCES (check ALL — ${opt.display} window):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MACRO & MARKETS:
+  Bloomberg · Reuters · Financial Times · Wall Street Journal
+  CNBC · MarketWatch · Investing.com · TradingEconomics · Yahoo Finance
+  AP News · BBC Business · Al Jazeera Business · The Guardian Business
+
+CENTRAL BANKS (official sources):
+  federalreserve.gov · ecb.europa.eu · boj.or.jp · bankofengland.co.uk
+  rba.gov.au · rbnz.govt.nz · pboc.gov.cn · bis.org
+
+GEOPOLITICAL & SECURITY:
+  Reuters World News · AP Breaking News · BBC World · Al Jazeera
+  Defense News · Jane's · War Monitor (X/Twitter accounts)
 
 FOREX & COMMODITIES:
-  ForexLive (forexlive.com) — real-time forex news & order flow
-  FXStreet (fxstreet.com) — forex analysis, economic calendar
-  DailyFX (dailyfx.com) — forex market analysis & COT data
-  Kitco (kitco.com) — gold, silver, precious metals latest
-  OilPrice.com — crude oil, OPEC meetings, energy news
+  ForexLive · FXStreet · DailyFX · Kitco (gold/silver) · OilPrice.com
+  AgriMoney · S&P Global Commodity Insights · LME (metals)
 
 CRYPTO:
-  CoinDesk (coindesk.com) — Bitcoin & institutional crypto news
-  CoinTelegraph (cointelegraph.com) — crypto market moves & regulation
-  The Block (theblock.co) — institutional crypto, on-chain data
-  Decrypt (decrypt.co) — DeFi & altcoin developments
+  CoinDesk · CoinTelegraph · The Block · Decrypt · CryptoSlate
+  Glassnode (on-chain) · Coinglass (derivatives/OI/funding)
 
-TRENDING & BREAKING NEWS:
-  AP News (apnews.com/business) | BBC Business | Al Jazeera Business
-  X/Twitter trending finance & crypto topics (last ${hours}h)
-  Reddit: r/wallstreetbets, r/investing, r/CryptoCurrency (sentiment)
-  Google Trends — breakout finance-related searches
+BREAKING & TRENDING (last ${hours}h):
+  X/Twitter: $markets, $SPY, $GLD, $BTC trending topics
+  Reddit: r/wallstreetbets · r/investing · r/CryptoCurrency
+  Google Trends: breakout finance/energy/conflict searches
 
-Har symbol ke liye sniper_note mein sirf news-based directional suggestion do — koi SL nahi, koi TP nahi, koi entry nahi. Sirf: news kya keh rahi hai (bias), sabse important catalyst, kaunse levels news ke context mein important hain, aur is session mein kya expect karo.
+Har symbol ke sniper_note mein sirf news-based directional suggestion — koi SL/TP/entry nahi. Sirf: bias (Bullish/Bearish/Neutral), key catalyst, watch levels, session expectation.
 
 Neeche diya schema use karke ek valid JSON output do:
 
@@ -295,12 +415,12 @@ ${NEWS_SCHEMA_TEMPLATE}
 
 STRICT REQUIREMENTS:
 • meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}", meta.language = "Hinglish"
-• NEWS TIME WINDOW ENFORCE: Sirf ${fromTs} se ${ts} ke beech ki news — koi older news mat include karo
-• all_news_section.summary mein SIRF ${timeHinglish} ki news cover karo (minimum 200 words Hinglish)
-• all_news_section mein minimum 4 detailed high_impact_events (sirf is ${opt.display} window ke events)
-• Har symbol ke liye exactly 2 specific headlines, 120+ word Hinglish breakdown, specific trader_alert, aur complete sniper_note
-• Koi placeholder, koi "...", koi empty string — har field mein real content
-• JSON valid hona chahiye — submit karne se pehle check karo ki sab brackets, commas, quotes sahi hain
+• NEWS TIME WINDOW: Sirf ${fromTs} se ${ts} ke beech ki events — older news strictly banned
+• all_news_section.summary = 250+ word Hinglish — macro + geopolitical + disasters + energy + crypto sab cover karo
+• all_news_section.high_impact_events = minimum 4 events (max 6), covering DIVERSE categories — not just macro, include geopolitical/disaster/energy if they happened
+• Har symbol ke liye: exactly 2 specific real headlines, 120+ word Hinglish breakdown, specific trader_alert, complete sniper_note
+• Koi placeholder, koi "...", koi empty string — har field mein real substantive Hinglish content
+• JSON bilkul valid hona chahiye — brackets, commas, quotes double-check karo
 • Poora response \`\`\`json ... \`\`\` code block mein wrap karo`;
 }
 
@@ -554,7 +674,7 @@ function EditorModal({
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-white/[0.07] shrink-0 bg-[#0d0d0d]">
           <div className="flex items-center gap-1.5 text-[11px] text-white/25">
             <Database className="h-3 w-3" />
-            MongoDB mein save hoga · file fallback replace karega
+            Naya version create hoga · history mein add hoga · purana data safe rahega
           </div>
           <div className="flex items-center gap-2">
             <button onClick={onClose} disabled={saving}
@@ -574,6 +694,157 @@ function EditorModal({
           </div>
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+// ─── History Modal ────────────────────────────────────────────────────────────
+
+function HistoryModal({
+  date, session, onClose, onViewVersion,
+}: {
+  date: string; session: string;
+  onClose: () => void;
+  onViewVersion: (data: NewsReport, version: NewsVersion) => void;
+}) {
+  const [versions, setVersions]   = useState<NewsVersion[]>([]);
+  const [loading,  setLoading]    = useState(true);
+  const [loadingId,setLoadingId]  = useState<string | null>(null);
+  const [err,      setErr]        = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/news-reports?date=${encodeURIComponent(date)}&session=${encodeURIComponent(session)}&history`)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d: NewsVersion[]) => { setVersions(d); setLoading(false); })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, [date, session]);
+
+  async function handleView(v: NewsVersion) {
+    setLoadingId(v._id);
+    try {
+      const res = await fetch(`/api/news-reports?id=${encodeURIComponent(v._id)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      onViewVersion(await res.json() as NewsReport, v);
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Load failed");
+    } finally {
+      setLoadingId(null);
+    }
+  }
+
+  function fmtTime(iso: string) {
+    return new Date(iso).toLocaleString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "2-digit", minute: "2-digit", timeZone: "UTC", timeZoneName: "short",
+    });
+  }
+
+  function abbrevEmail(email: string) {
+    const [local, domain] = email.split("@");
+    if (!domain) return email;
+    return `${local.slice(0, 12)}${local.length > 12 ? "…" : ""}@${domain}`;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="relative w-full max-w-lg max-h-[80vh] flex flex-col rounded-2xl bg-[#0f0f0f] border border-white/[0.10] shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.07] shrink-0">
+          <div className="flex items-center gap-2.5">
+            <History className="h-4 w-4 text-white/40" />
+            <div>
+              <p className="text-[13px] font-semibold text-white/80">Version History</p>
+              <p className="text-[11px] text-white/30">{SESSION_LABELS[session]} · {formatDateLabel(date)}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {loading && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Loader2 className="h-5 w-5 text-white/30 animate-spin" />
+              <p className="text-[12px] text-white/30">History load ho rahi hai…</p>
+            </div>
+          )}
+          {err && (
+            <div className="mx-4 mt-4 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/[0.08] border border-red-500/20 text-[12px] text-red-400">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />{err}
+            </div>
+          )}
+          {!loading && !err && versions.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Database className="h-6 w-6 text-white/15" />
+              <p className="text-[12px] text-white/30">Koi saved version nahi mila</p>
+            </div>
+          )}
+          {!loading && versions.length > 0 && (
+            <div className="p-4 space-y-2">
+              {versions.map((v, idx) => (
+                <div key={v._id}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors",
+                    idx === 0
+                      ? "bg-emerald-500/[0.05] border-emerald-500/[0.15]"
+                      : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.10]",
+                  )}>
+                  {/* Version badge */}
+                  <div className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold",
+                    idx === 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-white/[0.06] text-white/30",
+                  )}>
+                    v{versions.length - idx}
+                  </div>
+
+                  {/* Meta */}
+                  <div className="flex-1 min-w-0">
+                    <p className={cn("text-[12px] font-medium leading-snug",
+                      idx === 0 ? "text-emerald-400/80" : "text-white/55"
+                    )}>
+                      {fmtTime(v.generatedAt)}
+                      {idx === 0 && <span className="ml-2 text-[10px] font-bold text-emerald-400/60 uppercase tracking-widest">Latest</span>}
+                    </p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <User className="h-2.5 w-2.5 text-white/20 shrink-0" />
+                      <p className="text-[10px] text-white/30 truncate">{abbrevEmail(v.generatedBy)}</p>
+                    </div>
+                  </div>
+
+                  {/* View button */}
+                  <button
+                    onClick={() => handleView(v)}
+                    disabled={loadingId === v._id}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all shrink-0",
+                      "border bg-white/[0.04] border-white/[0.08] text-white/40 hover:text-white/70 hover:bg-white/[0.08]",
+                      "disabled:opacity-40 disabled:cursor-not-allowed",
+                    )}>
+                    {loadingId === v._id
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Eye className="h-3 w-3" />}
+                    {loadingId === v._id ? "Loading…" : "View"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-white/[0.07] shrink-0 flex justify-between items-center">
+          <p className="text-[11px] text-white/20">
+            {versions.length > 0 ? `${versions.length} version${versions.length > 1 ? "s" : ""} saved` : ""}
+          </p>
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/40 hover:text-white/70 hover:bg-white/[0.06] border border-white/[0.07] transition">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -785,8 +1056,10 @@ export default function NewsAnalysisPage() {
   const [reportLoading,   setReportLoading]   = useState(false);
   const [error,           setError]           = useState<string | null>(null);
 
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [promptOpen, setPromptOpen] = useState(false);
+  const [editorOpen,   setEditorOpen]   = useState(false);
+  const [promptOpen,   setPromptOpen]   = useState(false);
+  const [historyOpen,  setHistoryOpen]  = useState(false);
+  const [viewingVersion, setViewingVersion] = useState<NewsVersion | null>(null);
 
   const currentSession = getCurrentSession();
 
@@ -825,6 +1098,7 @@ export default function NewsAnalysisPage() {
   }, [reports]);
 
   useEffect(() => {
+    setViewingVersion(null);
     if (selectedDate && selectedSession && reports.length > 0) loadReport(selectedDate, selectedSession);
   }, [selectedDate, selectedSession, reports, loadReport]);
 
@@ -879,13 +1153,26 @@ export default function NewsAnalysisPage() {
                   {currentEntry.source === "db" ? "DB" : "File"}
                 </span>
               )}
+              {/* History button — shows version count badge */}
+              {currentEntry?.source === "db" && (
+                <button onClick={() => setHistoryOpen(true)}
+                  className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
+                  <History className="h-3.5 w-3.5" />
+                  History
+                  {(currentEntry.count ?? 0) > 0 && (
+                    <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
+                      {currentEntry.count}
+                    </span>
+                  )}
+                </button>
+              )}
               <button onClick={() => setPromptOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
                 <Bot className="h-3.5 w-3.5" /> Prompt
               </button>
               <button onClick={() => setEditorOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
-                <Pencil className="h-3.5 w-3.5" /> Edit JSON
+                <Pencil className="h-3.5 w-3.5" /> Save JSON
               </button>
               <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1">
                 <Clock className="h-3.5 w-3.5" />
@@ -953,6 +1240,29 @@ export default function NewsAnalysisPage() {
 
         {error && (
           <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-[13px] text-red-400 mb-6">{error}</div>
+        )}
+
+        {/* Historical version banner */}
+        {viewingVersion && (
+          <div className="flex items-center gap-3 mb-4 px-4 py-2.5 rounded-xl bg-amber-500/[0.07] border border-amber-500/[0.18]">
+            <History className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <span className="text-[12px] text-amber-300/80">
+                Viewing historical version —{" "}
+                {new Date(viewingVersion.generatedAt).toLocaleString("en-US", {
+                  month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                  timeZone: "UTC", timeZoneName: "short",
+                })}
+                {" "}by{" "}
+                <span className="font-medium">{viewingVersion.generatedBy}</span>
+              </span>
+            </div>
+            <button
+              onClick={() => { setViewingVersion(null); loadReport(selectedDate, selectedSession); }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-amber-500/[0.10] border border-amber-500/[0.20] text-amber-400/80 hover:bg-amber-500/[0.18] transition shrink-0">
+              <RefreshCw className="h-3 w-3" /> Latest
+            </button>
+          </div>
         )}
 
         {reportLoading && <><BannerSkeleton /><CardsSkeleton /></>}
@@ -1037,7 +1347,17 @@ export default function NewsAnalysisPage() {
           session={selectedSession}
           initialJson={report ? JSON.stringify(report, null, 2) : ""}
           onClose={() => setEditorOpen(false)}
-          onSaved={() => loadReport(selectedDate, selectedSession)}
+          onSaved={() => {
+            setViewingVersion(null);
+            // Re-fetch index so count badge updates, then load latest
+            fetch("/api/news-reports")
+              .then(r => r.json())
+              .then((data: NewsEntry[]) => {
+                setReports(data);
+              })
+              .catch(() => {});
+            loadReport(selectedDate, selectedSession);
+          }}
         />
       )}
       {promptOpen && (
@@ -1045,6 +1365,17 @@ export default function NewsAnalysisPage() {
           date={selectedDate || new Date().toISOString().slice(0, 10)}
           session={selectedSession}
           onClose={() => setPromptOpen(false)}
+        />
+      )}
+      {historyOpen && (
+        <HistoryModal
+          date={selectedDate}
+          session={selectedSession}
+          onClose={() => setHistoryOpen(false)}
+          onViewVersion={(data, version) => {
+            setReport(data);
+            setViewingVersion(version);
+          }}
         />
       )}
 
