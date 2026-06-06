@@ -3,6 +3,10 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+
+// ─── Candle data types (shared with candle-summary API) ──────────────────────
+interface HCandle { t: number; o: number; h: number; l: number; c: number }
+interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 import { cn } from "@/lib/utils";
 import {
   Newspaper,
@@ -23,13 +27,26 @@ import {
   AlertCircle,
   Loader2,
   Database,
+  Target,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface HighImpactEvent { event_name: string; impact_explanation: string; }
 interface AllNewsSection  { headline: string; summary: string; high_impact_events: HighImpactEvent[]; }
-interface SymbolNews      { latest_headlines: string[]; detailed_breakdown: string; trader_alert: string; }
+interface SniperNote {
+  news_bias: "Bullish" | "Bearish" | "Neutral";
+  key_catalyst: string;
+  key_levels_watch: string;
+  session_expectation: string;
+}
+
+interface SymbolNews {
+  latest_headlines: string[];
+  detailed_breakdown: string;
+  trader_alert: string;
+  sniper_note?: SniperNote;
+}
 
 interface NewsReport {
   meta: { date: string; session: string; generated_at: string; language: string };
@@ -64,6 +81,18 @@ const SYMBOL_DISPLAY_ORDER = [
   "EURUSD","GBPUSD","USDJPY","AUDUSD","NZDUSD","USDCAD","USDCHF",
 ];
 
+const TIME_RANGE_OPTIONS = [
+  { value: "3h",  label: "3h",     display: "Last 3 Hours",  hours: 3   },
+  { value: "6h",  label: "6h",     display: "Last 6 Hours",  hours: 6   },
+  { value: "12h", label: "12h",    display: "Last 12 Hours", hours: 12  },
+  { value: "18h", label: "18h",    display: "Last 18 Hours", hours: 18  },
+  { value: "24h", label: "24h",    display: "Last 24 Hours", hours: 24  },
+  { value: "2d",  label: "2 Days", display: "Last 2 Days",   hours: 48  },
+  { value: "3d",  label: "3 Days", display: "Last 3 Days",   hours: 72  },
+  { value: "7d",  label: "1 Week", display: "Last 7 Days",   hours: 168 },
+] as const;
+type TimeRange = typeof TIME_RANGE_OPTIONS[number]["value"];
+
 function getCurrentSession(): string {
   const h = new Date().getUTCHours();
   if (h >= 22 || h < 6)  return "asian";
@@ -81,11 +110,22 @@ function formatDateLabel(d: string): string {
 
 // ─── Prompt content ───────────────────────────────────────────────────────────
 
-const NEWS_SYSTEM_PROMPT = `You are a charismatic, expert financial news anchor and market analyst — think of yourself as a sharp, knowledgeable dost who explains complex market events in a way that every retail trader can understand. Your job is to analyze all global macroeconomic news, geopolitical developments, central bank announcements, major data releases, and breaking market headlines from the past 24 hours for XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, and USDCHF.
+const NEWS_SYSTEM_PROMPT = `Tu ek world-class financial news analyst, reporter, aur market commentator hai — ek knowledgeable dost jo duniya bhar ki financial news aur macro events ko samjhata hai aur unhe retail traders ke liye bilkul simple aur clear language mein explain karta hai.
 
-You MUST write the entire analysis in highly detailed, easily understandable Hinglish using the English (Latin) alphabet only. Hinglish means a natural, conversational blend of Hindi and English — for example: "Market mein bohot zyada volatility dekhne ko mil sakti hai kyunki Fed ki meeting aane wali hai", "Dollar ne aaj sab ko surprise kar diya", "Gold bulls khush hain lekin bears bhi taiyaar hain". Write like you are talking to a smart friend who trades but wants clear, jargon-free explanations.
+TERA KAAM — SIRF NEWS & FUNDAMENTALS:
+Pichle 24 ghante mein duniya mein kya hua — har important macro event, economic data release, central bank ka decision ya speech, geopolitical tension, corporate news, commodity moves, equity market swings — sab kuch deeply analyze karo aur in sabka impact samjhao. Koi trade setup nahi dena, koi SL/TP nahi, koi entry nahi — sirf world news ki depth analysis aur us news ke basis par ek sniper directional suggestion (news-based bias aur key levels to watch).
 
-You MUST strictly output your final response as a raw JSON object exactly matching the provided schema. Every field must be populated with real, detailed, substantive Hinglish content. Do not write placeholder text, do not leave any field empty, do not include markdown formatting or backticks. Output valid, directly parseable JSON only.`;
+REPORTING STYLE:
+• Poora response Hinglish mein — English alphabet use karo lekin natural Hindi-English mix jaise ek knowledgeable dost baat kar raha ho.
+• Har news event ko itna detail mein explain karo ki ek naya trader bhi samajh sake ki kya hua, kyun hua, aur market ne usse kaise react kiya.
+• Use real numbers, real event names, real dates — vague generalizations nahi.
+• Every symbol ke liye news-based "sniper_note" mein sirf batao: news kya kehti hai (bias), kaunsa catalyst sabse important hai, kaunse levels news ke basis par watch karne chahiye, aur is session mein kya expect karo. SL/TP/entry BILKUL NAHI.
+
+IMPORTANT — JSON OUTPUT RULES:
+1. Apna poora response ek \`\`\`json ... \`\`\` code block mein wrap karo.
+2. JSON submit karne se pehle mentally validate karo — har opening bracket ka closing bracket hona chahiye, har key ke baad colon, har value ke baad comma (last item ke baad nahi), har string properly quoted honi chahiye.
+3. Agar JSON valid nahi hai toh response accept nahi hoga — isliye double-check karo.
+4. Koi placeholder text, koi "...", koi empty string nahi — har field mein real substantive Hinglish content.`;
 
 const NEWS_SCHEMA_TEMPLATE = `{
   "meta": {
@@ -95,50 +135,173 @@ const NEWS_SCHEMA_TEMPLATE = `{
     "language": "Hinglish"
   },
   "all_news_section": {
-    "headline": "Engaging Hinglish headline — aaj ki sabse badi khabar.",
-    "summary": "150+ word Hinglish summary: pichle 24 ghante ka complete global market breakdown, major narrative jo pure market ko drive kar raha hai.",
+    "headline": "Aaj ki sabse badi aur impactful khabar — engaging, specific, Hinglish mein.",
+    "summary": "200+ word Hinglish summary: pichle 24 ghante mein duniya mein kya hua, kaunse events ne market ko hila diya, aur overall sentiment kya hai. Dollar, equities, bonds, commodities, crypto — sab cover karo.",
     "high_impact_events": [
       {
-        "event_name": "FOMC | NFP | CPI | BoJ Decision | ECB Meeting | etc.",
-        "impact_explanation": "Is event se market par kya asar padne wala hai — detail mein Hinglish mein samjhao. Kaunse symbols affected honge, kya direction expect karo, kya levels pe nazar rakhna hai."
+        "event_name": "FOMC | NFP | CPI | GDP | BoJ Decision | ECB | UK CPI | China PMI | etc.",
+        "impact_explanation": "Is event se market par kya asar pada ya padega — expected vs actual outcome, kaunse symbols directly affected hue, kya direction dekhi gayi, aur retail traders ke liye kya matlab hai. Minimum 60 words in Hinglish."
+      },
+      {
+        "event_name": "Second event",
+        "impact_explanation": "Second event ka full Hinglish explanation..."
+      },
+      {
+        "event_name": "Third event",
+        "impact_explanation": "Third event ka full Hinglish explanation..."
+      },
+      {
+        "event_name": "Fourth event",
+        "impact_explanation": "Fourth event ka full Hinglish explanation..."
       }
     ]
   },
   "symbol_wise_news": {
     "XAUUSD": {
       "latest_headlines": [
-        "Gold se related latest khabar 1 — specific price action ya catalyst mention karo",
-        "Gold se related latest khabar 2 — another key development"
+        "Gold se related first specific khabar — exact price move ya catalyst mention karo",
+        "Gold se related second khabar — another concrete development"
       ],
-      "detailed_breakdown": "Gold mein pichle 24 ghante mein kya bada news movement hua — Hinglish mein minimum 100 words.",
-      "trader_alert": "Retail traders ke liye ek urgent, specific Hinglish warning: key level, risk event, ya positioning advice."
+      "detailed_breakdown": "Gold mein pichle 24 ghante mein kya hua — minimum 120 words Hinglish mein. Exact high/low/close, kaunsi news ne move kiya, dollar ka impact, real yields ka role, ETF flows, COMEX positioning, geopolitical premium — sab cover karo.",
+      "trader_alert": "Retail traders ke liye ek urgent aur specific Hinglish warning — kaunsa news event watch karna hai, kaunse levels pe reaction expect karo, kya risk hai is session mein. SL/TP mat dena — sirf news-based awareness.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Sabse important news catalyst jo is symbol ko is session mein drive karega — specific event naam, outcome, aur kya hua Hinglish mein.",
+        "key_levels_watch": "News ke basis par kaunse price levels important hain — 'X level pe news-driven support hai', 'Y zone pe sellers active ho sakte hain' — SL/TP nahi, sirf key watch zones.",
+        "session_expectation": "Is session mein news ke basis par kya expect karo — overall direction ka Hinglish mein explanation, kaunse events ya data releases aaj aane wale hain, aur unka kya impact ho sakta hai."
+      }
     },
-    "XAGUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "BTCUSDT": { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "ETHUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "GBPUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "EURUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "USDJPY":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "AUDUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "NZDUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "USDCAD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." },
-    "USDCHF":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "...", "trader_alert": "..." }
+    "XAGUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "Silver mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "BTCUSDT": { "latest_headlines": ["...", "..."], "detailed_breakdown": "Bitcoin mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "ETHUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "Ethereum mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "GBPUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "GBP/USD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "EURUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "EUR/USD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "USDJPY":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "USD/JPY mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "AUDUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "AUD/USD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "NZDUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "NZD/USD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "USDCAD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "USD/CAD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
+    "USDCHF":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "USD/CHF mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } }
   }
 }`;
 
-function buildNewsUserMessage(date: string, session: string): string {
+function formatCandlesForNewsPrompt(data: CandleSummary | null): string {
+  if (!data) return "(candle data available nahi hai — general market knowledge use karo)";
+
+  const syms = ["xauusd","xagusd","btcusdt","ethusd","eurusd","gbpusd","usdjpy","audusd","nzdusd","usdcad","usdchf"];
+  const lines: string[] = ["=== REAL OHLCV CANDLE DATA (UTC timestamps) ==="];
+
+  for (const sym of syms) {
+    const d = data[sym];
+    if (!d) continue;
+    lines.push(`\n${sym.toUpperCase()}:`);
+    if (d.h4?.length) {
+      lines.push("  H4 (last 7 din):");
+      for (const c of d.h4) {
+        const dt = new Date(c.t * 1000).toISOString().slice(0, 13) + ":00Z";
+        lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
+      }
+    }
+    if (d.h1?.length) {
+      lines.push("  H1 (last 48 ghante):");
+      for (const c of d.h1) {
+        const dt = new Date(c.t * 1000).toISOString().slice(0, 16) + "Z";
+        lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+function buildNewsUserMessage(date: string, session: string, candles: CandleSummary | null, timeRange: TimeRange = "24h"): string {
   const ts = new Date().toISOString();
+  const candleBlock = formatCandlesForNewsPrompt(candles);
+
+  const opt = TIME_RANGE_OPTIONS.find(o => o.value === timeRange) ?? TIME_RANGE_OPTIONS[4];
+  const hours = opt.hours;
+  const fromTs = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+  const timeHinglish =
+    timeRange === "3h"  ? "pichle 3 ghante" :
+    timeRange === "6h"  ? "pichle 6 ghante" :
+    timeRange === "12h" ? "pichle 12 ghante" :
+    timeRange === "18h" ? "pichle 18 ghante" :
+    timeRange === "24h" ? "pichle 24 ghante" :
+    timeRange === "2d"  ? "pichle 2 din" :
+    timeRange === "3d"  ? "pichle 3 din" :
+                          "pichle ek hafte";
+
   return `Aaj ka UTC date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
+Current UTC time: ${ts}
 
-Pichle 24 ghante ki saari important global financial news analyze karo: major economic data releases (NFP, CPI, GDP, PMI, retail sales), central bank decisions aur speeches (Fed, ECB, BoE, BoJ, RBA, RBNZ, SNB, BoC), geopolitical developments, equity market moves, bond yield changes, commodity price swings, aur crypto market events.
+NEWS TIME WINDOW: ${fromTs} SE LEKAR ${ts} TAK (${opt.display})
+STRICT RULE: Sirf is time window ke andar ki news aur events cover karo. Is window se pehle ki koi bhi news mat include karo, chahe woh kitni bhi important kyun na ho.
 
-In symbols ke liye complete Hinglish news breakdown chahiye: XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF.
+${candleBlock}
 
-Ek single valid JSON object output karo jo is schema ko exactly match kare:
+Upar diye gaye REAL H4 aur H1 candle data ko price context ke liye use karo — recent price levels, highs, lows, aur movements dekho. Yeh data sirf news ke impact ko contextualize karne ke liye hai, koi trade setup nahi banana.
+
+TERA MAIN KAAM — WORLD NEWS DEEP ANALYSIS (${timeHinglish} ki news SIRF):
+${timeHinglish} mein duniya mein kya hua — har important macro event deeply analyze karo:
+• US: Fed speeches, economic data (NFP, CPI, GDP, ISM, retail sales), Treasury yields, Dollar Index
+• Europe: ECB decisions/speeches, Eurozone PMI, UK CPI/jobs data, BoE communications
+• Asia: BoJ decisions, Japan inflation, China PMI/trade data, RBA/RBNZ meetings
+• Geopolitical: Wars, trade tensions, sanctions, commodity supply disruptions
+• Crypto: ETF flows, regulatory news, on-chain data, major moves
+• Commodities: Oil (OPEC), Gold drivers (real yields, DXY, safe-haven), Silver industrial demand
+• Equities: Major index moves, risk sentiment, VIX, big corporate earnings
+
+REQUIRED NEWS SOURCES — IN SABSE LATEST NEWS FETCH KARO (${opt.display} window):
+MACRO & GLOBAL MARKETS:
+  Bloomberg (bloomberg.com) — Fed/macro, institutional market analysis
+  Reuters (reuters.com) — breaking global financial news, wire reports
+  Financial Times (ft.com) — macro & central bank policy depth
+  Wall Street Journal (wsj.com) — US markets, earnings, Fed coverage
+  CNBC (cnbc.com) — real-time US market commentary & breaking news
+  MarketWatch (marketwatch.com) — US equity, bond & forex markets
+  Investing.com — economic calendar, live rates, breaking alerts
+  TradingEconomics (tradingeconomics.com) — economic indicators & data releases
+  Yahoo Finance (finance.yahoo.com) — broad market coverage
+
+CENTRAL BANKS (PRIMARY SOURCES):
+  federalreserve.gov — FOMC statements, Fed speeches, press conferences
+  ecb.europa.eu — ECB rate decisions, Lagarde speeches
+  boj.or.jp — Bank of Japan policy, YCC, intervention signals
+  bankofengland.co.uk — BoE MPC decisions, inflation reports
+  rba.gov.au | rbnz.govt.nz | bis.org — RBA, RBNZ, BIS updates
+
+FOREX & COMMODITIES:
+  ForexLive (forexlive.com) — real-time forex news & order flow
+  FXStreet (fxstreet.com) — forex analysis, economic calendar
+  DailyFX (dailyfx.com) — forex market analysis & COT data
+  Kitco (kitco.com) — gold, silver, precious metals latest
+  OilPrice.com — crude oil, OPEC meetings, energy news
+
+CRYPTO:
+  CoinDesk (coindesk.com) — Bitcoin & institutional crypto news
+  CoinTelegraph (cointelegraph.com) — crypto market moves & regulation
+  The Block (theblock.co) — institutional crypto, on-chain data
+  Decrypt (decrypt.co) — DeFi & altcoin developments
+
+TRENDING & BREAKING NEWS:
+  AP News (apnews.com/business) | BBC Business | Al Jazeera Business
+  X/Twitter trending finance & crypto topics (last ${hours}h)
+  Reddit: r/wallstreetbets, r/investing, r/CryptoCurrency (sentiment)
+  Google Trends — breakout finance-related searches
+
+Har symbol ke liye sniper_note mein sirf news-based directional suggestion do — koi SL nahi, koi TP nahi, koi entry nahi. Sirf: news kya keh rahi hai (bias), sabse important catalyst, kaunse levels news ke context mein important hain, aur is session mein kya expect karo.
+
+Neeche diya schema use karke ek valid JSON output do:
 
 ${NEWS_SCHEMA_TEMPLATE}
 
-meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}", meta.language = "Hinglish" set karo. all_news_section mein kam se kam 4 high_impact_events dalna. Har symbol ke liye exactly 2 headlines, ek detailed Hinglish breakdown (min 100 words), aur ek specific trader alert dalna hai.`;
+STRICT REQUIREMENTS:
+• meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}", meta.language = "Hinglish"
+• NEWS TIME WINDOW ENFORCE: Sirf ${fromTs} se ${ts} ke beech ki news — koi older news mat include karo
+• all_news_section.summary mein SIRF ${timeHinglish} ki news cover karo (minimum 200 words Hinglish)
+• all_news_section mein minimum 4 detailed high_impact_events (sirf is ${opt.display} window ke events)
+• Har symbol ke liye exactly 2 specific headlines, 120+ word Hinglish breakdown, specific trader_alert, aur complete sniper_note
+• Koi placeholder, koi "...", koi empty string — har field mein real content
+• JSON valid hona chahiye — submit karne se pehle check karo ki sab brackets, commas, quotes sahi hain
+• Poora response \`\`\`json ... \`\`\` code block mein wrap karo`;
 }
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
@@ -159,7 +322,21 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
 // ─── Prompt Modal ─────────────────────────────────────────────────────────────
 
 function PromptModal({ date, session, onClose }: { date: string; session: string; onClose: () => void }) {
-  const userMsg = buildNewsUserMessage(date, session);
+  const [candles,   setCandles]   = useState<CandleSummary | null>(null);
+  const [fetching,  setFetching]  = useState(true);
+  const [fetchErr,  setFetchErr]  = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange>("24h");
+
+  useEffect(() => {
+    fetch("/api/candle-summary")
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d => { setCandles(d); setFetching(false); })
+      .catch(e => { setFetchErr(e.message); setFetching(false); });
+  }, []);
+
+  const userMsg     = buildNewsUserMessage(date, session, candles, timeRange);
+  const copyAllText = `=== SYSTEM PROMPT ===\n${NEWS_SYSTEM_PROMPT}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${userMsg}`;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-[#111] border border-white/[0.10] shadow-2xl overflow-hidden">
@@ -168,59 +345,109 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
           <div className="flex items-center gap-2.5">
             <Bot className="h-4 w-4 text-white/50" />
             <div>
-              <p className="text-[13px] font-semibold text-white/80">Generate Hinglish News Prompt</p>
-              <p className="text-[11px] text-white/30">Paste into Gemini, Claude, or any AI to generate a news report manually</p>
+              <p className="text-[13px] font-semibold text-white/80">CHoCH QLM Hinglish News Prompt</p>
+              <p className="text-[11px] text-white/30">
+                {fetching ? "Live candle data load ho rahi hai…" : fetchErr ? "Candle fetch failed — general knowledge use hogi" : `H1+H4 data embed hua · ${SESSION_LABELS[session]} · ${date}`}
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
-            <X className="h-4 w-4" />
-          </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition"><X className="h-4 w-4" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        {/* Time range picker */}
+        <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">News Window</span>
+            <div className="flex items-center gap-1 flex-wrap">
+              {TIME_RANGE_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setTimeRange(opt.value as TimeRange)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all",
+                    timeRange === opt.value
+                      ? "bg-white/[0.12] text-white border border-white/[0.18]"
+                      : "bg-white/[0.03] text-white/35 border border-white/[0.06] hover:text-white/60 hover:bg-white/[0.07]",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <span className="ml-auto text-[10px] text-white/20 shrink-0">
+              {TIME_RANGE_OPTIONS.find(o => o.value === timeRange)?.display}
+            </span>
+          </div>
+        </div>
 
-          <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
-              <div className="flex items-center gap-2">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">1</span>
-                <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">System Prompt</span>
+        {fetching ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
+            <p className="text-[12px] text-white/30">14 symbols ka 48h candle data load ho raha hai…</p>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {fetchErr && (
+              <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/[0.07] border border-amber-500/20 text-[12px] text-amber-400/80">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                Candle data nahi mili ({fetchErr}). AI general market knowledge use karega.
               </div>
-              <CopyButton text={NEWS_SYSTEM_PROMPT} />
-            </div>
-            <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-48">
-              {NEWS_SYSTEM_PROMPT}
-            </pre>
-          </div>
+            )}
 
-          <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
-              <div className="flex items-center gap-2">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">2</span>
-                <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">User Message (Hinglish)</span>
-                <span className="text-[10px] text-white/20">pre-filled for {SESSION_LABELS[session]} · {date}</span>
+            {candles && !fetchErr && (
+              <div className="grid grid-cols-3 gap-2">
+                {(["H4 (7d)", "H1 (48h)", "Symbols"] as const).map((label, i) => {
+                  const val = i === 0
+                    ? Object.values(candles).reduce((s, d) => s + (d.h4?.length ?? 0), 0)
+                    : i === 1
+                    ? Object.values(candles).reduce((s, d) => s + (d.h1?.length ?? 0), 0)
+                    : Object.keys(candles).length;
+                  return (
+                    <div key={label} className="rounded-xl bg-white/[0.03] border border-white/[0.07] px-3 py-2.5 text-center">
+                      <p className="text-[18px] font-bold text-white/70">{val}</p>
+                      <p className="text-[10px] text-white/25 uppercase tracking-widest">{label}</p>
+                    </div>
+                  );
+                })}
               </div>
-              <CopyButton text={userMsg} />
+            )}
+
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">1</span>
+                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">System Prompt — CHoCH QLM Hinglish</span>
+                </div>
+                <CopyButton text={NEWS_SYSTEM_PROMPT} />
+              </div>
+              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-48">{NEWS_SYSTEM_PROMPT}</pre>
             </div>
-            <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-56">
-              {userMsg}
-            </pre>
+
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">2</span>
+                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">User Message + Real Candle Data</span>
+                  <span className="text-[10px] text-white/20">{SESSION_LABELS[session]} · {date}</span>
+                </div>
+                <CopyButton text={userMsg} />
+              </div>
+              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64">{userMsg}</pre>
+            </div>
+
+            <div className="rounded-xl bg-emerald-500/[0.05] border border-emerald-500/[0.15] px-4 py-3">
+              <p className="text-[11px] font-semibold text-emerald-400/70 uppercase tracking-widest mb-1">Step 3 — Save karo</p>
+              <p className="text-[12px] text-white/40 leading-relaxed">
+                AI ka generated JSON copy karo → <span className="text-white/60 font-medium">Edit JSON</span> mein paste karo → Save. <span className="text-white/50">choch_signal</span> fields automatically har symbol card mein display honge.
+              </p>
+            </div>
           </div>
+        )}
 
-          <div className="rounded-xl bg-emerald-500/[0.05] border border-emerald-500/[0.15] px-4 py-3">
-            <p className="text-[11px] font-semibold text-emerald-400/70 uppercase tracking-widest mb-1">Step 3 — Save the output</p>
-            <p className="text-[12px] text-white/40 leading-relaxed">
-              AI ka generated JSON copy karo aur is page ke <span className="text-white/60 font-medium">Edit JSON</span> editor mein paste karo. Save karo — DB mein store ho jayega aur turant yahan dikhega.
-            </p>
-          </div>
-
+        <div className="px-5 py-3 border-t border-white/[0.07] shrink-0 flex items-center justify-between gap-3">
+          <CopyButton text={copyAllText} label="Copy All Blocks" />
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] border border-white/[0.08] transition">Close</button>
         </div>
-
-        <div className="px-5 py-3 border-t border-white/[0.07] shrink-0 flex justify-end">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] border border-white/[0.08] transition">
-            Close
-          </button>
-        </div>
-
       </div>
     </div>
   );
@@ -354,6 +581,70 @@ function EditorModal({
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+// ─── CHoCH Signal card (Hinglish) ────────────────────────────────────────────
+
+function SniperNoteSection({ note }: { note: SniperNote }) {
+  const bullish = note.news_bias === "Bullish";
+  const bearish = note.news_bias === "Bearish";
+
+  return (
+    <div className="px-5 pb-5 pt-4 border-t border-white/[0.05] space-y-3">
+
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <Target className="h-3 w-3 text-white/30 shrink-0" />
+          <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest">Sniper Note · News-Based</span>
+        </div>
+        {note.news_bias && (
+          <span className={cn(
+            "px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
+            bullish ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" :
+            bearish ? "bg-red-500/15 text-red-400 border-red-500/25" :
+            "bg-white/[0.05] text-white/40 border-white/[0.10]",
+          )}>
+            {bullish ? "▲" : bearish ? "▼" : "—"} News: {note.news_bias}
+          </span>
+        )}
+      </div>
+
+      {/* Key catalyst */}
+      {note.key_catalyst && (
+        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3">
+          <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest mb-1.5">Key Catalyst</p>
+          <p className="text-[12px] text-white/65 leading-[1.8]">{note.key_catalyst}</p>
+        </div>
+      )}
+
+      {/* Levels to watch */}
+      {note.key_levels_watch && (
+        <div>
+          <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest mb-1.5">Levels to Watch</p>
+          <p className="text-[12px] text-white/55 leading-[1.8]">{note.key_levels_watch}</p>
+        </div>
+      )}
+
+      {/* Session expectation */}
+      {note.session_expectation && (
+        <div className={cn(
+          "rounded-xl px-4 py-3 border",
+          bullish ? "bg-emerald-500/[0.05] border-emerald-500/15" :
+          bearish ? "bg-red-500/[0.05] border-red-500/15" :
+          "bg-white/[0.02] border-white/[0.06]",
+        )}>
+          <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest mb-1.5">Session Expectation</p>
+          <p className={cn("text-[12px] leading-[1.85]",
+            bullish ? "text-emerald-400/70" :
+            bearish ? "text-red-400/70" :
+            "text-white/60",
+          )}>{note.session_expectation}</p>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
 function EventCard({ event }: { event: HighImpactEvent }) {
   const [expanded, setExpanded] = useState(false);
   const LIMIT = 180;
@@ -434,6 +725,9 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
           <p className="text-[12px] text-amber-300/80 leading-[1.8]">{news.trader_alert}</p>
         </div>
       </div>
+
+      {/* Sniper note — news-based directional suggestion */}
+      {news.sniper_note && <SniperNoteSection note={news.sniper_note} />}
     </div>
   );
 }

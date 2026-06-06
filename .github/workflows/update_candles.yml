@@ -1,0 +1,103 @@
+name: Update Candle Data
+
+# ─── Schedule (all times IST → UTC) ──────────────────────────────────────────
+#
+#   Session    IST         UTC        cron
+#   ─────────  ──────────  ─────────  ──────────────
+#   Asian      05:15 AM    23:45      45 23 * * *
+#   London     11:15 AM    05:45      45 5 * * *
+#   New York   04:15 PM    10:45      45 10 * * *
+#
+# IST is UTC+05:30. All three fire before the corresponding session open
+# so fresh candles are available before trading begins.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    - cron: "45 23 * * *"   # 05:15 AM IST  — before Asian session
+    - cron: "45 5 * * *"    # 11:15 AM IST  — before London session
+    - cron: "45 10 * * *"   # 04:15 PM IST  — before New York session
+
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Session label for commit message (asian / london / new_york / manual)"
+        required: false
+        default: "manual"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  update-candles:
+    name: Fetch & append latest candles — ${{ github.event.inputs.session || 'scheduled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30          # Dukascopy fetch for 14 symbols should be well under this
+
+    steps:
+      # ── 1. Checkout (full history not needed — just latest commit) ───────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Node.js 20 (ESM modules, matches local dev environment) ───────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      # ── 3. Install deps (dukascopy-node + all project deps) ──────────────
+      #    npm ci is deterministic and respects package-lock.json exactly.
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 4. Resolve session label ─────────────────────────────────────────
+      #    workflow_dispatch → use the input value
+      #    scheduled         → derive from UTC hour at runtime
+      - name: Resolve session name
+        id: session
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.session }}" ]; then
+            echo "name=${{ github.event.inputs.session }}" >> "$GITHUB_OUTPUT"
+          else
+            HOUR=$(date -u +%-H)
+            if   [ "$HOUR" -eq 23 ]; then echo "name=asian"    >> "$GITHUB_OUTPUT"
+            elif [ "$HOUR" -eq 5  ]; then echo "name=london"   >> "$GITHUB_OUTPUT"
+            elif [ "$HOUR" -eq 10 ]; then echo "name=new_york" >> "$GITHUB_OUTPUT"
+            else                          echo "name=scheduled" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      # ── 5. Run the incremental update ────────────────────────────────────
+      #    The script reads each symbol's last timestamp, fetches only the
+      #    delta from Dukascopy, and appends new rows to existing CSVs.
+      - name: Update candle data
+        env:
+          SESSION_NAME: ${{ steps.session.outputs.name }}
+        run: node scripts/update_candles.mjs
+
+      # ── 6. Commit & push only if there is new data ───────────────────────
+      #    git diff --staged --quiet exits 0 when nothing changed.
+      #    We never create an empty commit.
+      - name: Commit and push new candles
+        run: |
+          git config user.name  "Stratix Bot"
+          git config user.email "actions@github.com"
+
+          # Stage only the candles directory — nothing else
+          git add public/data/candles/
+
+          if git diff --staged --quiet; then
+            echo "✓ No new candle data to commit — Dukascopy may not have published yet."
+            echo "  This is expected for metals (XAUUSD/XAGUSD) and some FX pairs"
+            echo "  which can lag the real-time feed by 1–24 hours."
+          else
+            # Build a concise stat line for the commit message
+            STAT=$(git diff --staged --stat | tail -1)
+            git commit -m "chore(candles): ${{ steps.session.outputs.name }} update — ${STAT}"
+            git push
+            echo "✓ Pushed updated candle files."
+          fi
