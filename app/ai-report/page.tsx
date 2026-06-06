@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   BrainCircuit,
@@ -279,6 +281,19 @@ function MacroSkeleton() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AIReportPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  // Admin-only guard — matches the pattern used in /admin and /live-data
+  useEffect(() => {
+    if (status === "loading") return;
+    if (!session?.user) {
+      router.replace("/auth/signin");
+    } else if (session.user.role !== "admin") {
+      router.replace("/dashboard");
+    }
+  }, [session, status, router]);
+
   const [reports,        setReports]        = useState<ReportEntry[]>([]);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate,   setSelectedDate]   = useState<string>("");
@@ -362,6 +377,11 @@ export default function AIReportPage() {
       if (!symbolGroups[cls]) symbolGroups[cls] = [];
       symbolGroups[cls].push([sym, data]);
     }
+  }
+
+  // ── Auth gate — render nothing until admin confirmed ─────────────────────
+  if (status === "loading" || !session?.user || session.user.role !== "admin") {
+    return null;
   }
 
   // ── Initial loading ──────────────────────────────────────────────────────

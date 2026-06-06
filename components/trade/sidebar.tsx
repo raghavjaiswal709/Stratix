@@ -48,13 +48,13 @@ const tradeItems: NavItem[] = [
   { href: "/journal",     label: "Journal",     icon: BookOpen },
   { href: "/trade-notes", label: "Trade Notes", icon: FileText },
   { href: "/backtesting", label: "Backtesting", icon: ChartCandlestick, beta: true },
-  { href: "/ai-report",      label: "AI Report",      icon: BrainCircuit },
-  { href: "/news-analysis",  label: "News Analysis",  icon: Newspaper },
 ];
 
 const adminTradeItems: NavItem[] = [
-  { href: "/live-data",   label: "Live Data",   icon: Radio },
-  { href: "/chart",       label: "Chart",       icon: ChartCandlestick },
+  { href: "/live-data",     label: "Live Data",     icon: Radio },
+  { href: "/chart",         label: "Chart",          icon: ChartCandlestick },
+  { href: "/ai-report",     label: "AI Report",      icon: BrainCircuit },
+  { href: "/news-analysis", label: "News Analysis",  icon: Newspaper },
 ];
 
 const lifeItems = [
