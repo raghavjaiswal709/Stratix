@@ -1,0 +1,66 @@
+name: Market Analysis Report
+
+on:
+  schedule:
+    - cron: "0 22 * * *"   # Asian session — prior to Tokyo open
+    - cron: "0 6 * * *"    # London session — prior to London open
+    - cron: "0 12 * * *"   # New York session — prior to NY open
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Session to generate (asian / london / new_york)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Determine session
+        id: session
+        run: |
+          if [ -n "${{ github.event.inputs.session }}" ]; then
+            echo "name=${{ github.event.inputs.session }}" >> "$GITHUB_OUTPUT"
+          else
+            HOUR=$(date -u +%-H)
+            if   [ "$HOUR" -eq 22 ]; then echo "name=asian"    >> "$GITHUB_OUTPUT"
+            elif [ "$HOUR" -eq 6  ]; then echo "name=london"   >> "$GITHUB_OUTPUT"
+            else                          echo "name=new_york" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Generate market analysis report
+        env:
+          GEMINI_API_KEY: "AIzaSyDxtiltuqItfIBIoEXaUDeXgd3Qlhm9dLw"
+          SESSION_NAME: ${{ steps.session.outputs.name }}
+        run: python scripts/generate_market_analysis.py
+
+      - name: Commit and push report
+        run: |
+          git config user.name  "Stratix Bot"
+          git config user.email "actions@github.com"
+          git add public/reports/
+          if git diff --staged --quiet; then
+            echo "No new report to commit — file may already exist for this run."
+          else
+            git commit -m "chore(reports): $(date -u +%Y-%m-%d) ${{ steps.session.outputs.name }} session analysis"
+            git push
+          fi

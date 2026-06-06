@@ -1,0 +1,109 @@
+{
+  "meta": {
+    "date": "2026-06-06",
+    "session": "Asian",
+    "generated_at": "2026-06-05T22:00:00.000Z"
+  },
+  "global_macro_overview": "Risk sentiment entered the weekend on a cautious footing after US Non-Farm Payrolls for May printed at +188k, undershooting the +200k consensus, while the unemployment rate ticked up to 4.0% — its highest reading since early 2022. Despite the soft labor data, the Dollar Index (DXY) found support near 104.20 as markets re-evaluated the implications for Fed policy: a weaker labor market strengthens the case for rate cuts, but core PCE remaining sticky at 2.8% YoY complicates the picture. Fed minutes released mid-week revealed internal division, with several members citing persistent services inflation as justification for delaying any easing beyond Q3 2026. US Treasuries rallied strongly on the NFP miss, with the 10Y yield falling 9bps to 4.31%, the 2Y dropping 11bps to 4.72%, and the curve steepening toward -41bps — its least inverted level since 2022.\n\nGold surged $31 to $2,387 as real yields dipped sharply, while silver lagged on continued weak Chinese industrial demand signals. Crude oil fell $1.40 to $76.20 (WTI) amid OPEC+ production increase speculation, weighing on CAD and NOK. Equity markets closed mixed: S&P 500 +0.4%, Nasdaq +0.6% (tech resilience), while European indices ended the week lower on growth concerns. In crypto, Bitcoin defended the psychological $70,000 level following a brief dip to $69,200 triggered by EU MiCA enforcement headlines, recovering on strong spot ETF inflows of $1.2bn for the week. The overall risk regime is characterized as cautiously risk-off in macro assets but selectively risk-on in tech and crypto, a bifurcated environment typical of late-cycle uncertainty.",
+  "symbols": {
+    "XAUUSD": {
+      "past_24h_summary": "Gold printed a daily high of $2,387 and a low of $2,341 during Friday's session. The initial catalyst was a broad dollar sell-off following the NFP miss, which pushed real yields lower and sparked safe-haven demand. COMEX front-month open interest rose 3.2% to 512k contracts, signaling fresh institutional longs rather than short covering. ETF flows tracked +14.2 tonnes for the week per WGC data. The metal closed New York at $2,376, up $28 on the day. Technically, price reclaimed the 21-day EMA at $2,352 and is testing resistance at the prior all-time high zone near $2,387–$2,400.",
+      "sentiment": "Bullish",
+      "key_levels": {
+        "resistance": [2387, 2400, 2430, 2450],
+        "support": [2355, 2341, 2318, 2300]
+      },
+      "session_outlook": "Gold enters the Asian session in a technically strong position, having reclaimed the key 21-day EMA and approaching the all-time high cluster. The primary upside catalyst in the Asian session would be a PBOC gold reserve update (expected at 02:00 UTC) or a further deterioration in US Treasury yields in overnight trading. Expect initial consolidation in the $2,358–$2,387 range as London and NY traders are sidelined. Tactical long entries are favored at the $2,355–$2,362 demand zone with a target of $2,400 and invalidation on a 4H close below $2,341. A break of $2,400 on heavy volume would open the measured-move target toward $2,430 based on the prior base. Risk: any surprise USD-positive data from Asia or hawkish Fed speaker commentary could push price back toward $2,341 support."
+    },
+    "XAGUSD": {
+      "past_24h_summary": "Silver underperformed gold materially in Friday's session, rising only from $29.20 to $29.85 before settling at $29.55, expanding the gold/silver ratio to 80.4 — a 3-week high. The underperformance reflects persistent concerns over Chinese industrial demand, with Caixin manufacturing PMI printing at 49.6 (contractionary). LME silver inventories rose 2.1% on the day. Options market implied volatility rose to 22% on the front-month contract, reflecting increased uncertainty. The EV demand narrative supports the medium-term bull case but near-term momentum is weakening on the daily chart with a bearish MACD crossover forming.",
+      "sentiment": "Neutral",
+      "key_levels": {
+        "resistance": [29.85, 30.20, 31.00],
+        "support": [29.20, 28.80, 28.30]
+      },
+      "session_outlook": "Silver faces the Asian session without a clear directional catalyst. The $29.20 level is the primary structural support — a daily close below that level would confirm a short-term top and open the door to $28.80. The risk/reward for new longs is poor given the gold/silver ratio expansion and weak Chinese industrial outlook. Any upside surprise in Chinese CPI or industrial production data released at 01:30 UTC could trigger a short-covering rally toward $30.20. Preferred positioning: flat through Asia, re-evaluate at the London open for a potential fade rally at $30.00–$30.20 resistance. Stop for short positions would be a break above $30.50 on an hourly close."
+    },
+    "BTCUSDT": {
+      "past_24h_summary": "Bitcoin tested $69,200 on a flash move triggered by headlines around the EU's MiCA enforcement — specifically, asset managers face new compliance burdens effective Q3 2026. The dip was absorbed within 45 minutes with on-chain data from Glassnode showing significant accumulation from wallets in the 1k–10k BTC cohort. Spot ETF cumulative inflows hit $1.2bn for the week per Farside data. Perpetual funding rates normalized from +0.04% to near-zero, confirming the market flushed over-leveraged longs. BTC reclaimed $70,000 and posted a bullish engulfing candle on the 4H chart, a technically significant signal. CME futures basis held positive at +6.5% annualized.",
+      "sentiment": "Bullish",
+      "key_levels": {
+        "resistance": [72000, 73800, 75000],
+        "support": [70000, 69200, 67500]
+      },
+      "session_outlook": "Bitcoin's reclaim of $70,000 with normalized funding rates and strong spot ETF backing creates a constructive setup heading into the Asian session. Korean and Japanese retail participation historically supports price between 23:00–04:00 UTC. The primary scenario is a grind higher toward $72,000, with the all-time high retest at $73,800 on the radar if macro conditions remain accommodative. Tactical long at current levels ($70,200–$70,500) with a $73,800 target and hard stop below $69,000 (daily close) offers a 3:1 risk/reward. A failure to hold $70,000 on any Asia-session retest would neutralize the short-term bullish structure and shift focus to the $67,500 support. Watch for any Asia-Pacific regulatory headlines that could spark sharp short-term volatility."
+    },
+    "ETHUSD": {
+      "past_24h_summary": "Ethereum ranged between $3,620 and $3,780, underperforming BTC as the ETH/BTC ratio slipped to 0.0530 — its lowest since April. Staking yields remained stable at 3.8% APR. Layer-2 networks reached a new combined daily transaction record of 12.3M across Arbitrum, Optimism, and Base. The SEC's ETF approval process is cited by institutional desks as the primary Q3 2026 catalyst for ETH. Implied volatility on Deribit 30-day options rose to 68%, indicating elevated uncertainty. ETH futures open interest fell 4% as the MiCA news triggered position reduction.",
+      "sentiment": "Bullish",
+      "key_levels": {
+        "resistance": [3780, 3900, 4000],
+        "support": [3620, 3520, 3400]
+      },
+      "session_outlook": "ETH's path in the Asian session is primarily BTC-dependent. Holding above $3,620 maintains the medium-term bullish structure toward $3,900. A stabilization in the ETH/BTC ratio at or above 0.0530 would be a positive signal for ETH-specific buying. On-chain metrics show staking-driven demand pressure accumulating. Tactical longs targeting $3,900 with a stop below $3,580 (4H close) represent the favored positioning. Risk: a BTC-led reversal below $69,000 would likely drag ETH toward $3,520 support. The $4,000 psychological level remains the ultimate resistance for this leg — expect significant option-related selling at that strike."
+    },
+    "GBPUSD": {
+      "past_24h_summary": "Cable declined from 1.2782 to a session low of 1.2718 on strong initial DXY buying post-NFP before recovering modestly to 1.2750 into the New York close. GBP-specific fundamentals were mixed: UK services PMI held at 52.3 (solid) but manufacturing remained deeply contractionary at 47.8. BoE's Pill reiterated that rate cuts remain likely in Q3 but are contingent on incoming CPI data. 1-week implied volatility rose to 5.2% ahead of next Wednesday's UK CPI release. CFTC data showed speculative GBP longs trimmed for the third consecutive week, indicating fading bullish conviction.",
+      "sentiment": "Bearish",
+      "key_levels": {
+        "resistance": [1.2780, 1.2850, 1.2920],
+        "support": [1.2718, 1.2680, 1.2620]
+      },
+      "session_outlook": "Cable faces the Asian session in a technically weakened state, sitting below the 1.2780 resistance that was breached on the NFP-triggered sell-off. With no UK economic data scheduled during Asian hours, price action will be dictated by broader USD flows and risk sentiment. The path of least resistance is sideways to slightly lower, drifting toward the 1.2718 recent low. A sustained break below 1.2718 would open 1.2680 — a key Fibonacci level from the February rally. Shorts can be initiated on any recovery toward 1.2765–1.2780 with tight stops above 1.2800 and a target of 1.2680. The defining event for this pair this week is UK CPI on Wednesday; position sizing should be reduced to accommodate binary risk from that print."
+    },
+    "EURUSD": {
+      "past_24h_summary": "EUR/USD traded in a contained 1.0814–1.0878 range, unable to capitalize on USD weakness as the euro faced its own headwinds from weak Eurozone PMI data (Composite: 50.9, barely expansionary). ECB President Lagarde reiterated a data-dependent approach to future cuts, with markets pricing 2 additional 25bp cuts for 2026. German Bund yields fell 7bps to 2.48% in sympathy with UST rally. EUR/USD net speculative positioning per CFTC was near-neutral at +12k contracts, offering no clear momentum signal. The pair found support at the 200-day SMA at 1.0814.",
+      "sentiment": "Neutral",
+      "key_levels": {
+        "resistance": [1.0878, 1.0940, 1.1000],
+        "support": [1.0814, 1.0780, 1.0725]
+      },
+      "session_outlook": "EUR/USD enters the Asian session without a clear directional bias, trapped between dollar softness (from NFP) and euro-specific weakness (ECB easing trajectory). The 1.0814–1.0878 range is likely to persist through Asia with low liquidity. A break above 1.0878 requires a meaningful catalyst — absent that, fade rallies toward 1.0878 with a target of 1.0820 and stops above 1.0910. The 200-day SMA at 1.0814 is critical medium-term support — a sustained close below would shift the technical bias firmly bearish toward 1.0725. Watch EUR/USD correlation with US 10Y yields for intraday directional signals."
+    },
+    "USDJPY": {
+      "past_24h_summary": "USD/JPY was the session's most volatile pair, testing 157.00 intraday before retreating sharply to 155.80 following verbal intervention warnings from Finance Minister Kato, who stated Japan was 'monitoring FX markets with urgency.' The BoJ's June meeting maintained ultra-loose policy but slightly revised the 2026 inflation forecast higher to 2.3%, hinting at a possible July rate hike — a hawkish surprise for yen bulls. Japanese 10Y JGB yields rose to 1.02%, the highest since 2013. CFTC data showed speculative JPY shorts near historic highs, creating significant squeeze potential if intervention materialises.",
+      "sentiment": "Bearish",
+      "key_levels": {
+        "resistance": [157.00, 158.00, 160.00],
+        "support": [155.50, 154.80, 153.00]
+      },
+      "session_outlook": "This is the highest-risk pair in the Asian session due to BoJ intervention threat and thin Tokyo liquidity amplifying any move. The 155.50 level is immediate structural support — a coordinated BoJ/MoF intervention could accelerate a move toward 154.80 and potentially 153.00 in a single session. Conversely, absent intervention, the pair may attempt to reclaim 156.50 if risk sentiment improves. Positioning recommendation: longs must carry very tight stops (25 pips) given asymmetric intervention risk. The BoJ's July window is live — any price above 156.00 should be treated as an intervention trigger zone. Shorts targeting 153.00 are valid but require patience given the pair's tendency for violent reversals. Do not hold large positions through Tokyo open (23:00 UTC)."
+    },
+    "AUDUSD": {
+      "past_24h_summary": "AUD/USD recovered from 0.6548 to a high of 0.6612 before settling at 0.6582. The pair benefited from a modest risk-on pop post-NFP but was capped by weak Chinese Caixin PMI (49.6) and a 1.2% fall in iron ore futures to $108/t. RBA May meeting minutes, released Thursday, maintained a hawkish bias citing above-target CPI and strong employment conditions. Markets have now priced the first RBA cut for Q4 2026, which provides a relative yield support for AUD vs other G10 peers. The AUD/USD 3-month implied volatility rose to 9.2%.",
+      "sentiment": "Neutral",
+      "key_levels": {
+        "resistance": [0.6612, 0.6650, 0.6700],
+        "support": [0.6548, 0.6510, 0.6460]
+      },
+      "session_outlook": "AUD is particularly data-sensitive in the Asian session given scheduled Chinese trade balance data at 03:00 UTC and Australian home loan data at 01:30 UTC. A strong Chinese trade surplus (>$70bn) would likely push AUD above 0.6612 and toward 0.6650. A weak print confirms the bearish China thesis and drags AUD toward 0.6548. The RBA's hawkish hold relative to other central banks provides a floor, making aggressive shorts less attractive. Preferred trade: buy dips at 0.6548–0.6560 with a tight stop at 0.6520, targeting 0.6650 on a favorable Chinese data surprise."
+    },
+    "NZDUSD": {
+      "past_24h_summary": "NZD/USD tracked AUD/USD dynamics, trading from 0.6082 to 0.6145 before settling at 0.6115. The pair underperformed AUD as RBNZ's rate cut cycle is more advanced — markets price the first RBNZ cut in August 2026 following two consecutive quarters of negative GDP growth. New Zealand's Q1 GDP printed at -0.2% QoQ, confirming the economy is in a technical recession. Dairy commodity prices (NZ's primary export) were flat for the week. NZD/USD's 30-day correlation with risk assets (SPX) stands at 0.68, making it a sensitive risk barometer.",
+      "sentiment": "Bearish",
+      "key_levels": {
+        "resistance": [0.6145, 0.6180, 0.6220],
+        "support": [0.6082, 0.6040, 0.6000]
+      },
+      "session_outlook": "NZD carries a structural bearish bias from the RBNZ's imminent cut cycle and New Zealand's recession backdrop. The Asian session sees no NZ-specific catalysts; price will track China data and overall risk sentiment. Fade any rally above 0.6140 toward the 0.6145 recent high — stops above 0.6165, target 0.6082. A break of 0.6082 on a 4H close would open the path toward the psychological 0.6000 level — a key medium-term target for bears. Avoid aggressive longs given the structural headwinds."
+    },
+    "USDCAD": {
+      "past_24h_summary": "USD/CAD traded in a 1.3680–1.3745 range, ending at 1.3712. Canadian employment data surprised to the upside at +27k vs +20k expected, which briefly pressured the pair to 1.3680 before USD strength reasserted. WTI crude oil fell $1.40 to $76.20, capping CAD gains — oil is Canada's primary export driver. The BoC is expected to cut rates at least twice more in 2026 given GDP growth underperformance relative to the US. The rate differential (Fed funds vs BoC) sits at 25bps in USD's favour and is expected to widen.",
+      "sentiment": "Bullish",
+      "key_levels": {
+        "resistance": [1.3745, 1.3800, 1.3860],
+        "support": [1.3680, 1.3640, 1.3600]
+      },
+      "session_outlook": "USD/CAD has a mild bullish bias entering the Asian session with BoC rate cut expectations and continued oil weakness supporting the pair. The 1.3745 resistance is the immediate target for bulls — a sustained break would open the 1.3800 round-number resistance and, beyond that, 1.3860 (the 2025 high). Watch WTI crude oil closely: any Middle East supply shock that rallies oil above $79 would materially pressure USD/CAD lower. Tactical approach: long at 1.3695–1.3710 targeting 1.3745–1.3800, stop at 1.3665. Asian liquidity is typically thin for this pair so prefer limit orders over market."
+    },
+    "USDCHF": {
+      "past_24h_summary": "USD/CHF ranged between 0.8980 and 0.9045, settling at 0.9020. The SNB's March 25bp rate cut brought the policy rate to 1.25%, with markets pricing one additional cut in September. Swiss CPI at 0.3% YoY remains well below the SNB's 2% target, giving the central bank ample room to ease further. CHF's safe-haven demand provided a floor during the risk-off NFP reaction, limiting the pair's upside. EUR/CHF stabilized near 0.9770, capping broad CHF strength. The SNB is widely expected to intervene if CHF strengthens materially.",
+      "sentiment": "Bullish",
+      "key_levels": {
+        "resistance": [0.9045, 0.9080, 0.9120],
+        "support": [0.8980, 0.8940, 0.8900]
+      },
+      "session_outlook": "USD/CHF carries a mild bullish structural bias given the SNB's dovish stance and the CHF's reduced safe-haven appeal relative to JPY in the current environment. The Asian session offers no Swiss-specific catalysts; the pair will track overall USD sentiment and risk dynamics. A move above 0.9045 resistance would target 0.9080 (the 100-day SMA) on a sustained break. Safe-haven CHF demand could cap upside if geopolitical risk escalates — particularly if JPY intervention pushes cross-CHF flows. Conservative long at 0.8990–0.9010 with stop at 0.8960, targeting 0.9080."
+    }
+  }
+}

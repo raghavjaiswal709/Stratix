@@ -26,6 +26,7 @@ import {
   Radio,
   Plus,
   Check,
+  BrainCircuit,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -46,6 +47,7 @@ const tradeItems: NavItem[] = [
   { href: "/journal",     label: "Journal",     icon: BookOpen },
   { href: "/trade-notes", label: "Trade Notes", icon: FileText },
   { href: "/backtesting", label: "Backtesting", icon: ChartCandlestick, beta: true },
+  { href: "/ai-report",   label: "AI Report",   icon: BrainCircuit },
 ];
 
 const adminTradeItems: NavItem[] = [

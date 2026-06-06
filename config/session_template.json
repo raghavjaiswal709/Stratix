@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "date": "YYYY-MM-DD",
+    "session": "Asian | London | New York",
+    "generated_at": "ISO-8601 timestamp"
+  },
+  "global_macro_overview": "Comprehensive narrative of the last 24 hours: major economic data releases and their outcomes vs expectations, central bank speeches and policy signals, geopolitical developments, equity market performance, bond market moves, DXY direction, commodity complex overview, and the prevailing risk-on/risk-off market regime. Minimum 200 words.",
+  "symbols": {
+    "XAUUSD": {
+      "past_24h_summary": "Detailed narrative of XAUUSD price action: exact high/low/close prices, key drivers (real yields, DXY, ETF flows, COMEX positioning, geopolitical premium), volume dynamics, and any significant news catalysts that moved price.",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": {
+        "resistance": [0.0, 0.0, 0.0],
+        "support": [0.0, 0.0, 0.0]
+      },
+      "session_outlook": "Tactical analysis for the upcoming session: expected range, high-probability directional bias with reasoning, key catalysts to watch (economic releases, central bank speakers, technical triggers), specific entry zones, price targets, and invalidation levels."
+    },
+    "XAGUSD": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "BTCUSDT": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "ETHUSD": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "GBPUSD": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "EURUSD": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "USDJPY": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "AUDUSD": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "NZDUSD": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "USDCAD": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    },
+    "USDCHF": {
+      "past_24h_summary": "...",
+      "sentiment": "Bullish | Bearish | Neutral",
+      "key_levels": { "resistance": [0.0, 0.0, 0.0], "support": [0.0, 0.0, 0.0] },
+      "session_outlook": "..."
+    }
+  }
+}
