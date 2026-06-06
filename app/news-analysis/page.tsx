@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
@@ -35,7 +35,16 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface HighImpactEvent { event_name: string; impact_explanation: string; }
+interface MarketImpactTag {
+  symbol: string;                          // e.g. "XAUUSD", "USD", "BTC", "Oil", "US Equities"
+  effect: "bullish" | "bearish" | "neutral";
+}
+
+interface HighImpactEvent {
+  event_name:        string;
+  impact_explanation: string;
+  market_impact?:    MarketImpactTag[];    // per-instrument impact tags
+}
 interface AllNewsSection  { headline: string; summary: string; high_impact_events: HighImpactEvent[]; }
 interface SniperNote {
   news_bias: "Bullish" | "Bearish" | "Neutral";
@@ -227,6 +236,64 @@ REPORTING STYLE:
 • Real numbers, real event names, real dates — vague generalizations bilkul nahi
 • Har symbol ke sniper_note mein sirf: news bias, key catalyst, watch levels, session expectation — SL/TP/entry BILKUL NAHI
 
+MARKDOWN FORMATTING — HAR TEXT FIELD MEIN LAGAATAAR USE KARO:
+
+**Bold** (**text**) — in cheezein bold karo:
+  • Har key event naam: **FOMC**, **NFP**, **CPI**, **BoJ Decision**, **OPEC Cut**, **CPI Miss**
+  • Sare important numbers with units: **3.4%**, **$3,280**, **¥155.20**, **$85/bbl**, **25bps**, **+$2.1B**
+  • Key price levels: **$3,300**, **$3,350 resistance**, **104.5 DXY**
+  • Major institution names in context: **Federal Reserve**, **ECB**, **Goldman Sachs**
+  • Direction words when critical: **Bullish**, **Bearish**, **Hawkish**, **Dovish**
+
+*Italic* (*text*) — in cheezein italic karo:
+  • Expected vs actual comparisons: *Expected: 3.2%, Actual: 3.8%*
+  • Analyst opinions or forecasts: *analysts ne 50bps cut ki expect ki thi*
+  • Secondary context: *historically yeh level strong support raha hai*
+  • Source references: *Reuters ke mutabik*, *Bloomberg ne report kiya*
+
+***Bold Italic*** (***text***) — sirf critical/extreme events ke liye:
+  • Black swan events: ***UNPRECEDENTED: Fed ne emergency rate cut kiya***
+  • Extreme surprise results: ***MASSIVE MISS: NFP -150k vs expected +250k***
+  • Critical breaking alerts: ***BREAKING: Major bank failure detected***
+  • Extreme volatility warnings: ***EXTREME CAUTION: Circuit breakers triggered***
+
+LINE BREAKS — \n use karo text ke andar paragraph separate karne ke liye:
+  • detailed_breakdown mein har key point ke baad \n\n lagao
+  • impact_explanation mein cause, effect, aur outlook ko \n se separate karo
+  • session_expectation mein different scenarios \n se divide karo
+  • EXAMPLE: "**Gold** **$3,350** pe strong resistance mila.\n\n**Key reason:** *Fed hawkish tone* ne real yields **+12bps** push kiye.\n\n***CRITICAL:*** Agar **$3,320** toot gaya toh ***sharp selloff ka risk hai***."
+
+RULES:
+  • Do NOT use markdown headers (#, ##) in JSON string values
+  • Do NOT use dash bullets (-) in JSON string values — use \n for line breaks instead
+  • Numbers aur levels HAMESHA bold karo — kabhi plain text mein mat chhodo
+  • Har detailed_breakdown mein minimum 3-4 bold terms, 2-3 italics, aur \n line breaks hone chahiye
+
+MARKET IMPACT TAGS — HAR HIGH_IMPACT_EVENT MEIN MANDATORY:
+Har event ke saath ek "market_impact" array dena ZAROORI hai. Is array mein batao ki is event ka konse instruments par kya effect hai.
+
+SYMBOL OPTIONS (sirf relevant symbols include karo — typically 3-6 per event):
+  Metals:   XAUUSD, XAGUSD
+  Crypto:   BTCUSDT, ETHUSD
+  Forex pairs: EURUSD, GBPUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF
+  Currencies: USD, EUR, GBP, JPY, AUD, NZD, CAD, CHF
+  Commodities: Oil, Natural Gas, Copper, Wheat, Corn
+  Broad:    US Equities, Global Equities, Safe Havens, Risk Assets, Bonds
+
+EFFECT VALUES:
+  "bullish" — is event se is symbol ke liye positive/upward price expectation
+  "bearish" — is event se is symbol ke liye negative/downward price expectation
+  "neutral" — direct impact nahi ya mixed signals
+
+EXAMPLES:
+  Fed Rate Hike → USD bullish, XAUUSD bearish, EURUSD bearish, US Equities bearish, BTCUSDT bearish
+  Geopolitical War/Attack → XAUUSD bullish, Oil bullish, USD bullish, Risk Assets bearish, JPY bullish
+  Strong NFP Data → USD bullish, XAUUSD bearish, EURUSD bearish, US Equities mixed/bullish
+  OPEC Production Cut → Oil bullish, USDCAD bearish, CAD bullish, XAUUSD neutral/bullish, Inflation risk
+  Crypto ETF Approval → BTCUSDT bullish, ETHUSD bullish, Risk Assets bullish
+  Natural Disaster (Japan) → JPY bullish (safe haven demand), USDJPY bearish, XAUUSD bullish
+  China Weak PMI → AUD bearish, AUDUSD bearish, Copper bearish, Global Equities bearish
+
 JSON OUTPUT RULES:
 1. Poora response ek \`\`\`json ... \`\`\` code block mein wrap karo
 2. Submit karne se pehle validate karo — har bracket, comma, quote sahi ho
@@ -245,24 +312,54 @@ const NEWS_SCHEMA_TEMPLATE = `{
     "summary": "250+ word Hinglish summary: is time window mein duniya mein kya hua — macro events, geopolitical developments, natural disasters, trade/sanctions news, energy shocks, political changes, crypto events, market structure moves — sab cover karo. Overall risk sentiment kya hai — risk-on ya risk-off? Dollar, equities, bonds, commodities, crypto — sab ka status.",
     "high_impact_events": [
       {
-        "event_name": "Example: FOMC Rate Decision | NFP Miss | Terrorist Attack on Oil Pipeline | 7.5 Earthquake in Japan | OPEC Emergency Cut | US-China Tariff Escalation | Major Bank Failure | Hurricane Hitting Gulf Coast | Cyber Attack on Exchange | Election Shock Result | Sovereign Debt Default | etc. — Jo bhi is time window mein hua woh real naam se likho",
-        "impact_explanation": "Is event ka market par kya asar pada ya padega — exact numbers, expected vs actual outcome (agar applicable), kaunse asset classes directly affected hue (gold, oil, JPY, bonds, etc.), kya direction dekhi gayi, kyun aisa hua, aur retail traders ke liye kya matlab hai. Minimum 80 words Hinglish mein."
+        "event_name": "REAL event naam — e.g. FOMC Rate Decision | NFP Miss | Terrorist Attack on Oil Pipeline | OPEC Emergency Cut | US-China Tariff | Major Bank Failure | Hurricane | Cyber Attack | Election Result | Sovereign Default | Earthquake Japan | etc.",
+        "impact_explanation": "Is event ka market par kya asar pada — **exact numbers**, *expected vs actual*, kaunse assets affected, kya direction, kyun hua. Minimum 80 words Hinglish + markdown formatting.",
+        "market_impact": [
+          { "symbol": "XAUUSD", "effect": "bullish" },
+          { "symbol": "USD",    "effect": "bearish" },
+          { "symbol": "BTCUSDT","effect": "bullish" },
+          { "symbol": "EURUSD", "effect": "bullish" },
+          { "symbol": "US Equities", "effect": "bearish" }
+        ]
       },
       {
-        "event_name": "Second high-impact event — real naam",
-        "impact_explanation": "Second event ka full Hinglish explanation, minimum 80 words..."
+        "event_name": "Second real event naam",
+        "impact_explanation": "Second event explanation — 80+ words Hinglish with **bold** numbers and *italic* context...",
+        "market_impact": [
+          { "symbol": "USDJPY",  "effect": "bearish" },
+          { "symbol": "XAUUSD",  "effect": "bullish" },
+          { "symbol": "Oil",     "effect": "bullish" },
+          { "symbol": "GBPUSD",  "effect": "neutral" }
+        ]
       },
       {
-        "event_name": "Third high-impact event — real naam",
-        "impact_explanation": "Third event ka full Hinglish explanation, minimum 80 words..."
+        "event_name": "Third real event naam",
+        "impact_explanation": "Third event explanation with markdown formatting...",
+        "market_impact": [
+          { "symbol": "XAUUSD",  "effect": "bearish" },
+          { "symbol": "USD",     "effect": "bullish" },
+          { "symbol": "BTCUSDT", "effect": "bearish" },
+          { "symbol": "AUDUSD",  "effect": "bearish" }
+        ]
       },
       {
-        "event_name": "Fourth high-impact event — real naam",
-        "impact_explanation": "Fourth event ka full Hinglish explanation, minimum 80 words..."
+        "event_name": "Fourth real event naam",
+        "impact_explanation": "Fourth event explanation...",
+        "market_impact": [
+          { "symbol": "Oil",        "effect": "bullish" },
+          { "symbol": "USDCAD",     "effect": "bearish" },
+          { "symbol": "XAUUSD",     "effect": "bullish" },
+          { "symbol": "US Equities","effect": "bearish" }
+        ]
       },
       {
-        "event_name": "Fifth high-impact event — real naam (agar relevant events hain)",
-        "impact_explanation": "Fifth event ka full Hinglish explanation..."
+        "event_name": "Fifth real event naam (agar relevant tha)",
+        "impact_explanation": "Fifth event explanation...",
+        "market_impact": [
+          { "symbol": "ETHUSD",  "effect": "bullish" },
+          { "symbol": "BTCUSDT", "effect": "bullish" },
+          { "symbol": "USD",     "effect": "bearish" }
+        ]
       }
     ]
   },
@@ -272,13 +369,13 @@ const NEWS_SCHEMA_TEMPLATE = `{
         "Gold se related first specific khabar — exact price move ya catalyst mention karo",
         "Gold se related second khabar — another concrete development"
       ],
-      "detailed_breakdown": "Gold mein pichle 24 ghante mein kya hua — minimum 120 words Hinglish mein. Exact high/low/close, kaunsi news ne move kiya, dollar ka impact, real yields ka role, ETF flows, COMEX positioning, geopolitical premium — sab cover karo.",
-      "trader_alert": "Retail traders ke liye ek urgent aur specific Hinglish warning — kaunsa news event watch karna hai, kaunse levels pe reaction expect karo, kya risk hai is session mein. SL/TP mat dena — sirf news-based awareness.",
+      "detailed_breakdown": "**Gold** ne is session mein **$3,350** resistance pe sharp rejection liya.\n\n**Key Driver:** *FOMC minutes* ne reveal kiya ki Fed **hawkish** stance maintain karega — real yields **+12bps** upar gaye jo gold ke liye directly bearish signal hai. **DXY** **104.2** pe trade kar raha hai; *dollar strength* ne gold ko daba ke rakha hai.\n\n**ETF Flows:** *GLD ETF se $450M ka outflow* hua — institutional selling ka clear signal. **COMEX positioning** mein shorts ne **18%** increase ki.\n\n***CRITICAL WATCH:*** Agar **$3,320** support toot gaya toh ***panic selling trigger ho sakta hai aur next support $3,280 pe hai***.",
+      "trader_alert": "***HIGH ALERT:*** **$3,350** resistance zone pe sellers bahut active hain. *FOMC hawkish tone* ke baad gold par downward pressure hai — **$3,320** support ka break bahut risky hoga. Is session mein **DXY** aur **US 10yr yield** ko closely monitor karo.",
       "sniper_note": {
         "news_bias": "Bullish | Bearish | Neutral",
-        "key_catalyst": "Sabse important news catalyst jo is symbol ko is session mein drive karega — specific event naam, outcome, aur kya hua Hinglish mein.",
-        "key_levels_watch": "News ke basis par kaunse price levels important hain — 'X level pe news-driven support hai', 'Y zone pe sellers active ho sakte hain' — SL/TP nahi, sirf key watch zones.",
-        "session_expectation": "Is session mein news ke basis par kya expect karo — overall direction ka Hinglish mein explanation, kaunse events ya data releases aaj aane wale hain, aur unka kya impact ho sakta hai."
+        "key_catalyst": "**FOMC** ke *hawkish minutes* ne **real yields** ko **+12bps** push kiya — yeh gold ke liye sabse important bearish catalyst hai is session mein. *Dollar strength* bhi gold ko daba raha hai.",
+        "key_levels_watch": "**$3,350** — *news-driven resistance*, yahan sellers active hain.\n**$3,320** — *critical support*, break hone par bearish momentum tez hoga.\n**$3,280** — next major support agar $3,320 toot gaya.",
+        "session_expectation": "**Bearish bias** news ke basis par. *Fed hawkish tone* aur *strong DXY* dono gold ke against hain.\n\nUpside scenario: Agar *geopolitical risk* ya *risk-off sentiment* aaya toh **$3,340-3,350** tak recovery possible.\nDownside risk: **$3,320** break hone par ***sharp selloff toward $3,280*** expected."
       }
     },
     "XAGUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "Silver mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
@@ -419,9 +516,45 @@ STRICT REQUIREMENTS:
 • all_news_section.summary = 250+ word Hinglish — macro + geopolitical + disasters + energy + crypto sab cover karo
 • all_news_section.high_impact_events = minimum 4 events (max 6), covering DIVERSE categories — not just macro, include geopolitical/disaster/energy if they happened
 • Har symbol ke liye: exactly 2 specific real headlines, 120+ word Hinglish breakdown, specific trader_alert, complete sniper_note
-• Koi placeholder, koi "...", koi empty string — har field mein real substantive Hinglish content
-• JSON bilkul valid hona chahiye — brackets, commas, quotes double-check karo
+• MANDATORY: Har high_impact_event mein "market_impact" array hona chahiye — 3-6 relevant symbols with "bullish"/"bearish"/"neutral" effect. Sirf woh symbols include karo jo is event se directly affected hain.
+• MANDATORY FORMATTING: **bold** for ALL key numbers/events/levels/institutions, *italic* for expected-vs-actual/forecasts, ***bold italic*** for critical warnings ONLY. Use \\n for line breaks in detailed_breakdown, impact_explanation, key_levels_watch, session_expectation.
+• detailed_breakdown mein minimum: 3 bold terms, 2 italic phrases, 2 line breaks (\\n) — properly structured paragraphs
+• Koi placeholder, koi "...", koi empty string — har field mein real substantive Hinglish content WITH formatting
+• JSON bilkul valid hona chahiye — brackets, commas, quotes double-check karo. Backslash-n (\\n) for line breaks inside JSON strings, NOT actual newlines.
 • Poora response \`\`\`json ... \`\`\` code block mein wrap karo`;
+}
+
+// ─── Inline markdown renderer ─────────────────────────────────────────────────
+// Supports: ***bold italic***, **bold**, *italic*, \n as line breaks
+
+function parseInlineMd(text: string) {
+  const nodes: (string | React.ReactElement)[] = [];
+  const rx = /\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*/g;
+  let last = 0, k = 0;
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    if (m[1] !== undefined)
+      nodes.push(<strong key={k++} className="font-bold italic">{m[1]}</strong>);
+    else if (m[2] !== undefined)
+      nodes.push(<strong key={k++} className="font-semibold">{m[2]}</strong>);
+    else
+      nodes.push(<em key={k++} className="italic">{m[3]}</em>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function MarkdownText({ text }: { text: string }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const result: (string | React.ReactElement)[] = [];
+  lines.forEach((line, i) => {
+    if (i > 0) result.push(<br key={`br${i}`} />);
+    result.push(...parseInlineMd(line));
+  });
+  return <>{result}</>;
 }
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
@@ -956,7 +1089,7 @@ function SniperNoteSection({ note }: { note: SniperNote }) {
       {note.key_catalyst && (
         <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3">
           <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest mb-1.5">Key Catalyst</p>
-          <p className="text-[12px] text-white/65 leading-[1.8]">{note.key_catalyst}</p>
+          <p className="text-[12px] text-white/65 leading-[1.8]"><MarkdownText text={note.key_catalyst} /></p>
         </div>
       )}
 
@@ -964,7 +1097,7 @@ function SniperNoteSection({ note }: { note: SniperNote }) {
       {note.key_levels_watch && (
         <div>
           <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest mb-1.5">Levels to Watch</p>
-          <p className="text-[12px] text-white/55 leading-[1.8]">{note.key_levels_watch}</p>
+          <p className="text-[12px] text-white/55 leading-[1.8]"><MarkdownText text={note.key_levels_watch} /></p>
         </div>
       )}
 
@@ -981,7 +1114,7 @@ function SniperNoteSection({ note }: { note: SniperNote }) {
             bullish ? "text-emerald-400/70" :
             bearish ? "text-red-400/70" :
             "text-white/60",
-          )}>{note.session_expectation}</p>
+          )}><MarkdownText text={note.session_expectation} /></p>
         </div>
       )}
 
@@ -989,21 +1122,57 @@ function SniperNoteSection({ note }: { note: SniperNote }) {
   );
 }
 
+function ImpactTag({ tag }: { tag: MarketImpactTag }) {
+  const bull = tag.effect === "bullish";
+  const bear = tag.effect === "bearish";
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 px-2 py-[3px] rounded-full text-[10px] font-bold border tracking-wide shrink-0",
+      bull ? "bg-emerald-500/[0.12] border-emerald-500/[0.25] text-emerald-400"
+           : bear ? "bg-red-500/[0.12] border-red-500/[0.25] text-red-400"
+           : "bg-white/[0.05] border-white/[0.10] text-white/35",
+    )}>
+      <span className="text-[9px]">{bull ? "▲" : bear ? "▼" : "—"}</span>
+      <span>{bull ? "Good for" : bear ? "Bad for" : "Neutral"}</span>
+      <span className="font-extrabold">{tag.symbol}</span>
+    </span>
+  );
+}
+
 function EventCard({ event }: { event: HighImpactEvent }) {
   const [expanded, setExpanded] = useState(false);
-  const LIMIT = 180;
-  const needsExpand = event.impact_explanation.length > LIMIT;
+  const LIMIT = 200;
+  const needsExpand = event.impact_explanation.replace(/\*+/g, "").length > LIMIT;
+  const tags = event.market_impact ?? [];
+
   return (
-    <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-4 flex flex-col gap-3">
+    <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-4 flex flex-col gap-2.5">
+
+      {/* Event name row */}
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white/[0.08] border border-white/[0.10]">
           <Zap className="h-3 w-3 text-white/50" />
         </div>
-        <p className="text-[13px] font-semibold text-white/80 leading-snug">{event.event_name}</p>
+        <p className="text-[13px] font-semibold text-white/80 leading-snug">
+          <MarkdownText text={event.event_name} />
+        </p>
       </div>
-      <p className="text-[12px] text-white/50 leading-[1.8] pl-7">
-        {!expanded && needsExpand ? event.impact_explanation.slice(0, LIMIT) + "…" : event.impact_explanation}
-      </p>
+
+      {/* Market impact tags — always visible */}
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pl-7">
+          {tags.map((tag, i) => <ImpactTag key={i} tag={tag} />)}
+        </div>
+      )}
+
+      {/* Impact explanation */}
+      <div className={cn(
+        "text-[12px] text-white/50 leading-[1.8] pl-7",
+        !expanded && needsExpand && "line-clamp-4",
+      )}>
+        <MarkdownText text={event.impact_explanation} />
+      </div>
+
       {needsExpand && (
         <button onClick={() => setExpanded(v => !v)}
           className="flex items-center gap-1 pl-7 text-[11px] text-white/25 hover:text-white/55 transition-colors self-start">
@@ -1041,7 +1210,8 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
         <ul className="space-y-2">
           {news.latest_headlines.map((h, i) => (
             <li key={i} className="flex items-start gap-2.5 text-[12px] text-white/60 leading-relaxed">
-              <span className="mt-[7px] h-1 w-1 rounded-full bg-white/25 shrink-0" />{h}
+              <span className="mt-[7px] h-1 w-1 rounded-full bg-white/25 shrink-0" />
+              <MarkdownText text={h} />
             </li>
           ))}
         </ul>
@@ -1049,9 +1219,12 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
 
       <div className="px-5 pb-4">
         <p className="text-[10px] font-semibold text-white/20 uppercase tracking-widest mb-2.5">Detailed Breakdown</p>
-        <p className="text-[12px] text-white/55 leading-[1.85]">
-          {!expanded && needsExpand ? news.detailed_breakdown.slice(0, LIMIT) + "…" : news.detailed_breakdown}
-        </p>
+        <div className={cn(
+          "text-[12px] text-white/55 leading-[1.85]",
+          !expanded && needsExpand && "line-clamp-5",
+        )}>
+          <MarkdownText text={news.detailed_breakdown} />
+        </div>
         {needsExpand && (
           <button onClick={() => setExpanded(v => !v)}
             className="flex items-center gap-1 mt-2 text-[11px] text-white/25 hover:text-white/55 transition-colors">
@@ -1066,7 +1239,9 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
             <AlertTriangle className="h-3 w-3 text-amber-400/70 shrink-0" />
             <span className="text-[9px] font-bold text-amber-400/60 uppercase tracking-widest">Trader Alert</span>
           </div>
-          <p className="text-[12px] text-amber-300/80 leading-[1.8]">{news.trader_alert}</p>
+          <p className="text-[12px] text-amber-300/80 leading-[1.8]">
+            <MarkdownText text={news.trader_alert} />
+          </p>
         </div>
       </div>
 
@@ -1377,8 +1552,12 @@ export default function NewsAnalysisPage() {
                 <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest">Aaj Ki Sabse Badi Khabar</span>
               </div>
               <div className="px-6 py-5">
-                <h2 className="text-[18px] sm:text-[20px] font-bold text-white leading-snug mb-4">{report.all_news_section.headline}</h2>
-                <p className="text-[13px] text-white/60 leading-[1.85]">{report.all_news_section.summary}</p>
+                <h2 className="text-[18px] sm:text-[20px] font-bold text-white leading-snug mb-4">
+                  <MarkdownText text={report.all_news_section.headline} />
+                </h2>
+                <p className="text-[13px] text-white/60 leading-[1.85]">
+                  <MarkdownText text={report.all_news_section.summary} />
+                </p>
               </div>
             </div>
 
