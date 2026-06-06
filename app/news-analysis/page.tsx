@@ -230,6 +230,28 @@ Selected time window mein duniya mein kya hua — sirf economic calendar events 
 • Corporate buyback window opening/closing periods
 • Insider trading blackout periods ending, lock-up expirations for major IPOs
 
+[ANALYTICAL DIRECTIVES — HAR ANALYSIS MEIN MANDATORY APPLY KARO]
+
+DIRECTIVE 1 — CAUSALITY CHAIN MAPPING (sirf event list nahi, mechanism explain karo):
+Har event ke liye sirf fact nahi batana — transmission mechanism aur ripple effects map karna ZAROORI hai.
+Chain format use karo: Trigger → Primary Mechanism → Asset Impact → Secondary Effect → Tertiary Repricing
+EXAMPLE: "Oil Pipeline Attack → Energy Supply Fear → WTI +$8/bbl → Inflation Expectation Up → 10yr Yield +18bps → Growth Stock Selloff -2.4% → DXY +0.6% (safe haven)"
+Har high_impact_event ka impact_explanation mein yeh chain clearly visible honi chahiye — secondary aur tertiary effects MANDATORY hain.
+
+DIRECTIVE 2 — CROSS-ASSET ANOMALY DETECTION (izolated analysis nahi, synthesis karo):
+Agar koi asset aise move kar raha hai jo historical correlation ke against ho — EXPLICITLY flag karo aur explain karo kyun.
+Flag cases like: "Gold falling DESPITE rising geopolitical tension (anomaly — explain dollar strength override)", "Oil rising WITH USD rising (unusual — explain supply shock dominance)", "BTC selling off WHILE equities rally (decouple — explain institutional deleveraging)"
+Har symbol ki detailed_breakdown mein cross-asset context mandatory: "Is move ka [related symbol] ke saath unusual relationship kya hai."
+Commodity news ka Forex repricing par impact, aur Forex ka Equity repricing par impact — yeh synthesis explicitly mention honi chahiye.
+
+DIRECTIVE 3 — VERIFICATION HIERARCHY (geopolitical/security events ke liye):
+Physical security aur geopolitical news ke liye source quality clearly distinguish karo:
+CONFIRMED (Tier 1): Official government statements, military communiques, central bank releases, energy infrastructure operators ke press releases
+PROBABLE (Tier 2): Reuters/AP/Bloomberg named-source wires, UN statements, official spokespeople
+⚠️ MARKET-SENSITIVE RUMOR (Tier 3): Social media reports, anonymous wires, unverified battlefield claims
+Rule: Agar event HIGH IMPACT hai lekin UNVERIFIED — use "⚠️ Market-Sensitive Rumor:" prefix se label karo aur note karo ki "market is rumor ko confirmed maan ke react kar sakta hai even before verification."
+Do NOT present Tier 3 information as established fact — yeh journalistic integrity aur trader safety dono ke liye zaroori hai.
+
 REPORTING STYLE:
 • Poora response Hinglish mein — English alphabet use karo, natural Hindi-English mix jaise ek knowledgeable dost baat kar raha ho
 • Har event ko itna detail mein explain karo ki ek naya trader bhi samajh sake: kya hua, kyun hua, market ne usse kaise react kiya
@@ -525,36 +547,47 @@ STRICT REQUIREMENTS:
 }
 
 // ─── Inline markdown renderer ─────────────────────────────────────────────────
-// Supports: ***bold italic***, **bold**, *italic*, \n as line breaks
+// Converts **bold**, *italic*, ***bold italic***, \n → <br/>.
+// Uses dangerouslySetInnerHTML with inline styles so bold/italic are guaranteed
+// to render regardless of font-stack or Tailwind class loading order.
 
-function parseInlineMd(text: string) {
-  const nodes: (string | React.ReactElement)[] = [];
-  const rx = /\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*/g;
-  let last = 0, k = 0;
-  let m: RegExpExecArray | null;
-  while ((m = rx.exec(text)) !== null) {
-    if (m.index > last) nodes.push(text.slice(last, m.index));
-    if (m[1] !== undefined)
-      nodes.push(<strong key={k++} className="font-bold italic">{m[1]}</strong>);
-    else if (m[2] !== undefined)
-      nodes.push(<strong key={k++} className="font-semibold">{m[2]}</strong>);
-    else
-      nodes.push(<em key={k++} className="italic">{m[3]}</em>);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) nodes.push(text.slice(last));
-  return nodes;
+function renderMarkdown(raw: string): string {
+  return (
+    raw
+      // 1. Escape HTML to prevent any injection from stored report text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      // 2. Bold-italic first (must precede bold and italic rules)
+      // [\s\S]+? matches any char including newlines (avoids needing the `s` flag)
+      .replace(
+        /\*\*\*([\s\S]+?)\*\*\*/g,
+        '<strong style="font-weight:700;font-style:italic">$1</strong>',
+      )
+      // 3. Bold
+      .replace(
+        /\*\*([\s\S]+?)\*\*/g,
+        '<strong style="font-weight:700">$1</strong>',
+      )
+      // 4. Italic
+      .replace(
+        /\*([\s\S]+?)\*/g,
+        '<em style="font-style:italic">$1</em>',
+      )
+      // 5. Newlines → line breaks
+      .replace(/\n/g, "<br/>")
+  );
 }
 
 function MarkdownText({ text }: { text: string }) {
   if (!text) return null;
-  const lines = text.split("\n");
-  const result: (string | React.ReactElement)[] = [];
-  lines.forEach((line, i) => {
-    if (i > 0) result.push(<br key={`br${i}`} />);
-    result.push(...parseInlineMd(line));
-  });
-  return <>{result}</>;
+  return (
+    <span
+      // The report JSON is admin-only content; HTML is fully pre-sanitised above
+      // eslint-disable-next-line react/no-danger
+      dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
+    />
+  );
 }
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
