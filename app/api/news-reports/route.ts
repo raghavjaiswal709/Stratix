@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       const origin  = new URL(req.url).origin;
       const fileRes = await fetch(
         `${origin}/data/news/${date}_${sessionParam}_news.json`,
-        { cache: "no-store" },
+        { headers: { cookie: req.headers.get("cookie") ?? "" }, cache: "no-store" },
       );
       if (!fileRes.ok) return NextResponse.json({ error: "Report not found" }, { status: 404 });
       return NextResponse.json(await fileRes.json());

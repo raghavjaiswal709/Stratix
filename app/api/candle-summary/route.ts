@@ -73,12 +73,13 @@ function recentMonthFiles(symbol: string, n = 3): string[] {
   });
 }
 
-async function fetchRows(symbol: string, origin: string): Promise<string[]> {
+async function fetchRows(symbol: string, origin: string, cookieHeader: string): Promise<string[]> {
   const files   = recentMonthFiles(symbol, 3);
   const buckets = await Promise.all(
     files.map(async (file) => {
       try {
         const res = await fetch(`${origin}/data/candles/${symbol}/${file}`, {
+          headers: { cookie: cookieHeader },
           cache: "no-store",
         });
         if (!res.ok) return [] as string[];
@@ -98,13 +99,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const origin = new URL(req.url).origin;
-  const now    = Date.now();
+  const origin       = new URL(req.url).origin;
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  const now          = Date.now();
   const result: Record<string, { h1: Candle[]; h4: Candle[] }> = {};
 
   await Promise.all(
     SYMBOLS.map(async (symbol) => {
-      const rows = await fetchRows(symbol, origin);
+      const rows = await fetchRows(symbol, origin, cookieHeader);
       result[symbol] = {
         h1: resample(rows, 3600,  now - LOOKBACK_H1_MS),
         h4: resample(rows, 14400, now - LOOKBACK_H4_MS),
