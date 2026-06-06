@@ -7,6 +7,21 @@ import { NewsReportModel } from "@/lib/models/NewsReport";
 
 export const dynamic = "force-dynamic";
 
+// ─── One-time migration: drop the old unique index if it still exists ─────────
+// The original schema had { date:1, session:1 } unique. Removing `unique:true`
+// from the Mongoose schema does NOT drop the index from MongoDB — we must do it
+// explicitly. This guard runs once per warm Lambda instance (idempotent on DB).
+let _indexDropped = false;
+async function ensureNonUniqueIndex(): Promise<void> {
+  if (_indexDropped) return;
+  _indexDropped = true; // optimistic — avoid parallel race on cold start
+  try {
+    await NewsReportModel.collection.dropIndex("date_1_session_1");
+  } catch {
+    // Already dropped, never existed, or wrong name — all safe to ignore
+  }
+}
+
 export interface NewsEntry {
   date:     string;
   session:  string;
@@ -42,6 +57,7 @@ export async function GET(req: NextRequest) {
   const id           = searchParams.get("id");
 
   await dbConnect();
+  await ensureNonUniqueIndex();
 
   // ── Fetch a specific version by _id ────────────────────────────────────
   if (id) {
@@ -168,6 +184,9 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+
+  await dbConnect();
+  await ensureNonUniqueIndex();
 
   const doc = await new NewsReportModel({
     date,

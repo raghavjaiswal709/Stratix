@@ -581,30 +581,71 @@ function EditorModal({
   date: string; session: string; initialJson: string;
   onClose: () => void; onSaved: () => void;
 }) {
-  const [json,     setJson]     = useState(initialJson);
-  const [parseErr, setParseErr] = useState<string | null>(null);
-  const [saveErr,  setSaveErr]  = useState<string | null>(null);
-  const [saving,   setSaving]   = useState(false);
-  const [saved,    setSaved]    = useState(false);
+  const [json,      setJson]      = useState(initialJson);
+  const [parseErr,  setParseErr]  = useState<string | null>(null);
+  const [saveErr,   setSaveErr]   = useState<string | null>(null);
+  const [saving,    setSaving]    = useState(false);
+  const [saved,     setSaved]     = useState(false);
+  const [isValid,   setIsValid]   = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { textareaRef.current?.focus(); }, []);
 
-  function validate(value: string): boolean {
-    if (!value.trim()) { setParseErr("JSON empty nahi hona chahiye."); return false; }
-    try { JSON.parse(value); setParseErr(null); return true; }
-    catch (e) { setParseErr(e instanceof Error ? e.message : "Invalid JSON"); return false; }
+  function tryValidate(value: string): boolean {
+    if (!value.trim()) { setParseErr(null); setIsValid(false); return false; }
+    try {
+      JSON.parse(value);
+      setParseErr(null);
+      setIsValid(true);
+      return true;
+    } catch (e) {
+      setParseErr(e instanceof Error ? e.message : "Invalid JSON");
+      setIsValid(false);
+      return false;
+    }
   }
 
-  function handleChange(v: string) { setJson(v); setSaveErr(null); if (parseErr) validate(v); }
+  function handleChange(v: string) {
+    setJson(v);
+    setSaveErr(null);
+    setSaved(false);
+    tryValidate(v);
+  }
+
+  // Auto-format + validate when user pastes content
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text");
+    try {
+      const formatted = JSON.stringify(JSON.parse(pasted), null, 2);
+      setJson(formatted);
+      setParseErr(null);
+      setIsValid(true);
+    } catch {
+      // Not valid JSON — insert raw pasted text and let normal validation run
+      const el = e.currentTarget;
+      const start = el.selectionStart;
+      const end   = el.selectionEnd;
+      const next  = json.slice(0, start) + pasted + json.slice(end);
+      setJson(next);
+      tryValidate(next);
+    }
+  }
 
   function handleFormat() {
-    try { setJson(JSON.stringify(JSON.parse(json), null, 2)); setParseErr(null); }
-    catch (e) { setParseErr(e instanceof Error ? e.message : "Invalid JSON"); }
+    try {
+      const formatted = JSON.stringify(JSON.parse(json), null, 2);
+      setJson(formatted);
+      setParseErr(null);
+      setIsValid(true);
+    } catch (e) {
+      setParseErr(e instanceof Error ? e.message : "Invalid JSON");
+      setIsValid(false);
+    }
   }
 
   async function handleSave() {
-    if (!validate(json)) return;
+    if (!tryValidate(json)) return;
     setSaving(true); setSaveErr(null);
     try {
       const res = await fetch("/api/news-reports", {
@@ -617,7 +658,7 @@ function EditorModal({
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
       }
       setSaved(true);
-      setTimeout(() => { onSaved(); onClose(); }, 800);
+      setTimeout(() => { onSaved(); onClose(); }, 900);
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : "Save fail ho gaya. Dobara try karo.");
     } finally {
@@ -625,22 +666,40 @@ function EditorModal({
     }
   }
 
+  const charCount = json.length;
+  const lineCount = json ? json.split("\n").length : 0;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div className="relative w-full max-w-4xl h-[90vh] flex flex-col rounded-2xl bg-[#0d0d0d] border border-white/[0.10] shadow-2xl overflow-hidden">
 
+        {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/[0.07] shrink-0">
           <div className="flex items-center gap-2.5">
             <Pencil className="h-3.5 w-3.5 text-white/40" />
             <div>
-              <p className="text-[13px] font-semibold text-white/80">Edit News Report JSON</p>
-              <p className="text-[11px] text-white/30">{SESSION_LABELS[session]} Session · {formatDateLabel(date)} · DB mein save hoga</p>
+              <p className="text-[13px] font-semibold text-white/80">Add News Report</p>
+              <p className="text-[11px] text-white/30">
+                {SESSION_LABELS[session]} Session · {formatDateLabel(date)} · Naya version save hoga
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Live validation status */}
+            {json.trim() && (
+              <span className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border",
+                isValid
+                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400/80"
+                  : "bg-red-500/10 border-red-500/20 text-red-400/80",
+              )}>
+                {isValid ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                {isValid ? "Valid JSON" : "Invalid JSON"}
+              </span>
+            )}
             <button onClick={handleFormat}
               className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-white/[0.05] border border-white/[0.08] text-white/40 hover:text-white/70 hover:bg-white/[0.08] transition">
-              Format JSON
+              Format
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
               <X className="h-4 w-4" />
@@ -648,22 +707,35 @@ function EditorModal({
           </div>
         </div>
 
+        {/* Textarea */}
         <div className="flex-1 relative overflow-hidden">
           <textarea
             ref={textareaRef}
             value={json}
             onChange={(e) => handleChange(e.target.value)}
+            onPaste={handlePaste}
             spellCheck={false}
             className={cn(
               "w-full h-full resize-none bg-transparent px-5 py-4",
               "text-[12px] font-mono leading-[1.7] text-white/70",
-              "focus:outline-none placeholder:text-white/15 border-b",
-              parseErr ? "border-red-500/30" : "border-white/[0.05]",
+              "focus:outline-none placeholder:text-white/20 border-b transition-colors",
+              json.trim()
+                ? isValid
+                  ? "border-emerald-500/20"
+                  : "border-red-500/25"
+                : "border-white/[0.05]",
             )}
-            placeholder={'{\n  "meta": { "date": "YYYY-MM-DD", ... },\n  "all_news_section": { ... },\n  "symbol_wise_news": { ... }\n}'}
+            placeholder={"Paste your AI-generated JSON here.\nIt will be auto-formatted and validated on paste.\n\n{\n  \"meta\": { ... },\n  \"all_news_section\": { ... },\n  \"symbol_wise_news\": { ... }\n}"}
           />
+          {/* Line / char counter */}
+          {json.trim() && (
+            <div className="absolute bottom-3 right-4 text-[10px] text-white/15 font-mono select-none">
+              {lineCount} lines · {charCount.toLocaleString()} chars
+            </div>
+          )}
         </div>
 
+        {/* Error bar */}
         {(parseErr || saveErr) && (
           <div className="flex items-start gap-2 px-5 py-2.5 bg-red-500/[0.08] border-t border-red-500/20 shrink-0">
             <AlertCircle className="h-3.5 w-3.5 text-red-400/70 shrink-0 mt-0.5" />
@@ -671,6 +743,7 @@ function EditorModal({
           </div>
         )}
 
+        {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-white/[0.07] shrink-0 bg-[#0d0d0d]">
           <div className="flex items-center gap-1.5 text-[11px] text-white/25">
             <Database className="h-3 w-3" />
@@ -681,7 +754,7 @@ function EditorModal({
               className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/40 hover:text-white/70 hover:bg-white/[0.06] border border-white/[0.07] transition disabled:opacity-40">
               Cancel
             </button>
-            <button onClick={handleSave} disabled={saving || saved || !!parseErr}
+            <button onClick={handleSave} disabled={saving || saved || !isValid}
               className={cn(
                 "flex items-center gap-2 px-5 py-2 rounded-xl text-[12px] font-semibold transition",
                 saved
@@ -689,7 +762,7 @@ function EditorModal({
                   : "bg-white/[0.10] border border-white/[0.15] text-white hover:bg-white/[0.15] disabled:opacity-40 disabled:cursor-not-allowed",
               )}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved ? <Check className="h-3.5 w-3.5" /> : null}
-              {saving ? "Save ho raha hai…" : saved ? "Saved!" : "DB mein Save karo"}
+              {saving ? "Saving…" : saved ? "Saved!" : "Save Report"}
             </button>
           </div>
         </div>
@@ -1172,7 +1245,7 @@ export default function NewsAnalysisPage() {
               </button>
               <button onClick={() => setEditorOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
-                <Pencil className="h-3.5 w-3.5" /> Save JSON
+                <Pencil className="h-3.5 w-3.5" /> Add Report
               </button>
               <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1">
                 <Clock className="h-3.5 w-3.5" />
@@ -1345,7 +1418,7 @@ export default function NewsAnalysisPage() {
         <EditorModal
           date={selectedDate}
           session={selectedSession}
-          initialJson={report ? JSON.stringify(report, null, 2) : ""}
+          initialJson=""
           onClose={() => setEditorOpen(false)}
           onSaved={() => {
             setViewingVersion(null);
