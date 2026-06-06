@@ -1,0 +1,86 @@
+{
+  "meta": {
+    "date": "YYYY-MM-DD",
+    "session": "Asian | London | New York",
+    "generated_at": "ISO-8601 timestamp",
+    "language": "Hinglish"
+  },
+  "all_news_section": {
+    "headline": "Aaj ki sabse badi aur impactful market headline — engaging, concise, Hinglish mein.",
+    "summary": "Pichle 24 ghante ka complete global market breakdown. Kya bada hua, kyun hua, aur markets par kya asar pada — sab kuch Hinglish mein detail mein likhna hai. Minimum 150 words. USD, equities, bonds, commodities, aur crypto ka overall narrative cover karo.",
+    "high_impact_events": [
+      {
+        "event_name": "Event name like FOMC, NFP, CPI, BoJ Decision, ECB Meeting",
+        "impact_explanation": "Is event se market par kya asar padne wala hai — detail mein aur Hinglish mein samjhao. Kaunse symbols directly affect honge, kya direction expect karo, aur kya levels pe nazar rakhna hai."
+      },
+      {
+        "event_name": "Second high-impact event name",
+        "impact_explanation": "Second event ka detailed Hinglish explanation with market impact."
+      },
+      {
+        "event_name": "Third high-impact event name",
+        "impact_explanation": "Third event ka detailed Hinglish explanation with market impact."
+      }
+    ]
+  },
+  "symbol_wise_news": {
+    "XAUUSD": {
+      "latest_headlines": [
+        "Gold se related latest headline 1 — specific price action ya catalyst mention karo",
+        "Gold se related latest headline 2 — another key development"
+      ],
+      "detailed_breakdown": "Gold mein pichle 24 ghante mein kya bada news movement hua. Dollar index ka kya impact raha, real yields ne kya kiya, ETF flows kaisi thi, COMEX positioning kya bol rahi hai, aur session open hote hi kya expect karna hai — sab kuch detailed Hinglish mein. Minimum 100 words.",
+      "trader_alert": "Retail traders ke liye ek important, urgent note ya warning — Hinglish mein. Key level, risk event, ya positioning advice jo is specific symbol ke liye critical hai right now."
+    },
+    "XAGUSD": {
+      "latest_headlines": ["Silver headline 1", "Silver headline 2"],
+      "detailed_breakdown": "Silver ka detailed Hinglish breakdown...",
+      "trader_alert": "Silver ke liye trader alert Hinglish mein..."
+    },
+    "BTCUSDT": {
+      "latest_headlines": ["BTC headline 1", "BTC headline 2"],
+      "detailed_breakdown": "Bitcoin ka detailed Hinglish breakdown...",
+      "trader_alert": "BTC ke liye trader alert Hinglish mein..."
+    },
+    "ETHUSD": {
+      "latest_headlines": ["ETH headline 1", "ETH headline 2"],
+      "detailed_breakdown": "Ethereum ka detailed Hinglish breakdown...",
+      "trader_alert": "ETH ke liye trader alert Hinglish mein..."
+    },
+    "GBPUSD": {
+      "latest_headlines": ["GBP headline 1", "GBP headline 2"],
+      "detailed_breakdown": "GBP/USD ka detailed Hinglish breakdown...",
+      "trader_alert": "GBP ke liye trader alert Hinglish mein..."
+    },
+    "EURUSD": {
+      "latest_headlines": ["EUR headline 1", "EUR headline 2"],
+      "detailed_breakdown": "EUR/USD ka detailed Hinglish breakdown...",
+      "trader_alert": "EUR ke liye trader alert Hinglish mein..."
+    },
+    "USDJPY": {
+      "latest_headlines": ["JPY headline 1", "JPY headline 2"],
+      "detailed_breakdown": "USD/JPY ka detailed Hinglish breakdown...",
+      "trader_alert": "JPY ke liye trader alert Hinglish mein..."
+    },
+    "AUDUSD": {
+      "latest_headlines": ["AUD headline 1", "AUD headline 2"],
+      "detailed_breakdown": "AUD/USD ka detailed Hinglish breakdown...",
+      "trader_alert": "AUD ke liye trader alert Hinglish mein..."
+    },
+    "NZDUSD": {
+      "latest_headlines": ["NZD headline 1", "NZD headline 2"],
+      "detailed_breakdown": "NZD/USD ka detailed Hinglish breakdown...",
+      "trader_alert": "NZD ke liye trader alert Hinglish mein..."
+    },
+    "USDCAD": {
+      "latest_headlines": ["CAD headline 1", "CAD headline 2"],
+      "detailed_breakdown": "USD/CAD ka detailed Hinglish breakdown...",
+      "trader_alert": "CAD ke liye trader alert Hinglish mein..."
+    },
+    "USDCHF": {
+      "latest_headlines": ["CHF headline 1", "CHF headline 2"],
+      "detailed_breakdown": "USD/CHF ka detailed Hinglish breakdown...",
+      "trader_alert": "CHF ke liye trader alert Hinglish mein..."
+    }
+  }
+}

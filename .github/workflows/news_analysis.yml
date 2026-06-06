@@ -1,0 +1,68 @@
+name: Hinglish News Analysis
+
+on:
+  schedule:
+    - cron: "30 21 * * *"   # Asian session news  — 21:30 UTC
+    - cron: "30 5 * * *"    # London session news  — 05:30 UTC
+    - cron: "30 11 * * *"   # New York session news — 11:30 UTC
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Session override (asian / london / new_york)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  generate-news:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Determine session
+        id: session
+        run: |
+          if [ -n "${{ github.event.inputs.session }}" ]; then
+            echo "name=${{ github.event.inputs.session }}" >> "$GITHUB_OUTPUT"
+          else
+            HOUR=$(date -u +%-H)
+            MIN=$(date -u +%-M)
+            # 21:30 → asian, 05:30 → london, 11:30 → new_york
+            if   [ "$HOUR" -eq 21 ]; then echo "name=asian"    >> "$GITHUB_OUTPUT"
+            elif [ "$HOUR" -eq 5  ]; then echo "name=london"   >> "$GITHUB_OUTPUT"
+            else                          echo "name=new_york" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Generate Hinglish news analysis
+        env:
+          GEMINI_API_KEY: "AIzaSyDxtiltuqItfIBIoEXaUDeXgd3Qlhm9dLw"
+          SESSION_NAME: ${{ steps.session.outputs.name }}
+        run: python scripts/generate_news_analysis.py
+
+      - name: Commit and push news report
+        run: |
+          git config user.name  "Stratix Bot"
+          git config user.email "actions@github.com"
+          git add public/data/news/
+          if git diff --staged --quiet; then
+            echo "No new news report to commit — file may already exist."
+          else
+            git commit -m "chore(news): $(date -u +%Y-%m-%d) ${{ steps.session.outputs.name }} Hinglish news analysis"
+            git push
+          fi
