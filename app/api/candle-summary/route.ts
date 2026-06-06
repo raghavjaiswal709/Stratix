@@ -6,10 +6,11 @@
  * Used by the Prompt modals to embed real price data in the AI prompt.
  *
  * Admin-only. Resamples 1-min CSV data on the fly — no extra storage needed.
+ *
+ * Uses HTTP fetch against Vercel's static-asset layer instead of fs.readFile
+ * to avoid the nft file-tracing issue (dynamic paths matching 1000s of CSVs).
  */
-import { readdir, readFile } from "fs/promises";
-import { join } from "path";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +23,10 @@ const SYMBOLS = [
   "nzdusd", "usdcad", "usdchf", "dxy", "usoil", "us100",
 ];
 
-const LOOKBACK_H1_MS = 48 * 60 * 60 * 1000;   // 48 h
-const LOOKBACK_H4_MS = 7 * 24 * 60 * 60 * 1000; // 7 d
+const LOOKBACK_H1_MS = 48 * 60 * 60 * 1000;
+const LOOKBACK_H4_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Resample 1-min rows (CSV strings, already header-stripped) into OHLCV buckets */
+/** Resample 1-min rows (CSV strings, header-stripped) into OHLCV buckets */
 function resample(rows: string[], bucketSec: number, cutoffMs: number): Candle[] {
   const cutoffSec = Math.floor(cutoffMs / 1000);
   const buckets   = new Map<number, { o: number; h: number; l: number; c: number; v: number }>();
@@ -62,48 +63,54 @@ function resample(rows: string[], bucketSec: number, cutoffMs: number): Candle[]
     .sort((a, b) => a.t - b.t);
 }
 
-async function fetchRows(symbol: string): Promise<string[]> {
-  const dir = join(process.cwd(), "public", "data", "candles", symbol);
-
-  let files: string[];
-  try {
-    files = await readdir(dir);
-  } catch {
-    return [];
-  }
-
-  const csvFiles = files.filter(f => f.endsWith(".csv")).sort();
-  // Take up to 3 most-recent monthly files to safely cover the 7-day H4 window
-  const relevant = csvFiles.slice(-3);
-
-  const allRows: string[] = [];
-  for (const file of relevant) {
-    const content = await readFile(join(dir, file), "utf8");
-    // Split lines; skip header (starts with "time") and blanks
-    const lines = content
-      .split("\n")
-      .filter(l => l.trim() && !l.startsWith("time"));
-    allRows.push(...lines);
-  }
-  return allRows;
+/** Return the last N monthly CSV filenames for a symbol, newest-first */
+function recentMonthFiles(symbol: string, n = 3): string[] {
+  const now = new Date();
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    return `${symbol}_${d.getFullYear()}_${m}.csv`;
+  });
 }
 
-export async function GET() {
+async function fetchRows(symbol: string, origin: string): Promise<string[]> {
+  const files   = recentMonthFiles(symbol, 3);
+  const buckets = await Promise.all(
+    files.map(async (file) => {
+      try {
+        const res = await fetch(`${origin}/data/candles/${symbol}/${file}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return [] as string[];
+        const text = await res.text();
+        return text.split("\n").filter(l => l.trim() && !l.startsWith("time"));
+      } catch {
+        return [] as string[];
+      }
+    }),
+  );
+  return buckets.flat();
+}
+
+export async function GET(req: NextRequest) {
   const userSession = await auth();
   if (userSession?.user?.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const now = Date.now();
+  const origin = new URL(req.url).origin;
+  const now    = Date.now();
   const result: Record<string, { h1: Candle[]; h4: Candle[] }> = {};
 
-  for (const symbol of SYMBOLS) {
-    const rows = await fetchRows(symbol);
-    result[symbol] = {
-      h1: resample(rows, 3600,  now - LOOKBACK_H1_MS),
-      h4: resample(rows, 14400, now - LOOKBACK_H4_MS),
-    };
-  }
+  await Promise.all(
+    SYMBOLS.map(async (symbol) => {
+      const rows = await fetchRows(symbol, origin);
+      result[symbol] = {
+        h1: resample(rows, 3600,  now - LOOKBACK_H1_MS),
+        h4: resample(rows, 14400, now - LOOKBACK_H4_MS),
+      };
+    }),
+  );
 
   return NextResponse.json(result);
 }

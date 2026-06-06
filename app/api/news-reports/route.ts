@@ -1,4 +1,4 @@
-import { readdir, readFile } from "fs/promises";
+import { readdir } from "fs/promises";
 import { join } from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
@@ -37,16 +37,15 @@ export async function GET(req: NextRequest) {
 
     if (dbDoc) return NextResponse.json(dbDoc.data);
 
-    // Filesystem fallback
-    const filepath = join(
-      process.cwd(),
-      "public",
-      "data",
-      "news",
-      `${date}_${sessionParam}_news.json`,
-    );
+    // Static-asset fallback (HTTP fetch avoids nft tracing dynamic paths)
     try {
-      return NextResponse.json(JSON.parse(await readFile(filepath, "utf-8")));
+      const origin  = new URL(req.url).origin;
+      const fileRes = await fetch(
+        `${origin}/data/news/${date}_${sessionParam}_news.json`,
+        { cache: "no-store" },
+      );
+      if (!fileRes.ok) return NextResponse.json({ error: "Report not found" }, { status: 404 });
+      return NextResponse.json(await fileRes.json());
     } catch {
       return NextResponse.json({ error: "Report not found" }, { status: 404 });
     }
