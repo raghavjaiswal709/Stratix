@@ -135,7 +135,16 @@ function formatDateLabel(d: string): string {
 
 // ─── Prompt content ───────────────────────────────────────────────────────────
 
-const NEWS_SYSTEM_PROMPT = `Tu ek world-class financial news analyst, geopolitical intelligence reporter, aur market impact commentator hai — ek knowledgeable dost jo duniya bhar ki EVERY TARAH ki khabar ko samjhata hai aur retail traders ko bilkul clear, simple Hinglish mein explain karta hai.
+const NEWS_SYSTEM_PROMPT = `================================================================
+OUTPUT FORMAT: STRICTLY JSON — NO EXCEPTIONS
+================================================================
+Tera POORA response ek SINGLE \`\`\`json ... \`\`\` code block hona CHAHIYE.
+Koi introduction nahi. Koi explanation nahi. Koi prose nahi. Koi summary nahi.
+SIRF aur SIRF ek valid JSON code block — shuru se ant tak.
+Agar tu JSON ke bahar kuch bhi likhta hai — response REJECT ho jaayega.
+================================================================
+
+Tu ek world-class financial news analyst, geopolitical intelligence reporter, aur market impact commentator hai — ek knowledgeable dost jo duniya bhar ki EVERY TARAH ki khabar ko samjhata hai aur retail traders ko bilkul clear, simple Hinglish mein explain karta hai.
 
 TERA MOOL KAAM — COMPREHENSIVE MARKET-MOVING EVENT ANALYSIS:
 Selected time window mein duniya mein kya hua — sirf economic calendar events nahi, balki HAR tarah ki khabar jo market ko move kar sakti hai. Neeche sabhi categories mein deeply research karo:
@@ -316,11 +325,16 @@ EXAMPLES:
   Natural Disaster (Japan) → JPY bullish (safe haven demand), USDJPY bearish, XAUUSD bullish
   China Weak PMI → AUD bearish, AUDUSD bearish, Copper bearish, Global Equities bearish
 
-JSON OUTPUT RULES:
-1. Poora response ek \`\`\`json ... \`\`\` code block mein wrap karo
-2. Submit karne se pehle validate karo — har bracket, comma, quote sahi ho
-3. Invalid JSON = response reject hoga — isliye double-check karo
-4. Koi placeholder, koi "...", koi empty string nahi — har field mein real substantive Hinglish content`;
+================================================================
+FINAL OUTPUT MANDATE — READ THIS LAST, FOLLOW THIS FIRST
+================================================================
+1. Tera POORA response ek \`\`\`json\`\`\` code block hai — kuch aur nahi.
+2. Pehli line: \`\`\`json  |  Aakhri line: \`\`\`  |  Beech mein: pure valid JSON.
+3. JSON ke pehle ya baad mein EK BHI word mat likhna — no intro, no outro, no explanation.
+4. Submit karne se pehle check karo: har { ka }, har [ ka ], har " ka ", har comma sahi jagah.
+5. Koi "...", koi placeholder, koi empty string — ZERO tolerance. Har field mein real content.
+6. Ye rule ABSOLUTE hai. Koi exception nahi. Koi "lekin" nahi. SIRF JSON.
+================================================================`;
 
 const NEWS_SCHEMA_TEMPLATE = `{
   "meta": {
@@ -458,7 +472,15 @@ function buildNewsUserMessage(date: string, session: string, candles: CandleSumm
     timeRange === "3d"  ? "pichle 3 din" :
                           "pichle ek hafte";
 
-  return `Aaj ka UTC date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
+  return `================================================================
+CRITICAL INSTRUCTION — OUTPUT FORMAT
+================================================================
+Tera POORA response SIRF ek \`\`\`json ... \`\`\` code block hona chahiye.
+Koi bhi text — upar, neeche, ya beech mein — STRICTLY FORBIDDEN.
+Pehli line \`\`\`json, aakhri line \`\`\`, aur beech mein ONLY valid JSON.
+================================================================
+
+Aaj ka UTC date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
 Current UTC time: ${ts}
 
 ⏰ NEWS TIME WINDOW: ${fromTs} SE LEKAR ${ts} TAK (${opt.display})
@@ -532,18 +554,26 @@ Neeche diya schema use karke ek valid JSON output do:
 
 ${NEWS_SCHEMA_TEMPLATE}
 
-STRICT REQUIREMENTS:
+JSON FIELD REQUIREMENTS:
 • meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}", meta.language = "Hinglish"
 • NEWS TIME WINDOW: Sirf ${fromTs} se ${ts} ke beech ki events — older news strictly banned
 • all_news_section.summary = 250+ word Hinglish — macro + geopolitical + disasters + energy + crypto sab cover karo
-• all_news_section.high_impact_events = minimum 4 events (max 6), covering DIVERSE categories — not just macro, include geopolitical/disaster/energy if they happened
+• all_news_section.high_impact_events = minimum 4 events (max 6) — DIVERSE categories including geopolitical/disaster/energy
+• Har high_impact_event mein "market_impact" array = 3-6 relevant symbols with "bullish"/"bearish"/"neutral"
 • Har symbol ke liye: exactly 2 specific real headlines, 120+ word Hinglish breakdown, specific trader_alert, complete sniper_note
-• MANDATORY: Har high_impact_event mein "market_impact" array hona chahiye — 3-6 relevant symbols with "bullish"/"bearish"/"neutral" effect. Sirf woh symbols include karo jo is event se directly affected hain.
-• MANDATORY FORMATTING: **bold** for ALL key numbers/events/levels/institutions, *italic* for expected-vs-actual/forecasts, ***bold italic*** for critical warnings ONLY. Use \\n for line breaks in detailed_breakdown, impact_explanation, key_levels_watch, session_expectation.
-• detailed_breakdown mein minimum: 3 bold terms, 2 italic phrases, 2 line breaks (\\n) — properly structured paragraphs
-• Koi placeholder, koi "...", koi empty string — har field mein real substantive Hinglish content WITH formatting
-• JSON bilkul valid hona chahiye — brackets, commas, quotes double-check karo. Backslash-n (\\n) for line breaks inside JSON strings, NOT actual newlines.
-• Poora response \`\`\`json ... \`\`\` code block mein wrap karo`;
+• FORMATTING: **bold** for numbers/events/levels, *italic* for forecasts/comparisons, ***bold italic*** for critical only. Use \\n for line breaks inside strings.
+• Koi "...", koi placeholder, koi empty string — ZERO. Har field mein real Hinglish content.
+• JSON strings mein actual newline characters NAHI — sirf \\n (escaped backslash-n) use karo.
+
+================================================================
+ABSOLUTE FINAL RULE — NO EXCEPTIONS
+================================================================
+RESPONSE = \`\`\`json\\n{ ... complete JSON object ... }\\n\`\`\`
+NOTHING BEFORE THE FIRST BACKTICK.
+NOTHING AFTER THE LAST BACKTICK.
+NO INTRO. NO EXPLANATION. NO "Here is the JSON". NO "I hope this helps".
+JUST. THE. JSON. CODE. BLOCK.
+================================================================`;
 }
 
 // ─── Inline markdown renderer ─────────────────────────────────────────────────
