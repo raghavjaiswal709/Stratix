@@ -197,10 +197,15 @@ async function fetchChunkWithRetry(instrument, from, to, tag, chunkLabel) {
       if (raw && raw.length > 0) return raw;
 
       // Got empty — may be a closed market window (weekend) or transient API gap.
-      // Only retry if it's not obviously a closed-market window.
-      const dayOfWeek = from.getUTCDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-      if (isWeekend || attempt === MAX_RETRIES) return [];
+      // Skip retries if the chunk is entirely within a known market-closed window:
+      //   - Chunk ends on Saturday or Sunday (weekend)
+      //   - Chunk starts on Friday at/after 21:00 UTC (market close)
+      const toDay  = to.getUTCDay();
+      const fromDay = from.getUTCDay();
+      const isClosed =
+        toDay === 6 || toDay === 0 ||                                   // to is Sat/Sun
+        (fromDay === 5 && from.getUTCHours() >= 21);                    // from is Fri post-close
+      if (isClosed || attempt === MAX_RETRIES) return [];
 
       console.log(`${tag}   chunk ${chunkLabel} attempt ${attempt}/${MAX_RETRIES}: 0 candles — retrying…`);
       await sleep(RETRY_DELAY * attempt);
@@ -270,9 +275,14 @@ async function updateSymbol(symbol) {
 
     if (raw.length > 0) {
       allRaw.push(...raw);
-    } else if (from.getUTCDay() !== 0 && from.getUTCDay() !== 6) {
-      // Count non-weekend zeros as failures
-      failedChunks++;
+    } else {
+      // Count as failure only for weekday chunks during market hours
+      const toDay   = to.getUTCDay();
+      const fromDay = from.getUTCDay();
+      const isKnownClosed =
+        toDay === 6 || toDay === 0 ||
+        (fromDay === 5 && from.getUTCHours() >= 21);
+      if (!isKnownClosed) failedChunks++;
     }
   }
 
