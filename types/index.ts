@@ -274,10 +274,14 @@ export interface ApiTrade {
   preTradeAnalysis?: string;
   postTradeReview?: string;
   riskRatio?: number;
+  rewardRatio?: number;
+  emotions?: string;
+  lessonsLearned?: string;
   tags?: string[];
   rating?: number;
   mistakes?: string;
   lessons?: string;
+  _deleted?: boolean;
 }
 
 // ============ TRADING PROFILES ============

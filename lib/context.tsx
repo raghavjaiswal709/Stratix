@@ -54,12 +54,7 @@ const defaultData: AppData = {
     customStrategies: [],
     tradeNotes: {
       notes: [],
-      categories: [
-        { id: "1", name: "Strategy", color: "#3b82f6", icon: "Target" },
-        { id: "2", name: "Losses", color: "#ef4444", icon: "TrendingDown" },
-        { id: "3", name: "Psychology", color: "#8b5cf6", icon: "Brain" },
-        { id: "4", name: "Mistakes", color: "#f59e0b", icon: "AlertTriangle" },
-      ]
+      categories: []
     }
   },
   diaryData: { entries: [] },

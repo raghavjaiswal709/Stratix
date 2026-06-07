@@ -50,14 +50,14 @@ const ICON_LIST = [
 ];
 
 const CAT_COLORS = [
-  "#3b82f6",
-  "#ef4444",
-  "#10b981",
-  "#f59e0b",
-  "#8b5cf6",
-  "#ec4899",
-  "#64748b",
-  "#0891b2",
+  "#10b981", // emerald
+  "#ef4444", // red
+  "#f59e0b", // amber
+  "#ec4899", // pink
+  "#f97316", // orange
+  "#64748b", // slate
+  "#a3a3a3", // neutral
+  "#22c55e", // green
 ];
 
 function CatIcon({ name, className }: { name: string; className?: string }) {
@@ -286,6 +286,7 @@ export default function TradeNotesPage() {
 
   // ── Note CRUD ─────────────────────────────────────────────────────────────
   const handleNewNote = () => {
+    if (categories.length === 0) { setAddingCat(true); return; }
     const catId = selectedCategoryId || categories[0]?.id || "1";
     const now = new Date().toISOString();
     const newNote: TradeNote = {
@@ -352,20 +353,41 @@ export default function TradeNotesPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">
-          {/* "All" option */}
-          <button
-            onClick={() => { setSelectedCategoryId(null); setSelectedNoteId(null); }}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors text-sm",
-              selectedCategoryId === null
-                ? "bg-muted/60 text-foreground font-medium"
-                : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-            )}
-          >
-            <FileText className="h-3.5 w-3.5 shrink-0" />
-            <span className="flex-1 truncate">All Notes</span>
-            <span className="text-[10px] text-muted-foreground/50">{notes.length}</span>
-          </button>
+          {/* Empty state — no categories yet */}
+          {categories.length === 0 && !addingCat && (
+            <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+              <div className="w-10 h-10 rounded-full bg-muted/40 flex items-center justify-center mb-3">
+                <Plus className="h-5 w-5 text-muted-foreground/50" />
+              </div>
+              <p className="text-[12px] font-medium text-foreground/60 mb-1">No categories yet</p>
+              <p className="text-[11px] text-muted-foreground/50 mb-3 leading-relaxed">
+                Create a category to start organising your notes.
+              </p>
+              <button
+                onClick={() => setAddingCat(true)}
+                className="text-[11px] px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.10] text-white/70 transition-colors"
+              >
+                Create category
+              </button>
+            </div>
+          )}
+
+          {/* "All" option — only show when there are categories */}
+          {categories.length > 0 && (
+            <button
+              onClick={() => { setSelectedCategoryId(null); setSelectedNoteId(null); }}
+              className={cn(
+                "w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors text-sm",
+                selectedCategoryId === null
+                  ? "bg-muted/60 text-foreground font-medium"
+                  : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              )}
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span className="flex-1 truncate">All Notes</span>
+              <span className="text-[10px] text-muted-foreground/50">{notes.length}</span>
+            </button>
+          )}
 
           {/* Category list */}
           {categories.map((cat) => {
@@ -503,11 +525,17 @@ export default function TradeNotesPage() {
           {/* New note button */}
           <Button
             size="sm"
-            className="w-full h-7 gap-1.5 bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white text-xs font-semibold"
+            className={cn(
+              "w-full h-7 gap-1.5 text-xs font-semibold",
+              categories.length === 0
+                ? "bg-white/[0.04] border border-white/[0.06] text-muted-foreground cursor-default"
+                : "bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
+            )}
             onClick={handleNewNote}
+            title={categories.length === 0 ? "Create a category first" : undefined}
           >
             <Plus className="h-3 w-3" />
-            New Note
+            {categories.length === 0 ? "Add category first" : "New Note"}
           </Button>
         </div>
 
@@ -604,18 +632,37 @@ export default function TradeNotesPage() {
             <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
               <FileText className="h-7 w-7 opacity-20" />
             </div>
-            <h3 className="text-base font-semibold text-foreground/50">No note selected</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-[200px]">
-              Pick a note from the list or create a new one.
-            </p>
-            <Button
-              size="sm"
-              className="mt-4 gap-2 bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
-              onClick={handleNewNote}
-            >
-              <Plus className="h-4 w-4" />
-              New Note
-            </Button>
+            {categories.length === 0 ? (
+              <>
+                <h3 className="text-base font-semibold text-foreground/50">Welcome to Notes</h3>
+                <p className="text-sm text-muted-foreground mt-1 max-w-[240px] leading-relaxed">
+                  Start by creating a category in the left panel, then add notes within it.
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-4 gap-2 bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
+                  onClick={() => setAddingCat(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Create Category
+                </Button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-base font-semibold text-foreground/50">No note selected</h3>
+                <p className="text-sm text-muted-foreground mt-1 max-w-[200px]">
+                  Pick a note from the list or create a new one.
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-4 gap-2 bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
+                  onClick={handleNewNote}
+                >
+                  <Plus className="h-4 w-4" />
+                  New Note
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto min-h-0">

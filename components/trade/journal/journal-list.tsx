@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown, Filter, X } from "lucide-react";
+import { TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/context";
 import type { JournalDetailTrade } from "./journal-detail";
@@ -54,6 +54,9 @@ export function JournalList({
   const [filterDirection, setFilterDirection] = useState<JournalSortFilterPrefs["filterDirection"]>(saved.filterDirection);
   const [filterOutcome, setFilterOutcome] = useState<JournalSortFilterPrefs["filterOutcome"]>(saved.filterOutcome);
   const [showFilters, setShowFilters] = useState(false);
+  const [durationFilter, setDurationFilter] = useState<"all" | "today" | "3days" | "week" | "2weeks" | "month">("all");
+  const [sortOpen, setSortOpen] = useState(false);
+  const [durationOpen, setDurationOpen] = useState(false);
 
   // Persist to preferences (debounced), skip initial mount
   const mounted = useRef(false);
@@ -91,7 +94,7 @@ export function JournalList({
       ? trades.filter((t) => !t.journaled)
       : trades;
 
-  // Apply symbol/direction/outcome filter + sort
+  // Apply symbol/direction/outcome/duration filter + sort
   const filtered = tabFiltered
     .filter((t) => {
       if (filterSymbol && !t.symbol.toLowerCase().includes(filterSymbol.toLowerCase())) return false;
@@ -100,6 +103,26 @@ export function JournalList({
         if (filterOutcome === "winner" && t.profit <= 0) return false;
         if (filterOutcome === "loser" && (t.profit >= 0 || t.status === "open")) return false;
         if (filterOutcome === "open" && t.status !== "open") return false;
+      }
+      if (durationFilter !== "all") {
+        const now = new Date();
+        const entryDate = new Date(t.entryTime);
+        const diffTime = now.getTime() - entryDate.getTime();
+        const diffDays = diffTime / (1000 * 60 * 60 * 24);
+        
+        if (durationFilter === "today") {
+          const todayStr = format(now, "yyyy-MM-dd");
+          const entryStr = format(entryDate, "yyyy-MM-dd");
+          if (todayStr !== entryStr) return false;
+        } else if (durationFilter === "3days") {
+          if (diffDays > 3) return false;
+        } else if (durationFilter === "week") {
+          if (diffDays > 7) return false;
+        } else if (durationFilter === "2weeks") {
+          if (diffDays > 14) return false;
+        } else if (durationFilter === "month") {
+          if (diffDays > 30) return false;
+        }
       }
       return true;
     })
@@ -124,23 +147,21 @@ export function JournalList({
   const safePage   = Math.min(currentPage, totalPages);
   const paginated  = filtered.slice((safePage - 1) * J_PAGE_SIZE, safePage * J_PAGE_SIZE);
 
-  function SortChip({ col, label }: { col: JournalSortFilterPrefs["sortBy"]; label: string }) {
-    return (
-      <button
-        onClick={() => toggleSort(col)}
-        className={cn(
-          "flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
-          sortBy === col
-            ? "bg-white/[0.08] text-white"
-            : "text-white/30 hover:text-white/60"
-        )}
-      >
-        {label}
-        {sortBy === col
-          ? sortDir === "asc" ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />
-          : <ArrowUpDown className="h-2.5 w-2.5 opacity-40" />}
-      </button>
-    );
+  function getSortLabel(by: string, dir: string) {
+    if (by === "date") return dir === "desc" ? "Newest" : "Oldest";
+    if (by === "pnl") return dir === "desc" ? "PnL (High)" : "PnL (Low)";
+    if (by === "symbol") return dir === "asc" ? "A-Z" : "Z-A";
+    return "Date";
+  }
+
+  function getDurationLabel(val: string) {
+    if (val === "all") return "All Time";
+    if (val === "today") return "Today";
+    if (val === "3days") return "3 Days";
+    if (val === "week") return "Last Week";
+    if (val === "2weeks") return "2 Weeks";
+    if (val === "month") return "Last Month";
+    return "All Time";
   }
 
   return (
@@ -176,23 +197,104 @@ export function JournalList({
 
         {/* Sort + filter bar */}
         <div className="flex items-center justify-between gap-1">
-          <div className="flex items-center gap-0.5">
-            <SortChip col="date" label="Date" />
-            <SortChip col="pnl" label="P&L" />
-            <SortChip col="symbol" label="A-Z" />
+          <div className="flex items-center gap-1.5 z-20">
+            {/* Custom Sort Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => { setSortOpen(!sortOpen); setDurationOpen(false); }}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-white/10 text-[10px] text-white/50 hover:text-white/80 hover:bg-white/5 transition"
+              >
+                <ArrowUpDown className="h-3 w-3" />
+                <span>Sort: {getSortLabel(sortBy, sortDir)}</span>
+                <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+              </button>
+              {sortOpen && (
+                <div className="absolute left-0 mt-1.5 w-36 z-30 rounded-xl bg-[#0c0e14]/95 border border-white/10 shadow-2xl p-1 flex flex-col gap-0.5 backdrop-blur-md">
+                  {[
+                    { label: "Newest First", by: "date", dir: "desc" },
+                    { label: "Oldest First", by: "date", dir: "asc" },
+                    { label: "PnL: High to Low", by: "pnl", dir: "desc" },
+                    { label: "PnL: Low to High", by: "pnl", dir: "asc" },
+                    { label: "Symbol: A to Z", by: "symbol", dir: "asc" },
+                    { label: "Symbol: Z to A", by: "symbol", dir: "desc" },
+                  ].map((opt) => (
+                    <button
+                      key={`${opt.by}-${opt.dir}`}
+                      onClick={() => {
+                        setSortBy(opt.by as any);
+                        setSortDir(opt.dir as any);
+                        setSortOpen(false);
+                      }}
+                      className={cn(
+                        "w-full text-left px-2.5 py-1 rounded-md text-[10px] transition",
+                        sortBy === opt.by && sortDir === opt.dir
+                          ? "bg-white/[0.08] text-white font-medium"
+                          : "text-white/50 hover:bg-white/5 hover:text-white"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Custom Duration Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => { setDurationOpen(!durationOpen); setSortOpen(false); }}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] transition",
+                  durationFilter !== "all"
+                    ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-400"
+                    : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
+                )}
+              >
+                <Filter className="h-3 w-3" />
+                <span>Time: {getDurationLabel(durationFilter)}</span>
+                <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+              </button>
+              {durationOpen && (
+                <div className="absolute left-0 mt-1.5 w-32 z-30 rounded-xl bg-[#0c0e14]/95 border border-white/10 shadow-2xl p-1 flex flex-col gap-0.5 backdrop-blur-md">
+                  {[
+                    { label: "All Time", value: "all" },
+                    { label: "Only Today", value: "today" },
+                    { label: "Last 3 Days", value: "3days" },
+                    { label: "Last Week", value: "week" },
+                    { label: "Last 2 Weeks", value: "2weeks" },
+                    { label: "Last Month", value: "month" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => {
+                        setDurationFilter(opt.value as any);
+                        setDurationOpen(false);
+                      }}
+                      className={cn(
+                        "w-full text-left px-2 py-1 rounded-md text-[10px] transition",
+                        durationFilter === opt.value
+                          ? "bg-white/[0.08] text-white font-medium"
+                          : "text-white/50 hover:bg-white/5 hover:text-white"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
-              "relative flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
+              "relative flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-medium transition-colors",
               showFilters
-                ? "text-white/65 bg-white/[0.07]"
+                ? "text-white/65 bg-white/[0.07] border-white/15"
                 : activeFilterCount > 0
-                ? "text-amber-400 bg-amber-500/10"
-                : "text-white/30 hover:text-white/60"
+                ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                : "text-white/30 border-white/10 hover:text-white/60"
             )}
           >
-            <Filter className="h-3 w-3" />
             Filter
             {activeFilterCount > 0 && (
               <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-amber-500 text-[8px] font-bold text-white flex items-center justify-center">

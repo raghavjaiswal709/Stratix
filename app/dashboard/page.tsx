@@ -39,9 +39,9 @@ interface MT5Info {
 }
 
 export default function DashboardPage() {
-  const { activeProfileId, tradingProfiles, loading: contextLoading } = useAppContext();
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { activeProfileId, tradingProfiles, loading: contextLoading, sharedTrades, setSharedTrades } = useAppContext();
+  const trades = sharedTrades;
+  const [loading, setLoading] = useState(sharedTrades.length === 0);
   const [mt5Info, setMt5Info] = useState<MT5Info | null>(null);
   const [mt5Loading, setMt5Loading] = useState(true);
   const [syncRefreshKey, setSyncRefreshKey] = useState(0);
@@ -53,15 +53,24 @@ export default function DashboardPage() {
     if (contextLoading) return;
 
     const controller = new AbortController();
-    setLoading(true);
+    if (sharedTrades.length === 0) {
+      setLoading(true);
+    }
     const url = activeProfileId
       ? `/api/trade?profileId=${encodeURIComponent(activeProfileId)}`
       : "/api/trade";
 
-    fetch(url, { signal: controller.signal })
+    fetch(url, { 
+      signal: controller.signal,
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
+      }
+    })
       .then((r) => r.json())
       .then((data) => {
-        setTrades(Array.isArray(data) ? data : []);
+        setSharedTrades(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch((err) => {
@@ -69,7 +78,7 @@ export default function DashboardPage() {
       });
 
     return () => controller.abort();
-  }, [activeProfileId, contextLoading]);
+  }, [activeProfileId, contextLoading, setSharedTrades, sharedTrades.length]);
 
   // Load MT5 status
   useEffect(() => {

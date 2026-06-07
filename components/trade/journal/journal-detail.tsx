@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { TradeChart, type TradeChartRef } from "./trade-chart";
 import { format, parseISO } from "date-fns";
 import {
@@ -20,8 +20,10 @@ import {
   Edit2,
   AlertCircle,
   Trash2,
+  LineChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppContext } from "@/lib/context";
 
 interface ChecklistItem {
   item: string;
@@ -71,6 +73,16 @@ function fmt(n: number) {
 }
 
 export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailProps) {
+  const { sharedTrades } = useAppContext();
+
+  // Chart visibility state
+  const [showChart, setShowChart] = useState(false);
+
+  // Analytics AI modal states
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analyticsDuration, setAnalyticsDuration] = useState<"today" | "week" | "month" | "all">("week");
+  const [copied, setCopied] = useState(false);
+
   // Journal state
   const [checklist, setChecklist] = useState<ChecklistItem[]>(trade.executionChecklist ?? []);
   const [customItem, setCustomItem] = useState("");
@@ -139,6 +151,7 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     setEditLots(String(trade.lots));
     setEditTimeframe(trade.timeframe ?? "");
     setLightboxIndex(null);
+    setShowChart(false);
   }, [trade._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep editTimeframe in sync when timeframe changes via chart's "Set default"
@@ -201,6 +214,73 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
   };
 
   const checkedCount = checklist.filter((c) => c.checked).length;
+
+  const filteredTradesForAnalytics = useMemo(() => {
+    const now = new Date();
+    return sharedTrades.filter((t) => {
+      if (t._deleted) return false;
+      const entryDate = new Date(t.entryTime);
+      const diffTime = now.getTime() - entryDate.getTime();
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+      if (analyticsDuration === "today") {
+        const todayStr = format(now, "yyyy-MM-dd");
+        const entryStr = format(entryDate, "yyyy-MM-dd");
+        return todayStr === entryStr;
+      }
+      if (analyticsDuration === "week") {
+        return diffDays <= 7;
+      }
+      if (analyticsDuration === "month") {
+        return diffDays <= 30;
+      }
+      return true; // "all"
+    });
+  }, [sharedTrades, analyticsDuration]);
+
+  const analyticsJsonString = useMemo(() => {
+    const cleaned = filteredTradesForAnalytics.map((t) => ({
+      symbol: t.symbol,
+      direction: t.direction,
+      lots: t.lots,
+      entryPrice: t.entryPrice,
+      exitPrice: t.exitPrice,
+      entryTime: t.entryTime,
+      exitTime: t.exitTime,
+      profit: t.profit,
+      status: t.status,
+      timeframe: t.timeframe,
+      executionChecklist: t.executionChecklist?.map((c) => ({
+        item: c.item,
+        checked: c.checked
+      })),
+      preTradeAnalysis: t.preTradeAnalysis,
+      postTradeReview: t.postTradeReview,
+      riskRatio: t.riskRatio,
+      rewardRatio: t.rewardRatio,
+      emotions: t.emotions,
+      lessonsLearned: t.lessonsLearned,
+      tags: t.tags,
+      rating: t.rating
+    }));
+    return JSON.stringify(cleaned, null, 2);
+  }, [filteredTradesForAnalytics]);
+
+  const analyticsPrompt = useMemo(() => {
+    return `You are an expert trading psychologist, coach, and risk analyst. Analyze my trading and journaling data for the selected period to help me identify mistakes, improve execution, and optimize my trading plan.
+
+Below is the JSON data of my trades and journal entries:
+\`\`\`json
+${analyticsJsonString}
+\`\`\`
+
+Please analyze this data and generate a detailed report:
+1. **Performance Summary**: Key metrics including win rate, net P&L, average profit/loss, and most traded symbols/timeframes.
+2. **Execution Review**: Compliance rate on checklist items. Highlight any specific checks that are frequently skipped.
+3. **Psychology & Emotions**: Patterns in my emotional state. Identify common emotional triggers (e.g., FOMO, anxiety) and their direct impact on my P&L.
+4. **Mistakes & Takeaways**: Highlight repeating mistakes, bad risk management behaviors, and main lessons learned.
+5. **Actionable Recommendations**: 3-5 concrete rules or habits I must implement to improve my trading discipline and profitability.`;
+  }, [analyticsJsonString]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -396,6 +476,18 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowChart((s) => !s)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] transition",
+              showChart
+                ? "border-amber-500/35 bg-amber-500/10 text-amber-400"
+                : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
+            )}
+          >
+            <LineChart className="h-3.5 w-3.5" />
+            {showChart ? "Hide Chart" : "Show Chart"}
+          </button>
+          <button
             onClick={() => setEditOpen((o) => !o)}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] transition",
@@ -407,7 +499,10 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
             <Edit2 className="h-3.5 w-3.5" />
             Edit
           </button>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/5 transition">
+          <button
+            onClick={() => setAnalyticsOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/5 transition"
+          >
             <BarChart2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Analytics</span>
           </button>
@@ -588,21 +683,6 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
           </div>
         )}
 
-        {/* Live Chart */}
-        <TradeChart
-          ref={chartRef}
-          symbol={trade.symbol}
-          entryPrice={trade.entryPrice}
-          exitPrice={trade.exitPrice}
-          entryTime={trade.entryTime}
-          exitTime={trade.exitTime}
-          stopLoss={trade.stopLoss}
-          takeProfit={trade.takeProfit}
-          direction={trade.direction}
-          defaultInterval={trade.timeframe}
-          onSaveInterval={handleSaveTimeframe}
-          onScreenshot={handleChartScreenshot}
-        />
 
         {/* Execution Checklist */}
         <div className="rounded-xl border border-white/7 overflow-hidden">
@@ -854,6 +934,35 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
           </div>
         </div>
 
+        {/* Live Chart (if toggled on) */}
+        {showChart && (
+          <div className="rounded-xl border border-white/7 p-4 bg-white/3 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-white/5">
+              <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Live Chart</span>
+              <button
+                onClick={() => setShowChart(false)}
+                className="text-[11px] text-white/40 hover:text-red-400 transition"
+              >
+                Hide Chart
+              </button>
+            </div>
+            <TradeChart
+              ref={chartRef}
+              symbol={trade.symbol}
+              entryPrice={trade.entryPrice}
+              exitPrice={trade.exitPrice}
+              entryTime={trade.entryTime}
+              exitTime={trade.exitTime}
+              stopLoss={trade.stopLoss}
+              takeProfit={trade.takeProfit}
+              direction={trade.direction}
+              defaultInterval={trade.timeframe}
+              onSaveInterval={handleSaveTimeframe}
+              onScreenshot={handleChartScreenshot}
+            />
+          </div>
+        )}
+
         {/* Unsaved changes sticky footer */}
         {isDirty && (
           <div className="sticky bottom-4 flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 shadow-lg">
@@ -871,6 +980,96 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
           </div>
         )}
       </div>
+
+      {/* Analytics AI Modal */}
+      {analyticsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-card border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <h3 className="text-[15px] font-semibold text-card-foreground">AI Analytics Assistant</h3>
+              <button
+                onClick={() => { setAnalyticsOpen(false); setCopied(false); }}
+                className="text-muted-foreground hover:text-foreground/60 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            
+            <div className="p-5 flex-1 overflow-y-auto space-y-4">
+              <p className="text-[12px] text-muted-foreground">
+                Select a duration to fetch your trade and journaling history. We've formatted it into a clean JSON layout and pre-compiled a prompt for AI chatbot analysis.
+              </p>
+              
+              {/* Duration tabs */}
+              <div className="flex gap-2 p-1 bg-white/5 rounded-xl border border-white/5 w-fit">
+                {([
+                  { label: "Today", value: "today" },
+                  { label: "Last Week", value: "week" },
+                  { label: "Last Month", value: "month" },
+                  { label: "All Time", value: "all" },
+                ] as const).map((d) => (
+                  <button
+                    key={d.value}
+                    onClick={() => { setAnalyticsDuration(d.value); setCopied(false); }}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[11px] font-semibold transition",
+                      analyticsDuration === d.value
+                        ? "bg-white/[0.09] text-white shadow-lg"
+                        : "text-white/40 hover:text-white/70"
+                    )}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="text-[11px] text-white/35 font-medium">
+                Found {filteredTradesForAnalytics.length} trade{filteredTradesForAnalytics.length !== 1 ? "s" : ""} for this duration.
+              </div>
+
+              {/* Prompt box */}
+              <div className="space-y-1.5">
+                <label className="block text-[10px] uppercase tracking-wider text-white/35 font-semibold">
+                  Compiled Prompt &amp; Data
+                </label>
+                <div className="relative group">
+                  <pre className="bg-black/40 text-[11px] text-white/70 p-3 rounded-lg overflow-y-auto max-h-[35vh] whitespace-pre-wrap font-mono border border-white/5">
+                    {analyticsPrompt}
+                  </pre>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-border flex items-center justify-end gap-2">
+              <button
+                onClick={() => { setAnalyticsOpen(false); setCopied(false); }}
+                className="px-4 py-2 rounded-lg border border-white/10 text-[12px] text-white/40 hover:text-white/70 transition"
+              >
+                Close
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(analyticsPrompt);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  } catch (e) {
+                    console.error("Failed to copy", e);
+                  }
+                }}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-[12px] font-semibold transition flex items-center gap-1.5",
+                  copied
+                    ? "bg-emerald-600 text-white animate-pulse"
+                    : "bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
+                )}
+              >
+                {copied ? "Copied!" : "Copy Prompt for AI"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

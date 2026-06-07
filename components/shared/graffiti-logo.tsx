@@ -65,13 +65,16 @@ export function GraffitiLogo({ size = 28, className = "", drips = false }: Graff
     <span className={`relative inline-flex flex-col items-start select-none ${className}`}>
       <span style={textStyle}>STRATIX</span>
       {drips && (
-        <span className="absolute left-0 right-0" style={{ bottom: -size * 0.22, height: size * 0.6 }} aria-hidden>
-          <Drip left="14%" h={size * 0.32} w={size * 0.06} />
-          <Drip left="33%" h={size * 0.6} w={size * 0.075} />
-          <Drip left="55%" h={size * 0.42} w={size * 0.065} />
-          <Drip left="72%" h={size * 0.7} w={size * 0.08} />
-          <Drip left="90%" h={size * 0.3} w={size * 0.055} />
-        </span>
+        <span 
+          className="absolute left-1.5 right-1.5 rounded-full" 
+          style={{ 
+            bottom: -size * 0.06, 
+            height: Math.max(2, size * 0.05), 
+            background: "linear-gradient(90deg, transparent, #10b981 30%, #34d399 70%, transparent)",
+            boxShadow: "0 0 10px rgba(16,185,129,0.45)"
+          }} 
+          aria-hidden
+        />
       )}
     </span>
   );
@@ -105,8 +108,22 @@ export function GraffitiMark({ size = 32, className = "" }: GraffitiMarkProps) {
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12), 0 0 22px rgba(16,185,129,0.25)",
       }}
     >
+      {/* Sleek diagonal trend slash behind the S */}
+      <span
+        className="absolute"
+        style={{
+          width: "12%",
+          height: "75%",
+          background: "linear-gradient(180deg, #34d399, #10b981, #047857)",
+          transform: "rotate(45deg)",
+          borderRadius: "999px",
+          opacity: 0.75,
+          boxShadow: "0 0 10px rgba(16,185,129,0.5)",
+        }}
+      />
       <span
         style={{
+          zIndex: 1,
           fontSize: `${letter}px`,
           lineHeight: 1,
           fontWeight: 900,
@@ -126,19 +143,6 @@ export function GraffitiMark({ size = 32, className = "" }: GraffitiMarkProps) {
       >
         S
       </span>
-      {/* small drip from the S */}
-      <span
-        className="absolute"
-        style={{
-          left: "46%",
-          bottom: size * 0.06,
-          width: size * 0.05,
-          height: size * 0.2,
-          borderRadius: "0 0 999px 999px",
-          background: "linear-gradient(180deg, rgba(255,255,255,0.8), rgba(16,185,129,0.6))",
-          transform: "skewX(-10deg)",
-        }}
-      />
     </span>
   );
 }

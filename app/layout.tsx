@@ -24,7 +24,9 @@ export const metadata: Metadata = {
   description: "Your all-in-one productivity tracker and trading journal platform.",
   icons: {
     icon: "/favicon.svg",
+    apple: "/apple-touch-icon.png",
   },
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({

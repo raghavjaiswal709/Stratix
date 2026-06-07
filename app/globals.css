@@ -461,17 +461,20 @@
   display: block;
 }
 .notion-editor .ProseMirror img.ProseMirror-selectednode {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid #10b981;
   outline-offset: 2px;
 }
 
 /* Links */
 .notion-editor .ProseMirror a {
-  color: #3b82f6;
+  color: var(--foreground);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(255,255,255,0.35);
 }
-.notion-editor .ProseMirror a:hover { opacity: 0.8; }
+.notion-editor .ProseMirror a:hover {
+  text-decoration-color: var(--foreground);
+}
 
 /* Strong / em */
 .notion-editor .ProseMirror strong { font-weight: 700; }
@@ -523,6 +526,129 @@
 /* Selected node ring for figure/drawing node views */
 .notion-editor .ProseMirror .ProseMirror-selectednode {
   outline: none;
+}
+
+/* Clearfix: ensures the ProseMirror container always grows to contain floated image/drawing blocks */
+.notion-editor .ProseMirror::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+
+/* ProseMirror gap cursor — shown when clicking between/around atomic nodes like images */
+.notion-editor .ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+}
+.notion-editor .ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}
+.notion-editor .ProseMirror-gapcursor::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 2px solid var(--foreground);
+  animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
+}
+@keyframes ProseMirror-cursor-blink {
+  to { visibility: hidden; }
+}
+
+/* ── Drag handle (floats in left gutter, follows hovered block) ──────────── */
+.notion-block-drag-handle {
+  position: fixed;
+  z-index: 100;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, background 0.12s ease;
+  color: rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  user-select: none;
+}
+.notion-block-drag-handle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
+}
+.notion-block-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* ── Slash command menu ───────────────────────────────────────────────────── */
+.slash-command-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 240px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.slash-command-menu::-webkit-scrollbar { display: none; }
+.slash-command-menu { -ms-overflow-style: none; scrollbar-width: none; }
+
+.slash-command-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+  background: transparent;
+  border: none;
+  width: 100%;
+  transition: background 0.1s;
+  color: var(--foreground);
+}
+.slash-command-item:hover,
+.slash-command-item--active {
+  background: rgba(255,255,255,0.07);
+}
+.slash-command-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+.slash-command-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.slash-command-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+  line-height: 1.2;
+}
+.slash-command-desc {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Minimal range slider — replaces all browser defaults ────────────────── */

@@ -1355,7 +1355,6 @@ export default function NewsAnalysisPage() {
   useEffect(() => {
     if (status === "loading") return;
     if (!session?.user) router.replace("/auth/signin");
-    else if (session.user.role !== "admin") router.replace("/dashboard");
   }, [session, status, router]);
 
   const [reports,         setReports]         = useState<NewsEntry[]>([]);
@@ -1423,7 +1422,7 @@ export default function NewsAnalysisPage() {
 
   const currentEntry = reports.find(r => r.date === selectedDate && r.session === selectedSession);
 
-  if (status === "loading" || !session?.user || session.user.role !== "admin") return null;
+  if (status === "loading" || !session?.user) return null;
 
   if (indexLoading) {
     return (

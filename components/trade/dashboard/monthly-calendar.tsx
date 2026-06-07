@@ -94,7 +94,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
         </div>
         <span
           className={`text-[11px] font-bold mt-0.5 inline-block ${
-            monthlyTotal >= 0 ? "text-white/65" : "text-red-400"
+            monthlyTotal >= 0 ? "text-emerald-400" : "text-red-400"
           }`}
         >
           Monthly: {fmt(monthlyTotal)}
@@ -155,7 +155,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                     className={cn(
                       "min-h-[42px] flex flex-col items-center justify-center rounded-lg text-center p-1 transition",
                       !inMonth && "opacity-0 pointer-events-none",
-                      hasTraded && pnl >= 0 && "bg-white/[0.06] border border-white/[0.10]",
+                      hasTraded && pnl >= 0 && "bg-emerald-500/10 border border-emerald-500/20",
                       hasTraded && pnl  < 0 && "bg-red-500/10 border border-red-500/20",
                       !hasTraded && inMonth && "bg-muted/30 border border-transparent"
                     )}
@@ -167,7 +167,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                       <span
                         className={cn(
                           "text-[9px] font-bold leading-tight mt-0.5",
-                          pnl >= 0 ? "text-white/65" : "text-red-400"
+                          pnl >= 0 ? "text-emerald-400" : "text-red-400"
                         )}
                       >
                         {fmt(pnl)}
@@ -182,7 +182,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                     className={cn(
                       "text-[11px] font-bold",
                       weekPnL > 0
-                        ? "text-white/65"
+                        ? "text-emerald-400"
                         : weekPnL < 0
                         ? "text-red-400"
                         : "text-muted-foreground"
@@ -203,7 +203,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
       {/* Legend */}
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06]">
         <div className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-white/50" />
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
           <span className="text-[10px] text-white/35">Profit day</span>
         </div>
         <div className="flex items-center gap-1.5">
