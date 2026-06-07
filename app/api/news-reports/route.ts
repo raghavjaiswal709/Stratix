@@ -46,8 +46,8 @@ const SESSION_ORDER = ["asian", "london", "new_york"];
 // GET /api/news-reports?date=X&session=Y&history  → version list (metadata only)
 export async function GET(req: NextRequest) {
   const userSession = await auth();
-  if (userSession?.user?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!userSession?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { searchParams } = new URL(req.url);

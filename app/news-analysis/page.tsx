@@ -1375,8 +1375,17 @@ export default function NewsAnalysisPage() {
 
   useEffect(() => {
     fetch("/api/news-reports")
-      .then(r => r.json())
+      .then(async (r) => {
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP ${r.status}`);
+        }
+        return r.json();
+      })
       .then((data: NewsEntry[]) => {
+        if (!Array.isArray(data)) {
+          throw new Error("Invalid response format");
+        }
         setReports(data);
         const dates = [...new Set(data.map(r => r.date))].sort().reverse();
         setAvailableDates(dates);
@@ -1387,7 +1396,9 @@ export default function NewsAnalysisPage() {
           setSelectedSession(best ?? "asian");
         }
       })
-      .catch(() => setError("Report index load nahi hua."))
+      .catch((e: Error) => {
+        setError(e.message === "Forbidden" || e.message === "Unauthorized" ? "Aap logged in nahi hain ya authorized nahi hain." : "Report index load nahi hua.");
+      })
       .finally(() => setIndexLoading(false));
   }, []);
 
@@ -1476,14 +1487,18 @@ export default function NewsAnalysisPage() {
                   )}
                 </button>
               )}
-              <button onClick={() => setPromptOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
-                <Bot className="h-3.5 w-3.5" /> Prompt
-              </button>
-              <button onClick={() => setEditorOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
-                <Pencil className="h-3.5 w-3.5" /> Add Report
-              </button>
+              {session?.user?.role === "admin" && (
+                <>
+                  <button onClick={() => setPromptOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
+                    <Bot className="h-3.5 w-3.5" /> Prompt
+                  </button>
+                  <button onClick={() => setEditorOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
+                    <Pencil className="h-3.5 w-3.5" /> Add Report
+                  </button>
+                </>
+              )}
               <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1">
                 <Clock className="h-3.5 w-3.5" />
                 <span>Live: <span className="text-white/60 font-medium">{SESSION_LABELS[currentSession]}</span></span>
@@ -1664,10 +1679,15 @@ export default function NewsAnalysisPage() {
           onSaved={() => {
             setViewingVersion(null);
             // Re-fetch index so count badge updates, then load latest
-            fetch("/api/news-reports")
-              .then(r => r.json())
+             fetch("/api/news-reports")
+              .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+              })
               .then((data: NewsEntry[]) => {
-                setReports(data);
+                if (Array.isArray(data)) {
+                  setReports(data);
+                }
               })
               .catch(() => {});
             loadReport(selectedDate, selectedSession);
