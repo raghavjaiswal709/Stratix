@@ -7,55 +7,107 @@
   },
   "all_news_section": {
     "headline": "Aaj ki sabse badi aur impactful market headline — engaging, concise, Hinglish mein.",
-    "summary": "Pichle 24 ghante ka complete global market breakdown. Kya bada hua, kyun hua, aur markets par kya asar pada — sab kuch Hinglish mein detail mein likhna hai. Minimum 150 words. USD, equities, bonds, commodities, aur crypto ka overall narrative cover karo.",
+    "summary": "Pichle 24 ghante ka complete global market breakdown. Kya bada hua, kyun hua, aur markets par kya asar pada — sab kuch Hinglish mein detail mein likhna hai. Minimum 200 words. USD, equities, bonds, commodities, crypto, aur geopolitics ka overall narrative cover karo.",
     "high_impact_events": [
       {
-        "event_name": "HIGHEST IMPACT — Event name (e.g. FOMC Rate Decision, NFP, CPI)",
-        "impact_explanation": "Sabse zyada market-moving event pehle — is event se market par kya asar padne wala hai detail mein aur Hinglish mein samjhao. Kaunse symbols directly affect honge, kya direction expect karo, aur kya levels pe nazar rakhna hai."
+        "event_name": "#1 HIGHEST IMPACT — e.g. FOMC Rate Decision / NFP / CPI Surprise",
+        "impact_explanation": "Domain (A/B/...) — Sabse market-moving event pehle. Is event se market par kya asar padne wala hai — kaunse symbols directly affect honge, kya direction expect karo, aur kya specific levels pe nazar rakhna hai. Minimum 80 words, Hinglish mein."
       },
       {
-        "event_name": "2nd Event — Global Central Bank Speech or Decision",
-        "impact_explanation": "Second most impactful event ka detailed Hinglish explanation with market impact across symbols."
+        "event_name": "#2 — Global Central Bank Speech or Decision",
+        "impact_explanation": "Domain B — Fed/ECB/BoE/BoJ/RBA/RBNZ/SNB/BoC/PBoC/RBI. Specific statement ya decision ka market impact detail mein."
       },
       {
-        "event_name": "3rd Event — Major US Macro Data Release",
-        "impact_explanation": "Third event ka detailed Hinglish explanation — GDP, PCE, ISM, retail sales ya koi bhi major US economic release."
+        "event_name": "#3 — Major US Macro Data Release",
+        "impact_explanation": "Domain A — GDP, PCE, retail sales, ISM, PPI, trade balance. Actual numbers vs expectations aur market reaction."
       },
       {
-        "event_name": "4th Event — Geopolitical Development",
-        "impact_explanation": "Geopolitical event ka impact — wars, sanctions, trade wars, diplomatic developments aur unka market par assar."
+        "event_name": "#4 — Geopolitical Development",
+        "impact_explanation": "Domain C — Active conflict, sanction, trade war, election result. Specific country aur market impact."
       },
       {
-        "event_name": "5th Event — Equity Market Significant Move",
-        "impact_explanation": "S&P 500, Nasdaq, DAX, Nikkei, ya Hang Seng ka significant move aur uska ripple effect currencies aur commodities par."
+        "event_name": "#5 — Global Equity Market Move",
+        "impact_explanation": "Domain D — S&P 500, Nasdaq, DAX, Nikkei ya Hang Seng ka significant move aur uska FX/commodity ripple."
       },
       {
-        "event_name": "6th Event — Bond Market / Yield Move",
-        "impact_explanation": "US 10Y yield, JGB, ya Bund mein significant move aur uska USD, JPY, CHF par impact."
+        "event_name": "#6 — Bond / Yield Market Development",
+        "impact_explanation": "Domain E — US 10Y/2Y yield, JGB, Bund. Specific basis point move, yield curve shape change, credit spread widening."
       },
       {
-        "event_name": "7th Event — Commodities Move (Oil, Copper, Iron Ore)",
-        "impact_explanation": "WTI/Brent crude, natural gas, copper ya iron ore ka major price move aur uska CAD, AUD, NZD par direct impact."
+        "event_name": "#7 — Crude Oil / Commodity Move",
+        "impact_explanation": "Domain F — WTI/Brent, natural gas, copper, iron ore. OPEC decision, supply shock, demand data — aur CAD/AUD/NOK par direct impact."
       },
       {
-        "event_name": "8th Event — Precious Metals (Gold / Silver)",
-        "impact_explanation": "XAUUSD ya XAGUSD ka significant catalyst — ETF flows, COMEX positioning, central bank buying, real yield changes."
+        "event_name": "#8 — Gold / Silver Precious Metals Catalyst",
+        "impact_explanation": "Domain G — ETF flows, COMEX positioning, central bank buying, real yield change. XAUUSD aur XAGUSD ke specific levels."
       },
       {
-        "event_name": "9th Event — Cryptocurrency Market Development",
-        "impact_explanation": "BTC ya ETH ka major move, regulatory news, spot ETF inflow/outflow data ya on-chain development."
+        "event_name": "#9 — Cryptocurrency Market Event",
+        "impact_explanation": "Domain H — BTC/ETH spot ETF flows, on-chain accumulation, regulatory news, exchange listing. Specific price levels aur implications."
       },
       {
-        "event_name": "10th Event — Asia & Emerging Markets Data",
-        "impact_explanation": "China PMI, PBoC action, India RBI, Japan trade balance ya koi Asia-specific data jo AUD, NZD, JPY ko directly affect kare."
+        "event_name": "#10 — Asia / China Specific Data",
+        "impact_explanation": "Domain I — China PMI, PBoC action, trade balance, Japan CPI/wages. AUD, NZD, JPY ke liye direct market impact."
       },
       {
-        "event_name": "11th Event — FX Market Specific Development",
-        "impact_explanation": "Currency intervention warning, CFTC positioning data, carry trade unwind, ya koi FX-specific catalyst."
+        "event_name": "#11 — FX Market Specific Development",
+        "impact_explanation": "Domain J — Intervention warning, CFTC net positioning change, carry trade unwind, options expiry. Specific currency pairs affected."
       },
       {
-        "event_name": "12th Event — Additional High-Impact Event (if applicable)",
-        "impact_explanation": "Koi bhi 12th significant event jo markets ko affect kare — earnings shock, sovereign rating change, unexpected data surprise ya koi breaking development."
+        "event_name": "#12 — Second Central Bank or Rate Decision",
+        "impact_explanation": "Domain B — Another major central bank event from the past 24 hours. Minutes, speech, or surprise policy shift."
+      },
+      {
+        "event_name": "#13 — Second US Macro Release",
+        "impact_explanation": "Domain A — Another key US economic release — jobs data, housing, consumer confidence, etc."
+      },
+      {
+        "event_name": "#14 — India / Emerging Market Data",
+        "impact_explanation": "Domain I — RBI decision, India CPI/GDP, Brazil, South Africa, Turkey, Mexico key data. Impact on INR, BRL, ZAR crosses."
+      },
+      {
+        "event_name": "#15 — Second Geopolitical Event",
+        "impact_explanation": "Domain C — Another geopolitical flashpoint — different region or angle from #4. Oil supply risk, sanctions impact, etc."
+      },
+      {
+        "event_name": "#16 — Second Equity Market Development",
+        "impact_explanation": "Domain D — Another major index or sector move. Earnings shock, IPO, sector rotation that moved markets."
+      },
+      {
+        "event_name": "#17 — Corporate / Earnings Event",
+        "impact_explanation": "Domain D/F — Major earnings report (e.g. big tech, bank, commodity giant) or M&A that moved broader markets."
+      },
+      {
+        "event_name": "#18 — Natural Gas / Energy Markets",
+        "impact_explanation": "Domain F — LNG prices, pipeline flow, energy supply disruption. Impact on CAD, NOK, AUD."
+      },
+      {
+        "event_name": "#19 — Silver / Industrial Metals",
+        "impact_explanation": "Domain G/F — Silver, copper, aluminum, nickel — EV demand, manufacturing PMI, China construction data impact."
+      },
+      {
+        "event_name": "#20 — Altcoin / DeFi / Crypto Regulatory",
+        "impact_explanation": "Domain H — Altcoin move, DeFi protocol news, SEC/CFTC action, stablecoin development, exchange news."
+      },
+      {
+        "event_name": "#21 — Japan / BoJ Specific Development",
+        "impact_explanation": "Domain B/I — BoJ intervention risk, JGB yield cap, Japan trade/wage data. USDJPY ke liye specific risk levels."
+      },
+      {
+        "event_name": "#22 — Australia / New Zealand Data",
+        "impact_explanation": "Domain I — RBA/RBNZ decision or data. Australia employment, NZ GDP, dairy prices. AUD/NZD specific impact."
+      },
+      {
+        "event_name": "#23 — UK / Europe Specific Data",
+        "impact_explanation": "Domain A/B — UK CPI, GDP, PMI, or Eurozone inflation, manufacturing. GBP/USD, EUR/USD specific levels."
+      },
+      {
+        "event_name": "#24 — IMM / Options / Positioning Data",
+        "impact_explanation": "Domain J — CFTC Commitments of Traders, IMM net positions, major options expiry at key strikes. Smart money ka current stance."
+      },
+      {
+        "event_name": "#25 — Additional High-Impact Event (25th minimum)",
+        "impact_explanation": "Any remaining significant market-moving event from today's real news — sovereign rating change, unexpected data, flash crash, breaking news. Real aur specific hona chahiye."
       }
     ]
   },
@@ -65,57 +117,57 @@
         "Gold se related latest headline 1 — specific price action ya catalyst mention karo",
         "Gold se related latest headline 2 — another key development"
       ],
-      "detailed_breakdown": "Gold mein pichle 24 ghante mein kya bada news movement hua. Dollar index ka kya impact raha, real yields ne kya kiya, ETF flows kaisi thi, COMEX positioning kya bol rahi hai, aur session open hote hi kya expect karna hai — sab kuch detailed Hinglish mein. Minimum 100 words.",
+      "detailed_breakdown": "Gold mein pichle 24 ghante mein kya bada news movement hua. Dollar index ka kya impact raha, real yields ne kya kiya, ETF flows kaisi thi, COMEX positioning kya bol rahi hai, aur session open hote hi kya expect karna hai — sab kuch detailed Hinglish mein. Minimum 120 words.",
       "trader_alert": "Retail traders ke liye ek important, urgent note ya warning — Hinglish mein. Key level, risk event, ya positioning advice jo is specific symbol ke liye critical hai right now."
     },
     "XAGUSD": {
-      "latest_headlines": ["Silver headline 1", "Silver headline 2"],
-      "detailed_breakdown": "Silver ka detailed Hinglish breakdown...",
+      "latest_headlines": ["Silver headline 1 — specific", "Silver headline 2 — specific"],
+      "detailed_breakdown": "Silver ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "Silver ke liye trader alert Hinglish mein..."
     },
     "BTCUSDT": {
-      "latest_headlines": ["BTC headline 1", "BTC headline 2"],
-      "detailed_breakdown": "Bitcoin ka detailed Hinglish breakdown...",
+      "latest_headlines": ["BTC headline 1 — specific", "BTC headline 2 — specific"],
+      "detailed_breakdown": "Bitcoin ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "BTC ke liye trader alert Hinglish mein..."
     },
     "ETHUSD": {
-      "latest_headlines": ["ETH headline 1", "ETH headline 2"],
-      "detailed_breakdown": "Ethereum ka detailed Hinglish breakdown...",
+      "latest_headlines": ["ETH headline 1 — specific", "ETH headline 2 — specific"],
+      "detailed_breakdown": "Ethereum ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "ETH ke liye trader alert Hinglish mein..."
     },
     "GBPUSD": {
-      "latest_headlines": ["GBP headline 1", "GBP headline 2"],
-      "detailed_breakdown": "GBP/USD ka detailed Hinglish breakdown...",
+      "latest_headlines": ["GBP headline 1 — specific", "GBP headline 2 — specific"],
+      "detailed_breakdown": "GBP/USD ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "GBP ke liye trader alert Hinglish mein..."
     },
     "EURUSD": {
-      "latest_headlines": ["EUR headline 1", "EUR headline 2"],
-      "detailed_breakdown": "EUR/USD ka detailed Hinglish breakdown...",
+      "latest_headlines": ["EUR headline 1 — specific", "EUR headline 2 — specific"],
+      "detailed_breakdown": "EUR/USD ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "EUR ke liye trader alert Hinglish mein..."
     },
     "USDJPY": {
-      "latest_headlines": ["JPY headline 1", "JPY headline 2"],
-      "detailed_breakdown": "USD/JPY ka detailed Hinglish breakdown...",
+      "latest_headlines": ["JPY headline 1 — specific", "JPY headline 2 — specific"],
+      "detailed_breakdown": "USD/JPY ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "JPY ke liye trader alert Hinglish mein..."
     },
     "AUDUSD": {
-      "latest_headlines": ["AUD headline 1", "AUD headline 2"],
-      "detailed_breakdown": "AUD/USD ka detailed Hinglish breakdown...",
+      "latest_headlines": ["AUD headline 1 — specific", "AUD headline 2 — specific"],
+      "detailed_breakdown": "AUD/USD ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "AUD ke liye trader alert Hinglish mein..."
     },
     "NZDUSD": {
-      "latest_headlines": ["NZD headline 1", "NZD headline 2"],
-      "detailed_breakdown": "NZD/USD ka detailed Hinglish breakdown...",
+      "latest_headlines": ["NZD headline 1 — specific", "NZD headline 2 — specific"],
+      "detailed_breakdown": "NZD/USD ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "NZD ke liye trader alert Hinglish mein..."
     },
     "USDCAD": {
-      "latest_headlines": ["CAD headline 1", "CAD headline 2"],
-      "detailed_breakdown": "USD/CAD ka detailed Hinglish breakdown...",
+      "latest_headlines": ["CAD headline 1 — specific", "CAD headline 2 — specific"],
+      "detailed_breakdown": "USD/CAD ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "CAD ke liye trader alert Hinglish mein..."
     },
     "USDCHF": {
-      "latest_headlines": ["CHF headline 1", "CHF headline 2"],
-      "detailed_breakdown": "USD/CHF ka detailed Hinglish breakdown...",
+      "latest_headlines": ["CHF headline 1 — specific", "CHF headline 2 — specific"],
+      "detailed_breakdown": "USD/CHF ka detailed Hinglish breakdown — minimum 120 words...",
       "trader_alert": "CHF ke liye trader alert Hinglish mein..."
     }
   }

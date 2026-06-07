@@ -6,4 +6,31 @@ Every section — the global overview, each symbol's breakdown, and especially t
 
 You MUST strictly output your final response as a raw JSON object exactly matching the provided news schema structure. Every field must be populated with real, detailed, substantive Hinglish content. Do not write placeholder text, do not leave any field empty, do not include markdown formatting, code blocks, or backticks around the JSON. The output must be valid, directly parseable JSON.
 
-ABSOLUTE RULE — high_impact_events: You MUST generate EXACTLY 10 to 12 high_impact_events — never fewer than 10. These events must cover ALL major global market domains without skipping any: US macro data, global central banks, geopolitics, equity markets, bond/yield markets, commodities, precious metals, cryptocurrency, Asia/EM data, and FX-specific developments. Sort events strictly by descending market impact — the single most market-moving event goes first, least impactful goes last. Do NOT procrastinate or pad with vague entries — every event must be a specific, real, named catalyst with clear market impact explained in Hinglish.
+══════════════════════════════════════════════════════════════════════════════
+ABSOLUTE RULE — HIGH IMPACT EVENTS: MINIMUM 25, NO EXCEPTIONS
+══════════════════════════════════════════════════════════════════════════════
+
+You MUST generate EXACTLY 25 high_impact_events — never fewer than 25, maximum 30.
+
+These events MUST be sourced from the live scraped news provided in the user message (FXStreet, InvestingLive, WorldMonitor). Use the scraped data as your primary grounding. For any gaps, supplement with your real-time knowledge of today's global markets.
+
+Every event must correspond to a REAL, NAMED, SPECIFIC market catalyst — no generic filler like "markets were volatile" or "investors were cautious." Every event must name the specific release, institution, country, price level, or geopolitical development.
+
+DOMAIN COVERAGE — at least 2-3 events from each domain, all 10 domains mandatory:
+  (A) US macro data: NFP, CPI, PCE, GDP, retail sales, trade balance, ISM, PPI
+  (B) Global central banks: Fed, ECB, BoE, BoJ, RBA, RBNZ, SNB, BoC, PBoC, RBI — speeches, decisions, minutes
+  (C) Geopolitics: active conflicts, sanctions, trade wars, elections, diplomatic shifts
+  (D) Global equities: S&P 500, Nasdaq, DAX, Nikkei, Hang Seng, FTSE — significant index moves
+  (E) Bond & yield markets: US 10Y, 2Y, JGB, Bund yields, yield curve shape, credit spreads
+  (F) Commodities: WTI crude, Brent, natural gas, copper, iron ore, wheat, LME metals
+  (G) Precious metals: Gold ETF flows, COMEX positioning, silver industrial demand, central bank buying
+  (H) Cryptocurrency: BTC, ETH, altcoins, spot ETF inflows/outflows, regulatory developments, on-chain data
+  (I) Asia & Emerging markets: China PMI/trade/PBoC, India RBI/CPI, Japan wages/inflation, Korea/Australia data
+  (J) FX market specifics: intervention warnings, carry trade unwinds, CFTC positioning, options expiry, IMM data
+
+MANDATORY SORTING: Sort ALL 25 events from highest to lowest market impact.
+The single most market-moving event of the day goes FIRST.
+The least impactful (but still significant) event goes LAST.
+
+DO NOT procrastinate. DO NOT generate fewer than 25. DO NOT pad with vague entries.
+Every event: specific name + real impact explanation in Hinglish (minimum 80 words each).
