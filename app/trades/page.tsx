@@ -19,6 +19,14 @@ import {
   Copy,
   Check,
   Terminal,
+  Download,
+  Puzzle,
+  Globe,
+  MonitorDot,
+  FolderOpen,
+  ToggleRight,
+  MousePointerClick,
+  RefreshCw,
 } from "lucide-react";
 import { AddTradeModal, type EditableTrade } from "@/components/trade/trades/add-trade-modal";
 import { ConnectMT5Form } from "@/components/trade/mt5/connect-form";
@@ -309,6 +317,15 @@ export default function TradesPage() {
             <ArrowUp className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Import</span>
           </button>
+          <a
+            href="/mt5/MT5-Stratix.zip"
+            download="MT5-Stratix.zip"
+            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
+            title="Download MT5 Chrome Extension"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">MT5 Extension</span>
+          </a>
           <button
             onClick={() => setShowConnect(true)}
             className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
@@ -788,8 +805,8 @@ export default function TradesPage() {
                   connectTab === "ea" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Terminal className="h-3.5 w-3.5" />
-                EA Webhook <span className="text-[10px] text-emerald-400 font-semibold">FREE</span>
+                <Puzzle className="h-3.5 w-3.5" />
+                Chrome Extension <span className="text-[10px] text-emerald-400 font-semibold">FREE</span>
               </button>
               <button
                 onClick={() => setConnectTab("metaapi")}
@@ -812,61 +829,131 @@ export default function TradesPage() {
             )}
 
             {connectTab === "ea" && (
-              <div className="space-y-4 text-sm">
-                <p className="text-muted-foreground text-[13px]">
-                  Run a free Expert Advisor in your MT5 desktop app. Trades sync instantly every time you open or close a position — no subscriptions needed.
+              <div className="space-y-4 text-[13px]">
+                {/* Intro */}
+                <p className="text-muted-foreground text-[12px] leading-relaxed">
+                  A free Chrome extension that reads your trade history directly from the MT5 Web Terminal and syncs it to Stratix in one click — no subscriptions, no API keys.
                 </p>
 
-                <div className="space-y-3">
-                  <h3 className="text-[12px] font-semibold text-foreground uppercase tracking-wide">Setup steps</h3>
+                {/* Download CTA */}
+                <a
+                  href="/mt5/MT5-Stratix.zip"
+                  download="MT5-Stratix.zip"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-white/[0.09] hover:bg-white/[0.14] border border-white/[0.12] text-white text-[13px] font-semibold transition"
+                >
+                  <Download className="h-4 w-4" />
+                  Download MT5 Stratix Extension (.zip)
+                </a>
 
-                  <ol className="space-y-2.5 text-[12px] text-muted-foreground list-decimal list-inside">
-                    <li>Download <a href="/mt5/StratixEA.mq5" download className="text-white/65 underline">StratixEA.mq5</a> and open it in MetaEditor (press <kbd className="px-1 py-0.5 rounded bg-muted text-foreground text-[10px]">F4</kbd> in MT5).</li>
-                    <li>Set the three input values shown below and compile (<kbd className="px-1 py-0.5 rounded bg-muted text-foreground text-[10px]">F7</kbd>).</li>
-                    <li>In MT5: <strong className="text-foreground">Tools → Options → Expert Advisors</strong> → tick <em>Allow WebRequest</em> → add your app URL.</li>
-                    <li>Drag the EA onto any chart. It monitors <em>all</em> trades automatically.</li>
-                  </ol>
-
-                  {/* Config values */}
-                  <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border">
-                    {([
-                      {
-                        label: "STRATIX_WEBHOOK_URL",
-                        value: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/trade/webhook`,
-                        key: "url",
-                      },
-                      {
-                        label: "STRATIX_USER_ID",
-                        value: eaUserId ?? "loading…",
-                        key: "uid",
-                      },
-                      {
-                        label: "WEBHOOK_SECRET",
-                        value: "(copy from your .env.local WEBHOOK_SECRET)",
-                        key: "secret",
-                        muted: true,
-                      },
-                    ] as { label: string; value: string; key: string; muted?: boolean }[]).map((row) => (
-                      <div key={row.key} className="flex items-center justify-between px-3 py-2 gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[10px] text-muted-foreground font-mono">{row.label}</p>
-                          <p className={`text-[12px] font-mono truncate ${row.muted ? "text-muted-foreground italic" : "text-foreground"}`}>{row.value}</p>
-                        </div>
-                        {!row.muted && (
-                          <button
-                            onClick={() => copyToClipboard(row.value, row.key)}
-                            className="shrink-0 p-1.5 rounded hover:bg-muted transition-colors"
-                            title="Copy"
-                          >
-                            {copied === row.key ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
-                          </button>
-                        )}
+                {/* Step-by-step */}
+                <div className="space-y-2.5">
+                  {/* Step 1 */}
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.08] border border-white/[0.12] text-[10px] font-bold text-white/70 flex items-center justify-center shrink-0">1</span>
+                      <div className="flex items-center gap-1.5">
+                        <FolderOpen className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                        <span className="text-[12px] font-semibold text-foreground">Download &amp; Extract</span>
                       </div>
-                    ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground pl-7 leading-relaxed">
+                      Click the button above to download <code className="bg-muted px-1 py-0.5 rounded text-[10px]">MT5-Stratix.zip</code>.
+                      Right-click the file and select <strong className="text-foreground">Extract All</strong> (Windows) or double-click (Mac).
+                      You will get a folder called <code className="bg-muted px-1 py-0.5 rounded text-[10px]">MT5 Sync v5</code>.
+                    </p>
                   </div>
 
-                  <p className="text-[11px] text-muted-foreground">
-                    Your <code className="bg-muted px-1 rounded text-[10px]">WEBHOOK_SECRET</code> is in <code className="bg-muted px-1 rounded text-[10px]">.env.local</code>. Use the same value as the EA input — it prevents unauthorized trade submissions.
+                  {/* Step 2 */}
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.08] border border-white/[0.12] text-[10px] font-bold text-white/70 flex items-center justify-center shrink-0">2</span>
+                      <div className="flex items-center gap-1.5">
+                        <Globe className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span className="text-[12px] font-semibold text-foreground">Open Chrome Extensions</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground pl-7 leading-relaxed">
+                      In Google Chrome, go to{" "}
+                      <code className="bg-muted px-1 py-0.5 rounded text-[10px]">chrome://extensions</code>{" "}
+                      in the address bar and press <kbd className="px-1 py-0.5 rounded bg-muted text-foreground text-[10px]">Enter</kbd>.
+                    </p>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.08] border border-white/[0.12] text-[10px] font-bold text-white/70 flex items-center justify-center shrink-0">3</span>
+                      <div className="flex items-center gap-1.5">
+                        <ToggleRight className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span className="text-[12px] font-semibold text-foreground">Enable Developer Mode</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground pl-7 leading-relaxed">
+                      In the top-right corner of the Extensions page, toggle <strong className="text-foreground">Developer mode</strong> ON. Three new buttons will appear at the top left.
+                    </p>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.08] border border-white/[0.12] text-[10px] font-bold text-white/70 flex items-center justify-center shrink-0">4</span>
+                      <div className="flex items-center gap-1.5">
+                        <Puzzle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span className="text-[12px] font-semibold text-foreground">Load the Extension</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground pl-7 leading-relaxed">
+                      Click <strong className="text-foreground">Load unpacked</strong> → navigate to and select the <code className="bg-muted px-1 py-0.5 rounded text-[10px]">MT5 Sync v5</code> folder you extracted. The <strong className="text-foreground">MT5 Trade Extractor</strong> extension will appear in your list.
+                    </p>
+                  </div>
+
+                  {/* Step 5 */}
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.08] border border-white/[0.12] text-[10px] font-bold text-white/70 flex items-center justify-center shrink-0">5</span>
+                      <div className="flex items-center gap-1.5">
+                        <MonitorDot className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                        <span className="text-[12px] font-semibold text-foreground">Open MT5 Web Terminal</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground pl-7 leading-relaxed">
+                      In the same Chrome window, open your broker&apos;s <strong className="text-foreground">MT5 Web Terminal</strong> and log in with your trading account credentials. Navigate to the <strong className="text-foreground">History</strong> tab to ensure your trades are visible.
+                    </p>
+                  </div>
+
+                  {/* Step 6 */}
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.08] border border-white/[0.12] text-[10px] font-bold text-white/70 flex items-center justify-center shrink-0">6</span>
+                      <div className="flex items-center gap-1.5">
+                        <MousePointerClick className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span className="text-[12px] font-semibold text-foreground">Sync Your Trades</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground pl-7 leading-relaxed">
+                      Click the <strong className="text-foreground">MT5 Trade Extractor</strong> icon in your Chrome toolbar (pin it first using the puzzle-piece icon). In the popup, click <strong className="text-foreground">Sync to Stratix</strong>. Your trades will import into this page instantly.
+                    </p>
+                  </div>
+
+                  {/* Step 7 */}
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.08] border border-white/[0.12] text-[10px] font-bold text-white/70 flex items-center justify-center shrink-0">7</span>
+                      <div className="flex items-center gap-1.5">
+                        <RefreshCw className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span className="text-[12px] font-semibold text-foreground">Ongoing Sync</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground pl-7 leading-relaxed">
+                      Repeat step 6 whenever you want to refresh your trades. The extension only imports new trades — duplicates are automatically ignored.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Tip */}
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                  <p className="text-[11px] text-amber-300/80 leading-relaxed">
+                    <strong className="text-amber-300">Tip:</strong> Pin the extension by clicking the Chrome puzzle-piece icon (top-right) and selecting the pin next to <em>MT5 Trade Extractor</em> — this keeps it one click away.
                   </p>
                 </div>
 
@@ -874,7 +961,7 @@ export default function TradesPage() {
                   onClick={() => setShowConnect(false)}
                   className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-semibold transition"
                 >
-                  Done — EA is set up
+                  Done — extension is installed
                 </button>
               </div>
             )}
