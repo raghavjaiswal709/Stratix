@@ -1550,9 +1550,21 @@ export function BacktestChart({
 
     const needed = TOOL_POINTS[activeTool] ?? 2;
 
+    const isLineOrRect = ["trendline", "ray", "hline", "vline", "arrow", "rectangle"].includes(activeTool);
+    const defaultColor = isLineOrRect ? "#ffffff" : undefined;
+    const defaultStrokeWidth = isLineOrRect ? 0.5 : undefined;
+    const defaultFillOpacity = activeTool === "rectangle" ? 0.1 : undefined;
+
     // Single-point tools: finalize immediately on mousedown
     if (needed === 1) {
-      const newDrawing: Drawing = { id: String(Date.now()), type: activeTool, points: [p] };
+      const newDrawing: Drawing = {
+        id: String(Date.now()),
+        type: activeTool,
+        points: [p],
+        color: defaultColor,
+        strokeWidth: defaultStrokeWidth,
+        fillOpacity: defaultFillOpacity,
+      };
       activeDrawingRef.current = newDrawing;
       finalizeDrawing(coords);
       return;
@@ -1562,7 +1574,14 @@ export function BacktestChart({
     if (needed >= 3) {
       const current = multiCreatingRef.current;
       if (!current) {
-        const nd: Drawing = { id: String(Date.now()), type: activeTool, points: [p, p] };
+        const nd: Drawing = {
+          id: String(Date.now()),
+          type: activeTool,
+          points: [p, p],
+          color: defaultColor,
+          strokeWidth: defaultStrokeWidth,
+          fillOpacity: defaultFillOpacity,
+        };
         activeDrawingRef.current = nd;
         setPreviewDrawing(nd);
         setMultiCreating({ type: activeTool, points: [p] });
@@ -1581,7 +1600,14 @@ export function BacktestChart({
       if (current.points.length === needed - 1) {
         // Final click: finalize
         const allPts = [...current.points, p];
-        const finished: Drawing = { id: String(Date.now()), type: activeTool, points: allPts };
+        const finished: Drawing = {
+          id: String(Date.now()),
+          type: activeTool,
+          points: allPts,
+          color: defaultColor,
+          strokeWidth: defaultStrokeWidth,
+          fillOpacity: defaultFillOpacity,
+        };
         commitDrawings([...localDrawingsRef.current, finished]);
         setSelectedDrawingId(finished.id);
         activeDrawingRef.current = null;
@@ -1600,7 +1626,14 @@ export function BacktestChart({
     }
 
     if (!activeDrawingRef.current) {
-      const newDrawing: Drawing = { id: String(Date.now()), type: activeTool, points: [p, p] };
+      const newDrawing: Drawing = {
+        id: String(Date.now()),
+        type: activeTool,
+        points: [p, p],
+        color: defaultColor,
+        strokeWidth: defaultStrokeWidth,
+        fillOpacity: defaultFillOpacity,
+      };
       activeDrawingRef.current = newDrawing;
       setPreviewDrawing(newDrawing);
       isDraggingDrawingRef.current = true;
@@ -1951,9 +1984,11 @@ export function BacktestChart({
     const p1 = getXY(draw.points[0]);
     const isSelected = selectedDrawingId === draw.id || selectedDrawingIds.includes(draw.id);
     const isPreview  = draw.id === previewDrawing?.id;
-    const stroke     = draw.color || (isSelected ? SEL_COLOR : LINE_COLOR);
+    const isLineOrRect = ["trendline", "ray", "hline", "vline", "arrow", "rectangle"].includes(draw.type);
+    const drawColor  = draw.color || (isLineOrRect ? "#ffffff" : undefined);
+    const stroke     = drawColor || (isSelected ? SEL_COLOR : LINE_COLOR);
     const dashArray  = isPreview ? "5 4" : "0";
-    const sw         = draw.strokeWidth ?? 1.5; // user-configurable stroke width
+    const sw         = draw.strokeWidth ?? (isLineOrRect ? 0.5 : 1.5); // user-configurable stroke width
 
     // Drawings are only interactive in cursor mode.
     // In any drawing tool mode, <g> elements are pointer-events-none so clicks
@@ -2138,10 +2173,10 @@ export function BacktestChart({
       return (
         <g key={draw.id} {...groupProps}>
           <rect x={x} y={y} width={w} height={h} stroke={stroke} strokeWidth={isSelected ? sw + 1 : sw}
-            fill={draw.color ? hexToRgba(draw.color, draw.fillOpacity !== undefined ? draw.fillOpacity : (isSelected ? 0.08 : 0.05)) : `rgba(16,185,129,${draw.fillOpacity !== undefined ? draw.fillOpacity : (isSelected ? 0.08 : 0.05)})`} strokeDasharray={dashArray} />
+            fill={hexToRgba(drawColor || "#ffffff", draw.fillOpacity !== undefined ? draw.fillOpacity : 0.1)} strokeDasharray={dashArray} />
           {draw.text && (
             <text x={tx} y={ty} textAnchor={textAnchor}
-              fill={draw.textColor || draw.color || (isSelected ? SEL_COLOR : LINE_COLOR)}
+              fill={draw.textColor || drawColor || (isSelected ? SEL_COLOR : LINE_COLOR)}
               fontSize={fs} fontFamily="monospace" fontWeight="bold" pointerEvents="none">
               {draw.text}
             </text>
@@ -3429,7 +3464,7 @@ export function BacktestChart({
                   <div className="relative w-3.5 h-3.5 rounded-full border border-white/20 overflow-hidden hover:scale-110 transition-all flex items-center justify-center cursor-pointer bg-gradient-to-tr from-red-500 via-green-500 to-blue-500">
                     <input
                       type="color"
-                      value={sel.color || "#10b981"}
+                      value={sel.color || (["trendline", "ray", "hline", "vline", "arrow", "rectangle"].includes(sel.type) ? "#ffffff" : "#10b981")}
                       onChange={(e) => handleUpdateDrawingColor(e.target.value)}
                       className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       title="Choose Custom Color"
@@ -3440,27 +3475,33 @@ export function BacktestChart({
                 <div className="w-px h-3.5 bg-white/[0.08]" />
 
                 {/* Stroke width control */}
-                <div className="flex items-center gap-1" title="Stroke width">
-                  <button
-                    onClick={() => {
-                      const cur = sel.strokeWidth ?? 1.5;
-                      const next = Math.max(0.5, +(cur - 0.5).toFixed(1));
-                      const updated = localDrawings.map(d => d.id === sel.id ? { ...d, strokeWidth: next } : d);
-                      commitDrawings(updated);
-                    }}
-                    className="w-4 h-4 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
-                  ><Minus className="w-2.5 h-2.5" /></button>
-                  <span className="text-white/60 w-5 text-center font-bold">{(sel.strokeWidth ?? 1.5).toFixed(1)}</span>
-                  <button
-                    onClick={() => {
-                      const cur = sel.strokeWidth ?? 1.5;
-                      const next = Math.min(8, +(cur + 0.5).toFixed(1));
-                      const updated = localDrawings.map(d => d.id === sel.id ? { ...d, strokeWidth: next } : d);
-                      commitDrawings(updated);
-                    }}
-                    className="w-4 h-4 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
-                  ><PlusIcon className="w-2.5 h-2.5" /></button>
-                </div>
+                {(() => {
+                  const isLineOrRect = ["trendline", "ray", "hline", "vline", "arrow", "rectangle"].includes(sel.type);
+                  const defaultSW = isLineOrRect ? 0.5 : 1.5;
+                  return (
+                    <div className="flex items-center gap-1" title="Stroke width">
+                      <button
+                        onClick={() => {
+                          const cur = sel.strokeWidth ?? defaultSW;
+                          const next = Math.max(0.5, +(cur - 0.5).toFixed(1));
+                          const updated = localDrawings.map(d => d.id === sel.id ? { ...d, strokeWidth: next } : d);
+                          commitDrawings(updated);
+                        }}
+                        className="w-4 h-4 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+                      ><Minus className="w-2.5 h-2.5" /></button>
+                      <span className="text-white/60 w-5 text-center font-bold">{(sel.strokeWidth ?? defaultSW).toFixed(1)}</span>
+                      <button
+                        onClick={() => {
+                          const cur = sel.strokeWidth ?? defaultSW;
+                          const next = Math.min(8, +(cur + 0.5).toFixed(1));
+                          const updated = localDrawings.map(d => d.id === sel.id ? { ...d, strokeWidth: next } : d);
+                          commitDrawings(updated);
+                        }}
+                        className="w-4 h-4 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
+                      ><PlusIcon className="w-2.5 h-2.5" /></button>
+                    </div>
+                  );
+                })()}
 
                 <div className="w-px h-3.5 bg-white/[0.08]" />
 
@@ -3634,7 +3675,7 @@ export function BacktestChart({
                           min="0"
                           max="1"
                           step="0.05"
-                          value={sel.fillOpacity !== undefined ? sel.fillOpacity : 0.05}
+                          value={sel.fillOpacity !== undefined ? sel.fillOpacity : 0.1}
                           onChange={(e) => {
                             const val = parseFloat(e.target.value);
                             const updated = localDrawings.map(d => d.id === sel.id ? { ...d, fillOpacity: val } : d);
@@ -3642,7 +3683,7 @@ export function BacktestChart({
                           }}
                           className="w-14 accent-emerald-500 cursor-pointer h-1.5 rounded-lg bg-white/[0.08]"
                         />
-                        <span className="text-white/60 font-bold text-[8px]">{Math.round((sel.fillOpacity !== undefined ? sel.fillOpacity : 0.05) * 100)}%</span>
+                        <span className="text-white/60 font-bold text-[8px]">{Math.round((sel.fillOpacity !== undefined ? sel.fillOpacity : 0.1) * 100)}%</span>
                       </div>
                     )}
                   </div>

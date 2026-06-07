@@ -10,16 +10,52 @@
     "summary": "Pichle 24 ghante ka complete global market breakdown. Kya bada hua, kyun hua, aur markets par kya asar pada — sab kuch Hinglish mein detail mein likhna hai. Minimum 150 words. USD, equities, bonds, commodities, aur crypto ka overall narrative cover karo.",
     "high_impact_events": [
       {
-        "event_name": "Event name like FOMC, NFP, CPI, BoJ Decision, ECB Meeting",
-        "impact_explanation": "Is event se market par kya asar padne wala hai — detail mein aur Hinglish mein samjhao. Kaunse symbols directly affect honge, kya direction expect karo, aur kya levels pe nazar rakhna hai."
+        "event_name": "HIGHEST IMPACT — Event name (e.g. FOMC Rate Decision, NFP, CPI)",
+        "impact_explanation": "Sabse zyada market-moving event pehle — is event se market par kya asar padne wala hai detail mein aur Hinglish mein samjhao. Kaunse symbols directly affect honge, kya direction expect karo, aur kya levels pe nazar rakhna hai."
       },
       {
-        "event_name": "Second high-impact event name",
-        "impact_explanation": "Second event ka detailed Hinglish explanation with market impact."
+        "event_name": "2nd Event — Global Central Bank Speech or Decision",
+        "impact_explanation": "Second most impactful event ka detailed Hinglish explanation with market impact across symbols."
       },
       {
-        "event_name": "Third high-impact event name",
-        "impact_explanation": "Third event ka detailed Hinglish explanation with market impact."
+        "event_name": "3rd Event — Major US Macro Data Release",
+        "impact_explanation": "Third event ka detailed Hinglish explanation — GDP, PCE, ISM, retail sales ya koi bhi major US economic release."
+      },
+      {
+        "event_name": "4th Event — Geopolitical Development",
+        "impact_explanation": "Geopolitical event ka impact — wars, sanctions, trade wars, diplomatic developments aur unka market par assar."
+      },
+      {
+        "event_name": "5th Event — Equity Market Significant Move",
+        "impact_explanation": "S&P 500, Nasdaq, DAX, Nikkei, ya Hang Seng ka significant move aur uska ripple effect currencies aur commodities par."
+      },
+      {
+        "event_name": "6th Event — Bond Market / Yield Move",
+        "impact_explanation": "US 10Y yield, JGB, ya Bund mein significant move aur uska USD, JPY, CHF par impact."
+      },
+      {
+        "event_name": "7th Event — Commodities Move (Oil, Copper, Iron Ore)",
+        "impact_explanation": "WTI/Brent crude, natural gas, copper ya iron ore ka major price move aur uska CAD, AUD, NZD par direct impact."
+      },
+      {
+        "event_name": "8th Event — Precious Metals (Gold / Silver)",
+        "impact_explanation": "XAUUSD ya XAGUSD ka significant catalyst — ETF flows, COMEX positioning, central bank buying, real yield changes."
+      },
+      {
+        "event_name": "9th Event — Cryptocurrency Market Development",
+        "impact_explanation": "BTC ya ETH ka major move, regulatory news, spot ETF inflow/outflow data ya on-chain development."
+      },
+      {
+        "event_name": "10th Event — Asia & Emerging Markets Data",
+        "impact_explanation": "China PMI, PBoC action, India RBI, Japan trade balance ya koi Asia-specific data jo AUD, NZD, JPY ko directly affect kare."
+      },
+      {
+        "event_name": "11th Event — FX Market Specific Development",
+        "impact_explanation": "Currency intervention warning, CFTC positioning data, carry trade unwind, ya koi FX-specific catalyst."
+      },
+      {
+        "event_name": "12th Event — Additional High-Impact Event (if applicable)",
+        "impact_explanation": "Koi bhi 12th significant event jo markets ko affect kare — earnings shock, sovereign rating change, unexpected data surprise ya koi breaking development."
       }
     ]
   },
