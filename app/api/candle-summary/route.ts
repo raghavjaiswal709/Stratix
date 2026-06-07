@@ -95,8 +95,8 @@ async function fetchRows(symbol: string, origin: string, cookieHeader: string): 
 
 export async function GET(req: NextRequest) {
   const userSession = await auth();
-  if (userSession?.user?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!userSession?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const origin       = new URL(req.url).origin;

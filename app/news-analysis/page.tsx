@@ -31,6 +31,7 @@ import {
   History,
   User,
   Eye,
+  Trash2,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ interface SymbolNews {
 }
 
 interface NewsReport {
-  meta: { date: string; session: string; generated_at: string; language: string };
+  meta: { date: string; session: string; generated_at: string; language: string; generated_by?: string };
   all_news_section: AllNewsSection;
   symbol_wise_news: Record<string, SymbolNews>;
 }
@@ -971,15 +972,18 @@ function EditorModal({
 // ─── History Modal ────────────────────────────────────────────────────────────
 
 function HistoryModal({
-  date, session, onClose, onViewVersion,
+  date, session, onClose, onViewVersion, onDeleteVersion,
 }: {
   date: string; session: string;
   onClose: () => void;
   onViewVersion: (data: NewsReport, version: NewsVersion) => void;
+  onDeleteVersion?: (id: string) => void;
 }) {
+  const { data: userSession } = useSession();
   const [versions, setVersions]   = useState<NewsVersion[]>([]);
   const [loading,  setLoading]    = useState(true);
   const [loadingId,setLoadingId]  = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [err,      setErr]        = useState<string | null>(null);
 
   useEffect(() => {
@@ -1000,6 +1004,27 @@ function HistoryModal({
       setErr(e instanceof Error ? e.message : "Load failed");
     } finally {
       setLoadingId(null);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm("Are you sure you want to delete this version?")) return;
+    setDeletingId(id);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/news-reports?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      setVersions((prev) => prev.filter((v) => v._id !== id));
+      if (onDeleteVersion) onDeleteVersion(id);
+    } catch (e: any) {
+      setErr(e.message || "Failed to delete version");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -1085,20 +1110,48 @@ function HistoryModal({
                     </div>
                   </div>
 
-                  {/* View button */}
-                  <button
-                    onClick={() => handleView(v)}
-                    disabled={loadingId === v._id}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all shrink-0",
-                      "border bg-white/[0.04] border-white/[0.08] text-white/40 hover:text-white/70 hover:bg-white/[0.08]",
-                      "disabled:opacity-40 disabled:cursor-not-allowed",
-                    )}>
-                    {loadingId === v._id
-                      ? <Loader2 className="h-3 w-3 animate-spin" />
-                      : <Eye className="h-3 w-3" />}
-                    {loadingId === v._id ? "Loading…" : "View"}
-                  </button>
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => handleView(v)}
+                      disabled={loadingId === v._id || deletingId === v._id}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                        "border bg-white/[0.04] border-white/[0.08] text-white/40 hover:text-white/70 hover:bg-white/[0.08]",
+                        "disabled:opacity-40 disabled:cursor-not-allowed",
+                      )}>
+                      {loadingId === v._id
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Eye className="h-3 w-3" />}
+                      {loadingId === v._id ? "Loading…" : "View"}
+                    </button>
+
+                    {(() => {
+                      const userEmail = userSession?.user?.email;
+                      const isOwner = v.generatedBy && userEmail && v.generatedBy.toLowerCase() === userEmail.toLowerCase();
+                      const isAdmin = userSession?.user?.role === "admin";
+                      if (!isOwner && !isAdmin) return null;
+
+                      return (
+                        <button
+                          onClick={() => handleDelete(v._id)}
+                          disabled={deletingId === v._id || loadingId === v._id}
+                          title="Delete version"
+                          className={cn(
+                            "flex items-center justify-center p-2 rounded-lg transition-all",
+                            "border border-red-500/20 bg-red-500/[0.08] text-red-400 hover:bg-red-500/[0.15] hover:text-red-300",
+                            "disabled:opacity-40 disabled:cursor-not-allowed",
+                          )}
+                        >
+                          {deletingId === v._id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      );
+                    })()}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1487,18 +1540,14 @@ export default function NewsAnalysisPage() {
                   )}
                 </button>
               )}
-              {session?.user?.role === "admin" && (
-                <>
-                  <button onClick={() => setPromptOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
-                    <Bot className="h-3.5 w-3.5" /> Prompt
-                  </button>
-                  <button onClick={() => setEditorOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
-                    <Pencil className="h-3.5 w-3.5" /> Add Report
-                  </button>
-                </>
-              )}
+              <button onClick={() => setPromptOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
+                <Bot className="h-3.5 w-3.5" /> Prompt
+              </button>
+              <button onClick={() => setEditorOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
+                <Pencil className="h-3.5 w-3.5" /> Add Report
+              </button>
               <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1">
                 <Clock className="h-3.5 w-3.5" />
                 <span>Live: <span className="text-white/60 font-medium">{SESSION_LABELS[currentSession]}</span></span>
@@ -1620,6 +1669,12 @@ export default function NewsAnalysisPage() {
               <span className="text-[11px] text-white/25">
                 {new Date(report.meta.generated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC par generate hua
               </span>
+              {report.meta.generated_by && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold bg-white/[0.04] border border-white/[0.07] rounded-full text-white/35">
+                  <User className="h-3.5 w-3.5 opacity-60" />
+                  By {report.meta.generated_by}
+                </span>
+              )}
             </div>
 
             {/* All News Banner */}
@@ -1709,6 +1764,20 @@ export default function NewsAnalysisPage() {
           onViewVersion={(data, version) => {
             setReport(data);
             setViewingVersion(version);
+          }}
+          onDeleteVersion={(deletedId) => {
+            // Re-fetch index so count badge updates, then load latest
+            fetch("/api/news-reports")
+              .then(r => r.json())
+              .then((data: NewsEntry[]) => {
+                if (Array.isArray(data)) setReports(data);
+              })
+              .catch(() => {});
+            
+            if (viewingVersion?._id === deletedId) {
+              setViewingVersion(null);
+            }
+            loadReport(selectedDate, selectedSession);
           }}
         />
       )}
