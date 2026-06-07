@@ -171,6 +171,51 @@ function persistCandles(symbol, candles) {
   return totalWritten;
 }
 
+// ─── Chunked fetch with retry ─────────────────────────────────────────────────
+
+const CHUNK_HOURS  = 24;   // fetch in 24-hour slices — keeps requests small & reliable
+const MAX_RETRIES  = 3;    // per-chunk retry attempts
+const RETRY_DELAY  = 4000; // ms between retries (linear backoff × attempt)
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/**
+ * Fetch one time-slice for a given instrument, with up to MAX_RETRIES attempts.
+ * Returns an array of candle objects (may be empty if the market was closed).
+ */
+async function fetchChunkWithRetry(instrument, from, to, tag, chunkLabel) {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const raw = await getHistoricRates({
+        instrument,
+        dates:    { from, to },
+        timeframe: Timeframe.m1,
+        format:    'json',
+        useCache:  false,
+        cacheFolderPath: CACHE_DIR,
+      });
+      if (raw && raw.length > 0) return raw;
+
+      // Got empty — may be a closed market window (weekend) or transient API gap.
+      // Only retry if it's not obviously a closed-market window.
+      const dayOfWeek = from.getUTCDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      if (isWeekend || attempt === MAX_RETRIES) return [];
+
+      console.log(`${tag}   chunk ${chunkLabel} attempt ${attempt}/${MAX_RETRIES}: 0 candles — retrying…`);
+      await sleep(RETRY_DELAY * attempt);
+    } catch (err) {
+      if (attempt === MAX_RETRIES) {
+        console.error(`${tag}   chunk ${chunkLabel} failed after ${MAX_RETRIES} attempts: ${err?.message ?? err}`);
+        return [];
+      }
+      console.log(`${tag}   chunk ${chunkLabel} attempt ${attempt}/${MAX_RETRIES} error: ${err?.message ?? err} — retrying…`);
+      await sleep(RETRY_DELAY * attempt);
+    }
+  }
+  return [];
+}
+
 // ─── Per-symbol update ────────────────────────────────────────────────────────
 
 async function updateSymbol(symbol) {
@@ -184,9 +229,9 @@ async function updateSymbol(symbol) {
   }
 
   // fromDate is the minute AFTER the last known candle
-  const fromDate  = new Date((lastTsSec + 60) * 1000);
+  const fromDate = new Date((lastTsSec + 60) * 1000);
   // toDate leaves BUFFER_MINS of breathing room to avoid partial candles
-  const toDate    = new Date(Date.now() - BUFFER_MINS * 60 * 1000);
+  const toDate   = new Date(Date.now() - BUFFER_MINS * 60 * 1000);
 
   console.log(`${tag} Last candle : ${utcLabel(lastTsSec * 1000)}`);
   console.log(`${tag} Fetch range : ${utcLabel(fromDate)} → ${utcLabel(toDate)}`);
@@ -199,37 +244,56 @@ async function updateSymbol(symbol) {
   const gapMins = Math.round((toDate - fromDate) / 60_000);
   console.log(`${tag} Gap         : ~${gapMins} min (${(gapMins / 60).toFixed(1)} h)`);
 
-  try {
-    const raw = await getHistoricRates({
-      instrument:     INSTRUMENT_MAP[symbol],
-      dates:          { from: fromDate, to: toDate },
-      timeframe:      Timeframe.m1,
-      format:         'json',
-      useCache:       false,          // always pull fresh for incremental updates
-      cacheFolderPath: CACHE_DIR,
-    });
+  // ── Split the gap into CHUNK_HOURS-sized slices ──────────────────────────
+  const chunkMs = CHUNK_HOURS * 60 * 60 * 1000;
+  const chunks  = [];
+  let chunkStart = fromDate;
+  while (chunkStart < toDate) {
+    const chunkEnd = new Date(Math.min(chunkStart.getTime() + chunkMs, toDate.getTime()));
+    chunks.push({ from: new Date(chunkStart), to: chunkEnd });
+    chunkStart = chunkEnd;
+  }
 
-    if (!raw || raw.length === 0) {
-      console.log(`${tag} Dukascopy returned 0 candles (data not yet available).`);
-      return 0;
+  const useChunks = chunks.length > 1;
+  if (useChunks) {
+    console.log(`${tag} Chunks      : ${chunks.length} × ${CHUNK_HOURS}h slices`);
+  }
+
+  // ── Fetch all chunks, collecting candles ─────────────────────────────────
+  const allRaw = [];
+  let failedChunks = 0;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const { from, to } = chunks[i];
+    const label = useChunks ? `${i + 1}/${chunks.length}` : '1/1';
+    const raw   = await fetchChunkWithRetry(INSTRUMENT_MAP[symbol], from, to, tag, label);
+
+    if (raw.length > 0) {
+      allRaw.push(...raw);
+    } else if (from.getUTCDay() !== 0 && from.getUTCDay() !== 6) {
+      // Count non-weekend zeros as failures
+      failedChunks++;
     }
+  }
 
-    // Extra safety: discard anything that isn't strictly newer than lastTsSec
-    const fresh = raw.filter(c => Math.floor(c.timestamp / 1000) > lastTsSec);
-    if (fresh.length === 0) {
-      console.log(`${tag} Received ${raw.length} candle(s) but all already present locally.`);
-      return 0;
-    }
+  if (failedChunks > 0) {
+    console.log(`${tag} Warning: ${failedChunks}/${chunks.length} weekday chunk(s) returned 0 candles.`);
+  }
 
-    console.log(`${tag} Received ${raw.length} candle(s), ${fresh.length} genuinely new.`);
-    return persistCandles(symbol, fresh);
-
-  } catch (err) {
-    // Non-fatal: log the error and continue with the next symbol
-    const msg = err?.message ?? String(err);
-    console.error(`${tag} ERROR — ${msg}`);
+  if (allRaw.length === 0) {
+    console.log(`${tag} Dukascopy returned 0 candles total (market closed or data not yet available).`);
     return 0;
   }
+
+  // Extra safety: discard anything that isn't strictly newer than lastTsSec
+  const fresh = allRaw.filter(c => Math.floor(c.timestamp / 1000) > lastTsSec);
+  if (fresh.length === 0) {
+    console.log(`${tag} Received ${allRaw.length} candle(s) but all already present locally.`);
+    return 0;
+  }
+
+  console.log(`${tag} Received ${allRaw.length} candle(s) total, ${fresh.length} genuinely new.`);
+  return persistCandles(symbol, fresh);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
