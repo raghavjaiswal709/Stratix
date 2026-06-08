@@ -1480,7 +1480,7 @@ export default function NewsAnalysisPage() {
   const canGoBack       = dateIndex < availableDates.length - 1;
   const canGoFwd        = dateIndex > 0;
   const sessionsForDate = reports.filter(r => r.date === selectedDate).map(r => r.session);
-  const orderedSymbols  = report
+  const orderedSymbols  = report?.symbol_wise_news
     ? SYMBOL_DISPLAY_ORDER.filter(s => s in report.symbol_wise_news)
     : [];
 
