@@ -120,11 +120,40 @@ const TIME_RANGE_OPTIONS = [
 ] as const;
 type TimeRange = typeof TIME_RANGE_OPTIONS[number]["value"];
 
+function getISTDateTime(): Date {
+  const d = new Date();
+  const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+  return new Date(utc + (3600000 * 5.5));
+}
+
+function getISTDateString(): string {
+  const ist = getISTDateTime();
+  const y = ist.getFullYear();
+  const m = String(ist.getMonth() + 1).padStart(2, "0");
+  const day = String(ist.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getCurrentSessionIST(): string {
+  const ist = getISTDateTime();
+  const h = ist.getHours();
+  const m = ist.getMinutes();
+  const totalMinutes = h * 60 + m;
+
+  // Asian session: 05:30 IST to 13:30 IST (330 to 810 mins)
+  // London session: 13:30 IST to 18:30 IST (810 to 1110 mins)
+  // New York session: 18:30 IST to 05:30 IST (1110 to 330 mins)
+  if (totalMinutes >= 330 && totalMinutes < 810) {
+    return "asian";
+  } else if (totalMinutes >= 810 && totalMinutes < 1110) {
+    return "london";
+  } else {
+    return "new_york";
+  }
+}
+
 function getCurrentSession(): string {
-  const h = new Date().getUTCHours();
-  if (h >= 22 || h < 6)  return "asian";
-  if (h >= 6  && h < 12) return "london";
-  return "new_york";
+  return getCurrentSessionIST();
 }
 
 function formatDateLabel(d: string): string {
@@ -950,6 +979,8 @@ function EditorModal({
   onClose: () => void; onSaved: () => void;
 }) {
   const [json,      setJson]      = useState(initialJson);
+  const [modalDate, setModalDate] = useState(date);
+  const [modalSession, setModalSession] = useState(session);
   const [parseErr,  setParseErr]  = useState<string | null>(null);
   const [saveErr,   setSaveErr]   = useState<string | null>(null);
   const [saving,    setSaving]    = useState(false);
@@ -1049,7 +1080,7 @@ function EditorModal({
     setChecks(nextChecks);
   }
 
-  function tryValidate(value: string): boolean {
+  function tryValidate(value: string, checkDate = modalDate, checkSession = modalSession): boolean {
     if (!value.trim()) {
       setParseErr(null);
       setIsValid(false);
@@ -1074,14 +1105,14 @@ function EditorModal({
       }
 
       // Ensure upload metadata matches selected date and session
-      if (parsed.meta.date !== date) {
-        setParseErr(`Schema Error: meta.date '${parsed.meta.date}' must match selected date '${date}'`);
+      if (parsed.meta.date !== checkDate) {
+        setParseErr(`Schema Error: meta.date '${parsed.meta.date}' must match selected date '${checkDate}'`);
         setIsValid(false);
         return false;
       }
 
-      if (parsed.meta.session.toLowerCase() !== session.toLowerCase()) {
-        setParseErr(`Schema Error: meta.session '${parsed.meta.session}' must match selected session '${session}'`);
+      if (parsed.meta.session.toLowerCase() !== checkSession.toLowerCase()) {
+        setParseErr(`Schema Error: meta.session '${parsed.meta.session}' must match selected session '${checkSession}'`);
         setIsValid(false);
         return false;
       }
@@ -1131,15 +1162,7 @@ function EditorModal({
       const parsed = JSON.parse(json);
       const formatted = JSON.stringify(parsed, null, 2);
       setJson(formatted);
-      updateChecks(parsed, "success");
-      const schemaErr = validateReportSchema(parsed);
-      if (schemaErr) {
-        setParseErr(`Schema Error: ${schemaErr}`);
-        setIsValid(false);
-      } else {
-        setParseErr(null);
-        setIsValid(true);
-      }
+      tryValidate(formatted);
     } catch (e) {
       setParseErr(e instanceof Error ? e.message : "Invalid JSON");
       setIsValid(false);
@@ -1154,7 +1177,7 @@ function EditorModal({
       const res = await fetch("/api/news-reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, session, data: JSON.parse(json) }),
+        body: JSON.stringify({ date: modalDate, session: modalSession, data: JSON.parse(json) }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1178,13 +1201,42 @@ function EditorModal({
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/[0.07] shrink-0">
-          <div className="flex items-center gap-2.5">
-            <Pencil className="h-3.5 w-3.5 text-white/40" />
-            <div>
-              <p className="text-[13px] font-semibold text-white/80">Add News Report</p>
-              <p className="text-[11px] text-white/30">
-                {SESSION_LABELS[session]} Session · {formatDateLabel(date)} · Naya version save hoga
-              </p>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Pencil className="h-3.5 w-3.5 text-white/40" />
+              <p className="text-[13px] font-semibold text-white/85">Add Report</p>
+            </div>
+            <div className="flex items-center gap-2 bg-white/[0.03] border border-white/[0.08] rounded-lg p-1">
+              <input
+                type="date"
+                value={modalDate}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setModalDate(val);
+                  setSaveErr(null);
+                  setSaved(false);
+                  tryValidate(json, val, modalSession);
+                }}
+                className="bg-transparent border-0 text-[11px] text-white/75 focus:ring-0 focus:outline-none px-1 font-mono"
+              />
+              <span className="text-white/20 text-[11px]">·</span>
+              <select
+                value={modalSession}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setModalSession(val);
+                  setSaveErr(null);
+                  setSaved(false);
+                  tryValidate(json, modalDate, val);
+                }}
+                className="bg-transparent border-0 text-[11px] text-white/75 focus:ring-0 focus:outline-none pr-6 pl-1 font-semibold cursor-pointer"
+              >
+                {SESSION_ORDER.map(s => (
+                  <option key={s} value={s} className="bg-[#121212] text-white">
+                    {SESSION_LABELS[s]} Session
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1748,9 +1800,8 @@ export default function NewsAnalysisPage() {
   }, [session, status, router]);
 
   const [reports,         setReports]         = useState<NewsEntry[]>([]);
-  const [availableDates,  setAvailableDates]  = useState<string[]>([]);
-  const [selectedDate,    setSelectedDate]    = useState<string>("");
-  const [selectedSession, setSelectedSession] = useState<string>("asian");
+  const [selectedDate,    setSelectedDate]    = useState<string>(getISTDateString());
+  const [selectedSession, setSelectedSession] = useState<string>(getCurrentSessionIST());
   const [report,          setReport]          = useState<NewsReport | null>(null);
   const [indexLoading,    setIndexLoading]    = useState(true);
   const [reportLoading,   setReportLoading]   = useState(false);
@@ -1762,6 +1813,12 @@ export default function NewsAnalysisPage() {
   const [viewingVersion, setViewingVersion] = useState<NewsVersion | null>(null);
 
   const currentSession = getCurrentSession();
+
+  // Dynamically compute availableDates from database reports + always include today
+  const todayIST = getISTDateString();
+  const datesSet = new Set(reports.map(r => r.date));
+  datesSet.add(todayIST);
+  const availableDates = [...datesSet].sort().reverse();
 
   useEffect(() => {
     fetch("/api/news-reports")
@@ -1777,13 +1834,12 @@ export default function NewsAnalysisPage() {
           throw new Error("Invalid response format");
         }
         setReports(data);
-        const dates = [...new Set(data.map(r => r.date))].sort().reverse();
-        setAvailableDates(dates);
-        if (dates.length > 0) {
-          setSelectedDate(dates[0]);
-          const forDate = data.filter(r => r.date === dates[0]);
-          const best = SESSION_ORDER.slice().reverse().find(s => forDate.some(r => r.session === s));
-          setSelectedSession(best ?? "asian");
+        
+        // If today has existing reports, auto-align default session to the latest one
+        const forToday = data.filter(r => r.date === todayIST);
+        if (forToday.length > 0) {
+          const best = SESSION_ORDER.slice().reverse().find(s => forToday.some(r => r.session === s));
+          if (best) setSelectedSession(best);
         }
       })
       .catch((e: Error) => {
