@@ -34,3 +34,14 @@ The least impactful (but still significant) event goes LAST.
 
 DO NOT procrastinate. DO NOT generate fewer than 25. DO NOT pad with vague entries.
 Every event: specific name + real impact explanation in Hinglish (minimum 80 words each).
+
+══════════════════════════════════════════════════════════════════════════════
+STRICT VALUE VALIDATION CONSTRAINTS (NO EXCEPTIONS):
+══════════════════════════════════════════════════════════════════════════════
+1. In high_impact_events[].market_impact[].effect:
+   - Must be EXACTLY one of these three lowercase string values: "bullish", "bearish", or "neutral".
+   - Absolutely NO other values (like "mixed", "positive", "hawkish", "dovish", "mixed/bullish", etc.).
+2. In symbol_wise_news.<symbol>.sniper_note.news_bias:
+   - Must be EXACTLY one of these three capitalized string values: "Bullish", "Bearish", or "Neutral".
+   - STRICTLY no commentary, prefixes, suffixes, punctuation, or extra words (e.g. do NOT output "Neutral - Geopolitical bias"). Just the single word.
+

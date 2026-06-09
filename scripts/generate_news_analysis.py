@@ -340,7 +340,11 @@ def main() -> None:
         "RULE 5 — SYMBOL BREAKDOWNS:\n"
         "  Har symbol ke liye exactly 2 specific headlines, "
         "ek detailed breakdown (minimum 120 words), "
-        "aur ek urgent trader alert likhna hai.\n\n"
+        "ek urgent trader alert, "
+        "aur ek sniper_note (jismein news_bias strictly 'Bullish', 'Bearish', or 'Neutral' hona chahiye aur koi suffix/commentary nahi).\n\n"
+        "RULE 6 — MARKET IMPACT TAGS:\n"
+        "  Har high_impact_event ke andar 'market_impact' list fill karo. "
+        "The effect field values must be EXACTLY 'bullish', 'bearish', or 'neutral' (lowercase only).\n\n"
         "Koi bhi field empty mat chhordo — har jagah real, substantive Hinglish content chahiye."
     )
 

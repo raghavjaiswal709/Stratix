@@ -6,169 +6,215 @@
     "language": "Hinglish"
   },
   "all_news_section": {
-    "headline": "Aaj ki sabse badi aur impactful market headline — engaging, concise, Hinglish mein.",
-    "summary": "Pichle 24 ghante ka complete global market breakdown. Kya bada hua, kyun hua, aur markets par kya asar pada — sab kuch Hinglish mein detail mein likhna hai. Minimum 200 words. USD, equities, bonds, commodities, crypto, aur geopolitics ka overall narrative cover karo.",
+    "headline": "Is time window ki sabse badi aur impactful khabar — engaging, specific, Hinglish mein. Could be: economic data, military attack, natural disaster, political upheaval, market crash — jo bhi sabse zyada important ho.",
+    "summary": "250+ word Hinglish summary: is time window mein duniya mein kya hua — macro events, geopolitical developments, natural disasters, trade/sanctions news, energy shocks, political changes, crypto events, market structure moves — sab cover karo. Overall risk sentiment kya hai — risk-on ya risk-off? Dollar, equities, bonds, commodities, crypto — sab ka status.",
     "high_impact_events": [
       {
-        "event_name": "#1 HIGHEST IMPACT — e.g. FOMC Rate Decision / NFP / CPI Surprise",
-        "impact_explanation": "Domain (A/B/...) — Sabse market-moving event pehle. Is event se market par kya asar padne wala hai — kaunse symbols directly affect honge, kya direction expect karo, aur kya specific levels pe nazar rakhna hai. Minimum 80 words, Hinglish mein."
+        "event_name": "REAL event naam — e.g. FOMC Rate Decision | NFP Miss | Terrorist Attack on Oil Pipeline | OPEC Emergency Cut | US-China Tariff | Major Bank Failure | Hurricane | Cyber Attack | Election Result | Sovereign Default | Earthquake Japan | etc.",
+        "impact_explanation": "Is event ka market par kya asar pada — **exact numbers**, *expected vs actual*, kaunse assets affected, kya direction, kyun hua. Minimum 80 words Hinglish + markdown formatting.",
+        "market_impact": [
+          { "symbol": "XAUUSD", "effect": "bullish" },
+          { "symbol": "USD",    "effect": "bearish" },
+          { "symbol": "BTCUSDT","effect": "bullish" },
+          { "symbol": "EURUSD", "effect": "bullish" },
+          { "symbol": "US Equities", "effect": "bearish" }
+        ]
       },
       {
-        "event_name": "#2 — Global Central Bank Speech or Decision",
-        "impact_explanation": "Domain B — Fed/ECB/BoE/BoJ/RBA/RBNZ/SNB/BoC/PBoC/RBI. Specific statement ya decision ka market impact detail mein."
+        "event_name": "Second real event naam",
+        "impact_explanation": "Second event explanation — 80+ words Hinglish with **bold** numbers and *italic* context...",
+        "market_impact": [
+          { "symbol": "USDJPY",  "effect": "bearish" },
+          { "symbol": "XAUUSD",  "effect": "bullish" },
+          { "symbol": "Oil",     "effect": "bullish" },
+          { "symbol": "GBPUSD",  "effect": "neutral" }
+        ]
       },
       {
-        "event_name": "#3 — Major US Macro Data Release",
-        "impact_explanation": "Domain A — GDP, PCE, retail sales, ISM, PPI, trade balance. Actual numbers vs expectations aur market reaction."
+        "event_name": "Third real event naam",
+        "impact_explanation": "Third event explanation with markdown formatting...",
+        "market_impact": [
+          { "symbol": "XAUUSD",  "effect": "bearish" },
+          { "symbol": "USD",     "effect": "bullish" },
+          { "symbol": "BTCUSDT", "effect": "bearish" },
+          { "symbol": "AUDUSD",  "effect": "bearish" }
+        ]
       },
       {
-        "event_name": "#4 — Geopolitical Development",
-        "impact_explanation": "Domain C — Active conflict, sanction, trade war, election result. Specific country aur market impact."
+        "event_name": "Fourth real event naam",
+        "impact_explanation": "Fourth event explanation...",
+        "market_impact": [
+          { "symbol": "Oil",        "effect": "bullish" },
+          { "symbol": "USDCAD",     "effect": "bearish" },
+          { "symbol": "XAUUSD",     "effect": "bullish" },
+          { "symbol": "US Equities","effect": "bearish" }
+        ]
       },
       {
-        "event_name": "#5 — Global Equity Market Move",
-        "impact_explanation": "Domain D — S&P 500, Nasdaq, DAX, Nikkei ya Hang Seng ka significant move aur uska FX/commodity ripple."
-      },
-      {
-        "event_name": "#6 — Bond / Yield Market Development",
-        "impact_explanation": "Domain E — US 10Y/2Y yield, JGB, Bund. Specific basis point move, yield curve shape change, credit spread widening."
-      },
-      {
-        "event_name": "#7 — Crude Oil / Commodity Move",
-        "impact_explanation": "Domain F — WTI/Brent, natural gas, copper, iron ore. OPEC decision, supply shock, demand data — aur CAD/AUD/NOK par direct impact."
-      },
-      {
-        "event_name": "#8 — Gold / Silver Precious Metals Catalyst",
-        "impact_explanation": "Domain G — ETF flows, COMEX positioning, central bank buying, real yield change. XAUUSD aur XAGUSD ke specific levels."
-      },
-      {
-        "event_name": "#9 — Cryptocurrency Market Event",
-        "impact_explanation": "Domain H — BTC/ETH spot ETF flows, on-chain accumulation, regulatory news, exchange listing. Specific price levels aur implications."
-      },
-      {
-        "event_name": "#10 — Asia / China Specific Data",
-        "impact_explanation": "Domain I — China PMI, PBoC action, trade balance, Japan CPI/wages. AUD, NZD, JPY ke liye direct market impact."
-      },
-      {
-        "event_name": "#11 — FX Market Specific Development",
-        "impact_explanation": "Domain J — Intervention warning, CFTC net positioning change, carry trade unwind, options expiry. Specific currency pairs affected."
-      },
-      {
-        "event_name": "#12 — Second Central Bank or Rate Decision",
-        "impact_explanation": "Domain B — Another major central bank event from the past 24 hours. Minutes, speech, or surprise policy shift."
-      },
-      {
-        "event_name": "#13 — Second US Macro Release",
-        "impact_explanation": "Domain A — Another key US economic release — jobs data, housing, consumer confidence, etc."
-      },
-      {
-        "event_name": "#14 — India / Emerging Market Data",
-        "impact_explanation": "Domain I — RBI decision, India CPI/GDP, Brazil, South Africa, Turkey, Mexico key data. Impact on INR, BRL, ZAR crosses."
-      },
-      {
-        "event_name": "#15 — Second Geopolitical Event",
-        "impact_explanation": "Domain C — Another geopolitical flashpoint — different region or angle from #4. Oil supply risk, sanctions impact, etc."
-      },
-      {
-        "event_name": "#16 — Second Equity Market Development",
-        "impact_explanation": "Domain D — Another major index or sector move. Earnings shock, IPO, sector rotation that moved markets."
-      },
-      {
-        "event_name": "#17 — Corporate / Earnings Event",
-        "impact_explanation": "Domain D/F — Major earnings report (e.g. big tech, bank, commodity giant) or M&A that moved broader markets."
-      },
-      {
-        "event_name": "#18 — Natural Gas / Energy Markets",
-        "impact_explanation": "Domain F — LNG prices, pipeline flow, energy supply disruption. Impact on CAD, NOK, AUD."
-      },
-      {
-        "event_name": "#19 — Silver / Industrial Metals",
-        "impact_explanation": "Domain G/F — Silver, copper, aluminum, nickel — EV demand, manufacturing PMI, China construction data impact."
-      },
-      {
-        "event_name": "#20 — Altcoin / DeFi / Crypto Regulatory",
-        "impact_explanation": "Domain H — Altcoin move, DeFi protocol news, SEC/CFTC action, stablecoin development, exchange news."
-      },
-      {
-        "event_name": "#21 — Japan / BoJ Specific Development",
-        "impact_explanation": "Domain B/I — BoJ intervention risk, JGB yield cap, Japan trade/wage data. USDJPY ke liye specific risk levels."
-      },
-      {
-        "event_name": "#22 — Australia / New Zealand Data",
-        "impact_explanation": "Domain I — RBA/RBNZ decision or data. Australia employment, NZ GDP, dairy prices. AUD/NZD specific impact."
-      },
-      {
-        "event_name": "#23 — UK / Europe Specific Data",
-        "impact_explanation": "Domain A/B — UK CPI, GDP, PMI, or Eurozone inflation, manufacturing. GBP/USD, EUR/USD specific levels."
-      },
-      {
-        "event_name": "#24 — IMM / Options / Positioning Data",
-        "impact_explanation": "Domain J — CFTC Commitments of Traders, IMM net positions, major options expiry at key strikes. Smart money ka current stance."
-      },
-      {
-        "event_name": "#25 — Additional High-Impact Event (25th minimum)",
-        "impact_explanation": "Any remaining significant market-moving event from today's real news — sovereign rating change, unexpected data, flash crash, breaking news. Real aur specific hona chahiye."
+        "event_name": "Fifth real event naam (agar relevant tha)",
+        "impact_explanation": "Fifth event explanation...",
+        "market_impact": [
+          { "symbol": "ETHUSD",  "effect": "bullish" },
+          { "symbol": "BTCUSDT", "effect": "bullish" },
+          { "symbol": "USD",     "effect": "bearish" }
+        ]
       }
     ]
   },
   "symbol_wise_news": {
     "XAUUSD": {
       "latest_headlines": [
-        "Gold se related latest headline 1 — specific price action ya catalyst mention karo",
-        "Gold se related latest headline 2 — another key development"
+        "Gold se related first specific khabar — exact price move ya catalyst mention karo",
+        "Gold se related second khabar — another concrete development"
       ],
-      "detailed_breakdown": "Gold mein pichle 24 ghante mein kya bada news movement hua. Dollar index ka kya impact raha, real yields ne kya kiya, ETF flows kaisi thi, COMEX positioning kya bol rahi hai, aur session open hote hi kya expect karna hai — sab kuch detailed Hinglish mein. Minimum 120 words.",
-      "trader_alert": "Retail traders ke liye ek important, urgent note ya warning — Hinglish mein. Key level, risk event, ya positioning advice jo is specific symbol ke liye critical hai right now."
+      "detailed_breakdown": "**Gold** ne is session mein **$3,350** resistance pe sharp rejection liya.\n\n**Key Driver:** *FOMC minutes* ne reveal kiya ki Fed **hawkish** stance maintain karega — real yields **+12bps** upar gaye jo gold ke liye directly bearish signal hai. **DXY** **104.2** pe trade kar raha hai; *dollar strength* ne gold ko daba ke rakha hai.\n\n**ETF Flows:** *GLD ETF se $450M ka outflow* hua — institutional selling ka clear signal. **COMEX positioning** mein shorts ne **18%** increase ki.\n\n***CRITICAL WATCH:*** Agar **$3,320** support toot gaya toh ***panic selling trigger ho sakta hai aur next support $3,280 pe hai***.",
+      "trader_alert": "***HIGH ALERT:*** **$3,350** resistance zone pe sellers bahut active hain. *FOMC hawkish tone* ke baad gold par downward pressure hai — **$3,320** support ka break bahut risky hoga. Is session mein **DXY** aur **US 10yr yield** ko closely monitor karo.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Primary driver for Gold in this session.",
+        "key_levels_watch": "Key technical levels to watch for Gold.",
+        "session_expectation": "Session expectations for Gold."
+      }
     },
     "XAGUSD": {
-      "latest_headlines": ["Silver headline 1 — specific", "Silver headline 2 — specific"],
-      "detailed_breakdown": "Silver ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "Silver ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "Silver se related first specific headline — exact price move or catalyst",
+        "Silver se related second specific headline"
+      ],
+      "detailed_breakdown": "Silver (XAGUSD) detailed breakdown in Hinglish (120+ words) explaining the session price action, industrial demand catalysts, and key triggers with **bold** figures and *italic* details.",
+      "trader_alert": "Trader alert for Silver (XAGUSD) summarizing critical support/resistance zones and immediate action points.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Primary news or data release driving Silver sentiment in this session.",
+        "key_levels_watch": "Specific key support and resistance levels to monitor for Silver.",
+        "session_expectation": "Tactical session expectation and risk/reward outlook for Silver."
+      }
     },
     "BTCUSDT": {
-      "latest_headlines": ["BTC headline 1 — specific", "BTC headline 2 — specific"],
-      "detailed_breakdown": "Bitcoin ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "BTC ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "Bitcoin (BTCUSDT) first specific headline — exact price action or on-chain event",
+        "Bitcoin (BTCUSDT) second specific headline"
+      ],
+      "detailed_breakdown": "Bitcoin (BTCUSDT) detailed breakdown in Hinglish (120+ words) covering spot ETF inflows/outflows, funding rates, derivatives open interest, whale wallet changes, or regulatory catalysts with **bold** numbers and *italic* context.",
+      "trader_alert": "Trader alert for Bitcoin (BTCUSDT) highlighting short-term risk levels, liquidation risk zones, and funding anomalies.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Main on-chain or macro catalyst driving Bitcoin (BTCUSDT) movement.",
+        "key_levels_watch": "Key technical levels to watch for Bitcoin (BTCUSDT).",
+        "session_expectation": "Session expectation and directional trades to watch for Bitcoin (BTCUSDT)."
+      }
     },
     "ETHUSD": {
-      "latest_headlines": ["ETH headline 1 — specific", "ETH headline 2 — specific"],
-      "detailed_breakdown": "Ethereum ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "ETH ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "Ethereum (ETHUSD) first specific headline — price action, gas fees, or staking statistics",
+        "Ethereum (ETHUSD) second specific headline"
+      ],
+      "detailed_breakdown": "Ethereum (ETHUSD) detailed breakdown in Hinglish (120+ words) analyzing ETF news, DeFi activity metrics, network fees, exchange reserves, and staking yields with **bold** values and *italic* comparisons.",
+      "trader_alert": "Trader alert for Ethereum (ETHUSD) outlining key support levels and gas/network congestion trends.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Primary network, staking, or macro driver for Ethereum (ETHUSD).",
+        "key_levels_watch": "Important support and resistance levels to watch for Ethereum (ETHUSD).",
+        "session_expectation": "Session expectations and breakout scenarios for Ethereum (ETHUSD)."
+      }
     },
     "GBPUSD": {
-      "latest_headlines": ["GBP headline 1 — specific", "GBP headline 2 — specific"],
-      "detailed_breakdown": "GBP/USD ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "GBP ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "GBPUSD first specific headline — BoE announcements, UK economic data, or political events",
+        "GBPUSD second specific headline"
+      ],
+      "detailed_breakdown": "GBPUSD detailed breakdown in Hinglish (120+ words) covering Bank of England policy hints, UK CPI/GDP print effects, and broad dollar correlation trends with **bold** numbers and *italic* forecasts.",
+      "trader_alert": "Trader alert for GBPUSD detailing major level breaks and expected volatility windows.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Main UK macro data or monetary policy driver for GBPUSD.",
+        "key_levels_watch": "Critical support and resistance points to watch for GBPUSD.",
+        "session_expectation": "Session expectations and average daily range outlook for GBPUSD."
+      }
     },
     "EURUSD": {
-      "latest_headlines": ["EUR headline 1 — specific", "EUR headline 2 — specific"],
-      "detailed_breakdown": "EUR/USD ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "EUR ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "EURUSD first specific headline — ECB interest rate hints, Eurozone PMI, or political updates",
+        "EURUSD second specific headline"
+      ],
+      "detailed_breakdown": "EURUSD detailed breakdown in Hinglish (120+ words) analyzing the ECB vs Fed yield spreads, Eurozone growth indicators, and geopolitical factors affecting European flows with **bold** rates and *italic* details.",
+      "trader_alert": "Trader alert for EURUSD highlighting key liquidity pools and orderblock zones to monitor.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Key economic data or ECB interest rate bias for EURUSD.",
+        "key_levels_watch": "Major technical support and resistance levels for EURUSD.",
+        "session_expectation": "Expected range, session bias, and trade signals for EURUSD."
+      }
     },
     "USDJPY": {
-      "latest_headlines": ["JPY headline 1 — specific", "JPY headline 2 — specific"],
-      "detailed_breakdown": "USD/JPY ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "JPY ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "USDJPY first specific headline — BoJ intervention warnings, Japan trade data, or CPI",
+        "USDJPY second specific headline"
+      ],
+      "detailed_breakdown": "USDJPY detailed breakdown in Hinglish (120+ words) analyzing Ministry of Finance intervention threats, BoJ bond-buying operations, and US 10-year yield correlation with **bold** figures and *italic* context.",
+      "trader_alert": "Trader alert for USDJPY detailing risk levels for sudden Bank of Japan intervention spikes.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Primary BoJ/US Treasury yield catalyst driving USDJPY.",
+        "key_levels_watch": "Key technical intervention and support levels to watch for USDJPY.",
+        "session_expectation": "Expected range and volatility outlook for USDJPY."
+      }
     },
     "AUDUSD": {
-      "latest_headlines": ["AUD headline 1 — specific", "AUD headline 2 — specific"],
-      "detailed_breakdown": "AUD/USD ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "AUD ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "AUDUSD first specific headline — RBA rate decisions, China economic data, or commodity index updates",
+        "AUDUSD second specific headline"
+      ],
+      "detailed_breakdown": "AUDUSD detailed breakdown in Hinglish (120+ words) covering Reserve Bank of Australia announcements, commodities prices (iron ore, copper), and Chinese retail/factory output correlation with **bold** values and *italic* notes.",
+      "trader_alert": "Trader alert for AUDUSD highlighting commodity-driven trade levels and risk zones.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Main RBA monetary policy stance or commodity export driver for AUDUSD.",
+        "key_levels_watch": "Important support and resistance levels for AUDUSD.",
+        "session_expectation": "Session expectation and volatility forecast for AUDUSD."
+      }
     },
     "NZDUSD": {
-      "latest_headlines": ["NZD headline 1 — specific", "NZD headline 2 — specific"],
-      "detailed_breakdown": "NZD/USD ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "NZD ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "NZDUSD first specific headline — RBNZ monetary comments, dairy auction reports, or jobs data",
+        "NZDUSD second specific headline"
+      ],
+      "detailed_breakdown": "NZDUSD detailed breakdown in Hinglish (120+ words) outlining Reserve Bank of New Zealand policy rate decisions, dairy prices index shifts, and global risk appetite correlation with **bold** indicators and *italic* trends.",
+      "trader_alert": "Trader alert for NZDUSD detailing liquidity zones and global risk sentiment impact.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Main RBNZ sentiment or global commodity driver for NZDUSD.",
+        "key_levels_watch": "Critical technical levels and support zones to watch for NZDUSD.",
+        "session_expectation": "Expected session movement and range for NZDUSD."
+      }
     },
     "USDCAD": {
-      "latest_headlines": ["CAD headline 1 — specific", "CAD headline 2 — specific"],
-      "detailed_breakdown": "USD/CAD ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "CAD ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "USDCAD first specific headline — BoC policy shifts, crude oil inventory drawdowns, or employment print",
+        "USDCAD second specific headline"
+      ],
+      "detailed_breakdown": "USDCAD detailed breakdown in Hinglish (120+ words) analyzing Bank of Canada interest rate spreads, WTI Crude Oil price fluctuations, and US-Canada trade balances with **bold** numbers and *italic* context.",
+      "trader_alert": "Trader alert for USDCAD tracking correlation breaks with crude oil prices.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Primary crude oil price trend or BoC statement driving USDCAD.",
+        "key_levels_watch": "Important support and resistance points to watch for USDCAD.",
+        "session_expectation": "Session expectation and volatility expectations for USDCAD."
+      }
     },
     "USDCHF": {
-      "latest_headlines": ["CHF headline 1 — specific", "CHF headline 2 — specific"],
-      "detailed_breakdown": "USD/CHF ka detailed Hinglish breakdown — minimum 120 words...",
-      "trader_alert": "CHF ke liye trader alert Hinglish mein..."
+      "latest_headlines": [
+        "USDCHF first specific headline — SNB currency intervention, safe-haven flows, or inflation data",
+        "USDCHF second specific headline"
+      ],
+      "detailed_breakdown": "USDCHF detailed breakdown in Hinglish (120+ words) evaluating Swiss National Bank interventions, global safe-haven flows triggered by geopolitics, and yield differentials with **bold** values and *italic* analysis.",
+      "trader_alert": "Trader alert for USDCHF tracking safe-haven flows and SNB policy risks.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Primary SNB policy shift or geopolitical risk driver for USDCHF.",
+        "key_levels_watch": "Key support and resistance barriers to watch for USDCHF.",
+        "session_expectation": "Expected session path and trading strategies for USDCHF."
+      }
     }
   }
 }

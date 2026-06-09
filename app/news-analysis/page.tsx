@@ -327,7 +327,7 @@ REPORTING STYLE:
 • Poora response Hinglish mein — English alphabet use karo, natural Hindi-English mix jaise ek knowledgeable dost baat kar raha ho
 • Har event ko itna detail mein explain karo ki ek naya trader bhi samajh sake: kya hua, kyun hua, market ne usse kaise react kiya
 • Real numbers, real event names, real dates — vague generalizations bilkul nahi
-• Har symbol ke sniper_note mein sirf: news bias, key catalyst, watch levels, session expectation — SL/TP/entry BILKUL NAHI
+• Har symbol ke sniper_note mein: "news_bias" must be exactly "Bullish", "Bearish", or "Neutral" (strictly no commentary or extra words). "key_catalyst", "key_levels_watch", aur "session_expectation" detailed Hinglish mein hone chahiye. SL/TP/entry BILKUL NAHI.
 
 MARKDOWN FORMATTING — HAR TEXT FIELD MEIN LAGAATAAR USE KARO:
 
@@ -403,6 +403,202 @@ FINAL OUTPUT MANDATE — READ THIS LAST, FOLLOW THIS FIRST
 6. Ye rule ABSOLUTE hai. Koi exception nahi. Koi "lekin" nahi. SIRF JSON.
 ================================================================`;
 
+const EXAMPLE_REFERENCE_JSON = `{
+  "meta": {
+    "date": "2026-06-09",
+    "session": "New York",
+    "generated_at": "2026-06-09T11:08:06.219Z",
+    "language": "Hinglish"
+  },
+  "all_news_section": {
+    "headline": "Iran-Israel Ceasefire Dobara Toot Gaya — Missile Strikes, Oil $94/bbl Par Spike, Aur Kal CPI Ka Bomb!",
+    "summary": "Pichle 24 ghanton mein duniya ke markets ke liye ek nahi, kai bade events saath mein aa gaye hain. Iran-Israel ceasefire breakdown ke baad Strait of Hormuz par uncertainty barh gayi hai, jisne crude oil prices ko spike diya. DXY firmer hai aur yields rising mode mein hain because US NFP data unexpected beat de gaya. Equity indices dabe rahe aur safe-havens ko supportive bid mili.",
+    "high_impact_events": [
+      {
+        "event_name": "Iran-Israel Ceasefire Breakdown & Hormuz Supply Shock",
+        "impact_explanation": "Ceasefire breakdown se geopolitical risk premium restore ho gaya. Strait of Hormuz blocked rehne se energy supplies heavily disrupted hain, jisne WTI to $94/bbl aur Brent to $97/bbl rally karwaya.",
+        "market_impact": [
+          { "symbol": "Oil", "effect": "bullish" },
+          { "symbol": "XAUUSD", "effect": "bullish" },
+          { "symbol": "XAGUSD", "effect": "bullish" },
+          { "symbol": "USD", "effect": "bullish" },
+          { "symbol": "USDJPY", "effect": "bullish" },
+          { "symbol": "Risk Assets", "effect": "bearish" }
+        ]
+      },
+      {
+        "event_name": "US NFP May 2026 Massive Beat (+172K vs +85K Expected)",
+        "impact_explanation": "Jobs data ne massive double beat kiya. March aur April ke figures bhi higher revise hue. CME FedWatch show karta hai ki December rate hike probability now 40% ke upar hai, jisne dollar strength ko boost kiya.",
+        "market_impact": [
+          { "symbol": "USD", "effect": "bullish" },
+          { "symbol": "XAUUSD", "effect": "bearish" },
+          { "symbol": "BTCUSDT", "effect": "bearish" },
+          { "symbol": "EURUSD", "effect": "bearish" },
+          { "symbol": "USDJPY", "effect": "bullish" },
+          { "symbol": "US Equities", "effect": "neutral" }
+        ]
+      }
+    ]
+  },
+  "symbol_wise_news": {
+    "XAUUSD": {
+      "latest_headlines": [
+        "Gold $4,268 low se recovery kari",
+        "Rising US yields and dollar check Gold upside"
+      ],
+      "detailed_breakdown": "Gold prices mein safe-haven bid aur hawkish Fed pricing ke beech battle chal raha hai. Iran-Israel missile exchanges ke baad prices ne $4,350 cross kiya. Halanki, NFP beat ke baad real yields upper target par chale gaye, jisne DXY ko solid floor diya aur Gold par pressure maintain kiya.",
+      "trader_alert": "Watch $4,350 resistance zone. Agar break hota hai toh further short squeeze target. Support $4,300 level par strict monitor karo.",
+      "sniper_note": {
+        "news_bias": "Neutral",
+        "key_catalyst": "Iran-Israel ceasefire breakdown vs DXY yields rise.",
+        "key_levels_watch": "Resistance at $4,350, support at $4,300.",
+        "session_expectation": "Choppy range-bound action between $4,300 and $4,350 with headline-driven spikes."
+      }
+    },
+    "XAGUSD": {
+      "latest_headlines": [
+        "Silver recovers to $68.60 despite China pullback",
+        "Industrial metals face supply cost pressure"
+      ],
+      "detailed_breakdown": "Silver ne Gold ke safe-haven move ko tracking kiya. China ke import levels decrease hone ke bawajood energy costs rising par mining expense barh gaya hai jo prices ko local support de raha hai.",
+      "trader_alert": "$68.60 key resistance hai. Is zone se rejection possible hai. Downside support levels $67.40 par active hain.",
+      "sniper_note": {
+        "news_bias": "Neutral",
+        "key_catalyst": "Oil-driven inflation vs industrial demand headwinds.",
+        "key_levels_watch": "Resistance $68.60, support $67.40.",
+        "session_expectation": "Range trading expected in the upcoming session."
+      }
+    },
+    "BTCUSDT": {
+      "latest_headlines": [
+        "Bitcoin recovers $63,000 range",
+        "ETF daily outflows pause on June 8"
+      ],
+      "detailed_breakdown": "Bitcoin ne stable zones ko retest kiya. Open interest decline hone ke baad futures funding normalized zone mein aa gayi. Dollar strength crypto gains ko target kar rahi hai, par retail sentiment steady hai.",
+      "trader_alert": "$63,500 key resistance zone hai. December rate hike repricing se downside test levels still active hain.",
+      "sniper_note": {
+        "news_bias": "Neutral",
+        "key_catalyst": "Macro yields expansion vs ETF flows stabilization.",
+        "key_levels_watch": "Resistance $63,500, support $61,000.",
+        "session_expectation": "Consolidation pattern with slight downward tilt before CPI data release."
+      }
+    },
+    "ETHUSD": {
+      "latest_headlines": [
+        "ETH ETF records $82M inflows",
+        "BitMine executes major ETH accumulation"
+      ],
+      "detailed_breakdown": "Ethereum shows recovery momentum after testing local lows. Staking products and ETF inflows are supporting the price. Network gas fees remain low.",
+      "trader_alert": "$1,700 psychological zone is the key resistance to watch. Support sits at $1,650.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Positive institutional inflows and treasury updates.",
+        "key_levels_watch": "Resistance $1,700, support $1,650.",
+        "session_expectation": "Cautious upward bias targeting the resistance zone."
+      }
+    },
+    "GBPUSD": {
+      "latest_headlines": [
+        "Cable holds $1.3360 region",
+        "BoE hawkish hold stance provides floor"
+      ],
+      "detailed_breakdown": "GBP is holding relatively stronger compared to EUR because of the Bank of England's reluctance to cut rates quickly. However, overall DXY strength keeps the pair capped.",
+      "trader_alert": "Monitor US CPI for the next big directional move. Watch key support at $1.3330.",
+      "sniper_note": {
+        "news_bias": "Neutral",
+        "key_catalyst": "BoE policy divergence vs USD NFP strength.",
+        "key_levels_watch": "Resistance $1.3380, support $1.3330.",
+        "session_expectation": "Tight consolidation before the economic data release."
+      }
+    },
+    "EURUSD": {
+      "latest_headlines": [
+        "EURUSD consolidates near 1.1500 mark",
+        "ECB interest rate cut divergence pressures Euro"
+      ],
+      "detailed_breakdown": "The pair remains under pressure due to interest rate differentials favoring the USD. The ECB's rate cut stance diverges from the hawkish Fed repricing.",
+      "trader_alert": "1.1500 is a critical support zone. A clean break triggers deeper downside tests.",
+      "sniper_note": {
+        "news_bias": "Bearish",
+        "key_catalyst": "ECB-Fed interest rate divergence and yield spreads.",
+        "key_levels_watch": "Resistance 1.1550, support 1.1500.",
+        "session_expectation": "Sluggish trading with a downward bias."
+      }
+    },
+    "USDJPY": {
+      "latest_headlines": [
+        "USDJPY first specific headline — BoJ intervention warnings, Japan trade data, or CPI",
+        "USDJPY second specific headline"
+      ],
+      "detailed_breakdown": "USDJPY detailed breakdown in Hinglish (120+ words) analyzing Ministry of Finance intervention threats, BoJ bond-buying operations, and US 10-year yield correlation with **bold** figures and *italic* context.",
+      "trader_alert": "Trader alert for USDJPY detailing risk levels for sudden Bank of Japan intervention spikes.",
+      "sniper_note": {
+        "news_bias": "Bullish",
+        "key_catalyst": "Primary BoJ/US Treasury yield catalyst driving USDJPY.",
+        "key_levels_watch": "Key technical intervention and support levels to watch for USDJPY.",
+        "session_expectation": "Expected range and volatility outlook for USDJPY."
+      }
+    },
+    "AUDUSD": {
+      "latest_headlines": [
+        "AUDUSD first specific headline — RBA rate decisions, China economic data, or commodity index updates",
+        "AUDUSD second specific headline"
+      ],
+      "detailed_breakdown": "AUDUSD detailed breakdown in Hinglish (120+ words) covering Reserve Bank of Australia announcements, commodities prices (iron ore, copper), and Chinese retail/factory output correlation with **bold** values and *italic* notes.",
+      "trader_alert": "Trader alert for AUDUSD highlighting commodity-driven trade levels and risk zones.",
+      "sniper_note": {
+        "news_bias": "Bearish",
+        "key_catalyst": "Main RBA monetary policy stance or commodity export driver for AUDUSD.",
+        "key_levels_watch": "Important support and resistance levels for AUDUSD.",
+        "session_expectation": "Session expectation and volatility forecast for AUDUSD."
+      }
+    },
+    "NZDUSD": {
+      "latest_headlines": [
+        "NZDUSD first specific headline — RBNZ monetary comments, dairy auction reports, or jobs data",
+        "NZDUSD second specific headline"
+      ],
+      "detailed_breakdown": "NZDUSD detailed breakdown in Hinglish (120+ words) outlining Reserve Bank of New Zealand policy rate decisions, dairy prices index shifts, and global risk appetite correlation with **bold** indicators and *italic* trends.",
+      "trader_alert": "Trader alert for NZDUSD detailing liquidity zones and global risk sentiment impact.",
+      "sniper_note": {
+        "news_bias": "Bearish",
+        "key_catalyst": "Main RBNZ sentiment or global commodity driver for NZDUSD.",
+        "key_levels_watch": "Critical technical levels and support zones to watch for NZDUSD.",
+        "session_expectation": "Expected session movement and range for NZDUSD."
+      }
+    },
+    "USDCAD": {
+      "latest_headlines": [
+        "USDCAD first specific headline — BoC policy shifts, crude oil inventory drawdowns, or employment print",
+        "USDCAD second specific headline"
+      ],
+      "detailed_breakdown": "USDCAD detailed breakdown in Hinglish (120+ words) analyzing Bank of Canada interest rate spreads, WTI Crude Oil price fluctuations, and US-Canada trade balances with **bold** numbers and *italic* context.",
+      "trader_alert": "Trader alert for USDCAD tracking correlation breaks with crude oil prices.",
+      "sniper_note": {
+        "news_bias": "Neutral",
+        "key_catalyst": "Primary crude oil price trend or BoC statement driving USDCAD.",
+        "key_levels_watch": "Important support and resistance points to watch for USDCAD.",
+        "session_expectation": "Session expectation and volatility expectations for USDCAD."
+      }
+    },
+    "USDCHF": {
+      "latest_headlines": [
+        "USDCHF first specific headline — SNB currency intervention, safe-haven flows, or inflation data",
+        "USDCHF second specific headline"
+      ],
+      "detailed_breakdown": "USDCHF detailed breakdown in Hinglish (120+ words) evaluating Swiss National Bank interventions, global safe-haven flows triggered by geopolitics, and yield differentials with **bold** values and *italic* analysis.",
+      "trader_alert": "Trader alert for USDCHF tracking safe-haven flows and SNB policy risks.",
+      "sniper_note": {
+        "news_bias": "Neutral",
+        "key_catalyst": "Primary SNB policy shift or geopolitical risk driver for USDCHF.",
+        "key_levels_watch": "Key support and resistance barriers to watch for USDCHF.",
+        "session_expectation": "Expected session path and trading strategies for USDCHF."
+      }
+    }
+  }
+}
+`;
+
 const NEWS_SCHEMA_TEMPLATE = `{
   "meta": {
     "date": "YYYY-MM-DD",
@@ -475,7 +671,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "**Gold** ne is session mein **$3,350** resistance pe sharp rejection liya.\n\n**Key Driver:** *FOMC minutes* ne reveal kiya ki Fed **hawkish** stance maintain karega — real yields **+12bps** upar gaye jo gold ke liye directly bearish signal hai. **DXY** **104.2** pe trade kar raha hai; *dollar strength* ne gold ko daba ke rakha hai.\n\n**ETF Flows:** *GLD ETF se $450M ka outflow* hua — institutional selling ka clear signal. **COMEX positioning** mein shorts ne **18%** increase ki.\n\n***CRITICAL WATCH:*** Agar **$3,320** support toot gaya toh ***panic selling trigger ho sakta hai aur next support $3,280 pe hai***.",
       "trader_alert": "***HIGH ALERT:*** **$3,350** resistance zone pe sellers bahut active hain. *FOMC hawkish tone* ke baad gold par downward pressure hai — **$3,320** support ka break bahut risky hoga. Is session mein **DXY** aur **US 10yr yield** ko closely monitor karo.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Primary driver for Gold in this session.",
         "key_levels_watch": "Key technical levels to watch for Gold.",
         "session_expectation": "Session expectations for Gold."
@@ -489,7 +685,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "Silver (XAGUSD) detailed breakdown in Hinglish (120+ words) explaining the session price action, industrial demand catalysts, and key triggers with **bold** figures and *italic* details.",
       "trader_alert": "Trader alert for Silver (XAGUSD) summarizing critical support/resistance zones and immediate action points.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Primary news or data release driving Silver sentiment in this session.",
         "key_levels_watch": "Specific key support and resistance levels to monitor for Silver.",
         "session_expectation": "Tactical session expectation and risk/reward outlook for Silver."
@@ -503,7 +699,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "Bitcoin (BTCUSDT) detailed breakdown in Hinglish (120+ words) covering spot ETF inflows/outflows, funding rates, derivatives open interest, whale wallet changes, or regulatory catalysts with **bold** numbers and *italic* context.",
       "trader_alert": "Trader alert for Bitcoin (BTCUSDT) highlighting short-term risk levels, liquidation risk zones, and funding anomalies.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Main on-chain or macro catalyst driving Bitcoin (BTCUSDT) movement.",
         "key_levels_watch": "Key technical levels to watch for Bitcoin (BTCUSDT).",
         "session_expectation": "Session expectation and directional trades to watch for Bitcoin (BTCUSDT)."
@@ -517,7 +713,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "Ethereum (ETHUSD) detailed breakdown in Hinglish (120+ words) analyzing ETF news, DeFi activity metrics, network fees, exchange reserves, and staking yields with **bold** values and *italic* comparisons.",
       "trader_alert": "Trader alert for Ethereum (ETHUSD) outlining key support levels and gas/network congestion trends.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Primary network, staking, or macro driver for Ethereum (ETHUSD).",
         "key_levels_watch": "Important support and resistance levels to watch for Ethereum (ETHUSD).",
         "session_expectation": "Session expectations and breakout scenarios for Ethereum (ETHUSD)."
@@ -531,7 +727,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "GBPUSD detailed breakdown in Hinglish (120+ words) covering Bank of England policy hints, UK CPI/GDP print effects, and broad dollar correlation trends with **bold** numbers and *italic* forecasts.",
       "trader_alert": "Trader alert for GBPUSD detailing major level breaks and expected volatility windows.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Main UK macro data or monetary policy driver for GBPUSD.",
         "key_levels_watch": "Critical support and resistance points to watch for GBPUSD.",
         "session_expectation": "Session expectations and average daily range outlook for GBPUSD."
@@ -545,7 +741,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "EURUSD detailed breakdown in Hinglish (120+ words) analyzing the ECB vs Fed yield spreads, Eurozone growth indicators, and geopolitical factors affecting European flows with **bold** rates and *italic* details.",
       "trader_alert": "Trader alert for EURUSD highlighting key liquidity pools and orderblock zones to monitor.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Key economic data or ECB interest rate bias for EURUSD.",
         "key_levels_watch": "Major technical support and resistance levels for EURUSD.",
         "session_expectation": "Expected range, session bias, and trade signals for EURUSD."
@@ -559,7 +755,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "USDJPY detailed breakdown in Hinglish (120+ words) analyzing Ministry of Finance intervention threats, BoJ bond-buying operations, and US 10-year yield correlation with **bold** figures and *italic* context.",
       "trader_alert": "Trader alert for USDJPY detailing risk levels for sudden Bank of Japan intervention spikes.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Primary BoJ/US Treasury yield catalyst driving USDJPY.",
         "key_levels_watch": "Key technical intervention and support levels to watch for USDJPY.",
         "session_expectation": "Expected range and volatility outlook for USDJPY."
@@ -573,7 +769,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "AUDUSD detailed breakdown in Hinglish (120+ words) covering Reserve Bank of Australia announcements, commodities prices (iron ore, copper), and Chinese retail/factory output correlation with **bold** values and *italic* notes.",
       "trader_alert": "Trader alert for AUDUSD highlighting commodity-driven trade levels and risk zones.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Main RBA monetary policy stance or commodity export driver for AUDUSD.",
         "key_levels_watch": "Important support and resistance levels for AUDUSD.",
         "session_expectation": "Session expectation and volatility forecast for AUDUSD."
@@ -587,7 +783,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "NZDUSD detailed breakdown in Hinglish (120+ words) outlining Reserve Bank of New Zealand policy rate decisions, dairy prices index shifts, and global risk appetite correlation with **bold** indicators and *italic* trends.",
       "trader_alert": "Trader alert for NZDUSD detailing liquidity zones and global risk sentiment impact.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Main RBNZ sentiment or global commodity driver for NZDUSD.",
         "key_levels_watch": "Critical technical levels and support zones to watch for NZDUSD.",
         "session_expectation": "Expected session movement and range for NZDUSD."
@@ -601,7 +797,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "USDCAD detailed breakdown in Hinglish (120+ words) analyzing Bank of Canada interest rate spreads, WTI Crude Oil price fluctuations, and US-Canada trade balances with **bold** numbers and *italic* context.",
       "trader_alert": "Trader alert for USDCAD tracking correlation breaks with crude oil prices.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Primary crude oil price trend or BoC statement driving USDCAD.",
         "key_levels_watch": "Important support and resistance points to watch for USDCAD.",
         "session_expectation": "Session expectation and volatility expectations for USDCAD."
@@ -615,7 +811,7 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "detailed_breakdown": "USDCHF detailed breakdown in Hinglish (120+ words) evaluating Swiss National Bank interventions, global safe-haven flows triggered by geopolitics, and yield differentials with **bold** values and *italic* analysis.",
       "trader_alert": "Trader alert for USDCHF tracking safe-haven flows and SNB policy risks.",
       "sniper_note": {
-        "news_bias": "Bullish | Bearish | Neutral",
+        "news_bias": "Bullish",
         "key_catalyst": "Primary SNB policy shift or geopolitical risk driver for USDCHF.",
         "key_levels_watch": "Key support and resistance barriers to watch for USDCHF.",
         "session_expectation": "Expected session path and trading strategies for USDCHF."
@@ -790,9 +986,9 @@ BREAKING & TRENDING (last ${hours}h):
   Reddit: r/wallstreetbets · r/investing · r/CryptoCurrency
   Google Trends: breakout finance/energy/conflict searches
 
-Har symbol ke sniper_note mein sirf news-based directional suggestion — koi SL/TP/entry nahi. Sirf: bias (bias character e.g. Bullish/Bearish/Neutral), key catalyst, watch levels, session expectation.
+Har symbol ke sniper_note mein sirf news-based directional suggestion — koi SL/TP/entry nahi. Sirf: bias (strictly and exactly one of "Bullish", "Bearish", or "Neutral" with NO other text or commentary), key catalyst, watch levels, session expectation.
 
-Neeche diya schema use karke ek valid JSON output do:
+Neeche diya schema aur Reference JSON Example ka pattern/format use karke ek valid JSON output do:
 
 ${dynamicSchemaTemplate}
 
@@ -800,9 +996,9 @@ JSON FIELD REQUIREMENTS:
 • meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}", meta.language = "Hinglish"
 • NEWS TIME WINDOW: Sirf ${fromTsIST} se ${tsIST} ke beech ki events — older news strictly banned
 • all_news_section.summary = 250+ word Hinglish — macro + geopolitical + disasters + energy + crypto sab cover karo
-• all_news_section.high_impact_events = minimum 4 events (max 6) — DIVERSE categories including geopolitical/disaster/energy
+• all_news_section.high_impact_events = exactly 8 to 10 events (no exceptions) — DIVERSE categories including geopolitical/disaster/energy
 • Har high_impact_event mein "market_impact" array = 3-6 relevant symbols with "bullish"/"bearish"/"neutral"
-• Har symbol ke liye: exactly 2 specific real headlines, 120+ word Hinglish breakdown, specific trader_alert, complete sniper_note
+• Har symbol ke liye: exactly 2 specific real headlines, 120+ word Hinglish breakdown, specific trader_alert, complete sniper_note (strictly news_bias must be exactly "Bullish", "Bearish", or "Neutral" with NO suffix or commentary).
 • FORMATTING: **bold** for numbers/events/levels, *italic* for forecasts/comparisons, ***bold italic*** for critical only. Use \\n for line breaks inside strings.
 • Koi "...", koi placeholder, koi empty string — ZERO. Har field mein real Hinglish content.
 • JSON strings mein actual newline characters NAHI — sirf \\n (escaped backslash-n) use karo.
@@ -1109,8 +1305,19 @@ function PromptModal({
               <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64">{userMsg}</pre>
             </div>
 
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">3</span>
+                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">Reference JSON Example</span>
+                </div>
+                <CopyButton text={EXAMPLE_REFERENCE_JSON} />
+              </div>
+              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64">{EXAMPLE_REFERENCE_JSON}</pre>
+            </div>
+
             <div className="rounded-xl bg-emerald-500/[0.05] border border-emerald-500/[0.15] px-4 py-3">
-              <p className="text-[11px] font-semibold text-emerald-400/70 uppercase tracking-widest mb-1">Step 3 — Save karo</p>
+              <p className="text-[11px] font-semibold text-emerald-400/70 uppercase tracking-widest mb-1">Step 4 — Save karo</p>
               <p className="text-[12px] text-white/40 leading-relaxed">
                 AI ka generated JSON copy karo → <span className="text-white/60 font-medium">Edit JSON</span> mein paste karo → Save. <span className="text-white/50">choch_signal</span> fields automatically har symbol card mein display honge.
               </p>
