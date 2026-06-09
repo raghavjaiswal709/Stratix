@@ -267,6 +267,109 @@ def _read(path: str) -> str:
         return f.read().strip()
 
 
+# ─── Candlestick helpers ──────────────────────────────────────────────────────
+
+def _resample_candles(rows: list[str], bucket_sec: int, cutoff_sec: int) -> list[dict]:
+    buckets = {}
+    for row in rows:
+        parts = row.strip().split(",")
+        if len(parts) < 6:
+            continue
+        try:
+            ts = int(parts[0])
+            if ts < cutoff_sec:
+                continue
+            o = float(parts[1])
+            h = float(parts[2])
+            l = float(parts[3])
+            c = float(parts[4])
+            v = float(parts[5]) if len(parts) > 5 else 0.0
+        except ValueError:
+            continue
+
+        bucket = (ts // bucket_sec) * bucket_sec
+        if bucket not in buckets:
+            buckets[bucket] = {"o": o, "h": h, "l": l, "c": c, "v": v}
+        else:
+            buckets[bucket]["h"] = max(buckets[bucket]["h"], h)
+            buckets[bucket]["l"] = min(buckets[bucket]["l"], l)
+            buckets[bucket]["c"] = c
+            buckets[bucket]["v"] += v
+
+    sorted_buckets = sorted(buckets.items(), key=lambda x: x[0])
+    return [{"t": t, **b} for t, b in sorted_buckets]
+
+
+def _get_recent_csv_paths(symbol: str, base_dir="public/data/candles") -> list[str]:
+    now = datetime.now(timezone.utc)
+    paths = []
+    # Fetch current month and the 2 preceding months to cover lookbacks
+    for i in range(3):
+        year = now.year
+        month = now.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        filename = f"{symbol}_{year}_{month:02d}.csv"
+        path = os.path.join(base_dir, symbol, filename)
+        if os.path.exists(path):
+            paths.append(path)
+    return paths
+
+
+def _read_rows_for_symbol(symbol: str) -> list[str]:
+    paths = _get_recent_csv_paths(symbol)
+    rows = []
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip() and not line.startswith("time"):
+                        rows.append(line)
+        except Exception as e:
+            print(f"  [candles] Error reading {path}: {e}", file=sys.stderr)
+    return rows
+
+
+def get_candle_block() -> str:
+    now_ts = int(time.time())
+    lookback_h1 = now_ts - (48 * 3600)
+    lookback_h4 = now_ts - (7 * 24 * 3600)
+
+    symbols = [
+        "xauusd", "xagusd", "btcusdt", "ethusd",
+        "eurusd", "gbpusd", "usdjpy", "audusd",
+        "nzdusd", "usdcad", "usdchf"
+    ]
+
+    lines = ["=== REAL OHLCV CANDLE DATA (IST timestamps) ==="]
+
+    for sym in symbols:
+        rows = _read_rows_for_symbol(sym)
+        if not rows:
+            continue
+        h1_candles = _resample_candles(rows, 3600, lookback_h1)
+        h4_candles = _resample_candles(rows, 14400, lookback_h4)
+
+        lines.append(f"\n{sym.upper()}:")
+        if h4_candles:
+            lines.append("  H4 (last 7 din):")
+            for c in h4_candles:
+                ist_ts = c["t"] + int(5.5 * 3600)
+                dt = datetime.fromtimestamp(ist_ts, tz=timezone.utc)
+                dt_str = dt.strftime("%Y-%m-%d %H:00 IST")
+                lines.append(f"    {dt_str}  O:{c['o']}  H:{c['h']}  L:{c['l']}  C:{c['c']}")
+        if h1_candles:
+            lines.append("  H1 (last 48 ghante):")
+            for c in h1_candles:
+                ist_ts = c["t"] + int(5.5 * 3600)
+                dt = datetime.fromtimestamp(ist_ts, tz=timezone.utc)
+                dt_str = dt.strftime("%Y-%m-%d %H:%M IST")
+                lines.append(f"    {dt_str}  O:{c['o']}  H:{c['h']}  L:{c['l']}  C:{c['c']}")
+
+    return "\n".join(lines)
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -293,10 +396,14 @@ def main() -> None:
         "\n\n[NOTE: Live scrapers returned no data. Use your most current knowledge of today's markets.]\n"
     )
 
+    candle_block = get_candle_block()
+
     user_message = (
         f"Aaj ka IST date hai {today}. "
         f"Aane wala session hai {session_label} Session.\n"
         f"{scrape_block}\n"
+        f"{candle_block}\n\n"
+        "Upar diye gaye REAL H4 aur H1 candle data ko price context ke liye use karo — recent price levels, highs, lows, aur movements dekho. Yeh data news ke impact ko contextualize karne ke liye hai, koi trade setup nahi banana.\n\n"
         "Ab pichle 24 ghante ki saari important global financial news analyze karo — "
         "major economic data releases (NFP, CPI, GDP, PMI, retail sales, trade balance), "
         "central bank decisions aur speeches (Fed, ECB, BoE, BoJ, RBA, RBNZ, SNB, BoC, PBoC, RBI), "
