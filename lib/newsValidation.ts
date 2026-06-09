@@ -40,8 +40,9 @@ export function validateReportSchema(data: any): string | null {
 
   // 3. Symbol wise news check
   if (!data.symbol_wise_news || typeof data.symbol_wise_news !== "object") return "symbol_wise_news is missing or invalid";
-  const requiredSymbols = ["XAUUSD", "XAGUSD", "BTCUSDT", "ETHUSD", "GBPUSD", "EURUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF"];
-  for (const sym of requiredSymbols) {
+  const symbolsInPayload = Object.keys(data.symbol_wise_news);
+  if (symbolsInPayload.length === 0) return "symbol_wise_news must contain at least one entry";
+  for (const sym of symbolsInPayload) {
     const sNews = data.symbol_wise_news[sym];
     if (!sNews) return `symbol_wise_news is missing entry for required symbol '${sym}'`;
     if (typeof sNews !== "object") return `symbol_wise_news.${sym} must be an object`;

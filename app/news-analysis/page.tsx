@@ -377,19 +377,20 @@ SYMBOL OPTIONS (sirf relevant symbols include karo — typically 3-6 per event):
   Commodities: Oil, Natural Gas, Copper, Wheat, Corn
   Broad:    US Equities, Global Equities, Safe Havens, Risk Assets, Bonds
 
-EFFECT VALUES:
-  "bullish" — is event se is symbol ke liye positive/upward price expectation
-  "bearish" — is event se is symbol ke liye negative/downward price expectation
+EFFECT VALUES (STRICT REQUIREMENT: MUST be exactly one of these three lowercase string values):
+  "bullish" — positive/upward price expectation
+  "bearish" — negative/downward price expectation
   "neutral" — direct impact nahi ya mixed signals
+  Do NOT use any other values (like "mixed", "positive", "negative", "hawkish", "dovish", "mixed/bullish" etc.).
 
-EXAMPLES:
-  Fed Rate Hike → USD bullish, XAUUSD bearish, EURUSD bearish, US Equities bearish, BTCUSDT bearish
-  Geopolitical War/Attack → XAUUSD bullish, Oil bullish, USD bullish, Risk Assets bearish, JPY bullish
-  Strong NFP Data → USD bullish, XAUUSD bearish, EURUSD bearish, US Equities mixed/bullish
-  OPEC Production Cut → Oil bullish, USDCAD bearish, CAD bullish, XAUUSD neutral/bullish, Inflation risk
-  Crypto ETF Approval → BTCUSDT bullish, ETHUSD bullish, Risk Assets bullish
-  Natural Disaster (Japan) → JPY bullish (safe haven demand), USDJPY bearish, XAUUSD bullish
-  China Weak PMI → AUD bearish, AUDUSD bearish, Copper bearish, Global Equities bearish
+EXAMPLES (Use exact schema values):
+  Fed Rate Hike → USD: "bullish", XAUUSD: "bearish", EURUSD: "bearish", US Equities: "bearish", BTCUSDT: "bearish"
+  Geopolitical War/Attack → XAUUSD: "bullish", Oil: "bullish", USD: "bullish", Risk Assets: "bearish", JPY: "bullish"
+  Strong NFP Data → USD: "bullish", XAUUSD: "bearish", EURUSD: "bearish", US Equities: "bullish"
+  OPEC Production Cut → Oil: "bullish", USDCAD: "bearish", CAD: "bullish", XAUUSD: "neutral"
+  Crypto ETF Approval → BTCUSDT: "bullish", ETHUSD: "bullish", Risk Assets: "bullish"
+  Natural Disaster (Japan) → JPY: "bullish", USDJPY: "bearish", XAUUSD: "bullish"
+  China Weak PMI → AUD: "bearish", AUDUSD: "bearish", Copper: "bearish", Global Equities: "bearish"
 
 ================================================================
 FINAL OUTPUT MANDATE — READ THIS LAST, FOLLOW THIS FIRST
@@ -1240,29 +1241,34 @@ function EditorModal({
 
     // Validate symbol wise news
     if (parsed.symbol_wise_news && typeof parsed.symbol_wise_news === "object") {
-      const requiredSymbols = ["XAUUSD", "XAGUSD", "BTCUSDT", "ETHUSD", "GBPUSD", "EURUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF"];
-      const missing = [];
-      for (const sym of requiredSymbols) {
-        const sNews = parsed.symbol_wise_news[sym];
-        if (!sNews || 
-            typeof sNews !== "object" || 
-            !Array.isArray(sNews.latest_headlines) || 
-            typeof sNews.detailed_breakdown !== "string" || 
-            typeof sNews.trader_alert !== "string" || 
-            !sNews.sniper_note || 
-            typeof sNews.sniper_note !== "object" || 
-            typeof sNews.sniper_note.news_bias !== "string" || 
-            typeof sNews.sniper_note.key_catalyst !== "string" || 
-            typeof sNews.sniper_note.key_levels_watch !== "string" || 
-            typeof sNews.sniper_note.session_expectation !== "string") {
-          missing.push(sym);
-        }
-      }
-      if (missing.length === 0) {
-        nextChecks.symbols = "success";
-      } else {
+      const symbolsInPayload = Object.keys(parsed.symbol_wise_news);
+      if (symbolsInPayload.length === 0) {
         nextChecks.symbols = "error";
-        nextChecks.symbolDetails = `Missing/invalid fields in: ${missing.join(", ")}`;
+        nextChecks.symbolDetails = "symbol_wise_news must contain at least one entry";
+      } else {
+        const missing = [];
+        for (const sym of symbolsInPayload) {
+          const sNews = parsed.symbol_wise_news[sym];
+          if (!sNews || 
+              typeof sNews !== "object" || 
+              !Array.isArray(sNews.latest_headlines) || 
+              typeof sNews.detailed_breakdown !== "string" || 
+              typeof sNews.trader_alert !== "string" || 
+              !sNews.sniper_note || 
+              typeof sNews.sniper_note !== "object" || 
+              typeof sNews.sniper_note.news_bias !== "string" || 
+              typeof sNews.sniper_note.key_catalyst !== "string" || 
+              typeof sNews.sniper_note.key_levels_watch !== "string" || 
+              typeof sNews.sniper_note.session_expectation !== "string") {
+            missing.push(sym);
+          }
+        }
+        if (missing.length === 0) {
+          nextChecks.symbols = "success";
+        } else {
+          nextChecks.symbols = "error";
+          nextChecks.symbolDetails = `Missing/invalid fields in: ${missing.join(", ")}`;
+        }
       }
     } else {
       nextChecks.symbols = "error";
