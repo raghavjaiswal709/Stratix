@@ -156,6 +156,37 @@ function getCurrentSession(): string {
   return getCurrentSessionIST();
 }
 
+function getNextSessionAndDate(): { session: string; date: string } {
+  const ist = getISTDateTime();
+  const h = ist.getHours();
+  const m = ist.getMinutes();
+  const totalMinutes = h * 60 + m;
+
+  let nextSess = "asian";
+  let daysOffset = 0;
+
+  if (totalMinutes >= 330 && totalMinutes < 810) {
+    nextSess = "london";
+    daysOffset = 0;
+  } else if (totalMinutes >= 810 && totalMinutes < 1110) {
+    nextSess = "new_york";
+    daysOffset = 0;
+  } else {
+    nextSess = "asian";
+    if (h >= 18) {
+      daysOffset = 1;
+    } else {
+      daysOffset = 0;
+    }
+  }
+
+  const targetDate = new Date(ist.getTime() + daysOffset * 24 * 60 * 60 * 1000);
+  const y = targetDate.getFullYear();
+  const month = String(targetDate.getMonth() + 1).padStart(2, "0");
+  const day = String(targetDate.getDate()).padStart(2, "0");
+  return { session: nextSess, date: `${y}-${month}-${day}` };
+}
+
 function formatDateLabel(d: string): string {
   if (!d) return "";
   const [y, m, day] = d.split("-").map(Number);
@@ -604,10 +635,10 @@ function formatToISTString(d: Date): string {
   return `${y}-${m}-${day} ${h}:${min}:${s} IST`;
 }
 
-function formatCandlesForNewsPrompt(data: CandleSummary | null): string {
+function formatCandlesForNewsPrompt(data: CandleSummary | null, selectedSymbols: string[]): string {
   if (!data) return "(candle data available nahi hai — general market knowledge use karo)";
 
-  const syms = ["xauusd","xagusd","btcusdt","ethusd","eurusd","gbpusd","usdjpy","audusd","nzdusd","usdcad","usdchf"];
+  const syms = selectedSymbols.map(s => s.toLowerCase());
   const lines: string[] = ["=== REAL OHLCV CANDLE DATA (IST timestamps) ==="];
 
   for (const sym of syms) {
@@ -643,9 +674,9 @@ function formatCandlesForNewsPrompt(data: CandleSummary | null): string {
   return lines.join("\n");
 }
 
-function buildNewsUserMessage(date: string, session: string, candles: CandleSummary | null, timeRange: TimeRange = "24h"): string {
+function buildNewsUserMessage(date: string, session: string, candles: CandleSummary | null, timeRange: TimeRange = "24h", selectedSymbols: string[]): string {
   const ts = new Date().toISOString();
-  const candleBlock = formatCandlesForNewsPrompt(candles);
+  const candleBlock = formatCandlesForNewsPrompt(candles, selectedSymbols);
 
   const opt = TIME_RANGE_OPTIONS.find(o => o.value === timeRange) ?? TIME_RANGE_OPTIONS[4];
   const hours = opt.hours;
@@ -665,6 +696,22 @@ function buildNewsUserMessage(date: string, session: string, candles: CandleSumm
     timeRange === "2d"  ? "pichle 2 din" :
     timeRange === "3d"  ? "pichle 3 din" :
                           "pichle ek hafte";
+
+  // Filter schema template dynamically based on selected symbols
+  let dynamicSchemaTemplate = NEWS_SCHEMA_TEMPLATE;
+  try {
+    const schemaObj = JSON.parse(NEWS_SCHEMA_TEMPLATE);
+    const filteredSymbolWise: Record<string, any> = {};
+    for (const sym of selectedSymbols) {
+      if (schemaObj.symbol_wise_news[sym]) {
+        filteredSymbolWise[sym] = schemaObj.symbol_wise_news[sym];
+      }
+    }
+    schemaObj.symbol_wise_news = filteredSymbolWise;
+    dynamicSchemaTemplate = JSON.stringify(schemaObj, null, 2);
+  } catch (e) {
+    console.error("Failed to parse NEWS_SCHEMA_TEMPLATE", e);
+  }
 
   return `================================================================
 CRITICAL INSTRUCTION — OUTPUT FORMAT
@@ -742,11 +789,11 @@ BREAKING & TRENDING (last ${hours}h):
   Reddit: r/wallstreetbets · r/investing · r/CryptoCurrency
   Google Trends: breakout finance/energy/conflict searches
 
-Har symbol ke sniper_note mein sirf news-based directional suggestion — koi SL/TP/entry nahi. Sirf: bias (Bullish/Bearish/Neutral), key catalyst, watch levels, session expectation.
+Har symbol ke sniper_note mein sirf news-based directional suggestion — koi SL/TP/entry nahi. Sirf: bias (bias character e.g. Bullish/Bearish/Neutral), key catalyst, watch levels, session expectation.
 
 Neeche diya schema use karke ek valid JSON output do:
 
-${NEWS_SCHEMA_TEMPLATE}
+${dynamicSchemaTemplate}
 
 JSON FIELD REQUIREMENTS:
 • meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}", meta.language = "Hinglish"
@@ -816,12 +863,23 @@ function MarkdownText({ text }: { text: string }) {
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
 
-function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+function CopyButton({ text, label = "Copy", disabled = false }: { text: string; label?: string; disabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/[0.05] border border-white/[0.08] text-white/40 hover:text-white/70 hover:bg-white/[0.08] transition-all shrink-0"
+      onClick={() => {
+        if (disabled) return;
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      disabled={disabled}
+      className={cn(
+        "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all shrink-0",
+        disabled
+          ? "opacity-30 cursor-not-allowed bg-transparent border-transparent text-white/20"
+          : "bg-white/[0.05] border border-white/[0.08] text-white/40 hover:text-white/70 hover:bg-white/[0.08]"
+      )}
     >
       {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
       {copied ? "Copied" : label}
@@ -831,11 +889,24 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
 
 // ─── Prompt Modal ─────────────────────────────────────────────────────────────
 
-function PromptModal({ date, session, onClose }: { date: string; session: string; onClose: () => void }) {
+function PromptModal({
+  defaultDate,
+  defaultSession,
+  onClose,
+}: {
+  defaultDate: string;
+  defaultSession: string;
+  onClose: () => void;
+}) {
   const [candles,   setCandles]   = useState<CandleSummary | null>(null);
   const [fetching,  setFetching]  = useState(true);
   const [fetchErr,  setFetchErr]  = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
+
+  // User configuration options
+  const [modalDate, setModalDate]       = useState(defaultDate);
+  const [modalSession, setModalSession] = useState(defaultSession);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(SYMBOL_DISPLAY_ORDER);
 
   useEffect(() => {
     fetch("/api/candle-summary")
@@ -844,56 +915,144 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
       .catch(e => { setFetchErr(e.message); setFetching(false); });
   }, []);
 
-  const userMsg     = buildNewsUserMessage(date, session, candles, timeRange);
-  const copyAllText = `=== SYSTEM PROMPT ===\n${NEWS_SYSTEM_PROMPT}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${userMsg}`;
+  const userMsg = selectedSymbols.length > 0
+    ? buildNewsUserMessage(modalDate, modalSession, candles, timeRange, selectedSymbols)
+    : "(Please select at least one currency pair / symbol)";
+
+  const originalText = "• ALWAYS populate all 11 keys in symbol_wise_news (XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF) — none of these 11 symbols can be omitted under any circumstances.";
+  const replacementText = selectedSymbols.length > 0
+    ? `• ALWAYS populate all selected keys in symbol_wise_news (${selectedSymbols.join(", ")}) — none of these selected symbols can be omitted under any circumstances.`
+    : "• ALWAYS populate all selected keys in symbol_wise_news — none of these selected symbols can be omitted under any circumstances.";
+
+  const dynamicSystemPrompt = NEWS_SYSTEM_PROMPT.replace(originalText, replacementText);
+  const copyAllText = `=== SYSTEM PROMPT ===\n${dynamicSystemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${userMsg}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-[#111] border border-white/[0.10] shadow-2xl overflow-hidden">
 
+        {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.07] shrink-0">
           <div className="flex items-center gap-2.5">
             <Bot className="h-4 w-4 text-white/50" />
             <div>
               <p className="text-[13px] font-semibold text-white/80">CHoCH QLM Hinglish News Prompt</p>
               <p className="text-[11px] text-white/30">
-                {fetching ? "Live candle data load ho rahi hai…" : fetchErr ? "Candle fetch failed — general knowledge use hogi" : `H1+H4 data embed hua · ${SESSION_LABELS[session]} · ${date}`}
+                {fetching ? "Live candle data load ho rahi hai…" : fetchErr ? "Candle fetch failed — general knowledge use hogi" : `H1+H4 data embed hua · ${SESSION_LABELS[modalSession]} · ${modalDate}`}
               </p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition"><X className="h-4 w-4" /></button>
         </div>
 
-        {/* Time range picker */}
-        <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] shrink-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">News Window</span>
-            <div className="flex items-center gap-1 flex-wrap">
-              {TIME_RANGE_OPTIONS.map(opt => (
+        {/* Date, Session and News Window */}
+        <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] shrink-0 space-y-3">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">Session</span>
+              <div className="flex items-center gap-1 p-0.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                {SESSION_ORDER.map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setModalSession(s)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all",
+                      modalSession === s
+                        ? "bg-white/[0.10] text-white border border-white/[0.12]"
+                        : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
+                    )}
+                  >
+                    {SESSION_LABELS[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">Date</span>
+              <input
+                type="date"
+                value={modalDate}
+                onChange={(e) => setModalDate(e.target.value)}
+                className="px-2 py-1 rounded-lg text-[11px] font-medium bg-white/[0.03] border border-white/[0.08] text-white/70 focus:outline-none focus:border-white/[0.20]"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">News Window</span>
+              <div className="flex items-center gap-1">
+                {TIME_RANGE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setTimeRange(opt.value as TimeRange)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border",
+                      timeRange === opt.value
+                        ? "bg-white/[0.12] text-white border-white/[0.18]"
+                        : "bg-white/[0.03] text-white/35 border-white/[0.06] hover:text-white/60 hover:bg-white/[0.07]",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Currency Pairs / Symbols Selectors */}
+        <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] shrink-0 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Currency Pairs / Symbols</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedSymbols(SYMBOL_DISPLAY_ORDER)}
+                className="text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 transition"
+              >
+                Select All
+              </button>
+              <span className="text-white/10">|</span>
+              <button
+                onClick={() => setSelectedSymbols([])}
+                className="text-[10px] font-semibold text-red-400/80 hover:text-red-300 transition"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {SYMBOL_DISPLAY_ORDER.map(sym => {
+              const isSelected = selectedSymbols.includes(sym);
+              const meta = SYMBOL_META[sym];
+              return (
                 <button
-                  key={opt.value}
-                  onClick={() => setTimeRange(opt.value as TimeRange)}
+                  key={sym}
+                  onClick={() => {
+                    if (isSelected) {
+                      setSelectedSymbols(prev => prev.filter(s => s !== sym));
+                    } else {
+                      setSelectedSymbols(prev => [...prev, sym]);
+                    }
+                  }}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all",
-                    timeRange === opt.value
-                      ? "bg-white/[0.12] text-white border border-white/[0.18]"
-                      : "bg-white/[0.03] text-white/35 border border-white/[0.06] hover:text-white/60 hover:bg-white/[0.07]",
+                    "flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium transition-all border",
+                    isSelected
+                      ? "bg-white/[0.08] text-white border-white/[0.15]"
+                      : "bg-white/[0.02] text-white/30 border-white/[0.05] hover:text-white/50 hover:bg-white/[0.04]"
                   )}
                 >
-                  {opt.label}
+                  <span>{meta?.flag}</span>
+                  <span>{meta?.label}</span>
                 </button>
-              ))}
-            </div>
-            <span className="ml-auto text-[10px] text-white/20 shrink-0">
-              {TIME_RANGE_OPTIONS.find(o => o.value === timeRange)?.display}
-            </span>
+              );
+            })}
           </div>
         </div>
 
         {fetching ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
-            <p className="text-[12px] text-white/30">14 symbols ka 48h candle data load ho raha hai…</p>
+            <p className="text-[12px] text-white/30">Symbols ka candle data load ho raha hai…</p>
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -906,12 +1065,16 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
 
             {candles && !fetchErr && (
               <div className="grid grid-cols-3 gap-2">
-                {(["H4 (7d)", "H1 (48h)", "Symbols"] as const).map((label, i) => {
+                {(["H4 (7d)", "H1 (48h)", "Symbols Selected"] as const).map((label, i) => {
                   const val = i === 0
-                    ? Object.values(candles).reduce((s, d) => s + (d.h4?.length ?? 0), 0)
+                    ? Object.entries(candles)
+                        .filter(([sym]) => selectedSymbols.includes(sym.toUpperCase()))
+                        .reduce((s, [, d]) => s + (d.h4?.length ?? 0), 0)
                     : i === 1
-                    ? Object.values(candles).reduce((s, d) => s + (d.h1?.length ?? 0), 0)
-                    : Object.keys(candles).length;
+                    ? Object.entries(candles)
+                        .filter(([sym]) => selectedSymbols.includes(sym.toUpperCase()))
+                        .reduce((s, [, d]) => s + (d.h1?.length ?? 0), 0)
+                    : selectedSymbols.length;
                   return (
                     <div key={label} className="rounded-xl bg-white/[0.03] border border-white/[0.07] px-3 py-2.5 text-center">
                       <p className="text-[18px] font-bold text-white/70">{val}</p>
@@ -928,9 +1091,9 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">1</span>
                   <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">System Prompt — CHoCH QLM Hinglish</span>
                 </div>
-                <CopyButton text={NEWS_SYSTEM_PROMPT} />
+                <CopyButton text={dynamicSystemPrompt} disabled={selectedSymbols.length === 0} />
               </div>
-              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-48">{NEWS_SYSTEM_PROMPT}</pre>
+              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-48">{dynamicSystemPrompt}</pre>
             </div>
 
             <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
@@ -938,9 +1101,9 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
                 <div className="flex items-center gap-2">
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">2</span>
                   <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">User Message + Real Candle Data</span>
-                  <span className="text-[10px] text-white/20">{SESSION_LABELS[session]} · {date}</span>
+                  <span className="text-[10px] text-white/20">{SESSION_LABELS[modalSession]} · {modalDate}</span>
                 </div>
-                <CopyButton text={userMsg} />
+                <CopyButton text={userMsg} disabled={selectedSymbols.length === 0} />
               </div>
               <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64">{userMsg}</pre>
             </div>
@@ -955,7 +1118,7 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
         )}
 
         <div className="px-5 py-3 border-t border-white/[0.07] shrink-0 flex items-center justify-between gap-3">
-          <CopyButton text={copyAllText} label="Copy All Blocks" />
+          <CopyButton text={copyAllText} label="Copy All Blocks" disabled={selectedSymbols.length === 0} />
           <button onClick={onClose} className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] border border-white/[0.08] transition">Close</button>
         </div>
       </div>
@@ -2172,13 +2335,16 @@ export default function NewsAnalysisPage() {
           }}
         />
       )}
-      {promptOpen && (
-        <PromptModal
-          date={selectedDate || new Date().toISOString().slice(0, 10)}
-          session={selectedSession}
-          onClose={() => setPromptOpen(false)}
-        />
-      )}
+      {promptOpen && (() => {
+        const nextInfo = getNextSessionAndDate();
+        return (
+          <PromptModal
+            defaultDate={nextInfo.date}
+            defaultSession={nextInfo.session}
+            onClose={() => setPromptOpen(false)}
+          />
+        );
+      })()}
       {historyOpen && (
         <HistoryModal
           date={selectedDate}
