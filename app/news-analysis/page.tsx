@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 interface HCandle { t: number; o: number; h: number; l: number; c: number }
 interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 import { cn } from "@/lib/utils";
+import { validateReportSchema } from "@/lib/newsValidation";
 import {
   Newspaper,
   ChevronLeft,
@@ -296,6 +297,10 @@ LINE BREAKS — \n use karo text ke andar paragraph separate karne ke liye:
   • EXAMPLE: "**Gold** **$3,350** pe strong resistance mila.\n\n**Key reason:** *Fed hawkish tone* ne real yields **+12bps** push kiye.\n\n***CRITICAL:*** Agar **$3,320** toot gaya toh ***sharp selloff ka risk hai***."
 
 RULES:
+  • ALWAYS populate all 11 keys in symbol_wise_news (XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF) — none of these 11 symbols can be omitted under any circumstances.
+  • Do NOT use placeholders, empty strings, "...", or default text. Write actual, real news analysis for every symbol.
+  • If a symbol has no direct high-impact news in this session, write about its correlation with the major news of the session (e.g. how USD strength or risk sentiment affected it) in Hinglish. Every field must have a non-empty, rich value.
+  • Do NOT use the instructions from the JSON schema template as the values. The values must be real-world news and technical analysis.
   • Do NOT use markdown headers (#, ##) in JSON string values
   • Do NOT use dash bullets (-) in JSON string values — use \n for line breaks instead
   • Numbers aur levels HAMESHA bold karo — kabhi plain text mein mat chhodo
@@ -410,23 +415,154 @@ const NEWS_SCHEMA_TEMPLATE = `{
       "trader_alert": "***HIGH ALERT:*** **$3,350** resistance zone pe sellers bahut active hain. *FOMC hawkish tone* ke baad gold par downward pressure hai — **$3,320** support ka break bahut risky hoga. Is session mein **DXY** aur **US 10yr yield** ko closely monitor karo.",
       "sniper_note": {
         "news_bias": "Bullish | Bearish | Neutral",
-        "key_catalyst": "**FOMC** ke *hawkish minutes* ne **real yields** ko **+12bps** push kiya — yeh gold ke liye sabse important bearish catalyst hai is session mein. *Dollar strength* bhi gold ko daba raha hai.",
-        "key_levels_watch": "**$3,350** — *news-driven resistance*, yahan sellers active hain.\n**$3,320** — *critical support*, break hone par bearish momentum tez hoga.\n**$3,280** — next major support agar $3,320 toot gaya.",
-        "session_expectation": "**Bearish bias** news ke basis par. *Fed hawkish tone* aur *strong DXY* dono gold ke against hain.\n\nUpside scenario: Agar *geopolitical risk* ya *risk-off sentiment* aaya toh **$3,340-3,350** tak recovery possible.\nDownside risk: **$3,320** break hone par ***sharp selloff toward $3,280*** expected."
+        "key_catalyst": "Primary driver for Gold in this session.",
+        "key_levels_watch": "Key technical levels to watch for Gold.",
+        "session_expectation": "Session expectations for Gold."
       }
     },
-    "XAGUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "Silver mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "BTCUSDT": { "latest_headlines": ["...", "..."], "detailed_breakdown": "Bitcoin mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "ETHUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "Ethereum mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "GBPUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "GBP/USD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "EURUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "EUR/USD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "USDJPY":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "USD/JPY mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "AUDUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "AUD/USD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "NZDUSD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "NZD/USD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "USDCAD":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "USD/CAD mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } },
-    "USDCHF":  { "latest_headlines": ["...", "..."], "detailed_breakdown": "USD/CHF mein 120+ words Hinglish...", "trader_alert": "...", "sniper_note": { "news_bias": "Bullish|Bearish|Neutral", "key_catalyst": "...", "key_levels_watch": "...", "session_expectation": "..." } }
+    "XAGUSD": {
+      "latest_headlines": [
+        "Silver se related first specific headline — exact price move or catalyst",
+        "Silver se related second specific headline"
+      ],
+      "detailed_breakdown": "Silver (XAGUSD) detailed breakdown in Hinglish (120+ words) explaining the session price action, industrial demand catalysts, and key triggers with **bold** figures and *italic* details.",
+      "trader_alert": "Trader alert for Silver (XAGUSD) summarizing critical support/resistance zones and immediate action points.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Primary news or data release driving Silver sentiment in this session.",
+        "key_levels_watch": "Specific key support and resistance levels to monitor for Silver.",
+        "session_expectation": "Tactical session expectation and risk/reward outlook for Silver."
+      }
+    },
+    "BTCUSDT": {
+      "latest_headlines": [
+        "Bitcoin (BTCUSDT) first specific headline — exact price action or on-chain event",
+        "Bitcoin (BTCUSDT) second specific headline"
+      ],
+      "detailed_breakdown": "Bitcoin (BTCUSDT) detailed breakdown in Hinglish (120+ words) covering spot ETF inflows/outflows, funding rates, derivatives open interest, whale wallet changes, or regulatory catalysts with **bold** numbers and *italic* context.",
+      "trader_alert": "Trader alert for Bitcoin (BTCUSDT) highlighting short-term risk levels, liquidation risk zones, and funding anomalies.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Main on-chain or macro catalyst driving Bitcoin (BTCUSDT) movement.",
+        "key_levels_watch": "Key technical levels to watch for Bitcoin (BTCUSDT).",
+        "session_expectation": "Session expectation and directional trades to watch for Bitcoin (BTCUSDT)."
+      }
+    },
+    "ETHUSD": {
+      "latest_headlines": [
+        "Ethereum (ETHUSD) first specific headline — price action, gas fees, or staking statistics",
+        "Ethereum (ETHUSD) second specific headline"
+      ],
+      "detailed_breakdown": "Ethereum (ETHUSD) detailed breakdown in Hinglish (120+ words) analyzing ETF news, DeFi activity metrics, network fees, exchange reserves, and staking yields with **bold** values and *italic* comparisons.",
+      "trader_alert": "Trader alert for Ethereum (ETHUSD) outlining key support levels and gas/network congestion trends.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Primary network, staking, or macro driver for Ethereum (ETHUSD).",
+        "key_levels_watch": "Important support and resistance levels to watch for Ethereum (ETHUSD).",
+        "session_expectation": "Session expectations and breakout scenarios for Ethereum (ETHUSD)."
+      }
+    },
+    "GBPUSD": {
+      "latest_headlines": [
+        "GBPUSD first specific headline — BoE announcements, UK economic data, or political events",
+        "GBPUSD second specific headline"
+      ],
+      "detailed_breakdown": "GBPUSD detailed breakdown in Hinglish (120+ words) covering Bank of England policy hints, UK CPI/GDP print effects, and broad dollar correlation trends with **bold** numbers and *italic* forecasts.",
+      "trader_alert": "Trader alert for GBPUSD detailing major level breaks and expected volatility windows.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Main UK macro data or monetary policy driver for GBPUSD.",
+        "key_levels_watch": "Critical support and resistance points to watch for GBPUSD.",
+        "session_expectation": "Session expectations and average daily range outlook for GBPUSD."
+      }
+    },
+    "EURUSD": {
+      "latest_headlines": [
+        "EURUSD first specific headline — ECB interest rate hints, Eurozone PMI, or political updates",
+        "EURUSD second specific headline"
+      ],
+      "detailed_breakdown": "EURUSD detailed breakdown in Hinglish (120+ words) analyzing the ECB vs Fed yield spreads, Eurozone growth indicators, and geopolitical factors affecting European flows with **bold** rates and *italic* details.",
+      "trader_alert": "Trader alert for EURUSD highlighting key liquidity pools and orderblock zones to monitor.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Key economic data or ECB interest rate bias for EURUSD.",
+        "key_levels_watch": "Major technical support and resistance levels for EURUSD.",
+        "session_expectation": "Expected range, session bias, and trade signals for EURUSD."
+      }
+    },
+    "USDJPY": {
+      "latest_headlines": [
+        "USDJPY first specific headline — BoJ intervention warnings, Japan trade data, or CPI",
+        "USDJPY second specific headline"
+      ],
+      "detailed_breakdown": "USDJPY detailed breakdown in Hinglish (120+ words) analyzing Ministry of Finance intervention threats, BoJ bond-buying operations, and US 10-year yield correlation with **bold** figures and *italic* context.",
+      "trader_alert": "Trader alert for USDJPY detailing risk levels for sudden Bank of Japan intervention spikes.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Primary BoJ/US Treasury yield catalyst driving USDJPY.",
+        "key_levels_watch": "Key technical intervention and support levels to watch for USDJPY.",
+        "session_expectation": "Expected range and volatility outlook for USDJPY."
+      }
+    },
+    "AUDUSD": {
+      "latest_headlines": [
+        "AUDUSD first specific headline — RBA rate decisions, China economic data, or commodity index updates",
+        "AUDUSD second specific headline"
+      ],
+      "detailed_breakdown": "AUDUSD detailed breakdown in Hinglish (120+ words) covering Reserve Bank of Australia announcements, commodities prices (iron ore, copper), and Chinese retail/factory output correlation with **bold** values and *italic* notes.",
+      "trader_alert": "Trader alert for AUDUSD highlighting commodity-driven trade levels and risk zones.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Main RBA monetary policy stance or commodity export driver for AUDUSD.",
+        "key_levels_watch": "Important support and resistance levels for AUDUSD.",
+        "session_expectation": "Session expectation and volatility forecast for AUDUSD."
+      }
+    },
+    "NZDUSD": {
+      "latest_headlines": [
+        "NZDUSD first specific headline — RBNZ monetary comments, dairy auction reports, or jobs data",
+        "NZDUSD second specific headline"
+      ],
+      "detailed_breakdown": "NZDUSD detailed breakdown in Hinglish (120+ words) outlining Reserve Bank of New Zealand policy rate decisions, dairy prices index shifts, and global risk appetite correlation with **bold** indicators and *italic* trends.",
+      "trader_alert": "Trader alert for NZDUSD detailing liquidity zones and global risk sentiment impact.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Main RBNZ sentiment or global commodity driver for NZDUSD.",
+        "key_levels_watch": "Critical technical levels and support zones to watch for NZDUSD.",
+        "session_expectation": "Expected session movement and range for NZDUSD."
+      }
+    },
+    "USDCAD": {
+      "latest_headlines": [
+        "USDCAD first specific headline — BoC policy shifts, crude oil inventory drawdowns, or employment print",
+        "USDCAD second specific headline"
+      ],
+      "detailed_breakdown": "USDCAD detailed breakdown in Hinglish (120+ words) analyzing Bank of Canada interest rate spreads, WTI Crude Oil price fluctuations, and US-Canada trade balances with **bold** numbers and *italic* context.",
+      "trader_alert": "Trader alert for USDCAD tracking correlation breaks with crude oil prices.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Primary crude oil price trend or BoC statement driving USDCAD.",
+        "key_levels_watch": "Important support and resistance points to watch for USDCAD.",
+        "session_expectation": "Session expectation and volatility expectations for USDCAD."
+      }
+    },
+    "USDCHF": {
+      "latest_headlines": [
+        "USDCHF first specific headline — SNB currency intervention, safe-haven flows, or inflation data",
+        "USDCHF second specific headline"
+      ],
+      "detailed_breakdown": "USDCHF detailed breakdown in Hinglish (120+ words) evaluating Swiss National Bank interventions, global safe-haven flows triggered by geopolitics, and yield differentials with **bold** values and *italic* analysis.",
+      "trader_alert": "Trader alert for USDCHF tracking safe-haven flows and SNB policy risks.",
+      "sniper_note": {
+        "news_bias": "Bullish | Bearish | Neutral",
+        "key_catalyst": "Primary SNB policy shift or geopolitical risk driver for USDCHF.",
+        "key_levels_watch": "Key support and resistance barriers to watch for USDCHF.",
+        "session_expectation": "Expected session path and trading strategies for USDCHF."
+      }
+    }
   }
-}`;
+}
+`;
 
 function formatCandlesForNewsPrompt(data: CandleSummary | null): string {
   if (!data) return "(candle data available nahi hai — general market knowledge use karo)";
@@ -772,6 +908,41 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
 
 // ─── Editor Modal ─────────────────────────────────────────────────────────────
 
+// Validation items for UI panel layout helper
+
+interface ValidationChecks {
+  syntax: "success" | "error" | "pending";
+  meta: "success" | "error" | "pending";
+  allNews: "success" | "error" | "pending";
+  events: "success" | "error" | "pending";
+  symbols: "success" | "error" | "pending";
+  symbolDetails?: string;
+}
+
+function CheckItem({ label, status, details }: { label: string; status: "success" | "error" | "pending"; details?: string }) {
+  return (
+    <div className="flex flex-col gap-1.5 p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+      <div className="flex items-center gap-2">
+        {status === "success" && <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+        {status === "error" && <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />}
+        {status === "pending" && <span className="h-3.5 w-3.5 rounded-full border border-dashed border-white/20 shrink-0" />}
+        <span className={cn(
+          "text-[11px] font-medium leading-none",
+          status === "success" ? "text-white/80" :
+          status === "error" ? "text-red-400/80" : "text-white/30"
+        )}>
+          {label}
+        </span>
+      </div>
+      {status === "error" && details && (
+        <span className="text-[9px] text-red-400/60 font-mono leading-tight pl-5.5 mt-0.5">
+          {details}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function EditorModal({
   date, session, initialJson, onClose, onSaved,
 }: {
@@ -785,17 +956,141 @@ function EditorModal({
   const [saved,     setSaved]     = useState(false);
   const [isValid,   setIsValid]   = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [checks,    setChecks]    = useState<ValidationChecks>({
+    syntax: "pending",
+    meta: "pending",
+    allNews: "pending",
+    events: "pending",
+    symbols: "pending",
+  });
 
   useEffect(() => { textareaRef.current?.focus(); }, []);
 
+  function updateChecks(parsed: any, syntaxStatus: "success" | "error" | "pending") {
+    const nextChecks: ValidationChecks = {
+      syntax: syntaxStatus,
+      meta: "pending",
+      allNews: "pending",
+      events: "pending",
+      symbols: "pending",
+    };
+
+    if (syntaxStatus !== "success" || !parsed) {
+      setChecks(nextChecks);
+      return;
+    }
+
+    // Validate meta
+    if (parsed.meta && 
+        typeof parsed.meta === "object" && 
+        typeof parsed.meta.date === "string" && 
+        typeof parsed.meta.session === "string" && 
+        typeof parsed.meta.generated_at === "string" &&
+        typeof parsed.meta.language === "string") {
+      nextChecks.meta = "success";
+    } else {
+      nextChecks.meta = "error";
+    }
+
+    // Validate all news section
+    if (parsed.all_news_section && 
+        typeof parsed.all_news_section === "object" && 
+        typeof parsed.all_news_section.headline === "string" && 
+        typeof parsed.all_news_section.summary === "string") {
+      nextChecks.allNews = "success";
+    } else {
+      nextChecks.allNews = "error";
+    }
+
+    // Validate high impact events
+    if (parsed.all_news_section && Array.isArray(parsed.all_news_section.high_impact_events)) {
+      let eventsOk = true;
+      for (const ev of parsed.all_news_section.high_impact_events) {
+        if (!ev || typeof ev !== "object" || typeof ev.event_name !== "string" || typeof ev.impact_explanation !== "string" || !Array.isArray(ev.market_impact)) {
+          eventsOk = false;
+          break;
+        }
+      }
+      nextChecks.events = eventsOk ? "success" : "error";
+    } else {
+      nextChecks.events = "error";
+    }
+
+    // Validate symbol wise news
+    if (parsed.symbol_wise_news && typeof parsed.symbol_wise_news === "object") {
+      const requiredSymbols = ["XAUUSD", "XAGUSD", "BTCUSDT", "ETHUSD", "GBPUSD", "EURUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF"];
+      const missing = [];
+      for (const sym of requiredSymbols) {
+        const sNews = parsed.symbol_wise_news[sym];
+        if (!sNews || 
+            typeof sNews !== "object" || 
+            !Array.isArray(sNews.latest_headlines) || 
+            typeof sNews.detailed_breakdown !== "string" || 
+            typeof sNews.trader_alert !== "string" || 
+            !sNews.sniper_note || 
+            typeof sNews.sniper_note !== "object" || 
+            typeof sNews.sniper_note.news_bias !== "string" || 
+            typeof sNews.sniper_note.key_catalyst !== "string" || 
+            typeof sNews.sniper_note.key_levels_watch !== "string" || 
+            typeof sNews.sniper_note.session_expectation !== "string") {
+          missing.push(sym);
+        }
+      }
+      if (missing.length === 0) {
+        nextChecks.symbols = "success";
+      } else {
+        nextChecks.symbols = "error";
+        nextChecks.symbolDetails = `Missing/invalid fields in: ${missing.join(", ")}`;
+      }
+    } else {
+      nextChecks.symbols = "error";
+    }
+
+    setChecks(nextChecks);
+  }
+
   function tryValidate(value: string): boolean {
-    if (!value.trim()) { setParseErr(null); setIsValid(false); return false; }
+    if (!value.trim()) {
+      setParseErr(null);
+      setIsValid(false);
+      setChecks({
+        syntax: "pending",
+        meta: "pending",
+        allNews: "pending",
+        events: "pending",
+        symbols: "pending",
+      });
+      return false;
+    }
     try {
-      JSON.parse(value);
+      const parsed = JSON.parse(value);
+      updateChecks(parsed, "success");
+
+      const schemaErr = validateReportSchema(parsed);
+      if (schemaErr) {
+        setParseErr(`Schema Error: ${schemaErr}`);
+        setIsValid(false);
+        return false;
+      }
+
+      // Ensure upload metadata matches selected date and session
+      if (parsed.meta.date !== date) {
+        setParseErr(`Schema Error: meta.date '${parsed.meta.date}' must match selected date '${date}'`);
+        setIsValid(false);
+        return false;
+      }
+
+      if (parsed.meta.session.toLowerCase() !== session.toLowerCase()) {
+        setParseErr(`Schema Error: meta.session '${parsed.meta.session}' must match selected session '${session}'`);
+        setIsValid(false);
+        return false;
+      }
+
       setParseErr(null);
       setIsValid(true);
       return true;
     } catch (e) {
+      updateChecks(null, "error");
       setParseErr(e instanceof Error ? e.message : "Invalid JSON");
       setIsValid(false);
       return false;
@@ -814,10 +1109,12 @@ function EditorModal({
     e.preventDefault();
     const pasted = e.clipboardData.getData("text");
     try {
-      const formatted = JSON.stringify(JSON.parse(pasted), null, 2);
+      const parsed = JSON.parse(pasted);
+      const formatted = JSON.stringify(parsed, null, 2);
       setJson(formatted);
-      setParseErr(null);
-      setIsValid(true);
+      setSaveErr(null);
+      setSaved(false);
+      tryValidate(formatted);
     } catch {
       // Not valid JSON — insert raw pasted text and let normal validation run
       const el = e.currentTarget;
@@ -831,13 +1128,22 @@ function EditorModal({
 
   function handleFormat() {
     try {
-      const formatted = JSON.stringify(JSON.parse(json), null, 2);
+      const parsed = JSON.parse(json);
+      const formatted = JSON.stringify(parsed, null, 2);
       setJson(formatted);
-      setParseErr(null);
-      setIsValid(true);
+      updateChecks(parsed, "success");
+      const schemaErr = validateReportSchema(parsed);
+      if (schemaErr) {
+        setParseErr(`Schema Error: ${schemaErr}`);
+        setIsValid(false);
+      } else {
+        setParseErr(null);
+        setIsValid(true);
+      }
     } catch (e) {
       setParseErr(e instanceof Error ? e.message : "Invalid JSON");
       setIsValid(false);
+      updateChecks(null, "error");
     }
   }
 
@@ -868,7 +1174,7 @@ function EditorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="relative w-full max-w-4xl h-[90vh] flex flex-col rounded-2xl bg-[#0d0d0d] border border-white/[0.10] shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-5xl h-[90vh] flex flex-col rounded-2xl bg-[#0d0d0d] border border-white/[0.10] shadow-2xl overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/[0.07] shrink-0">
@@ -891,7 +1197,7 @@ function EditorModal({
                   : "bg-red-500/10 border-red-500/20 text-red-400/80",
               )}>
                 {isValid ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                {isValid ? "Valid JSON" : "Invalid JSON"}
+                {isValid ? "Valid JSON & Schema" : "Invalid JSON/Schema"}
               </span>
             )}
             <button onClick={handleFormat}
@@ -904,32 +1210,42 @@ function EditorModal({
           </div>
         </div>
 
-        {/* Textarea */}
-        <div className="flex-1 relative overflow-hidden">
-          <textarea
-            ref={textareaRef}
-            value={json}
-            onChange={(e) => handleChange(e.target.value)}
-            onPaste={handlePaste}
-            spellCheck={false}
-            className={cn(
-              "w-full h-full resize-none bg-transparent px-5 py-4",
-              "text-[12px] font-mono leading-[1.7] text-white/70",
-              "focus:outline-none placeholder:text-white/20 border-b transition-colors",
-              json.trim()
-                ? isValid
-                  ? "border-emerald-500/20"
-                  : "border-red-500/25"
-                : "border-white/[0.05]",
+        {/* Body Column split */}
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden border-b border-white/[0.07]">
+          {/* Textarea */}
+          <div className="flex-1 relative overflow-hidden flex flex-col border-r border-white/[0.07]">
+            <textarea
+              ref={textareaRef}
+              value={json}
+              onChange={(e) => handleChange(e.target.value)}
+              onPaste={handlePaste}
+              spellCheck={false}
+              className={cn(
+                "w-full h-full resize-none bg-transparent px-5 py-4",
+                "text-[12px] font-mono leading-[1.7] text-white/70",
+                "focus:outline-none placeholder:text-white/20 transition-colors",
+              )}
+              placeholder={"Paste your AI-generated JSON here.\nIt will be auto-formatted and validated on paste.\n\n{\n  \"meta\": { ... },\n  \"all_news_section\": { ... },\n  \"symbol_wise_news\": { ... }\n}"}
+            />
+            {/* Line / char counter */}
+            {json.trim() && (
+              <div className="absolute bottom-3 right-4 text-[10px] text-white/15 font-mono select-none">
+                {lineCount} lines · {charCount.toLocaleString()} chars
+              </div>
             )}
-            placeholder={"Paste your AI-generated JSON here.\nIt will be auto-formatted and validated on paste.\n\n{\n  \"meta\": { ... },\n  \"all_news_section\": { ... },\n  \"symbol_wise_news\": { ... }\n}"}
-          />
-          {/* Line / char counter */}
-          {json.trim() && (
-            <div className="absolute bottom-3 right-4 text-[10px] text-white/15 font-mono select-none">
-              {lineCount} lines · {charCount.toLocaleString()} chars
+          </div>
+
+          {/* Validation Checklist Column */}
+          <div className="w-full md:w-80 bg-white/[0.01] flex flex-col overflow-y-auto p-4 select-none">
+            <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-wider mb-3 font-mono">Schema Validation Checklist</h4>
+            <div className="space-y-2.5">
+              <CheckItem label="Valid JSON Syntax" status={checks.syntax} />
+              <CheckItem label="Meta Section (date, session, lang)" status={checks.meta} />
+              <CheckItem label="All News Banner (headline, summary)" status={checks.allNews} />
+              <CheckItem label="High Impact Events list" status={checks.events} />
+              <CheckItem label="All 11 Symbols Analysis" status={checks.symbols} details={checks.symbolDetails} />
             </div>
-          )}
+          </div>
         </div>
 
         {/* Error bar */}
@@ -1177,6 +1493,7 @@ function HistoryModal({
 // ─── CHoCH Signal card (Hinglish) ────────────────────────────────────────────
 
 function SniperNoteSection({ note }: { note: SniperNote }) {
+  if (!note) return null;
   const bullish = note.news_bias === "Bullish";
   const bearish = note.news_bias === "Bearish";
 
@@ -1239,18 +1556,21 @@ function SniperNoteSection({ note }: { note: SniperNote }) {
 }
 
 function ImpactTag({ tag }: { tag: MarketImpactTag }) {
-  const bull = tag.effect === "bullish";
-  const bear = tag.effect === "bearish";
+  if (!tag) return null;
+  const effect = tag.effect || "neutral";
+  const symbol = tag.symbol || "Unknown";
+  const bull = effect === "bullish";
+  const bear = effect === "bearish";
+
   return (
     <span className={cn(
-      "inline-flex items-center gap-1 px-2 py-[3px] rounded-full text-[10px] font-bold border tracking-wide shrink-0",
-      bull ? "bg-emerald-500/[0.12] border-emerald-500/[0.25] text-emerald-400"
-           : bear ? "bg-red-500/[0.12] border-red-500/[0.25] text-red-400"
-           : "bg-white/[0.05] border-white/[0.10] text-white/35",
+      "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border",
+      bull ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+      bear ? "bg-red-500/10 text-red-400 border-red-500/20" :
+      "bg-white/[0.04] text-white/40 border-white/[0.07]",
     )}>
-      <span className="text-[9px]">{bull ? "▲" : bear ? "▼" : "—"}</span>
-      <span>{bull ? "Good for" : bear ? "Bad for" : "Neutral"}</span>
-      <span className="font-extrabold">{tag.symbol}</span>
+      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", bull ? "bg-emerald-400" : bear ? "bg-red-400" : "bg-white/40")} />
+      <span className="font-extrabold">{symbol}</span>
     </span>
   );
 }
@@ -1258,8 +1578,10 @@ function ImpactTag({ tag }: { tag: MarketImpactTag }) {
 function EventCard({ event }: { event: HighImpactEvent }) {
   const [expanded, setExpanded] = useState(false);
   const LIMIT = 200;
-  const needsExpand = event.impact_explanation.replace(/\*+/g, "").length > LIMIT;
-  const tags = event.market_impact ?? [];
+  const eventName = event?.event_name || "Unknown Event";
+  const impactExplanation = event?.impact_explanation || "";
+  const needsExpand = impactExplanation.replace(/\*+/g, "").length > LIMIT;
+  const tags = event?.market_impact ?? [];
 
   return (
     <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-4 flex flex-col gap-2.5">
@@ -1270,14 +1592,14 @@ function EventCard({ event }: { event: HighImpactEvent }) {
           <Zap className="h-3 w-3 text-white/50" />
         </div>
         <p className="text-[13px] font-semibold text-white/80 leading-snug">
-          <MarkdownText text={event.event_name} />
+          <MarkdownText text={eventName} />
         </p>
       </div>
 
       {/* Market impact tags — always visible */}
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pl-7">
-          {tags.map((tag, i) => <ImpactTag key={i} tag={tag} />)}
+          {tags.map((tag, i) => tag && <ImpactTag key={i} tag={tag} />)}
         </div>
       )}
 
@@ -1286,7 +1608,7 @@ function EventCard({ event }: { event: HighImpactEvent }) {
         "text-[12px] text-white/50 leading-[1.8] pl-7",
         !expanded && needsExpand && "line-clamp-4",
       )}>
-        <MarkdownText text={event.impact_explanation} />
+        <MarkdownText text={impactExplanation} />
       </div>
 
       {needsExpand && (
@@ -1303,7 +1625,20 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
   const meta = SYMBOL_META[symbol] ?? { label: symbol, assetClass: "Other", flag: "•" };
   const [expanded, setExpanded] = useState(false);
   const LIMIT = 260;
-  const needsExpand = news.detailed_breakdown.length > LIMIT;
+
+  if (!news) {
+    return (
+      <div className="flex flex-col rounded-2xl bg-white/[0.02] border border-white/[0.07] p-5 items-center justify-center min-h-[200px] text-white/20 select-none">
+        <AlertTriangle className="h-5 w-5 opacity-40 mb-2" />
+        <span className="text-[11px] font-semibold tracking-wider uppercase">{meta.label} news not available</span>
+      </div>
+    );
+  }
+
+  const detailedBreakdown = news.detailed_breakdown || "";
+  const needsExpand = detailedBreakdown.length > LIMIT;
+  const latestHeadlines = Array.isArray(news.latest_headlines) ? news.latest_headlines : [];
+
   return (
     <div className="flex flex-col rounded-2xl bg-white/[0.025] border border-white/[0.07] hover:border-white/[0.11] transition-colors duration-200 overflow-hidden">
       <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/[0.05]">
@@ -1324,10 +1659,10 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
       <div className="px-5 py-4">
         <p className="text-[10px] font-semibold text-white/20 uppercase tracking-widest mb-2.5">Latest Khabar</p>
         <ul className="space-y-2">
-          {news.latest_headlines.map((h, i) => (
+          {latestHeadlines.map((h, i) => (
             <li key={i} className="flex items-start gap-2.5 text-[12px] text-white/60 leading-relaxed">
               <span className="mt-[7px] h-1 w-1 rounded-full bg-white/25 shrink-0" />
-              <MarkdownText text={h} />
+              <MarkdownText text={h || ""} />
             </li>
           ))}
         </ul>
@@ -1339,7 +1674,7 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
           "text-[12px] text-white/55 leading-[1.85]",
           !expanded && needsExpand && "line-clamp-5",
         )}>
-          <MarkdownText text={news.detailed_breakdown} />
+          <MarkdownText text={news.detailed_breakdown || ""} />
         </div>
         {needsExpand && (
           <button onClick={() => setExpanded(v => !v)}
@@ -1349,17 +1684,19 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
         )}
       </div>
 
-      <div className="px-5 pb-5 mt-auto">
-        <div className="rounded-xl bg-amber-500/[0.07] border border-amber-500/[0.18] px-4 py-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <AlertTriangle className="h-3 w-3 text-amber-400/70 shrink-0" />
-            <span className="text-[9px] font-bold text-amber-400/60 uppercase tracking-widest">Trader Alert</span>
+      {news.trader_alert && (
+        <div className="px-5 pb-5 mt-auto">
+          <div className="rounded-xl bg-amber-500/[0.07] border border-amber-500/[0.18] px-4 py-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <AlertTriangle className="h-3 w-3 text-amber-400/70 shrink-0" />
+              <span className="text-[9px] font-bold text-amber-400/60 uppercase tracking-widest">Trader Alert</span>
+            </div>
+            <p className="text-[12px] text-amber-300/80 leading-[1.8]">
+              <MarkdownText text={news.trader_alert} />
+            </p>
           </div>
-          <p className="text-[12px] text-amber-300/80 leading-[1.8]">
-            <MarkdownText text={news.trader_alert} />
-          </p>
         </div>
-      </div>
+      )}
 
       {/* Sniper note — news-based directional suggestion */}
       {news.sniper_note && <SniperNoteSection note={news.sniper_note} />}
@@ -1661,15 +1998,15 @@ export default function NewsAnalysisPage() {
           <>
             <div className="flex items-center gap-3 mb-5 flex-wrap">
               <span className="px-2.5 py-1 text-[11px] font-semibold bg-white/[0.07] border border-white/[0.10] rounded-full text-white/65">
-                {report.meta.session} Session
+                {report?.meta?.session ?? "Unknown"} Session
               </span>
               <span className="px-2.5 py-1 text-[11px] font-semibold bg-white/[0.04] border border-white/[0.07] rounded-full text-white/35">
-                {report.meta.language}
+                {report?.meta?.language ?? "Hinglish"}
               </span>
               <span className="text-[11px] text-white/25">
-                {new Date(report.meta.generated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC par generate hua
+                {report?.meta?.generated_at ? new Date(report.meta.generated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC par generate hua" : ""}
               </span>
-              {report.meta.generated_by && (
+              {report?.meta?.generated_by && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold bg-white/[0.04] border border-white/[0.07] rounded-full text-white/35">
                   <User className="h-3.5 w-3.5 opacity-60" />
                   By {report.meta.generated_by}
@@ -1678,23 +2015,25 @@ export default function NewsAnalysisPage() {
             </div>
 
             {/* All News Banner */}
-            <div className="rounded-2xl bg-white/[0.025] border border-white/[0.07] overflow-hidden mb-3">
-              <div className="flex items-center gap-2 px-6 py-3 border-b border-white/[0.05] bg-white/[0.02]">
-                <Newspaper className="h-3.5 w-3.5 text-white/30 shrink-0" />
-                <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest">Aaj Ki Sabse Badi Khabar</span>
+            {report?.all_news_section && (
+              <div className="rounded-2xl bg-white/[0.025] border border-white/[0.07] overflow-hidden mb-3">
+                <div className="flex items-center gap-2 px-6 py-3 border-b border-white/[0.05] bg-white/[0.02]">
+                  <Newspaper className="h-3.5 w-3.5 text-white/30 shrink-0" />
+                  <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest">Aaj Ki Sabse Badi Khabar</span>
+                </div>
+                <div className="px-6 py-5">
+                  <h2 className="text-[18px] sm:text-[20px] font-bold text-white leading-snug mb-4">
+                    <MarkdownText text={report.all_news_section.headline || ""} />
+                  </h2>
+                  <p className="text-[13px] text-white/60 leading-[1.85]">
+                    <MarkdownText text={report.all_news_section.summary || ""} />
+                  </p>
+                </div>
               </div>
-              <div className="px-6 py-5">
-                <h2 className="text-[18px] sm:text-[20px] font-bold text-white leading-snug mb-4">
-                  <MarkdownText text={report.all_news_section.headline} />
-                </h2>
-                <p className="text-[13px] text-white/60 leading-[1.85]">
-                  <MarkdownText text={report.all_news_section.summary} />
-                </p>
-              </div>
-            </div>
+            )}
 
             {/* High Impact Events */}
-            {report.all_news_section.high_impact_events.length > 0 && (
+            {report?.all_news_section?.high_impact_events && Array.isArray(report.all_news_section.high_impact_events) && report.all_news_section.high_impact_events.length > 0 && (
               <div className="mb-8">
                 <div className="flex items-center gap-3 mb-4">
                   <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">High Impact Events</h2>
@@ -1702,7 +2041,7 @@ export default function NewsAnalysisPage() {
                   <div className="flex-1 h-px bg-white/[0.05]" />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {report.all_news_section.high_impact_events.map((ev, i) => <EventCard key={i} event={ev} />)}
+                  {report.all_news_section.high_impact_events.map((ev, i) => ev && <EventCard key={i} event={ev} />)}
                 </div>
               </div>
             )}
@@ -1716,7 +2055,7 @@ export default function NewsAnalysisPage() {
                   <div className="flex-1 h-px bg-white/[0.05]" />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {orderedSymbols.map(sym => <SymbolCard key={sym} symbol={sym} news={report.symbol_wise_news[sym]} />)}
+                  {orderedSymbols.map(sym => <SymbolCard key={sym} symbol={sym} news={report?.symbol_wise_news?.[sym]} />)}
                 </div>
               </div>
             )}

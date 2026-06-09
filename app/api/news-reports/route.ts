@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { NewsReportModel } from "@/lib/models/NewsReport";
+import { validateReportSchema } from "@/lib/newsValidation";
 
 export const dynamic = "force-dynamic";
 
@@ -196,6 +197,14 @@ export async function POST(req: NextRequest) {
   if (!date || !sessionParam || data === undefined) {
     return NextResponse.json(
       { error: "date, session, and data are required" },
+      { status: 400 },
+    );
+  }
+
+  const validationError = validateReportSchema(data);
+  if (validationError) {
+    return NextResponse.json(
+      { error: `Schema Validation Error: ${validationError}` },
       { status: 400 },
     );
   }
