@@ -1515,7 +1515,9 @@ function EditorModal({
         return false;
       }
 
-      if (parsed.meta.session.toLowerCase() !== checkSession.toLowerCase()) {
+      const normSession = parsed.meta.session.toLowerCase().replace(/[\s_]/g, "");
+      const normCheckSession = checkSession.toLowerCase().replace(/[\s_]/g, "");
+      if (normSession !== normCheckSession) {
         setParseErr(`Schema Error: meta.session '${parsed.meta.session}' must match selected session '${checkSession}'`);
         setIsValid(false);
         return false;
