@@ -15,7 +15,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import requests
 from bs4 import BeautifulSoup
@@ -274,8 +274,9 @@ def main() -> None:
     template_raw  = _read("config/news_template.json")
 
     session_label = SESSION_LABELS.get(SESSION_NAME, "Asian")
-    today         = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    generated_at  = datetime.now(timezone.utc).isoformat()
+    ist_tz        = timezone(timedelta(hours=5, minutes=30))
+    today         = datetime.now(ist_tz).strftime("%Y-%m-%d")
+    generated_at  = datetime.now(ist_tz).isoformat()
 
     # ── 1. Scrape live news ───────────────────────────────────────────────────
     scraped_context = collect_all_news()
@@ -293,7 +294,7 @@ def main() -> None:
     )
 
     user_message = (
-        f"Aaj ka UTC date hai {today}. "
+        f"Aaj ka IST date hai {today}. "
         f"Aane wala session hai {session_label} Session.\n"
         f"{scrape_block}\n"
         "Ab pichle 24 ghante ki saari important global financial news analyze karo — "

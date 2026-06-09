@@ -593,11 +593,22 @@ const NEWS_SCHEMA_TEMPLATE = `{
 }
 `;
 
+function formatToISTString(d: Date): string {
+  const istDate = new Date(d.getTime() + (330 * 60 * 1000));
+  const y = istDate.getUTCFullYear();
+  const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(istDate.getUTCDate()).padStart(2, "0");
+  const h = String(istDate.getUTCHours()).padStart(2, "0");
+  const min = String(istDate.getUTCMinutes()).padStart(2, "0");
+  const s = String(istDate.getUTCSeconds()).padStart(2, "0");
+  return `${y}-${m}-${day} ${h}:${min}:${s} IST`;
+}
+
 function formatCandlesForNewsPrompt(data: CandleSummary | null): string {
   if (!data) return "(candle data available nahi hai — general market knowledge use karo)";
 
   const syms = ["xauusd","xagusd","btcusdt","ethusd","eurusd","gbpusd","usdjpy","audusd","nzdusd","usdcad","usdchf"];
-  const lines: string[] = ["=== REAL OHLCV CANDLE DATA (UTC timestamps) ==="];
+  const lines: string[] = ["=== REAL OHLCV CANDLE DATA (IST timestamps) ==="];
 
   for (const sym of syms) {
     const d = data[sym];
@@ -606,14 +617,25 @@ function formatCandlesForNewsPrompt(data: CandleSummary | null): string {
     if (d.h4?.length) {
       lines.push("  H4 (last 7 din):");
       for (const c of d.h4) {
-        const dt = new Date(c.t * 1000).toISOString().slice(0, 13) + ":00Z";
+        const istDate = new Date((c.t * 1000) + (330 * 60 * 1000));
+        const y = istDate.getUTCFullYear();
+        const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(istDate.getUTCDate()).padStart(2, "0");
+        const h = String(istDate.getUTCHours()).padStart(2, "0");
+        const dt = `${y}-${m}-${day} ${h}:00 IST`;
         lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
       }
     }
     if (d.h1?.length) {
       lines.push("  H1 (last 48 ghante):");
       for (const c of d.h1) {
-        const dt = new Date(c.t * 1000).toISOString().slice(0, 16) + "Z";
+        const istDate = new Date((c.t * 1000) + (330 * 60 * 1000));
+        const y = istDate.getUTCFullYear();
+        const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(istDate.getUTCDate()).padStart(2, "0");
+        const h = String(istDate.getUTCHours()).padStart(2, "0");
+        const min = String(istDate.getUTCMinutes()).padStart(2, "0");
+        const dt = `${y}-${m}-${day} ${h}:${min} IST`;
         lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
       }
     }
@@ -628,6 +650,12 @@ function buildNewsUserMessage(date: string, session: string, candles: CandleSumm
   const opt = TIME_RANGE_OPTIONS.find(o => o.value === timeRange) ?? TIME_RANGE_OPTIONS[4];
   const hours = opt.hours;
   const fromTs = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+  const now = new Date();
+  const tsIST = formatToISTString(now);
+  const fromDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  const fromTsIST = formatToISTString(fromDate);
+
   const timeHinglish =
     timeRange === "3h"  ? "pichle 3 ghante" :
     timeRange === "6h"  ? "pichle 6 ghante" :
@@ -646,10 +674,10 @@ Koi bhi text — upar, neeche, ya beech mein — STRICTLY FORBIDDEN.
 Pehli line \`\`\`json, aakhri line \`\`\`, aur beech mein ONLY valid JSON.
 ================================================================
 
-Aaj ka UTC date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
-Current UTC time: ${ts}
+Aaj ka IST date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
+Current IST time: ${tsIST}
 
-⏰ NEWS TIME WINDOW: ${fromTs} SE LEKAR ${ts} TAK (${opt.display})
+⏰ NEWS TIME WINDOW: ${fromTsIST} SE LEKAR ${tsIST} TAK (${opt.display})
 STRICT RULE: Sirf is time window ke andar ki news aur events cover karo. Is window se pehle ki koi bhi news mat include karo.
 
 ${candleBlock}
@@ -658,7 +686,7 @@ Upar diye gaye REAL H4 aur H1 candle data ko price context ke liye use karo — 
 
 ═══════════════════════════════════════════════════════
 TERA KAAM — COMPREHENSIVE MARKET-MOVING EVENT ANALYSIS
-(${timeHinglish} ki news SIRF — ${fromTs} ke baad ki)
+(${timeHinglish} ki news SIRF — ${fromTsIST} ke baad ki)
 ═══════════════════════════════════════════════════════
 
 Sirf economic calendar events nahi — HAR tarah ka event jo market move kar sakta hai:
@@ -722,7 +750,7 @@ ${NEWS_SCHEMA_TEMPLATE}
 
 JSON FIELD REQUIREMENTS:
 • meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}", meta.language = "Hinglish"
-• NEWS TIME WINDOW: Sirf ${fromTs} se ${ts} ke beech ki events — older news strictly banned
+• NEWS TIME WINDOW: Sirf ${fromTsIST} se ${tsIST} ke beech ki events — older news strictly banned
 • all_news_section.summary = 250+ word Hinglish — macro + geopolitical + disasters + energy + crypto sab cover karo
 • all_news_section.high_impact_events = minimum 4 events (max 6) — DIVERSE categories including geopolitical/disaster/energy
 • Har high_impact_event mein "market_impact" array = 3-6 relevant symbols with "bullish"/"bearish"/"neutral"
@@ -1399,7 +1427,7 @@ function HistoryModal({
   function fmtTime(iso: string) {
     return new Date(iso).toLocaleString("en-US", {
       month: "short", day: "numeric", year: "numeric",
-      hour: "2-digit", minute: "2-digit", timeZone: "UTC", timeZoneName: "short",
+      hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata", timeZoneName: "short",
     });
   }
 
@@ -2018,7 +2046,7 @@ export default function NewsAnalysisPage() {
                 Viewing historical version —{" "}
                 {new Date(viewingVersion.generatedAt).toLocaleString("en-US", {
                   month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                  timeZone: "UTC", timeZoneName: "short",
+                  timeZone: "Asia/Kolkata", timeZoneName: "short",
                 })}
                 {" "}by{" "}
                 <span className="font-medium">{viewingVersion.generatedBy}</span>
@@ -2060,7 +2088,7 @@ export default function NewsAnalysisPage() {
                 {report?.meta?.language ?? "Hinglish"}
               </span>
               <span className="text-[11px] text-white/25">
-                {report?.meta?.generated_at ? new Date(report.meta.generated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC par generate hua" : ""}
+                {report?.meta?.generated_at ? new Date(report.meta.generated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST par generate hua" : ""}
               </span>
               {report?.meta?.generated_by && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold bg-white/[0.04] border border-white/[0.07] rounded-full text-white/35">
