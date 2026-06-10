@@ -821,6 +821,63 @@ const NEWS_SCHEMA_TEMPLATE = `{
 }
 `;
 
+// ─── Prompt versions ──────────────────────────────────────────────────────────
+// V4 = the original full-internet news prompt (kept exactly as-is).
+// V5 = same JSON output format + same GitHub candle data, but news is scraped
+//      ONLY from a fixed set of X/Twitter handles — no other sources, no noise.
+
+const SOURCES_BAR = "━".repeat(53);
+
+export type PromptVersionId = "v4" | "v5";
+
+interface PromptVersionOption {
+  id: PromptVersionId;
+  label: string;
+  description: string;
+  systemPrompt: string;
+}
+
+const X_NEWS_HANDLES = ["@FirstSquawk", "@investingLive_", "@ForexFactory"] as const;
+
+// V5 system prompt — a strict X/Twitter-only sourcing override prepended to the
+// proven V4 body (reused verbatim), so the analysis method and JSON format stay
+// identical; ONLY the news source changes.
+const NEWS_SYSTEM_PROMPT_V5 = `================================================================
+V5 — X / TWITTER HANDLE-LOCKED NEWS MODE  (HIGHEST PRIORITY — OVERRIDES EVERYTHING BELOW)
+================================================================
+Is V5 mode mein teri news ka SOLE source sirf aur sirf ye 3 X (Twitter) handles hain:
+   • ${X_NEWS_HANDLES[0]}
+   • ${X_NEWS_HANDLES[1]}
+   • ${X_NEWS_HANDLES[2]}
+
+ABSOLUTE SOURCING RULES (ye rules neeche likhe kisi bhi "duniya bhar / entire internet / saare sources check karo" type instruction ko OVERRIDE karte hain):
+1) News SIRF in 3 handles ke posts/tweets se nikalo — wahi posts jo selected time window ke andar publish hue. Koi aur website, news portal, wire, search engine, blog, ya apni training/internal knowledge se koi news ADD mat karo.
+2) Agar koi market-moving event in 3 handles ne report nahi kiya, to wo event report mat karo. Kuch bhi assume, guess ya fabricate karna STRICTLY mana hai.
+3) ZERO NOISE: ads, promotions, giveaways, course/affiliate plugs, replies, aur off-topic posts ko bilkul ignore karo. Sirf genuine market-moving news extract karo.
+4) Same news agar multiple handles pe aayi hai to use ek hi event maan ke merge/consolidate karo — duplicate events mat banao.
+5) Neeche diya gaya analysis method, event categories, markdown formatting, market_impact rules aur JSON output ka format — sab bilkul SAME rahega. Categories ka kaam sirf itna hai ki tu in handles ki news ko sahi category mein classify kar sake — NOT to go and browse the wider internet.
+6) Output JSON ka structure, schema aur sample bilkul wahi rahega jaisa abhi hai — sirf news ka SOURCE badla hai (poora internet → ye 3 X handles only).
+================================================================
+
+${NEWS_SYSTEM_PROMPT}`;
+
+const PROMPT_VERSIONS: PromptVersionOption[] = [
+  {
+    id: "v5",
+    label: "V5 · X/Twitter Handles Only",
+    description: "News sirf @FirstSquawk, @investingLive_, @ForexFactory se — koi aur source nahi, no noise.",
+    systemPrompt: NEWS_SYSTEM_PROMPT_V5,
+  },
+  {
+    id: "v4",
+    label: "V4 · Full Web Scan (previous)",
+    description: "Poora internet — Bloomberg, Reuters, central banks, X trending, etc.",
+    systemPrompt: NEWS_SYSTEM_PROMPT,
+  },
+];
+
+const DEFAULT_PROMPT_VERSION: PromptVersionId = "v5";
+
 function formatToISTString(d: Date): string {
   const istDate = new Date(d.getTime() + (330 * 60 * 1000));
   const y = istDate.getUTCFullYear();
@@ -871,7 +928,7 @@ function formatCandlesForNewsPrompt(data: CandleSummary | null, selectedSymbols:
   return lines.join("\n");
 }
 
-function buildNewsUserMessage(date: string, session: string, candles: CandleSummary | null, timeRange: TimeRange = "24h", selectedSymbols: string[]): string {
+function buildNewsUserMessage(date: string, session: string, candles: CandleSummary | null, timeRange: TimeRange = "24h", selectedSymbols: string[], version: PromptVersionId = DEFAULT_PROMPT_VERSION): string {
   const ts = new Date().toISOString();
   const candleBlock = formatCandlesForNewsPrompt(candles, selectedSymbols);
 
@@ -909,6 +966,54 @@ function buildNewsUserMessage(date: string, session: string, candles: CandleSumm
   } catch (e) {
     console.error("Failed to parse NEWS_SCHEMA_TEMPLATE", e);
   }
+
+  // Version-specific news sources block. V4 = full web scan (unchanged);
+  // V5 = locked to a small set of X/Twitter handles only — no other sources.
+  const sourcesBlockV4 = `${SOURCES_BAR}
+REQUIRED NEWS SOURCES (check ALL — ${opt.display} window):
+${SOURCES_BAR}
+MACRO & MARKETS:
+  Bloomberg · Reuters · Financial Times · Wall Street Journal
+  CNBC · MarketWatch · Investing.com · TradingEconomics · Yahoo Finance
+  AP News · BBC Business · Al Jazeera Business · The Guardian Business
+
+CENTRAL BANKS (official sources):
+  federalreserve.gov · ecb.europa.eu · boj.or.jp · bankofengland.co.uk
+  rba.gov.au · rbnz.govt.nz · pboc.gov.cn · bis.org
+
+GEOPOLITICAL & SECURITY:
+  Reuters World News · AP Breaking News · BBC World · Al Jazeera
+  Defense News · Jane's · War Monitor (X/Twitter accounts)
+
+FOREX & COMMODITIES:
+  ForexLive · FXStreet · DailyFX · Kitco (gold/silver) · OilPrice.com
+  AgriMoney · S&P Global Commodity Insights · LME (metals)
+
+CRYPTO:
+  CoinDesk · CoinTelegraph · The Block · Decrypt · CryptoSlate
+  Glassnode (on-chain) · Coinglass (derivatives/OI/funding)
+
+BREAKING & TRENDING (last ${hours}h):
+  X/Twitter: $markets, $SPY, $GLD, $BTC trending topics
+  Reddit: r/wallstreetbets · r/investing · r/CryptoCurrency
+  Google Trends: breakout finance/energy/conflict searches`;
+
+  const sourcesBlockV5 = `${SOURCES_BAR}
+SOLE NEWS SOURCES — SIRF YE 3 X / TWITTER HANDLES (${opt.display} window):
+${SOURCES_BAR}
+⚠️ STRICT SOURCE LOCK: News SIRF in 3 X (Twitter) handles ke posts se nikalo. Inke alawa koi website, news portal, search engine, wire, blog, ya general/training knowledge use NAHI karna:
+
+  • ${X_NEWS_HANDLES[0]}      — https://x.com/${X_NEWS_HANDLES[0].slice(1)}
+  • ${X_NEWS_HANDLES[1]}   — https://x.com/${X_NEWS_HANDLES[1].slice(1)}
+  • ${X_NEWS_HANDLES[2]}     — https://x.com/${X_NEWS_HANDLES[2].slice(1)}
+
+SCRAPING RULES (PERFECTION — ZERO NOISE):
+  • In 3 handles ke saare posts jo ${fromTsIST} se ${tsIST} (${opt.display}) ke beech publish hue — un sabko scan karo aur har market-moving news extract karo.
+  • Sirf genuine market news posts use karo. Ads, giveaways, promotions, affiliate/course plugs, replies, aur off-topic posts ko strictly IGNORE karo (noise filter strict ON).
+  • Kisi aur Twitter handle, website, ya apni knowledge se koi news ADD mat karo. Agar koi event in 3 handles mein nahi mila, to use report mat karo — fabricate ZERO.
+  • Same news agar multiple handles pe ho to use ek hi event maan ke consolidate karo (duplicate events mat banao).`;
+
+  const sourcesBlock = version === "v5" ? sourcesBlockV5 : sourcesBlockV4;
 
   return `================================================================
 CRITICAL INSTRUCTION — OUTPUT FORMAT
@@ -957,34 +1062,7 @@ CRYPTO EVENTS: SEC actions, exchange hacks/failures, stablecoin depegs, DeFi exp
 
 MARKET STRUCTURE: Monthly/quarterly OpEx (options expiry), futures rollover, index rebalancing, major ETF flows (GLD/IBIT/SPY), buyback window events
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REQUIRED NEWS SOURCES (check ALL — ${opt.display} window):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MACRO & MARKETS:
-  Bloomberg · Reuters · Financial Times · Wall Street Journal
-  CNBC · MarketWatch · Investing.com · TradingEconomics · Yahoo Finance
-  AP News · BBC Business · Al Jazeera Business · The Guardian Business
-
-CENTRAL BANKS (official sources):
-  federalreserve.gov · ecb.europa.eu · boj.or.jp · bankofengland.co.uk
-  rba.gov.au · rbnz.govt.nz · pboc.gov.cn · bis.org
-
-GEOPOLITICAL & SECURITY:
-  Reuters World News · AP Breaking News · BBC World · Al Jazeera
-  Defense News · Jane's · War Monitor (X/Twitter accounts)
-
-FOREX & COMMODITIES:
-  ForexLive · FXStreet · DailyFX · Kitco (gold/silver) · OilPrice.com
-  AgriMoney · S&P Global Commodity Insights · LME (metals)
-
-CRYPTO:
-  CoinDesk · CoinTelegraph · The Block · Decrypt · CryptoSlate
-  Glassnode (on-chain) · Coinglass (derivatives/OI/funding)
-
-BREAKING & TRENDING (last ${hours}h):
-  X/Twitter: $markets, $SPY, $GLD, $BTC trending topics
-  Reddit: r/wallstreetbets · r/investing · r/CryptoCurrency
-  Google Trends: breakout finance/energy/conflict searches
+${sourcesBlock}
 
 Har symbol ke sniper_note mein sirf news-based directional suggestion — koi SL/TP/entry nahi. Sirf: bias (strictly and exactly one of "Bullish", "Bearish", or "Neutral" with NO other text or commentary), key catalyst, watch levels, session expectation.
 
@@ -1104,6 +1182,9 @@ function PromptModal({
   const [modalDate, setModalDate]       = useState(defaultDate);
   const [modalSession, setModalSession] = useState(defaultSession);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(SYMBOL_DISPLAY_ORDER);
+  // Prompt version — defaults to V5 (X/Twitter handle-locked).
+  const [version, setVersion] = useState<PromptVersionId>(DEFAULT_PROMPT_VERSION);
+  const activeVersion = PROMPT_VERSIONS.find((v) => v.id === version) ?? PROMPT_VERSIONS[0];
 
   useEffect(() => {
     fetch("/api/candle-summary")
@@ -1113,7 +1194,7 @@ function PromptModal({
   }, []);
 
   const userMsg = selectedSymbols.length > 0
-    ? buildNewsUserMessage(modalDate, modalSession, candles, timeRange, selectedSymbols)
+    ? buildNewsUserMessage(modalDate, modalSession, candles, timeRange, selectedSymbols, version)
     : "(Please select at least one currency pair / symbol)";
 
   const originalText = "• ALWAYS populate all 11 keys in symbol_wise_news (XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF) — none of these 11 symbols can be omitted under any circumstances.";
@@ -1121,7 +1202,7 @@ function PromptModal({
     ? `• ALWAYS populate all selected keys in symbol_wise_news (${selectedSymbols.join(", ")}) — none of these selected symbols can be omitted under any circumstances.`
     : "• ALWAYS populate all selected keys in symbol_wise_news — none of these selected symbols can be omitted under any circumstances.";
 
-  const dynamicSystemPrompt = NEWS_SYSTEM_PROMPT.replace(originalText, replacementText);
+  const dynamicSystemPrompt = activeVersion.systemPrompt.replace(originalText, replacementText);
   const copyAllText = `=== SYSTEM PROMPT ===\n${dynamicSystemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${userMsg}`;
 
   return (
@@ -1144,6 +1225,24 @@ function PromptModal({
 
         {/* Date, Session and News Window */}
         <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] shrink-0 space-y-3">
+          {/* Prompt version selector — defaults to V5 */}
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">Prompt Version</span>
+            <div className="relative">
+              <select
+                value={version}
+                onChange={(e) => setVersion(e.target.value as PromptVersionId)}
+                className="appearance-none pl-2.5 pr-7 py-1 rounded-lg text-[11px] font-semibold bg-white/[0.06] border border-white/[0.14] text-white/85 focus:outline-none focus:border-white/[0.28] cursor-pointer hover:bg-white/[0.09] transition"
+              >
+                {PROMPT_VERSIONS.map((v) => (
+                  <option key={v.id} value={v.id} className="bg-[#111] text-white">{v.label}</option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-white/40" />
+            </div>
+            <span className="text-[10px] text-white/30 leading-tight">{activeVersion.description}</span>
+          </div>
+
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">Session</span>
