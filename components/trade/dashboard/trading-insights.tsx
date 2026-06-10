@@ -1,15 +1,27 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Receipt, Repeat, Scale, Crown, Flame, Snowflake,
   ArrowUpRight, ArrowDownRight, Layers, Clock3, Activity,
 } from "lucide-react";
-import type { InsightsSummary } from "@/lib/trade-metrics";
+
+interface Trade {
+  _id: string;
+  symbol: string;
+  direction: "buy" | "sell";
+  lots: number;
+  profit: number;
+  swap?: number;
+  commission?: number;
+  fee?: number;
+  status: "open" | "closed";
+  entryTime: string;
+  exitTime?: string;
+}
 
 interface Props {
-  // Precomputed on the server (lib/trade-metrics.ts) and fetched from the DB —
-  // this component no longer derives any numbers itself.
-  insights: InsightsSummary;
+  trades: Trade[];
 }
 
 const money = (n: number, withSign = false) => {
@@ -28,7 +40,102 @@ const fmtDuration = (ms: number) => {
   return `${d}d ${h % 24}h`;
 };
 
-export function TradingInsights({ insights: m }: Props) {
+export function TradingInsights({ trades }: Props) {
+  const m = useMemo(() => {
+    const net = (t: Trade) => t.profit + (t.swap || 0) + (t.commission || 0) + (t.fee || 0);
+    const closed = trades.filter((t) => t.status === "closed");
+
+    // ── Cost breakdown ────────────────────────────────────────────────────
+    const grossProfit = trades.reduce((s, t) => s + t.profit, 0);
+    const totalCommission = trades.reduce((s, t) => s + (t.commission || 0), 0);
+    const totalSwap = trades.reduce((s, t) => s + (t.swap || 0), 0);
+    const totalFees = trades.reduce((s, t) => s + (t.fee || 0), 0);
+    const netTotal = grossProfit + totalCommission + totalSwap + totalFees;
+    const totalCosts = totalCommission + totalSwap + totalFees;
+    // Cost as % of gross winnings (only meaningful when gross is positive-ish)
+    const costRatio = Math.abs(grossProfit) > 0 ? (Math.abs(totalCosts) / Math.abs(grossProfit)) * 100 : 0;
+
+    // ── Win/loss on NET basis ─────────────────────────────────────────────
+    const nets = closed.map(net);
+    const wins = nets.filter((n) => n > 0);
+    const losses = nets.filter((n) => n < 0);
+    const grossWin = wins.reduce((s, n) => s + n, 0);
+    const grossLoss = Math.abs(losses.reduce((s, n) => s + n, 0));
+    const winRate = closed.length ? (wins.length / closed.length) * 100 : 0;
+    const profitFactor = grossLoss === 0 ? (grossWin > 0 ? Infinity : 0) : grossWin / grossLoss;
+    const avgWin = wins.length ? grossWin / wins.length : 0;
+    const avgLoss = losses.length ? grossLoss / losses.length : 0;
+    const netClosedTotal = nets.reduce((s, n) => s + n, 0);
+    const expectancy = closed.length ? netClosedTotal / closed.length : 0;
+    const largestWin = wins.length ? wins.reduce((max, w) => w > max ? w : max, wins[0]) : 0;
+    const largestLoss = losses.length ? losses.reduce((min, l) => l < min ? l : min, losses[0]) : 0;
+
+    // ── Direction split ───────────────────────────────────────────────────
+    const dir = (d: "buy" | "sell") => {
+      const set = closed.filter((t) => t.direction === d);
+      const w = set.filter((t) => net(t) > 0).length;
+      return {
+        count: set.length,
+        net: set.reduce((s, t) => s + net(t), 0),
+        winRate: set.length ? (w / set.length) * 100 : 0,
+      };
+    };
+    const longs = dir("buy");
+    const shorts = dir("sell");
+
+    // ── Per-symbol breakdown ──────────────────────────────────────────────
+    const bySym = new Map<string, { net: number; count: number; wins: number }>();
+    for (const t of closed) {
+      const cur = bySym.get(t.symbol) || { net: 0, count: 0, wins: 0 };
+      cur.net += net(t);
+      cur.count += 1;
+      if (net(t) > 0) cur.wins += 1;
+      bySym.set(t.symbol, cur);
+    }
+    const symbols = Array.from(bySym.entries())
+      .map(([symbol, v]) => ({ symbol, ...v, winRate: v.count ? (v.wins / v.count) * 100 : 0 }))
+      .sort((a, b) => b.net - a.net);
+    const bestSymbol = symbols[0];
+    const worstSymbol = symbols[symbols.length - 1];
+
+    // ── Volume & duration ─────────────────────────────────────────────────
+    const totalVolume = trades.reduce((s, t) => s + (t.lots || 0), 0);
+    const durations = closed
+      .filter((t) => t.exitTime && t.entryTime)
+      .map((t) => new Date(t.exitTime as string).getTime() - new Date(t.entryTime).getTime())
+      .filter((d) => d > 0);
+    const avgDuration = durations.length ? durations.reduce((s, d) => s + d, 0) / durations.length : 0;
+
+    // ── Streaks (chronological by exit/entry time) ────────────────────────
+    const chrono = [...closed].sort((a, b) => {
+      const ta = new Date(a.exitTime || a.entryTime).getTime();
+      const tb = new Date(b.exitTime || b.entryTime).getTime();
+      return ta - tb;
+    });
+    let bestWinStreak = 0, worstLossStreak = 0, curW = 0, curL = 0, curStreak = 0;
+    for (const t of chrono) {
+      const n = net(t);
+      if (n > 0) { curW++; curL = 0; bestWinStreak = Math.max(bestWinStreak, curW); }
+      else if (n < 0) { curL++; curW = 0; worstLossStreak = Math.max(worstLossStreak, curL); }
+    }
+    // current streak from the end
+    for (let i = chrono.length - 1; i >= 0; i--) {
+      const n = net(chrono[i]);
+      if (n === 0) continue;
+      if (curStreak === 0) curStreak = n > 0 ? 1 : -1;
+      else if ((curStreak > 0 && n > 0) || (curStreak < 0 && n < 0)) curStreak += n > 0 ? 1 : -1;
+      else break;
+    }
+
+    return {
+      grossProfit, totalCommission, totalSwap, totalFees, totalCosts, netTotal, costRatio,
+      winRate, profitFactor, avgWin, avgLoss, expectancy, largestWin, largestLoss,
+      winCount: wins.length, lossCount: losses.length, closedCount: closed.length,
+      longs, shorts, symbols, bestSymbol, worstSymbol,
+      totalVolume, avgDuration, bestWinStreak, worstLossStreak, curStreak,
+    };
+  }, [trades]);
+
   if (m.closedCount === 0) return null;
 
   const costShare = (v: number) =>
@@ -81,7 +188,7 @@ export function TradingInsights({ insights: m }: Props) {
           Performance Insights
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          <Metric label="Profit Factor" value={m.profitFactor === null ? "∞" : m.profitFactor.toFixed(2)} tone={m.profitFactor === null || m.profitFactor >= 1 ? "pos" : "neg"} />
+          <Metric label="Profit Factor" value={m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2)} tone={m.profitFactor >= 1 ? "pos" : "neg"} />
           <Metric label="Expectancy / trade" value={money(m.expectancy, true)} tone={m.expectancy >= 0 ? "pos" : "neg"} />
           <Metric label="Avg Win" value={money(m.avgWin, true)} tone="pos" />
           <Metric label="Avg Loss" value={money(-m.avgLoss, true)} tone="neg" />

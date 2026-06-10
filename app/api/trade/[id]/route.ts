@@ -3,7 +3,6 @@ import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
 import { getContractSize } from "@/lib/contract-sizes";
-import { recomputeMetricsForUser } from "@/lib/metrics-service";
 
 export const dynamic = 'force-dynamic';
 
@@ -116,12 +115,6 @@ export async function PUT(
     { new: true }
   );
 
-  try {
-    await recomputeMetricsForUser(session.user.id);
-  } catch (err) {
-    console.error("metrics recompute failed after trade update:", err);
-  }
-
   return NextResponse.json(trade);
 }
 
@@ -144,12 +137,6 @@ export async function DELETE(
 
   if (result.deletedCount === 0) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  try {
-    await recomputeMetricsForUser(session.user.id);
-  } catch (err) {
-    console.error("metrics recompute failed after trade delete:", err);
   }
 
   return NextResponse.json({ success: true });
