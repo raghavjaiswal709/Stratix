@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import fs from "fs/promises";
-import path from "path";
 
 const SYMBOL_MAP: Record<string, string> = {
   XAUUSD: "XAU/USD",
@@ -92,16 +90,23 @@ export async function GET(req: NextRequest) {
 
   const matchedSymbol = matchKnownSymbol(symbol);
   const symbolFolder = matchedSymbol ?? cleanSymbol(symbol);
-  const folderPath = path.join(process.cwd(), "public/data/candles", symbolFolder);
 
   const months = getMonthsInRange(paddedFromDate, new Date(to));
   const candles1m: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
 
+  const origin = new URL(req.url).origin;
+  const cookieHeader = req.headers.get("cookie") ?? "";
+
   for (const { year, month } of months) {
     const fileName = `${symbolFolder}_${year}_${month}.csv`;
-    const filePath = path.join(folderPath, fileName);
+    const fileUrl = `${origin}/data/candles/${symbolFolder}/${fileName}`;
     try {
-      const fileContent = await fs.readFile(filePath, "utf-8");
+      const res = await fetch(fileUrl, {
+        headers: { cookie: cookieHeader },
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+      const fileContent = await res.text();
       const lines = fileContent.split(/\r?\n/);
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
