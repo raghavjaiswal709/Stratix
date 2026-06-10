@@ -8,7 +8,7 @@ import { OpenPositions } from "@/components/trade/dashboard/open-positions";
 import { TradingInsights } from "@/components/trade/dashboard/trading-insights";
 import { TradingQuotesModal } from "@/components/shared/trading-quotes";
 import { SyncButton } from "@/components/trade/sync/sync-button";
-import { TradesTable } from "@/components/trade/sync/trades-table";
+
 import { ConnectMT5Form, DisconnectMT5Button } from "@/components/trade/mt5/connect-form";
 import { format } from "date-fns";
 import { useAppContext } from "@/lib/context";
@@ -28,7 +28,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [mt5Info, setMt5Info] = useState<MT5Info | null>(null);
   const [mt5Loading, setMt5Loading] = useState(true);
-  const [syncRefreshKey, setSyncRefreshKey] = useState(0);
+  
 
   // Load precomputed metrics for the active profile. The numbers (win rate,
   // profit factor, P&L, streaks, …) are computed once and stored in the DB on
@@ -149,7 +149,7 @@ export default function DashboardPage() {
           {/* Show sync button + disconnect when connected */}
           {mt5Connected && mt5Info && (
             <div className="flex items-center gap-3 shrink-0">
-              <SyncButton onComplete={() => setSyncRefreshKey((k) => k + 1)} />
+              <SyncButton />
             </div>
           )}
         </div>
@@ -166,7 +166,6 @@ export default function DashboardPage() {
               mt5Server={mt5Info.mt5Server ?? ""}
               onDisconnected={() => setMt5Info({ state: "NONE", connected: false })}
             />
-            <TradesTable refreshKey={syncRefreshKey} />
           </>
         ) : (
           <ConnectMT5Form
