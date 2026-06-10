@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
 import { getContractSize } from "@/lib/contract-sizes";
+import { recomputeMetricsForUser } from "@/lib/metrics-service";
 
 export const dynamic = "force-dynamic";
 
@@ -395,6 +396,12 @@ export async function POST(req: NextRequest) {
   });
 
   const result = await TradeEntryModel.bulkWrite(ops, { ordered: false });
+
+  try {
+    await recomputeMetricsForUser(userId);
+  } catch (err) {
+    console.error("metrics recompute failed after JSON import:", err);
+  }
 
   return NextResponse.json({
     ok: true,

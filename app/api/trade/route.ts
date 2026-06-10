@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
 import { getContractSize } from "@/lib/contract-sizes";
+import { recomputeMetricsForUser } from "@/lib/metrics-service";
 
 export const dynamic = 'force-dynamic';
 
@@ -105,6 +106,14 @@ export async function POST(req: NextRequest) {
     executionChecklist: executionChecklist ?? undefined,
     profileId: profileId ?? undefined,
   });
+
+  // Refresh the precomputed metrics so the dashboard reads correct numbers
+  // without recomputing on load. The read path self-heals if this ever fails.
+  try {
+    await recomputeMetricsForUser(session.user.id);
+  } catch (err) {
+    console.error("metrics recompute failed after trade create:", err);
+  }
 
   return NextResponse.json(trade, { status: 201 });
 }

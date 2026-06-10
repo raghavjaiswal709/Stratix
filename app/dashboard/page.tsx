@@ -12,23 +12,7 @@ import { TradesTable } from "@/components/trade/sync/trades-table";
 import { ConnectMT5Form, DisconnectMT5Button } from "@/components/trade/mt5/connect-form";
 import { format } from "date-fns";
 import { useAppContext } from "@/lib/context";
-
-interface Trade {
-  _id: string;
-  symbol: string;
-  direction: "buy" | "sell";
-  lots: number;
-  entryPrice: number;
-  exitPrice?: number;
-  entryTime: string;
-  exitTime?: string;
-  profit: number;
-  swap?: number;
-  commission?: number;
-  status: "open" | "closed";
-  stopLoss?: number;
-  takeProfit?: number;
-}
+import type { TradeMetrics } from "@/lib/trade-metrics";
 
 interface MT5Info {
   connected: boolean;
@@ -39,38 +23,36 @@ interface MT5Info {
 }
 
 export default function DashboardPage() {
-  const { activeProfileId, tradingProfiles, loading: contextLoading, sharedTrades, setSharedTrades } = useAppContext();
-  const trades = sharedTrades;
-  const [loading, setLoading] = useState(sharedTrades.length === 0);
+  const { activeProfileId, tradingProfiles, loading: contextLoading } = useAppContext();
+  const [metrics, setMetrics] = useState<TradeMetrics | null>(null);
+  const [loading, setLoading] = useState(true);
   const [mt5Info, setMt5Info] = useState<MT5Info | null>(null);
   const [mt5Loading, setMt5Loading] = useState(true);
   const [syncRefreshKey, setSyncRefreshKey] = useState(0);
 
-  // Load manual trades — re-fetch when active profile changes.
+  // Load precomputed metrics for the active profile. The numbers (win rate,
+  // profit factor, P&L, streaks, …) are computed once and stored in the DB on
+  // every trade mutation, so the dashboard never recalculates them on load.
   // AbortController cancels in-flight requests when the profile switches so
   // stale data from a previous profile never flashes on screen.
   useEffect(() => {
     if (contextLoading) return;
 
     const controller = new AbortController();
-    if (sharedTrades.length === 0) {
-      setLoading(true);
-    }
-    const url = activeProfileId
-      ? `/api/trade?profileId=${encodeURIComponent(activeProfileId)}`
-      : "/api/trade";
+    const url =
+      activeProfileId && activeProfileId !== "all"
+        ? `/api/trade/metrics?profileId=${encodeURIComponent(activeProfileId)}`
+        : "/api/trade/metrics";
 
-    fetch(url, { 
+    fetch(url, {
       signal: controller.signal,
       cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache"
-      }
+      headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
     })
-      .then((r) => r.json())
-      .then((data) => {
-        setSharedTrades(Array.isArray(data) ? data : []);
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data: TradeMetrics) => {
+        // Guard against error payloads (e.g. 401) so a bad response can't crash render.
+        if (data && data.stats) setMetrics(data);
         setLoading(false);
       })
       .catch((err) => {
@@ -78,7 +60,7 @@ export default function DashboardPage() {
       });
 
     return () => controller.abort();
-  }, [activeProfileId, contextLoading, setSharedTrades, sharedTrades.length]);
+  }, [activeProfileId, contextLoading]);
 
   // Load MT5 status
   useEffect(() => {
@@ -91,29 +73,25 @@ export default function DashboardPage() {
       .catch(() => setMt5Loading(false));
   }, []);
 
-  const stats = useMemo(() => {
-    const closed = trades.filter((t) => t.status === "closed");
-    const open = trades.filter((t) => t.status === "open");
-    const netProfit = (t: Trade) => t.profit + (t.swap || 0) + (t.commission || 0);
-    const realized = closed.reduce((s, t) => s + netProfit(t), 0);
-    const unrealized = open.reduce((s, t) => s + netProfit(t), 0);
-    const wins = closed.filter((t) => netProfit(t) > 0).length;
-    const losses = closed.filter((t) => netProfit(t) < 0).length;
-    const winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
-    return {
-      totalPnL: realized + unrealized,
-      unrealized,
-      realized,
-      winRate,
-      openTrades: open.length,
-      closedTrades: closed.length,
-      totalTrades: trades.length,
-    };
-  }, [trades]);
+  // Reconstruct lightweight per-trade points from the precomputed series so the
+  // equity curve + calendar bucket by local calendar day exactly as before —
+  // net P&L is carried on `profit`, with swap/commission already folded in.
+  const chartTrades = useMemo(
+    () =>
+      (metrics?.series ?? []).map((p, i) => ({
+        _id: `s${i}`,
+        entryTime: new Date(p.t).toISOString(),
+        profit: p.net,
+        swap: 0,
+        commission: 0,
+        status: "closed" as const,
+      })),
+    [metrics]
+  );
 
-  // Show full-page spinner while context resolves OR while trades are loading.
+  // Show full-page spinner while context resolves OR while metrics are loading.
   // This prevents stats/charts from flashing zeros before data arrives.
-  if (contextLoading || loading) {
+  if (contextLoading || loading || !metrics) {
     return (
       <div className="flex items-center justify-center h-full min-h-[60vh]">
         <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
@@ -145,18 +123,18 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <StatsCards {...stats} />
+      <StatsCards {...metrics.stats} />
 
-      {/* Charts — each handles its own loading state */}
+      {/* Charts — driven by the precomputed series */}
       <div className="grid gap-4 md:grid-cols-2">
-        <PerformanceChart trades={trades} loading={loading} />
-        <MonthlyCalendar  trades={trades} loading={loading} />
+        <PerformanceChart trades={chartTrades} loading={false} />
+        <MonthlyCalendar trades={chartTrades} loading={false} />
       </div>
 
       {/* Costs, profit factor, direction & symbol insights */}
-      <TradingInsights trades={trades} />
+      <TradingInsights insights={metrics.insights} />
 
-      <OpenPositions trades={trades} />
+      <OpenPositions trades={metrics.openPositions} />
 
       {/* ── MT5 section ──────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-card p-5 space-y-4">
