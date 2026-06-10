@@ -156,7 +156,7 @@ export default function DashboardPage() {
       {/* Costs, profit factor, direction & symbol insights */}
       <TradingInsights trades={trades} />
 
-      <OpenPositions trades={trades} />
+      <OpenPositions trades={trades.filter((t) => t.status === "open")} />
 
       {/* ── MT5 section ──────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-card p-5 space-y-4">
