@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import fs from "fs/promises";
+import path from "path";
 
 const SYMBOL_MAP: Record<string, string> = {
   XAUUSD: "XAU/USD",
@@ -17,18 +19,180 @@ const SYMBOL_MAP: Record<string, string> = {
   BTCUSDT: "BTC/USDT:Binance",
 };
 
-/** Format a Date as "YYYY-MM-DD HH:mm:ss" in UTC for Twelve Data */
-function toUTCDateStr(d: Date): string {
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dy = String(d.getUTCDate()).padStart(2, "0");
-  const h = String(d.getUTCHours()).padStart(2, "0");
-  const mi = String(d.getUTCMinutes()).padStart(2, "0");
-  const s = String(d.getUTCSeconds()).padStart(2, "0");
-  return `${y}-${mo}-${dy} ${h}:${mi}:${s}`;
+function getMonthsInRange(from: Date, to: Date): Array<{ year: number; month: string }> {
+  const result: Array<{ year: number; month: string }> = [];
+  
+  let year = from.getUTCFullYear();
+  let month = from.getUTCMonth(); // 0-indexed
+  
+  const endYear = to.getUTCFullYear();
+  const endMonth = to.getUTCMonth();
+  
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    const monthStr = String(month + 1).padStart(2, "0");
+    result.push({ year, month: monthStr });
+    
+    month++;
+    if (month > 11) {
+      month = 0;
+      year++;
+    }
+  }
+  return result;
 }
 
+function matchKnownSymbol(symbol: string): string | null {
+  const clean = symbol.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const known = [
+    "audusd", "btcusdt", "dxy", "ethusd", "eurusd", 
+    "gbpusd", "nzdusd", "us100", "usdcad", "usdchf", 
+    "usdjpy", "usoil", "xagusd", "xauusd"
+  ];
+  if (known.includes(clean)) return clean;
+  for (const k of known) {
+    if (clean.startsWith(k)) return k;
+  }
+  for (const k of known) {
+    if (clean.includes(k)) return k;
+  }
+  return null;
+}
+
+const cleanSymbol = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
 export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const symbol = searchParams.get("symbol") ?? "";
+  const interval = searchParams.get("interval") ?? "15min";
+  const from = searchParams.get("from") ?? "";
+  const to = searchParams.get("to") ?? "";
+
+  if (!symbol || !from || !to) {
+    return NextResponse.json({ error: "Missing required params", candles: [] });
+  }
+
+  const INTERVAL_MIN: Record<string, number> = {
+    "1min": 1, "5min": 5, "15min": 15, "30min": 30,
+    "45min": 45, "1h": 60, "2h": 120, "4h": 240, "1day": 1440,
+  };
+  const ivMin = INTERVAL_MIN[interval] ?? 15;
+
+  const fromSec = Math.floor(new Date(from).getTime() / 1000);
+  const toSec = Math.floor(new Date(to).getTime() / 1000);
+
+  // Pad the "from" time to load sufficient historical candles for lookback/scroll back (e.g. 500 candles)
+  const lookbackMins = 500 * ivMin;
+  const paddedFromSec = fromSec - (lookbackMins * 60);
+  const paddedFromDate = new Date(paddedFromSec * 1000);
+
+  const matchedSymbol = matchKnownSymbol(symbol);
+  const symbolFolder = matchedSymbol ?? cleanSymbol(symbol);
+  const folderPath = path.join(process.cwd(), "public/data/candles", symbolFolder);
+
+  const months = getMonthsInRange(paddedFromDate, new Date(to));
+  const candles1m: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
+
+  for (const { year, month } of months) {
+    const fileName = `${symbolFolder}_${year}_${month}.csv`;
+    const filePath = path.join(folderPath, fileName);
+    try {
+      const fileContent = await fs.readFile(filePath, "utf-8");
+      const lines = fileContent.split(/\r?\n/);
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        const [timeStr, openStr, highStr, lowStr, closeStr, volStr] = line.split(",");
+        const time = parseInt(timeStr, 10);
+        if (isNaN(time)) continue;
+        
+        const open = parseFloat(openStr);
+        const high = parseFloat(highStr);
+        const low = parseFloat(lowStr);
+        const close = parseFloat(closeStr);
+        const volume = parseFloat(volStr || "0");
+
+        if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) continue;
+
+        if (time >= paddedFromSec && time <= toSec) {
+          candles1m.push({
+            time,
+            open,
+            high,
+            low,
+            close,
+            volume,
+          });
+        }
+      }
+    } catch {
+      // File not found or read error, ignore
+    }
+  }
+
+  if (candles1m.length === 0) {
+    return NextResponse.json({
+      error: "No local candle data found for the requested period.",
+      candles: [],
+    });
+  }
+
+  // Sort oldest-first for lightweight-charts
+  candles1m.sort((a, b) => a.time - b.time);
+
+  // Deduplicate 1m candles
+  const unique1m: typeof candles1m = [];
+  let lastTime = -1;
+  for (const c of candles1m) {
+    if (c.time !== lastTime) {
+      unique1m.push(c);
+      lastTime = c.time;
+    }
+  }
+
+  // Aggregate into requested interval if needed
+  let finalCandles = unique1m;
+  if (ivMin > 1) {
+    const aggregated: typeof unique1m = [];
+    const groupSec = ivMin * 60;
+    
+    let currentGroup: typeof unique1m[0] | null = null;
+    for (const c of unique1m) {
+      const groupTime = Math.floor(c.time / groupSec) * groupSec;
+      if (!currentGroup || currentGroup.time !== groupTime) {
+        if (currentGroup) {
+          aggregated.push(currentGroup);
+        }
+        currentGroup = {
+          time: groupTime,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume,
+        };
+      } else {
+        currentGroup.high = Math.max(currentGroup.high, c.high);
+        currentGroup.low = Math.min(currentGroup.low, c.low);
+        currentGroup.close = c.close;
+        currentGroup.volume += c.volume;
+      }
+    }
+    if (currentGroup) {
+      aggregated.push(currentGroup);
+    }
+    finalCandles = aggregated;
+  }
+
+  return NextResponse.json({ candles: finalCandles });
+}
+
+/* ── Twelve Data Implementation (Commented out as requested) ───────────────────
+export async function GET_TWELVEDATA(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -123,3 +287,4 @@ export async function GET(req: NextRequest) {
     });
   }
 }
+*/

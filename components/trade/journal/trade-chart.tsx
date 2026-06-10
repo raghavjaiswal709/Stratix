@@ -114,7 +114,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
       defaultInterval && TF_TO_INTERVAL[defaultInterval] ? TF_TO_INTERVAL[defaultInterval] : null
     );
     const [retryKey, setRetryKey] = useState(0);
-    const [loaded, setLoaded] = useState(false); // chart stays hidden until user requests it
+    const [loaded, setLoaded] = useState(true); // Chart loads automatically from local history
     const [loading, setLoading] = useState(false);
     const [noApiKey, setNoApiKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -162,7 +162,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         const ivMins = INTERVAL_MINS[interval];
         const CONTEXT = 80;
         // MT5 export times are broker-server time (commonly UTC+2/+3) but are
-        // stored as UTC. Twelve Data candles are true UTC, so the real entry/
+        // stored as UTC. Stored CSV candles are true UTC, so the real entry/
         // exit candles can sit a few hours away from the stated time. Pad the
         // fetch window by SEARCH_PAD so those candles are always included, then
         // we anchor the markers by price+time below.
@@ -551,7 +551,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
               <BarChart2 className="h-10 w-10 text-muted-foreground/30" />
               <p className="text-[13px] font-semibold text-muted-foreground">Chart not loaded</p>
               <p className="text-[11px] text-muted-foreground/60 max-w-xs text-center">
-                Click below to fetch candle data from Twelve Data.
+                Click below to fetch candle data from local history.
               </p>
               <button
                 onClick={() => { setLoaded(true); setLoading(true); }}
