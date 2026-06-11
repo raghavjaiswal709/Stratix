@@ -1,88 +1,105 @@
 // ─── smcEngine.ts ─────────────────────────────────────────────────────────────
-// "Top G Trader" — Price Action & Smart Money Concepts structure engine.
+// "Top G Trader" — Price Action & Smart Money Concepts engine.
 //
-// A single deterministic pass over a candle array that reproduces the strategy
-// described in the data-explorer spec:
+// RULES IMPLEMENTED (verbatim from strategy spec):
 //
-//   1. Structure via a strict TWO-candle retracement (one-candle on H4/D1).
-//   2. TJL structure lines that extend from impulse origin until mitigated.
-//   3. A+ demand / supply boxes restricted to the extreme 1 % of the body.
-//   4. Break of Structure (BOS)  — body close beyond the last TJL.
-//   5. Change of Character (ChoCh) — two consecutive bodies beyond the last
-//      opposing structural extreme → trend reset + high-priority Extreme A+.
-//   6. Dual-ChoCh — a freshly printed ChoCh extreme that is itself broken
-//      before its A+ is tapped → trend flips back, Extreme A+ prioritised.
-//   7. Fakeouts — wick sweeps a level, body fails to close beyond it.
-//   8. Internal Structure Shift (ISS / 5-wave) inside the last impulse leg.
-//   9. Fibonacci premium/discount (0.5–0.618) of the working leg.
-//  10. Session-filtered, engulfing-confirmed execution signals.
+//  1. Structure via strict TWO-candle retracement (one-candle on H4/D1).
+//     • Uptrend TJL1 (HH): 2nd red body closes BELOW 1st red body.
+//     • Downtrend TJL1 (LL): 2nd green body closes ABOVE 1st green WICK.
+//  2. TJL1 = trend-direction structural extreme (HH in uptrend, LL in downtrend).
+//     TJL2 = pullback structural extreme (HL in uptrend, LH in downtrend).
+//     Lines extend from the impulse start until the level is mitigated.
+//  3. A+ BOX — FULL WICK of the origin candle:
+//     • Bullish demand (bottom of impulse / HL): bottom = wick low,  top = body top.
+//     • Bearish supply  (top of impulse / LH):  top = wick high, bottom = body bottom.
+//  4. BOS: body close beyond the last TJL1 line.
+//  5. SBR (Support→Resistance): when BOS DOWN breaks a HL/LL support →
+//     that support candle's zone (wick-low to body-top) becomes resistance.
+//  6. RBS (Resistance→Support): when BOS UP breaks a HH/LH resistance →
+//     that resistance candle's zone (body-bottom to wick-high) becomes support.
+//  7. ChoCh: TWO consecutive candle bodies beyond the last opposing structural extreme.
+//     Structural reset → Extreme A+ at the absolute High/Low.
+//  8. Dual ChoCh: if a new ChoCh extreme is itself broken before its A+ is tapped →
+//     trend flips back; Extreme A+ priority promoted.
+//  9. Fakeout: wick sweeps a level, body fails to close beyond it → re-anchor reference.
+// 10. ISS / 5-wave: 5 alternating counter-trend swings inside the last impulse leg,
+//     5th wave confirmed by a valid two-candle retracement.
+// 11. Extreme A+ filter (50-pip rule): same-bias A+ levels within N pips → keep only
+//     the more extreme one.
+// 12. Double Top: two consecutive swing highs within tolerance pips → bearish reversal zone.
+//     Double Bottom: two consecutive swing lows within tolerance pips → bullish reversal zone.
+// 13. Fibonacci 0.5–0.618 premium/discount of the current working leg.
+// 14. Execution signals: engulfing-in-zone OR wick-flip, session-filtered (London/NY).
 //
-// Everything is expressed in (time, price) space so the chart overlay can map
-// it through lightweight-charts' timeToCoordinate / priceToCoordinate.
-//
-// The module is framework-free and side-effect-free: `computeSmc(candles, cfg)`
-// is a pure function — identical input always yields identical output.
+// The module is framework-free and side-effect-free — computeSmc() is pure.
 
 import type { Candle, Timeframe } from "./types";
 
-// ── Public result shapes ──────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export type SwingKind = "high" | "low";
-export type Trend     = "up" | "down" | "none";
+export type Trend     = "up"   | "down" | "none";
 export type Bias      = "bullish" | "bearish";
+export type BoxType   = "aplus" | "sbr" | "rbs" | "double_top" | "double_bottom";
 
 export interface Swing {
   kind:           SwingKind;
-  price:          number;  // the extreme (high for a swing-high, low for a swing-low)
-  time:           number;  // unix-seconds of the extreme candle
-  index:          number;  // candle index of the extreme
-  confirmedIndex: number;  // candle index where the retracement confirmed it
+  price:          number;          // extreme price (high for swing-high, low for swing-low)
+  time:           number;          // unix-seconds of extreme candle
+  index:          number;          // candle index of extreme
+  confirmedIndex: number;          // candle index where retracement confirmed it
   label:          "HH" | "HL" | "LH" | "LL" | "H" | "L";
-  fakeout:        boolean; // the extreme was set by a wick-sweep fakeout
+  fakeout:        boolean;
 }
 
 export interface StructureLine {
-  kind:      SwingKind;   // a high-line (resistance) or low-line (support)
-  price:     number;
-  startTime: number;      // impulse origin / extreme time
-  startIndex:number;
-  endTime:   number;      // mitigation time, or last candle if never mitigated
-  endIndex:  number;
-  mitigated: boolean;
-  broken:    boolean;     // a body closed through it (BOS happened on this line)
+  kind:       SwingKind;
+  tjlKind:    "TJL1" | "TJL2";    // TJL1 = trend-direction; TJL2 = pullback/entry level
+  price:      number;
+  startTime:  number;
+  startIndex: number;
+  endTime:    number;
+  endIndex:   number;
+  mitigated:  boolean;
+  broken:     boolean;
 }
 
 export interface APlusBox {
-  bias:     Bias;          // bullish = demand (buy), bearish = supply (sell)
-  top:      number;
-  bottom:   number;
-  time:     number;        // origin (anchor) time
-  index:    number;
-  endTime:  number;        // right edge — extends until mitigated / last candle
-  priority: "normal" | "extreme";
-  label:    string;        // "A+", "Extreme A+"
-  mitigated:boolean;
+  bias:       Bias;
+  boxType:    BoxType;
+  // Full wick zone boundaries
+  top:        number;             // wick extreme top
+  bottom:     number;             // wick extreme bottom
+  // Body reference (drawn as a line inside the zone)
+  bodyTop:    number;
+  bodyBottom: number;
+  time:       number;             // anchor (left edge) time
+  index:      number;             // anchor candle index
+  endTime:    number;             // right edge (extends until mitigated / chart edge)
+  priority:   "normal" | "extreme";
+  label:      string;
+  mitigated:  boolean;
 }
 
 export type EventKind =
-  | "BOS_UP" | "BOS_DOWN"
+  | "BOS_UP"   | "BOS_DOWN"
   | "CHOCH_UP" | "CHOCH_DOWN"
   | "DUAL_CHOCH_UP" | "DUAL_CHOCH_DOWN"
-  | "FAKEOUT_HIGH" | "FAKEOUT_LOW"
-  | "ISS_UP" | "ISS_DOWN";
+  | "FAKEOUT_HIGH"  | "FAKEOUT_LOW"
+  | "ISS_UP"   | "ISS_DOWN";
 
 export interface SmcEvent {
   kind:  EventKind;
   time:  number;
   index: number;
-  price: number;          // the level / price the event printed at
+  price: number;
   label: string;
 }
 
 export interface FibZone {
   bias:      Bias;
-  from:      number;      // leg origin price
-  to:        number;      // leg terminal price
+  from:      number;
+  to:        number;
   level50:   number;
   level618:  number;
   startTime: number;
@@ -93,11 +110,11 @@ export interface SmcSignal {
   direction: "buy" | "sell";
   time:      number;
   index:     number;
-  price:     number;       // the close that triggered (engulfing close)
+  price:     number;
   zoneTop:   number;
   zoneBottom:number;
-  session:   string;       // "London" | "New York" | "Asian" | "Off-session"
-  valid:     boolean;      // session-allowed AND engulfing-confirmed
+  session:   string;
+  valid:     boolean;
   reason:    string;
 }
 
@@ -111,22 +128,21 @@ export interface SmcResult {
   trend:   Trend;
 }
 
-// ── Configuration ─────────────────────────────────────────────────────────────
+// ── Config ────────────────────────────────────────────────────────────────────
 
 export interface SmcConfig {
-  pipSize:        number;   // one pip in price units (from getLotSpec)
-  oneCandleRetrace: boolean;// true on H4/D1 — a single opposing candle confirms
-  extremeFilterPips: number;// "50-pip rule": merge A+ levels closer than this
-  boxBodyPct:     number;   // "1 % rule": fraction of body used for the box (0.01)
-  sessions: {               // IST-based session windows (minutes from midnight)
+  pipSize:           number;
+  oneCandleRetrace:  boolean;   // H4/D1: single opposing candle confirms structure
+  extremeFilterPips: number;    // "50-pip rule": merge same-bias A+ within N pips
+  doublePatternPips: number;    // tolerance for double top/bottom detection
+  sessions: {
     asian:  { startMin: number; endMin: number };
     london: { startMin: number; endMin: number };
     ny:     { startMin: number; endMin: number };
   };
-  filterAsian:    boolean;  // when true, signals during the Asian session are invalid
+  filterAsian: boolean;
 }
 
-// Whether a timeframe is allowed the relaxed one-candle retracement.
 export function isHigherTimeframe(tf: Timeframe): boolean {
   return tf === "4H" || tf === "1D";
 }
@@ -136,8 +152,7 @@ export function defaultSmcConfig(pipSize: number, tf: Timeframe): SmcConfig {
     pipSize,
     oneCandleRetrace:  isHigherTimeframe(tf),
     extremeFilterPips: 50,
-    boxBodyPct:        0.01,
-    // Defaults mirror the chart's existing IST session windows.
+    doublePatternPips: 20,
     sessions: {
       asian:  { startMin:  5 * 60 + 30, endMin:  9 * 60 + 30 },
       london: { startMin: 11 * 60 + 30, endMin: 14 * 60 + 30 },
@@ -147,16 +162,15 @@ export function defaultSmcConfig(pipSize: number, tf: Timeframe): SmcConfig {
   };
 }
 
-// ── Small candle helpers ──────────────────────────────────────────────────────
+// ── Candle helpers ────────────────────────────────────────────────────────────
 
 const isBull = (c: Candle) => c.close > c.open;
 const isBear = (c: Candle) => c.close < c.open;
 const bodyTop = (c: Candle) => Math.max(c.open, c.close);
 const bodyBot = (c: Candle) => Math.min(c.open, c.close);
 
-// IST session name for a candle (chart uses IST / UTC+5:30).
 function sessionOf(time: number, cfg: SmcConfig): string {
-  const d = new Date((time + 19800) * 1000); // +5h30m
+  const d = new Date((time + 19800) * 1000); // IST = UTC+5:30
   const min = d.getUTCHours() * 60 + d.getUTCMinutes();
   const within = (w: { startMin: number; endMin: number }) =>
     w.startMin <= w.endMin
@@ -168,33 +182,25 @@ function sessionOf(time: number, cfg: SmcConfig): string {
   return "Off-session";
 }
 
-// ── Retracement detectors ─────────────────────────────────────────────────────
+// ── Retracement rules (verbatim from spec) ────────────────────────────────────
 //
-// Bearish (selling) retracement that confirms a swing HIGH:
-//   two consecutive red candles where the 2nd red BODY closes below the 1st red
-//   candle's body close. On H4/D1 a single red candle is enough.
-//
-// Bullish (buying) retracement that confirms a swing LOW:
-//   two consecutive green candles where the 2nd green BODY closes above the 1st
-//   green candle's WICK (high). On H4/D1 a single green candle is enough.
+//  Uptrend HH confirmed: 2nd red body CLOSES BELOW 1st red body close.
+//  Downtrend LL confirmed: 2nd green body CLOSES ABOVE 1st green WICK high.
 
 function bearRetrace(cs: Candle[], i: number, oneCandle: boolean): boolean {
   if (i < 1) return false;
-  const c = cs[i];
-  if (oneCandle) return isBear(c);
-  const p = cs[i - 1];
+  if (oneCandle) return isBear(cs[i]);
+  const p = cs[i - 1], c = cs[i];
   return isBear(p) && isBear(c) && c.close < p.close;
 }
 
 function bullRetrace(cs: Candle[], i: number, oneCandle: boolean): boolean {
   if (i < 1) return false;
-  const c = cs[i];
-  if (oneCandle) return isBull(c);
-  const p = cs[i - 1];
-  return isBull(p) && isBull(c) && c.close > p.high;
+  if (oneCandle) return isBull(cs[i]);
+  const p = cs[i - 1], c = cs[i];
+  return isBull(p) && isBull(c) && c.close > p.high; // close above WICK
 }
 
-// Argmax-high / argmin-low over an inclusive index window.
 function argMaxHigh(cs: Candle[], a: number, b: number): number {
   let idx = a;
   for (let i = a + 1; i <= b; i++) if (cs[i].high >= cs[idx].high) idx = i;
@@ -207,76 +213,63 @@ function argMinLow(cs: Candle[], a: number, b: number): number {
 }
 
 // ── Phase 1 — raw swing detection ─────────────────────────────────────────────
-//
-// Walk the series tracking the current leg's running extreme. When an opposing
-// two-candle retracement fires, the running extreme is locked in as a swing and
-// the leg direction flips. Fakeouts (wick beyond the prior swing, body inside)
-// re-anchor the relevant extreme instead of breaking structure.
 
-interface RawSwing { kind: SwingKind; index: number; confirmedIndex: number; fakeout: boolean }
+interface RawSwing { kind: SwingKind; index: number; confirmedIndex: number }
 
-function detectSwings(cs: Candle[], cfg: SmcConfig): RawSwing[] {
-  const swings: RawSwing[] = [];
-  if (cs.length < 3) return swings;
-
-  let legDir: Trend = "none";
-  let runHighIdx = 0;   // running max-high candidate for the next swing high
-  let runLowIdx  = 0;   // running min-low candidate for the next swing low
+function detectRawSwings(cs: Candle[], cfg: SmcConfig): RawSwing[] {
+  const out: RawSwing[] = [];
+  if (cs.length < 3) return out;
   const oc = cfg.oneCandleRetrace;
-
-  const pushSwing = (kind: SwingKind, index: number, confirmedIndex: number) => {
-    swings.push({ kind, index, confirmedIndex, fakeout: false });
-  };
+  let legDir: Trend = "none";
+  let runHighIdx = 0, runLowIdx = 0;
 
   for (let i = 1; i < cs.length; i++) {
-    // keep both running extremes current
     if (cs[i].high >= cs[runHighIdx].high) runHighIdx = i;
     if (cs[i].low  <= cs[runLowIdx].low)   runLowIdx  = i;
 
     if (legDir === "none") {
-      // Seed: whichever retracement fires first establishes the first swing.
       if (bearRetrace(cs, i, oc)) {
-        pushSwing("high", runHighIdx, i);
+        out.push({ kind: "high", index: runHighIdx, confirmedIndex: i });
         legDir = "down";
         runLowIdx = argMinLow(cs, runHighIdx, i);
       } else if (bullRetrace(cs, i, oc)) {
-        pushSwing("low", runLowIdx, i);
+        out.push({ kind: "low", index: runLowIdx, confirmedIndex: i });
         legDir = "up";
         runHighIdx = argMaxHigh(cs, runLowIdx, i);
       }
     } else if (legDir === "up") {
-      // climbing → looking to confirm a swing HIGH
       if (bearRetrace(cs, i, oc)) {
-        pushSwing("high", runHighIdx, i);
+        out.push({ kind: "high", index: runHighIdx, confirmedIndex: i });
         legDir = "down";
         runLowIdx = argMinLow(cs, runHighIdx, i);
       }
     } else {
-      // legDir === "down" → looking to confirm a swing LOW
       if (bullRetrace(cs, i, oc)) {
-        pushSwing("low", runLowIdx, i);
+        out.push({ kind: "low", index: runLowIdx, confirmedIndex: i });
         legDir = "up";
         runHighIdx = argMaxHigh(cs, runLowIdx, i);
       }
     }
   }
-  return swings;
+  return out;
 }
 
-// ── Phase 2 — structure, BOS, ChoCh, fakeouts, boxes ──────────────────────────
+// ── Main engine ───────────────────────────────────────────────────────────────
 
 export function computeSmc(candles: Candle[], cfg: SmcConfig): SmcResult {
-  const empty: SmcResult = {
+  const EMPTY: SmcResult = {
     swings: [], lines: [], boxes: [], events: [], fib: null, signals: [], trend: "none",
   };
-  if (!candles || candles.length < 5) return empty;
+  if (!candles || candles.length < 5) return EMPTY;
   const cs = candles;
+  const lastTime  = cs[cs.length - 1].time;
+  const lastIndex = cs.length - 1;
 
-  // 1. raw swings
-  const raw = detectSwings(cs, cfg);
-  if (raw.length === 0) return empty;
+  // ── 1. Raw swings ──────────────────────────────────────────────────────────
+  const raw = detectRawSwings(cs, cfg);
+  if (raw.length === 0) return EMPTY;
 
-  // 2. label swings as HH/HL/LH/LL relative to the prior same-kind swing.
+  // ── 2. Label HH / HL / LH / LL ───────────────────────────────────────────
   const swings: Swing[] = raw.map(r => ({
     kind: r.kind,
     price: r.kind === "high" ? cs[r.index].high : cs[r.index].low,
@@ -285,151 +278,179 @@ export function computeSmc(candles: Candle[], cfg: SmcConfig): SmcResult {
     confirmedIndex: r.confirmedIndex,
     label: r.kind === "high" ? "H" : "L",
     fakeout: false,
-  }));
+  } as Swing));
   {
-    let prevHigh: Swing | null = null;
-    let prevLow:  Swing | null = null;
+    let prevH: Swing | null = null, prevL: Swing | null = null;
     for (const s of swings) {
-      if (s.kind === "high") {
-        if (prevHigh) s.label = s.price > prevHigh.price ? "HH" : "LH";
-        prevHigh = s;
-      } else {
-        if (prevLow) s.label = s.price > prevLow.price ? "HL" : "LL";
-        prevLow = s;
-      }
+      if (s.kind === "high") { if (prevH) s.label = s.price >= prevH.price ? "HH" : "LH"; prevH = s; }
+      else                   { if (prevL) s.label = s.price >= prevL.price ? "HL" : "LL"; prevL = s; }
     }
   }
 
-  // 3. forward candle walk — consume swings, detect BOS / ChoCh / fakeout.
   const events: SmcEvent[] = [];
   const boxes:  APlusBox[] = [];
   const lines:  StructureLine[] = [];
 
-  // swings sorted by confirmation index (they already are)
-  let sp = 0;                          // pointer into swings
-  let curHigh: Swing | null = null;    // last confirmed swing high (resistance)
-  let curLow:  Swing | null = null;    // last confirmed swing low (support)
+  let sp = 0;                       // swing pointer
+  let curHigh: Swing | null = null;
+  let curLow:  Swing | null = null;
   let trend: Trend = "none";
-
-  // consecutive-close counters for ChoCh (need exactly two)
-  let belowLowStreak = 0;
+  let belowLowStreak  = 0;
   let aboveHighStreak = 0;
-
-  // line bookkeeping — index in `lines` of the still-active high/low line
   let activeHighLine = -1;
   let activeLowLine  = -1;
-
-  // pending ChoCh whose Extreme A+ box has not yet been tapped (for Dual-ChoCh)
   let pendingChoch: { dir: Trend; extreme: number; boxIdx: number } | null = null;
-
-  // absolute extremes of the working structure (for ChoCh reset anchor)
   let absHigh = { price: -Infinity, index: 0, time: cs[0].time };
   let absLow  = { price:  Infinity, index: 0, time: cs[0].time };
 
-  const pushBox = (bias: Bias, originIdx: number, priority: "normal" | "extreme"): number => {
+  // ── Box builder — FULL WICK zones ─────────────────────────────────────────
+  //  Bullish demand: bottom = wick low,  top = body top   (wick→body)
+  //  Bearish supply: top = wick high, bottom = body bottom (body→wick)
+  //  SBR (broken support → resistance): same shape as old demand zone at support candle
+  //  RBS (broken resistance → support): same shape as old supply zone at resistance candle
+  const pushBox = (
+    bias: Bias, originIdx: number,
+    priority: "normal" | "extreme",
+    boxType: BoxType = "aplus",
+    labelOverride?: string,
+  ): number => {
     const c = cs[originIdx];
-    // 1 % rule — restrict the box to the extreme 1 % of the candle body.
     const bt = bodyTop(c), bb = bodyBot(c);
-    const body = Math.max(bt - bb, cfg.pipSize); // guard against doji
-    const thick = Math.max(body * cfg.boxBodyPct, cfg.pipSize * 0.5);
     let top: number, bottom: number;
     if (bias === "bullish") {
-      // demand — anchored to the candle low (extreme of a down-origin)
-      bottom = c.low;
-      top    = c.low + thick;
+      bottom = c.low;   // full wick bottom
+      top    = bt;      // body top
     } else {
-      // supply — anchored to the candle high
-      top    = c.high;
-      bottom = c.high - thick;
+      top    = c.high;  // full wick top
+      bottom = bb;      // body bottom
     }
+    // Guard: minimum zone thickness of 2 pips
+    const minThick = cfg.pipSize * 2;
+    if (Math.abs(top - bottom) < minThick) {
+      if (bias === "bullish") top    = bottom + minThick;
+      else                    bottom = top    - minThick;
+    }
+    const label = labelOverride ?? (
+      boxType === "sbr"          ? "SBR"         :
+      boxType === "rbs"          ? "RBS"         :
+      boxType === "double_top"   ? "2T"          :
+      boxType === "double_bottom"? "2B"          :
+      priority === "extreme"     ? "Extreme A+"  : "A+"
+    );
     boxes.push({
-      bias, top, bottom, time: c.time, index: originIdx,
-      endTime: cs[cs.length - 1].time,
-      priority, mitigated: false,
-      label: priority === "extreme" ? "Extreme A+" : "A+",
+      bias, boxType, top, bottom, bodyTop: bt, bodyBottom: bb,
+      time: c.time, index: originIdx,
+      endTime: lastTime,
+      priority, label, mitigated: false,
     });
     return boxes.length - 1;
   };
 
-  const openLine = (s: Swing): number => {
+  // ── Line builder — TJL1 vs TJL2 ──────────────────────────────────────────
+  //  TJL1: trend-direction extreme  (HH in uptrend, LL in downtrend)
+  //  TJL2: pullback extreme         (HL in uptrend, LH in downtrend)
+  const openLine = (s: Swing, trendNow: Trend): number => {
+    let tjlKind: "TJL1" | "TJL2";
+    if      (trendNow === "up")   tjlKind = s.kind === "high" ? "TJL1" : "TJL2";
+    else if (trendNow === "down") tjlKind = s.kind === "low"  ? "TJL1" : "TJL2";
+    else    tjlKind = (s.label === "HH" || s.label === "LL") ? "TJL1" : "TJL2";
+
     lines.push({
-      kind: s.kind, price: s.price,
+      kind: s.kind, tjlKind,
+      price: s.price,
       startTime: s.time, startIndex: s.index,
-      endTime: cs[cs.length - 1].time, endIndex: cs.length - 1,
+      endTime: lastTime,  endIndex: lastIndex,
       mitigated: false, broken: false,
     });
     return lines.length - 1;
   };
 
+  // ── Forward pass ──────────────────────────────────────────────────────────
   for (let i = 0; i < cs.length; i++) {
     const c = cs[i];
-
-    // absolute extremes of the working structure
     if (c.high > absHigh.price) absHigh = { price: c.high, index: i, time: c.time };
     if (c.low  < absLow.price)  absLow  = { price: c.low,  index: i, time: c.time };
 
-    // promote any swings now confirmed (confirmedIndex <= i)
+    // Promote confirmed swings
     while (sp < swings.length && swings[sp].confirmedIndex <= i) {
       const s = swings[sp];
       if (s.kind === "high") {
         curHigh = s;
         if (activeHighLine >= 0 && !lines[activeHighLine].mitigated)
           { lines[activeHighLine].endIndex = i; lines[activeHighLine].endTime = c.time; }
-        activeHighLine = openLine(s);
+        activeHighLine = openLine(s, trend);
       } else {
         curLow = s;
         if (activeLowLine >= 0 && !lines[activeLowLine].mitigated)
           { lines[activeLowLine].endIndex = i; lines[activeLowLine].endTime = c.time; }
-        activeLowLine = openLine(s);
+        activeLowLine = openLine(s, trend);
       }
       sp++;
     }
 
-    // ── Mitigation of TJL lines (price trades back into the level) ──
-    if (activeHighLine >= 0 && !lines[activeHighLine].mitigated) {
-      const ln = lines[activeHighLine];
-      if (i > ln.startIndex && c.high >= ln.price) { ln.mitigated = true; ln.endIndex = i; ln.endTime = c.time; }
+    // Mitigation of active structure lines
+    if (activeHighLine >= 0 && !lines[activeHighLine].mitigated
+        && i > lines[activeHighLine].startIndex && c.high >= lines[activeHighLine].price) {
+      lines[activeHighLine].mitigated = true;
+      lines[activeHighLine].endTime   = c.time;
+      lines[activeHighLine].endIndex  = i;
     }
-    if (activeLowLine >= 0 && !lines[activeLowLine].mitigated) {
-      const ln = lines[activeLowLine];
-      if (i > ln.startIndex && c.low <= ln.price) { ln.mitigated = true; ln.endIndex = i; ln.endTime = c.time; }
+    if (activeLowLine >= 0 && !lines[activeLowLine].mitigated
+        && i > lines[activeLowLine].startIndex && c.low <= lines[activeLowLine].price) {
+      lines[activeLowLine].mitigated = true;
+      lines[activeLowLine].endTime   = c.time;
+      lines[activeLowLine].endIndex  = i;
     }
 
-    // ── Fakeout vs BOS on the high side ──
+    // ── BOS on the HIGH side ──────────────────────────────────────────────
     if (curHigh && i > curHigh.confirmedIndex) {
       if (c.close > curHigh.price) {
-        // body closed beyond → Break Of Structure up
+        // BOS UP — body closed above last structural high
         events.push({ kind: "BOS_UP", time: c.time, index: i, price: curHigh.price, label: "BOS" });
         if (activeHighLine >= 0) lines[activeHighLine].broken = true;
+
+        // A+ demand box at the BOTTOM of the impulse (HL = origin of the up-move)
+        if (curLow) pushBox("bullish", curLow.index, "normal", "aplus");
+
+        // RBS: the broken resistance candle's zone now acts as support
+        pushBox("bullish", curHigh.index, "normal", "rbs");
+
         if (trend !== "up") trend = "up";
-        // demand A+ at the origin of the impulse = the swing low that launched it
-        if (curLow) pushBox("bullish", curLow.index, "normal");
-        // a fresh up-break invalidates the working bearish absolute high anchor
         absHigh = { price: c.high, index: i, time: c.time };
-        // dual-choch check: broke the pending bearish-choch extreme
+
+        // Dual-ChoCh: broke the pending bearish-ChoCh extreme before its A+ was tapped
         if (pendingChoch && pendingChoch.dir === "down" && c.close > pendingChoch.extreme) {
           events.push({ kind: "DUAL_CHOCH_UP", time: c.time, index: i, price: pendingChoch.extreme, label: "Dual ChoCh" });
           if (pendingChoch.boxIdx >= 0) boxes[pendingChoch.boxIdx].priority = "extreme";
           pendingChoch = null;
         }
-        curHigh = null;              // consumed
+        curHigh = null;
         aboveHighStreak = 0;
+
       } else if (c.high > curHigh.price) {
-        // wick swept the level, body failed → Fakeout; re-anchor the reference
+        // Wick swept, body failed — Fakeout
         events.push({ kind: "FAKEOUT_HIGH", time: c.time, index: i, price: curHigh.price, label: "Fakeout" });
         curHigh = { ...curHigh, price: c.high, index: i, fakeout: true };
         if (activeHighLine >= 0) lines[activeHighLine].price = c.high;
       }
     }
 
-    // ── Fakeout vs BOS on the low side ──
+    // ── BOS on the LOW side ───────────────────────────────────────────────
     if (curLow && i > curLow.confirmedIndex) {
       if (c.close < curLow.price) {
+        // BOS DOWN — body closed below last structural low
         events.push({ kind: "BOS_DOWN", time: c.time, index: i, price: curLow.price, label: "BOS" });
         if (activeLowLine >= 0) lines[activeLowLine].broken = true;
+
+        // A+ supply box at the TOP of the impulse (LH = origin of the down-move)
+        if (curHigh) pushBox("bearish", curHigh.index, "normal", "aplus");
+
+        // SBR: the broken support candle's zone now acts as resistance
+        pushBox("bearish", curLow.index, "normal", "sbr");
+
         if (trend !== "down") trend = "down";
-        if (curHigh) pushBox("bearish", curHigh.index, "normal");
         absLow = { price: c.low, index: i, time: c.time };
+
         if (pendingChoch && pendingChoch.dir === "up" && c.close < pendingChoch.extreme) {
           events.push({ kind: "DUAL_CHOCH_DOWN", time: c.time, index: i, price: pendingChoch.extreme, label: "Dual ChoCh" });
           if (pendingChoch.boxIdx >= 0) boxes[pendingChoch.boxIdx].priority = "extreme";
@@ -437,23 +458,24 @@ export function computeSmc(candles: Candle[], cfg: SmcConfig): SmcResult {
         }
         curLow = null;
         belowLowStreak = 0;
+
       } else if (c.low < curLow.price) {
+        // Wick swept, body failed — Fakeout
         events.push({ kind: "FAKEOUT_LOW", time: c.time, index: i, price: curLow.price, label: "Fakeout" });
         curLow = { ...curLow, price: c.low, index: i, fakeout: true };
         if (activeLowLine >= 0) lines[activeLowLine].price = c.low;
       }
     }
 
-    // ── ChoCh — two consecutive bodies beyond the opposing structural extreme ──
+    // ── ChoCh — two consecutive BODY closes beyond the opposing structural extreme ──
     if (trend === "up" && curLow) {
-      // bearish ChoCh references the last Higher Low
       if (c.close < curLow.price) {
         belowLowStreak++;
         if (belowLowStreak >= 2) {
           events.push({ kind: "CHOCH_DOWN", time: c.time, index: i, price: curLow.price, label: "ChoCh" });
           trend = "down";
-          // structural reset → Extreme A+ at the absolute highest high
-          const boxIdx = pushBox("bearish", absHigh.index, "extreme");
+          // Reset: Extreme A+ at absolute highest high
+          const boxIdx = pushBox("bearish", absHigh.index, "extreme", "aplus");
           pendingChoch = { dir: "down", extreme: absHigh.price, boxIdx };
           absLow = { price: c.low, index: i, time: c.time };
           belowLowStreak = 0;
@@ -462,13 +484,13 @@ export function computeSmc(candles: Candle[], cfg: SmcConfig): SmcResult {
       } else belowLowStreak = 0;
     }
     if (trend === "down" && curHigh) {
-      // bullish ChoCh references the last Lower High
       if (c.close > curHigh.price) {
         aboveHighStreak++;
         if (aboveHighStreak >= 2) {
           events.push({ kind: "CHOCH_UP", time: c.time, index: i, price: curHigh.price, label: "ChoCh" });
           trend = "up";
-          const boxIdx = pushBox("bullish", absLow.index, "extreme");
+          // Reset: Extreme A+ at absolute lowest low
+          const boxIdx = pushBox("bullish", absLow.index, "extreme", "aplus");
           pendingChoch = { dir: "up", extreme: absLow.price, boxIdx };
           absHigh = { price: c.high, index: i, time: c.time };
           aboveHighStreak = 0;
@@ -477,83 +499,139 @@ export function computeSmc(candles: Candle[], cfg: SmcConfig): SmcResult {
       } else aboveHighStreak = 0;
     }
 
-    // ── A+ box mitigation (price taps the zone) ──
+    // ── Zone mitigation (price taps the box) ─────────────────────────────
     for (const b of boxes) {
-      if (b.mitigated) continue;
-      if (i <= b.index) continue;
+      if (b.mitigated || i <= b.index) continue;
       if (c.low <= b.top && c.high >= b.bottom) { b.mitigated = true; b.endTime = c.time; }
     }
-
-    // a pending ChoCh box that gets tapped is no longer "untapped" → no dual flip
-    if (pendingChoch && pendingChoch.boxIdx >= 0 && boxes[pendingChoch.boxIdx].mitigated) {
+    if (pendingChoch && pendingChoch.boxIdx >= 0 && boxes[pendingChoch.boxIdx]?.mitigated) {
       pendingChoch = null;
     }
   }
 
-  // 4. Extreme A+ filter — the "50-pip rule": when two boxes of the same bias
-  //    sit within `extremeFilterPips`, keep only the more extreme (further) one.
+  // ── Double Top / Bottom from confirmed swings ─────────────────────────────
+  detectDoublePatterns(cs, swings, boxes, cfg, lastTime);
+
+  // ── 50-pip extreme filter ─────────────────────────────────────────────────
   filterExtremeBoxes(boxes, cfg);
 
-  // 5. Internal Structure Shift (ISS / 5-wave) — heuristic detection inside the
-  //    last impulse leg, counter-trend, completed by a two-candle retracement.
-  detectISS(cs, swings, trend, events);
+  // ── ISS / 5-wave ──────────────────────────────────────────────────────────
+  detectISS(swings, trend, events);
 
-  // 6. Fibonacci of the current working leg (last opposing swing → latest swing)
+  // ── Fibonacci of the working leg ─────────────────────────────────────────
   const fib = buildFib(swings, trend);
 
-  // 7. Execution signals — engulfing inside an A+ box, session-filtered.
+  // ── Execution signals ─────────────────────────────────────────────────────
   const signals = buildSignals(cs, boxes, cfg);
 
   return { swings, lines, boxes, events, fib, signals, trend };
 }
 
+// ── Double Top / Bottom detection ─────────────────────────────────────────────
+//
+// Two consecutive same-kind swings within N pips with an opposing swing between
+// them (the neckline) qualify as a Double Top or Double Bottom pattern.
+
+function detectDoublePatterns(
+  cs: Candle[], swings: Swing[], boxes: APlusBox[],
+  cfg: SmcConfig, lastTime: number,
+): void {
+  const tol   = cfg.doublePatternPips * cfg.pipSize;
+  const highs = swings.filter(s => s.kind === "high");
+  const lows  = swings.filter(s => s.kind === "low");
+
+  // Double Top
+  for (let i = 1; i < highs.length; i++) {
+    const h1 = highs[i - 1], h2 = highs[i];
+    if (Math.abs(h1.price - h2.price) > tol) continue;
+    const hasLow = lows.some(l => l.index > h1.index && l.index < h2.index);
+    if (!hasLow) continue;
+    const topPrice = Math.max(h1.price, h2.price);
+    const c1 = cs[h1.index], c2 = cs[h2.index];
+    const botPrice = Math.min(bodyBot(c1), bodyBot(c2));
+    const minThick = cfg.pipSize * 4;
+    boxes.push({
+      bias: "bearish", boxType: "double_top",
+      top:    topPrice,
+      bottom: Math.max(botPrice, topPrice - Math.max(topPrice - botPrice, minThick)),
+      bodyTop: Math.max(bodyTop(c2), bodyTop(c1)),
+      bodyBottom: botPrice,
+      time: cs[h1.index].time, index: h1.index,
+      endTime: lastTime,
+      priority: "normal", label: "2T", mitigated: false,
+    });
+  }
+
+  // Double Bottom
+  for (let i = 1; i < lows.length; i++) {
+    const l1 = lows[i - 1], l2 = lows[i];
+    if (Math.abs(l1.price - l2.price) > tol) continue;
+    const hasHigh = highs.some(h => h.index > l1.index && h.index < l2.index);
+    if (!hasHigh) continue;
+    const botPrice = Math.min(l1.price, l2.price);
+    const c1 = cs[l1.index], c2 = cs[l2.index];
+    const topPrice = Math.max(bodyTop(c1), bodyTop(c2));
+    const minThick = cfg.pipSize * 4;
+    boxes.push({
+      bias: "bullish", boxType: "double_bottom",
+      bottom: botPrice,
+      top: Math.min(topPrice, botPrice + Math.max(topPrice - botPrice, minThick)),
+      bodyTop: topPrice,
+      bodyBottom: Math.min(bodyBot(c1), bodyBot(c2)),
+      time: cs[l1.index].time, index: l1.index,
+      endTime: lastTime,
+      priority: "normal", label: "2B", mitigated: false,
+    });
+  }
+}
+
 // ── Extreme A+ filter (50-pip rule) ───────────────────────────────────────────
+// Same-bias same-type boxes within N pips → keep only the more extreme one.
 
 function filterExtremeBoxes(boxes: APlusBox[], cfg: SmcConfig): void {
   const tol = cfg.extremeFilterPips * cfg.pipSize;
+  const dropped = new Set<number>();
+
   for (let a = 0; a < boxes.length; a++) {
+    if (dropped.has(a)) continue;
     const A = boxes[a];
-    if ((A as any)._dropped) continue;
     for (let b = a + 1; b < boxes.length; b++) {
+      if (dropped.has(b)) continue;
       const B = boxes[b];
-      if ((B as any)._dropped || B.bias !== A.bias) continue;
+      if (B.bias !== A.bias || B.boxType !== A.boxType) continue;
       const refA = A.bias === "bullish" ? A.bottom : A.top;
       const refB = B.bias === "bullish" ? B.bottom : B.top;
       if (Math.abs(refA - refB) <= tol) {
-        // keep the more extreme (lower demand / higher supply)
+        // Keep the more extreme: lower demand / higher supply
         const keepA = A.bias === "bullish" ? refA <= refB : refA >= refB;
-        const drop = keepA ? B : A;
-        (drop as any)._dropped = true;
+        dropped.add(keepA ? b : a);
       }
     }
   }
-  // strip dropped boxes in place
-  for (let i = boxes.length - 1; i >= 0; i--) if ((boxes[i] as any)._dropped) boxes.splice(i, 1);
+  for (let i = boxes.length - 1; i >= 0; i--) {
+    if (dropped.has(i)) boxes.splice(i, 1);
+  }
 }
 
-// ── Internal Structure Shift (5-wave) — heuristic ─────────────────────────────
-//
-// Within the final impulse leg, look for five consecutive alternating swings
-// that move against the external trend and whose 5th wave is closed by a valid
-// retracement (i.e. it is itself a confirmed swing). Marks a single ISS event.
+// ── ISS / 5-wave ──────────────────────────────────────────────────────────────
+// Five alternating counter-trend swings inside the last impulse leg.
+// 5th wave confirmed by a valid two-candle retracement (it IS itself a confirmed swing).
 
-function detectISS(cs: Candle[], swings: Swing[], trend: Trend, events: SmcEvent[]): void {
+function detectISS(swings: Swing[], trend: Trend, events: SmcEvent[]): void {
   if (trend === "none" || swings.length < 5) return;
   const last5 = swings.slice(-5);
-  // alternating kinds form a 5-wave (H-L-H-L-H or L-H-L-H-L)
-  let alternating = true;
-  for (let i = 1; i < last5.length; i++) if (last5[i].kind === last5[i - 1].kind) { alternating = false; break; }
-  if (!alternating) return;
-  // counter-trend internal shift: in an uptrend the 5-wave terminates on a high
-  // that is a Lower High (selling pressure building); inverse for downtrend.
+  for (let i = 1; i < last5.length; i++) {
+    if (last5[i].kind === last5[i - 1].kind) return; // not alternating
+  }
   const term = last5[4];
+  // Counter-trend: in uptrend expect the 5th wave to be a Lower High
   const counter =
     (trend === "up"   && term.kind === "high" && term.label === "LH") ||
     (trend === "down" && term.kind === "low"  && term.label === "HL");
   if (!counter) return;
   events.push({
-    kind:  trend === "up" ? "ISS_DOWN" : "ISS_UP",
-    time:  term.time, index: term.index, price: term.price,
+    kind: trend === "up" ? "ISS_DOWN" : "ISS_UP",
+    time: term.time, index: term.index, price: term.price,
     label: "ISS",
   });
 }
@@ -562,63 +640,59 @@ function detectISS(cs: Candle[], swings: Swing[], trend: Trend, events: SmcEvent
 
 function buildFib(swings: Swing[], trend: Trend): FibZone | null {
   if (swings.length < 2 || trend === "none") return null;
-  // last swing + last opposing swing define the leg
   const last = swings[swings.length - 1];
   let opp: Swing | null = null;
-  for (let i = swings.length - 2; i >= 0; i--) if (swings[i].kind !== last.kind) { opp = swings[i]; break; }
+  for (let i = swings.length - 2; i >= 0; i--) {
+    if (swings[i].kind !== last.kind) { opp = swings[i]; break; }
+  }
   if (!opp) return null;
-
   const bias: Bias = trend === "up" ? "bullish" : "bearish";
-  // bullish: discount from low(opp/last-low) → high; bearish: from high → low
-  let from: number, to: number, startTime: number, endTime: number;
   const lowS  = last.kind === "low"  ? last : opp;
   const highS = last.kind === "high" ? last : opp;
-  if (bias === "bullish") {
-    from = lowS.price; to = highS.price;
-    startTime = Math.min(lowS.time, highS.time);
-    endTime   = Math.max(lowS.time, highS.time);
-  } else {
-    from = highS.price; to = lowS.price;
-    startTime = Math.min(lowS.time, highS.time);
-    endTime   = Math.max(lowS.time, highS.time);
-  }
+  const from     = bias === "bullish" ? lowS.price  : highS.price;
+  const to       = bias === "bullish" ? highS.price : lowS.price;
   const level50  = from + (to - from) * 0.5;
   const level618 = from + (to - from) * 0.618;
-  return { bias, from, to, level50, level618, startTime, endTime };
+  return {
+    bias, from, to, level50, level618,
+    startTime: Math.min(lowS.time, highS.time),
+    endTime:   Math.max(lowS.time, highS.time),
+  };
 }
 
 // ── Execution signals ─────────────────────────────────────────────────────────
-//
-// When a candle taps an un-mitigated A+ box and prints an engulfing candle
-// (body closes beyond the previous candle's extreme) in the box's direction,
-// emit a signal. Session filtering marks Asian-session (or off-session) taps
-// invalid unless the user opts to include them.
+// First tap of each un-mitigated box that produces:
+//   (a) an engulfing candle (body closes beyond the previous candle's extreme), OR
+//   (b) a wick-flip (candle wicks into the zone from the correct direction)
+// Session filter: London/NY valid; Asian conditional.
 
 function buildSignals(cs: Candle[], boxes: APlusBox[], cfg: SmcConfig): SmcSignal[] {
   const signals: SmcSignal[] = [];
   for (const b of boxes) {
-    // find the first candle after the box origin that taps it
     for (let i = b.index + 1; i < cs.length; i++) {
       const c = cs[i];
-      const taps = c.low <= b.top && c.high >= b.bottom;
-      if (!taps) continue;
+      if (c.low > b.top || c.high < b.bottom) continue; // no tap
       const prev = cs[i - 1];
-      const dir = b.bias === "bullish" ? "buy" : "sell";
+      const dir  = b.bias === "bullish" ? "buy" : "sell";
       const engulf = dir === "buy"
         ? isBull(c) && c.close > prev.high
         : isBear(c) && c.close < prev.low;
-      const session = sessionOf(c.time, cfg);
-      const sessionOk = session === "London" || session === "New York" ||
-        (session === "Asian" && !cfg.filterAsian);
+      // Wick-flip: candle creates a liquidity sweep wick INTO the zone then closes away
+      const wickFlip = dir === "buy"
+        ? c.low <= b.top  && c.close > c.open  // lower wick dips in, closes bullish
+        : c.high >= b.bottom && c.close < c.open; // upper wick rises in, closes bearish
+      const session   = sessionOf(c.time, cfg);
+      const sessionOk = session === "London" || session === "New York"
+        || (session === "Asian" && !cfg.filterAsian);
       signals.push({
         direction: dir,
         time: c.time, index: i, price: c.close,
         zoneTop: b.top, zoneBottom: b.bottom,
         session,
-        valid: engulf && sessionOk,
-        reason: `${engulf ? "Engulfing" : "Tap"} ${b.label} · ${session}`,
+        valid: (engulf || wickFlip) && sessionOk,
+        reason: `${engulf ? "Engulf" : wickFlip ? "Wick-flip" : "Tap"} ${b.label} · ${session}`,
       });
-      break; // first tap rule — one signal per box
+      break; // first-tap rule — one signal per zone
     }
   }
   return signals;

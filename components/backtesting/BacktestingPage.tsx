@@ -849,6 +849,7 @@ export function BacktestingPage() {
             <BacktestChart
               symbol={activeSession.symbol}
               timeframe={activeTimeframe}
+              showSmc={false}
               settings={chartSettings}
               onSettingsChange={handleSettingsChange}
               candles={displayCandles}

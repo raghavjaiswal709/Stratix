@@ -56,6 +56,7 @@ interface Props {
   symbol?:             string;
   timeframe?:          string;
   lotSize?:            number;
+  showSmc?:            boolean;
   settings: {
     themeName:      string;
     upColor:        string;
@@ -112,7 +113,7 @@ export function BacktestChart({
   liveCandle, liveStatus, isInReplay, drawings, onDrawingsChange, settings, onSettingsChange,
   onBuy, onSell, onRRDrawingSelect,
   draftOrder, onDraftOrderChange, onConfirmDraft, onDiscardDraft, onFlipDraft,
-  symbol, timeframe, lotSize = 0.01,
+  symbol, timeframe, lotSize = 0.01, showSmc = true,
 }: Props) {
   const containerRef    = useRef<HTMLDivElement>(null);
   const chartRef        = useRef<IChartApi | null>(null);
@@ -258,19 +259,19 @@ export function BacktestChart({
   const [smcActive, setSmcActive]       = useState(false);
   const [smcPanelOpen, setSmcPanelOpen] = useState(false);
   const [smcCfg, setSmcCfg] = useState({
-    showLines:   true,   // TJL structure lines
-    showBoxes:   true,   // A+ demand / supply zones
-    showEvents:  true,   // BOS / ChoCh / Fakeout / ISS labels
-    showFib:     true,   // premium/discount fib of the working leg
-    showSignals: true,   // engulfing execution signals
-    showSwings:  true,   // HH / HL / LH / LL swing labels
+    showLines:         true,
+    showBoxes:         true,
+    showEvents:        true,
+    showFib:           true,
+    showSignals:       true,
+    showSwings:        true,
+    showMitigated:     false,   // hide tapped/broken levels by default
     extremeFilterPips: 50,
-    filterAsian: false,
+    doublePatternPips: 20,
+    maxZonesPerSide:   4,       // max active zones shown per bias
+    filterAsian:       false,
   });
 
-  // Recompute the whole SMC structure whenever candles / timeframe / config
-  // change. Pure & memoised — heavy work runs once per data change, not per
-  // pan/zoom (which only bumps redrawTrigger and re-maps coordinates).
   const smcResult: SmcResult | null = useMemo(() => {
     if (!smcActive || candles.length < 5) return null;
     const tf = (timeframe as Timeframe) || "1H";
@@ -278,11 +279,13 @@ export function BacktestChart({
     const cfg: SmcConfig = {
       ...defaultSmcConfig(pipSize, tf),
       extremeFilterPips: smcCfg.extremeFilterPips,
-      filterAsian: smcCfg.filterAsian,
-      oneCandleRetrace: isHigherTimeframe(tf),
+      doublePatternPips: smcCfg.doublePatternPips,
+      filterAsian:       smcCfg.filterAsian,
+      oneCandleRetrace:  isHigherTimeframe(tf),
     };
     try { return computeSmc(candles, cfg); } catch { return null; }
-  }, [smcActive, candles, timeframe, symbol, smcCfg.extremeFilterPips, smcCfg.filterAsian]);
+  }, [smcActive, candles, timeframe, symbol,
+      smcCfg.extremeFilterPips, smcCfg.doublePatternPips, smcCfg.filterAsian]);
 
   // ── Hover X position for the "select start" vertical guide line ──────────
   const [selectHoverX, setSelectHoverX] = useState<number | null>(null);
@@ -3117,7 +3120,7 @@ export function BacktestChart({
             })()}
 
             {/* ── SMC "Top G Trader" Indicator overlay ── */}
-            {smcActive && smcResult && (() => {
+            {showSmc && smcActive && smcResult && (() => {
               const chart = chartRef.current;
               const series = candleSeriesRef.current;
               if (!chart || !series || candles.length === 0) return null;
@@ -3126,59 +3129,51 @@ export function BacktestChart({
               const py = (p: number) => series.priceToCoordinate(p) as number | null;
               const rightEdge = svgW - 64;
 
-              const BULL = "#10b981";   // demand / buy  (emerald)
-              const BEAR = "#ef4444";   // supply / sell (red)
-              const NEUTRAL = "rgba(255,255,255,0.55)";
+              const BULL    = "#10b981";                   // emerald — demand / buy
+              const BEAR    = "#ef4444";                   // red — supply / sell
+              const SBR_COL = "#f59e0b";                   // amber — support→resistance
+              const RBS_COL = "#10b981";                   // emerald — resistance→support
+              const DT_COL  = "#ef4444";                   // red — double top
+              const DB_COL  = "#10b981";                   // emerald — double bottom
+              const NEUTRAL = "rgba(255,255,255,0.50)";
               const EXTREME = "#e5e7eb";
+
+              // Color and fill per box type
+              const boxStyle = (b: typeof smcResult.boxes[0]) => {
+                switch (b.boxType) {
+                  case "sbr":          return { col: SBR_COL, fillOp: 0.18, bdOp: 0.65, dash: undefined };
+                  case "rbs":          return { col: RBS_COL, fillOp: 0.13, bdOp: 0.55, dash: "6 3" as string | undefined };
+                  case "double_top":   return { col: DT_COL,  fillOp: 0.22, bdOp: 0.75, dash: undefined };
+                  case "double_bottom":return { col: DB_COL,  fillOp: 0.22, bdOp: 0.75, dash: undefined };
+                  default: // aplus
+                    return b.priority === "extreme"
+                      ? { col: EXTREME, fillOp: 0.28, bdOp: 0.90, dash: undefined }
+                      : { col: b.bias === "bullish" ? BULL : BEAR, fillOp: 0.18, bdOp: 0.60, dash: undefined };
+                }
+              };
 
               return (
                 <g clipPath="url(#drawing-chart-area)" pointerEvents="none">
 
-                  {/* ── A+ demand / supply zones ── */}
-                  {smcCfg.showBoxes && smcResult.boxes.map((b, i) => {
-                    const x1 = tx(b.time);
-                    let x2 = tx(b.endTime);
-                    const yt = py(b.top);
-                    const yb = py(b.bottom);
-                    if (x1 == null || yt == null || yb == null) return null;
-                    if (x2 == null || x2 < x1) x2 = rightEdge;
-                    const col = b.bias === "bullish" ? BULL : BEAR;
-                    const isExt = b.priority === "extreme";
-                    const top = Math.min(yt, yb);
-                    const h = Math.max(2, Math.abs(yb - yt));
-                    return (
-                      <g key={`box-${i}`} opacity={b.mitigated ? 0.4 : 1}>
-                        <rect x={x1} y={top} width={Math.max(2, x2 - x1)} height={h}
-                          fill={col} fillOpacity={isExt ? 0.30 : 0.16}
-                          stroke={isExt ? EXTREME : col} strokeOpacity={isExt ? 0.9 : 0.55}
-                          strokeWidth={isExt ? 1.2 : 0.8} strokeDasharray={b.mitigated ? "3 3" : undefined} />
-                        <text x={x1 + 3} y={top - 2} fill={isExt ? EXTREME : col}
-                          fontSize={8} fontWeight="bold" fontFamily="monospace">
-                          {b.label}{b.mitigated ? " ·tapped" : ""}
-                        </text>
-                      </g>
-                    );
-                  })}
-
-                  {/* ── Fibonacci premium/discount of the working leg ── */}
+                  {/* ── Fibonacci premium/discount (drawn first, behind zones) ── */}
                   {smcCfg.showFib && smcResult.fib && (() => {
                     const f = smcResult.fib;
                     const y50 = py(f.level50), y618 = py(f.level618);
-                    const x1 = tx(f.startTime);
                     if (y50 == null || y618 == null) return null;
+                    const x1 = tx(f.startTime);
                     const xL = x1 == null ? 0 : Math.max(0, x1);
-                    const top = Math.min(y50, y618), h = Math.abs(y618 - y50);
+                    const topY = Math.min(y50, y618), h = Math.abs(y618 - y50);
                     const col = f.bias === "bullish" ? BULL : BEAR;
                     return (
                       <g key="smc-fib">
-                        <rect x={xL} y={top} width={Math.max(2, rightEdge - xL)} height={Math.max(1, h)}
-                          fill={col} fillOpacity={0.10} />
-                        {[["0.5", y50], ["0.618", y618]].map(([lbl, y]) => (
-                          <g key={lbl as string}>
-                            <line x1={xL} y1={y as number} x2={rightEdge} y2={y as number}
-                              stroke={col} strokeOpacity={0.45} strokeWidth={0.8} strokeDasharray="4 3" />
-                            <text x={rightEdge - 2} y={(y as number) - 2} fill={col} fontSize={7}
-                              fontFamily="monospace" textAnchor="end" opacity={0.8}>
+                        <rect x={xL} y={topY} width={Math.max(2, rightEdge - xL)} height={Math.max(1, h)}
+                          fill={col} fillOpacity={0.08} />
+                        {([["0.5", y50], ["0.618", y618]] as [string, number][]).map(([lbl, yv]) => (
+                          <g key={lbl}>
+                            <line x1={xL} y1={yv} x2={rightEdge} y2={yv}
+                              stroke={col} strokeOpacity={0.40} strokeWidth={0.8} strokeDasharray="4 3" />
+                            <text x={rightEdge - 2} y={yv - 2} fill={col} fontSize={7}
+                              fontFamily="monospace" textAnchor="end" opacity={0.75}>
                               {lbl} {f.bias === "bullish" ? "discount" : "premium"}
                             </text>
                           </g>
@@ -3187,79 +3182,141 @@ export function BacktestChart({
                     );
                   })()}
 
-                  {/* ── TJL structure lines ── */}
-                  {smcCfg.showLines && smcResult.lines.map((ln, i) => {
-                    const x1 = tx(ln.startTime);
-                    let x2 = tx(ln.endTime);
-                    const y = py(ln.price);
-                    if (x1 == null || y == null) return null;
-                    if (x2 == null) x2 = ln.mitigated ? x1 + 20 : rightEdge;
-                    const col = ln.kind === "high" ? BEAR : BULL;
-                    return (
-                      <line key={`ln-${i}`} x1={x1} y1={y} x2={Math.max(x2, x1 + 1)} y2={y}
-                        stroke={col} strokeOpacity={ln.mitigated ? 0.30 : 0.7}
-                        strokeWidth={ln.broken ? 1.4 : 1}
-                        strokeDasharray={ln.mitigated ? "2 4" : ln.broken ? undefined : "6 3"} />
+                  {/* ── Zones: A+ / SBR / RBS / 2T / 2B ── */}
+                  {smcCfg.showBoxes && (() => {
+                    // Only active (unmitigated) zones unless showMitigated is on.
+                    // Cap to last N per bias so the chart stays clean.
+                    const N = smcCfg.maxZonesPerSide;
+                    const allBoxes = smcResult.boxes.filter(b =>
+                      smcCfg.showMitigated ? true : !b.mitigated
                     );
-                  })}
+                    // Keep the N most-recent per bias
+                    const bull = allBoxes.filter(b => b.bias === "bullish").slice(-N);
+                    const bear = allBoxes.filter(b => b.bias === "bearish").slice(-N);
+                    return [...bull, ...bear].map((b, i) => {
+                      const x1 = tx(b.time);
+                      let x2 = tx(b.endTime);
+                      const yt = py(b.top);
+                      const yb = py(b.bottom);
+                      if (x1 == null || yt == null || yb == null) return null;
+                      if (x2 == null || x2 < x1) x2 = rightEdge;
+                      const { col, fillOp, bdOp, dash } = boxStyle(b);
+                      const topY = Math.min(yt, yb);
+                      const h    = Math.max(3, Math.abs(yb - yt));
+                      const w    = Math.max(2, x2 - x1);
+                      const bodyRefPrice = b.bias === "bullish" ? b.bodyTop : b.bodyBottom;
+                      const bodyRefY     = py(bodyRefPrice);
+                      const bodyInZone   = bodyRefY != null
+                        && bodyRefY >= topY - 1 && bodyRefY <= topY + h + 1;
+                      return (
+                        <g key={`box-${i}`}>
+                          <rect x={x1} y={topY} width={w} height={h}
+                            fill={col} fillOpacity={fillOp}
+                            stroke={col} strokeOpacity={bdOp}
+                            strokeWidth={b.priority === "extreme" ? 1.2 : 0.9}
+                            strokeDasharray={dash} />
+                          {bodyInZone && (
+                            <line x1={x1} y1={bodyRefY!} x2={Math.min(x2, rightEdge)} y2={bodyRefY!}
+                              stroke={col} strokeOpacity={0.80} strokeWidth={1}
+                              strokeDasharray="3 2" />
+                          )}
+                          <text x={x1 + 3} y={topY - 2} fill={b.priority === "extreme" ? EXTREME : col}
+                            fontSize={8} fontWeight="bold" fontFamily="monospace">
+                            {b.label}
+                          </text>
+                        </g>
+                      );
+                    });
+                  })()}
 
-                  {/* ── Swing labels (HH / HL / LH / LL) ── */}
-                  {smcCfg.showSwings && smcResult.swings.map((s, i) => {
+                  {/* ── TJL1 (solid) / TJL2 (dashed) — open lines only, last 3 per side ── */}
+                  {smcCfg.showLines && (() => {
+                    const openLines = smcResult.lines.filter(ln =>
+                      smcCfg.showMitigated ? true : !ln.mitigated && !ln.broken
+                    );
+                    const highs = openLines.filter(ln => ln.kind === "high").slice(-3);
+                    const lows  = openLines.filter(ln => ln.kind === "low").slice(-3);
+                    return [...highs, ...lows].map((ln, i) => {
+                      const x1 = tx(ln.startTime);
+                      let x2 = tx(ln.endTime);
+                      const y = py(ln.price);
+                      if (x1 == null || y == null) return null;
+                      if (x2 == null) x2 = rightEdge;
+                      const col    = ln.kind === "high" ? BEAR : BULL;
+                      const isTJL1 = ln.tjlKind === "TJL1";
+                      return (
+                        <g key={`ln-${i}`}>
+                          <line x1={x1} y1={y} x2={Math.max(x2, x1 + 2)} y2={y}
+                            stroke={col} strokeOpacity={isTJL1 ? 0.85 : 0.50}
+                            strokeWidth={isTJL1 ? 1.1 : 0.8}
+                            strokeDasharray={isTJL1 ? undefined : "7 4"} />
+                          <text x={x1 + 2} y={y - 3} fill={col} fontSize={6.5}
+                            fontFamily="monospace" fontWeight="bold" opacity={0.60}>
+                            {ln.tjlKind}
+                          </text>
+                        </g>
+                      );
+                    });
+                  })()}
+
+                  {/* ── Swing labels: last 10 only ── */}
+                  {smcCfg.showSwings && smcResult.swings.slice(-10).map((s, i) => {
                     const x = tx(s.time), y = py(s.price);
                     if (x == null || y == null) return null;
                     const isHigh = s.kind === "high";
                     const col = s.fakeout ? NEUTRAL : isHigh ? BEAR : BULL;
                     return (
                       <g key={`sw-${i}`}>
-                        <circle cx={x} cy={y} r={1.6} fill={col} />
-                        <text x={x} y={isHigh ? y - 5 : y + 11} fill={col} fontSize={7.5}
-                          fontWeight="bold" fontFamily="monospace" textAnchor="middle" opacity={0.85}>
+                        <circle cx={x} cy={y} r={1.8} fill={col} opacity={s.fakeout ? 0.5 : 1} />
+                        <text x={x} y={isHigh ? y - 5 : y + 11} fill={col}
+                          fontSize={7.5} fontWeight="bold" fontFamily="monospace"
+                          textAnchor="middle" opacity={s.fakeout ? 0.55 : 0.90}>
                           {s.label}
                         </text>
                       </g>
                     );
                   })}
 
-                  {/* ── Structural events (BOS / ChoCh / Dual / Fakeout / ISS) ── */}
+                  {/* ── Events: BOS / ChoCh / Dual ChoCh / Fakeout / ISS ── */}
                   {smcCfg.showEvents && smcResult.events.map((ev, i) => {
                     const x = tx(ev.time), y = py(ev.price);
                     if (x == null || y == null) return null;
-                    const down = ev.kind.includes("DOWN") || ev.kind === "FAKEOUT_HIGH";
-                    const isChoch = ev.kind.includes("CHOCH");
-                    const isFake = ev.kind.includes("FAKEOUT");
-                    const col = isFake ? NEUTRAL : isChoch ? EXTREME : down ? BEAR : BULL;
-                    const w = ev.label.length * 5.4 + 8;
-                    const ly = down ? y + 8 : y - 16;
+                    const goDown   = ev.kind.includes("DOWN") || ev.kind === "FAKEOUT_HIGH";
+                    const isChoch  = ev.kind.includes("CHOCH");
+                    const isDual   = ev.kind.includes("DUAL");
+                    const isFake   = ev.kind.includes("FAKEOUT");
+                    const col      = isFake ? NEUTRAL : isDual ? SBR_COL : isChoch ? EXTREME
+                      : goDown ? BEAR : BULL;
+                    const lbl      = ev.label;
+                    const w        = lbl.length * 5.2 + 10;
+                    const ly       = goDown ? y + 9 : y - 18;
                     return (
                       <g key={`ev-${i}`}>
-                        <line x1={x} y1={y} x2={x} y2={down ? y + 8 : y - 8}
-                          stroke={col} strokeOpacity={0.5} strokeWidth={0.8} />
+                        <line x1={x} y1={y} x2={x} y2={goDown ? y + 9 : y - 9}
+                          stroke={col} strokeOpacity={0.45} strokeWidth={0.8} />
                         <rect x={x - w / 2} y={ly} width={w} height={10} rx={2}
-                          fill="#0a0a0a" stroke={col} strokeOpacity={0.7} strokeWidth={0.7} />
+                          fill="#060606" stroke={col} strokeOpacity={0.75} strokeWidth={0.8} />
                         <text x={x} y={ly + 7.5} fill={col} fontSize={7} fontWeight="bold"
                           fontFamily="monospace" textAnchor="middle">
-                          {ev.label}
+                          {lbl}
                         </text>
                       </g>
                     );
                   })}
 
-                  {/* ── Execution signals (engulfing, session-filtered) ── */}
+                  {/* ── Execution signals (engulf / wick-flip, session-filtered) ── */}
                   {smcCfg.showSignals && smcResult.signals.map((sig, i) => {
                     const x = tx(sig.time), y = py(sig.price);
                     if (x == null || y == null || !sig.valid) return null;
                     const buy = sig.direction === "buy";
                     const col = buy ? BULL : BEAR;
-                    const ay = buy ? y + 14 : y - 14;
-                    const tip = buy ? y + 4 : y - 4;
+                    const ay  = buy ? y + 15 : y - 15;
+                    const tip = buy ? y + 5  : y - 5;
                     return (
                       <g key={`sig-${i}`}>
-                        <polygon
-                          points={buy
-                            ? `${x},${tip} ${x - 5},${ay} ${x + 5},${ay}`
-                            : `${x},${tip} ${x - 5},${ay} ${x + 5},${ay}`}
-                          fill={col} stroke="#0a0a0a" strokeWidth={0.5} />
-                        <text x={x} y={buy ? ay + 8 : ay - 3} fill={col} fontSize={7}
+                        <polygon points={`${x},${tip} ${x - 5},${ay} ${x + 5},${ay}`}
+                          fill={col} stroke="#0a0a0a" strokeWidth={0.6} />
+                        <text x={x} y={buy ? ay + 9 : ay - 3} fill={col} fontSize={7}
                           fontWeight="bold" fontFamily="monospace" textAnchor="middle">
                           {buy ? "BUY" : "SELL"}
                         </text>
@@ -3992,20 +4049,22 @@ export function BacktestChart({
               <ChevronUp className={`w-3 h-3 transition-transform ${sessionsPanelOpen ? "rotate-180" : ""}`} />
             </button>
           </div>
-          <div className="w-px h-4 bg-white/[0.08]" />
-          {/* SMC "Top G Trader" Toggle UI */}
-          <div className="flex">
-            <button onClick={() => setSmcActive(p => !p)}
-              className={`px-2 py-1 rounded-l font-bold transition-all flex items-center gap-1 cursor-pointer border-y border-l ${smcActive ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
-              title="Toggle Top G Trader SMC structure">
-              <TrendingUp className="w-3 h-3" /><span>SMC</span>
-            </button>
-            <button onClick={() => { setSmcPanelOpen(p => !p); setSessionsPanelOpen(false); setIndicatorPanelOpen(false); }}
-              className={`px-1 py-1 rounded-r transition-all flex items-center justify-center cursor-pointer border ${smcPanelOpen ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
-              title="SMC Settings">
-              <ChevronUp className={`w-3 h-3 transition-transform ${smcPanelOpen ? "rotate-180" : ""}`} />
-            </button>
-          </div>
+          {showSmc && <>
+            <div className="w-px h-4 bg-white/[0.08]" />
+            {/* SMC "Top G Trader" Toggle UI */}
+            <div className="flex">
+              <button onClick={() => setSmcActive(p => !p)}
+                className={`px-2 py-1 rounded-l font-bold transition-all flex items-center gap-1 cursor-pointer border-y border-l ${smcActive ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+                title="Toggle Top G Trader SMC structure">
+                <TrendingUp className="w-3 h-3" /><span>SMC</span>
+              </button>
+              <button onClick={() => { setSmcPanelOpen(p => !p); setSessionsPanelOpen(false); setIndicatorPanelOpen(false); }}
+                className={`px-1 py-1 rounded-r transition-all flex items-center justify-center cursor-pointer border ${smcPanelOpen ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+                title="SMC Settings">
+                <ChevronUp className={`w-3 h-3 transition-transform ${smcPanelOpen ? "rotate-180" : ""}`} />
+              </button>
+            </div>
+          </>}
           <div className="w-px h-4 bg-white/[0.08]" />
           <button
             onClick={() => onSettingsChange({ isYAxisLocked: !settings.isYAxisLocked })}
@@ -4089,7 +4148,7 @@ export function BacktestChart({
         )}
 
         {/* ── SMC "Top G Trader" Panel ── */}
-        {smcPanelOpen && (
+        {showSmc && smcPanelOpen && (
           <div className="absolute bottom-8 right-3 z-40 bg-black/92 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl w-72 font-mono pointer-events-auto select-none overflow-hidden"
             onMouseDown={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
@@ -4107,12 +4166,13 @@ export function BacktestChart({
                 </div>
               )}
               {([
-                ["showLines",   "TJL structure lines"],
-                ["showBoxes",   "A+ demand / supply zones"],
-                ["showEvents",  "BOS · ChoCh · Fakeout · ISS"],
-                ["showSwings",  "Swing labels (HH/HL/LH/LL)"],
-                ["showFib",     "Fib premium / discount"],
-                ["showSignals", "Engulfing execution signals"],
+                ["showLines",      "TJL structure lines"],
+                ["showBoxes",      "A+ / SBR / RBS / 2T / 2B zones"],
+                ["showEvents",     "BOS · ChoCh · Fakeout · ISS"],
+                ["showSwings",     "Swing labels (HH/HL/LH/LL)"],
+                ["showFib",        "Fib premium / discount"],
+                ["showSignals",    "Engulfing execution signals"],
+                ["showMitigated",  "Show tapped / broken levels"],
               ] as [keyof typeof smcCfg, string][]).map(([key, label]) => (
                 <div key={key} className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
                   <span className="text-[10px] font-bold text-white/70">{label}</span>
@@ -4124,12 +4184,31 @@ export function BacktestChart({
                   </label>
                 </div>
               ))}
-              {/* Extreme A+ filter (pips) */}
+              {/* Zones per side cap */}
               <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
-                <span className="text-[10px] font-bold text-white/70">Extreme A+ filter</span>
+                <span className="text-[10px] font-bold text-white/70">Max zones per side</span>
+                <div className="flex items-center gap-1">
+                  <input type="number" min={1} max={20} value={smcCfg.maxZonesPerSide}
+                    onChange={e => setSmcCfg(prev => ({ ...prev, maxZonesPerSide: Math.max(1, +e.target.value) }))}
+                    className="w-14 bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]" />
+                </div>
+              </div>
+              {/* A+ merge filter */}
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                <span className="text-[10px] font-bold text-white/70">A+ merge threshold</span>
                 <div className="flex items-center gap-1">
                   <input type="number" min={0} max={500} value={smcCfg.extremeFilterPips}
                     onChange={e => setSmcCfg(prev => ({ ...prev, extremeFilterPips: +e.target.value }))}
+                    className="w-14 bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]" />
+                  <span className="text-[8px] text-white/30 uppercase">pips</span>
+                </div>
+              </div>
+              {/* Double-pattern tolerance */}
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                <span className="text-[10px] font-bold text-white/70">2T / 2B tolerance</span>
+                <div className="flex items-center gap-1">
+                  <input type="number" min={1} max={200} value={smcCfg.doublePatternPips}
+                    onChange={e => setSmcCfg(prev => ({ ...prev, doublePatternPips: +e.target.value }))}
                     className="w-14 bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]" />
                   <span className="text-[8px] text-white/30 uppercase">pips</span>
                 </div>
@@ -4148,7 +4227,11 @@ export function BacktestChart({
                 <div className="text-[9px] text-white/40 bg-white/[0.03] border border-white/[0.06] rounded-lg px-2.5 py-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
                   <span>Trend <b className={smcResult.trend === "up" ? "text-emerald-400" : smcResult.trend === "down" ? "text-red-400" : "text-white/50"}>{smcResult.trend.toUpperCase()}</b></span>
                   <span>Swings <b className="text-white/70">{smcResult.swings.length}</b></span>
-                  <span>Zones <b className="text-white/70">{smcResult.boxes.length}</b></span>
+                  <span>A+ <b className="text-white/70">{smcResult.boxes.filter(b => b.boxType === "aplus").length}</b></span>
+                  <span>SBR <b className="text-amber-400">{smcResult.boxes.filter(b => b.boxType === "sbr").length}</b></span>
+                  <span>RBS <b className="text-emerald-400">{smcResult.boxes.filter(b => b.boxType === "rbs").length}</b></span>
+                  <span>2T <b className="text-red-400">{smcResult.boxes.filter(b => b.boxType === "double_top").length}</b></span>
+                  <span>2B <b className="text-emerald-400">{smcResult.boxes.filter(b => b.boxType === "double_bottom").length}</b></span>
                   <span>Signals <b className="text-white/70">{smcResult.signals.filter(s => s.valid).length}</b></span>
                 </div>
               )}
