@@ -2,6 +2,7 @@
 
 import { signIn } from "next-auth/react";
 import { useState } from "react";
+import { HftBackground } from "@/components/shared/hft-background";
 
 export default function SignInPage() {
   const [loading, setLoading] = useState(false);
@@ -13,18 +14,17 @@ export default function SignInPage() {
 
   return (
     <div className="relative min-h-screen flex items-center justify-center bg-background p-4 overflow-hidden">
+      <HftBackground />
       <div className="relative z-10 w-full max-w-[370px] animate-scale-in">
         <div className="glass-liquid rounded-2xl p-9">
           {/* Brand mark */}
           <div className="flex flex-col items-center gap-4 mb-8">
-            <div className="flex h-12 w-12 items-center justify-center rounded-[14px] bg-white/[0.06] border border-white/[0.10]"
-              style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 24px rgba(0,0,0,0.4)" }}
-            >
-              <svg width="22" height="22" viewBox="0 0 16 16" fill="none" className="text-white/75">
-                <path d="M2 11.5L5.5 7L9 9L14 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M2 13.5H14" stroke="currentColor" strokeWidth="0.75" strokeLinecap="round" strokeOpacity="0.35"/>
-              </svg>
-            </div>
+            <img
+              src="/favicon.svg"
+              alt="Stratix Logo"
+              className="h-16 w-16 select-none"
+              style={{ filter: "drop-shadow(0 4px 16px rgba(16, 185, 129, 0.25))" }}
+            />
             <div className="text-center space-y-1">
               <h1 className="text-[22px] font-semibold tracking-tight text-white/90">Stratix</h1>
               <p className="text-[13px] leading-relaxed text-white/40">

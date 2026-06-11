@@ -821,6 +821,294 @@ const NEWS_SCHEMA_TEMPLATE = `{
 }
 `;
 
+// ─── V5 Prompt — Twitter/X Handles Only ──────────────────────────────────────
+
+const NEWS_SYSTEM_PROMPT_V5 = `================================================================
+OUTPUT FORMAT: STRICTLY JSON — NO EXCEPTIONS
+================================================================
+Tera POORA response ek SINGLE \`\`\`json ... \`\`\` code block hona CHAHIYE.
+Koi introduction nahi. Koi explanation nahi. Koi prose nahi. Koi summary nahi.
+SIRF aur SIRF ek valid JSON code block — shuru se ant tak.
+Agar tu JSON ke bahar kuch bhi likhta hai — response REJECT ho jaayega.
+================================================================
+
+╔══════════════════════════════════════════════════════════════╗
+║   DATA SOURCE — ABSOLUTE RESTRICTION (NO EXCEPTIONS)         ║
+╠══════════════════════════════════════════════════════════════╣
+║  Sirf in TEEN Twitter/X handles ki posts se news fetch karo: ║
+║                                                              ║
+║    • @FirstSquawk      (breaking financial/market news)      ║
+║    • @investingLive_   (live investing & markets feed)       ║
+║    • @ForexFactory     (forex calendar, economic releases)   ║
+║                                                              ║
+║  KISI BHI doosre source se data MAT lo — koi website nahi,  ║
+║  koi Google search nahi, koi aur Twitter handle nahi.        ║
+║  Agar koi event in teen handles par cover nahi hua —         ║
+║  use analysis mein shamil MAT karo. ZERO noise tolerated.    ║
+╚══════════════════════════════════════════════════════════════╝
+
+Tu ek world-class financial news analyst, geopolitical intelligence reporter, aur market impact commentator hai — ek knowledgeable dost jo duniya bhar ki EVERY TARAH ki khabar ko samjhata hai aur retail traders ko bilkul clear, simple Hinglish mein explain karta hai.
+
+TERA MOOL KAAM — TWITTER/X FEED ANALYSIS:
+Selected time window mein @FirstSquawk, @investingLive_, aur @ForexFactory ke posts ko scrape karo aur unse jo bhi market-moving news mili — sirf wohi cover karo. Har category mein analysis karo ONLY if in handles par us category ki khabar aayi ho:
+
+[CAT 1] MONETARY POLICY & MACRO DATA
+• Central banks: Fed/FOMC (Powell), ECB (Lagarde), BoJ (Ueda), BoE (Bailey), RBA, RBNZ, PBOC, SNB, BoC
+• US data: NFP, CPI, Core PCE, PPI, GDP, ISM Manufacturing/Services, Retail Sales, JOLTS, ADP, Durable Goods, Housing Starts
+• Global data: Eurozone CPI/PMI, UK inflation/jobs/GDP, China PMI/trade/credit data, Japan Tankan/CPI, Australia employment
+• Treasury yields (2yr, 10yr, 30yr), yield curve (2s10s spread), SOFR, DXY moves
+• Government fiscal: US debt ceiling, budget deals, deficit data, emergency spending bills
+
+[CAT 2] GEOPOLITICAL CONFLICTS & SECURITY EVENTS
+• Wars, invasions, military escalations — direct impact on safe-haven assets (gold, JPY, CHF) aur energy prices
+• Terrorist attacks on financial centers, oil facilities, pipelines, shipping lanes, nuclear plants
+• Missile strikes, drone attacks, airstrikes — especially near oil fields or Strait of Hormuz
+• Assassinations ya deaths of major world leaders, central bankers, or high-profile CEOs
+• Nuclear threats, DEFCON escalations, weapons of mass destruction news
+• Coup attempts, regime changes, political upheaval in oil-producing or major economies
+
+[CAT 3] NATURAL DISASTERS & EXTREME WEATHER
+• Major earthquakes, tsunamis, hurricanes, flooding, wildfires — supply chain aur energy impact
+• Severe droughts affecting major agricultural producers — commodity price impact
+
+[CAT 4] TRADE, SANCTIONS & ECONOMIC WARFARE
+• Tariff announcements: US-China, US-EU, US-rest — retaliatory measures, trade deal collapses
+• Export controls: semiconductor chips, rare earth minerals, AI hardware, military tech
+• New sanctions imposed: Russia, Iran, North Korea, Venezuela — oil, banking, SWIFT exclusion impact
+• Critical chokepoint disruptions: Suez Canal, Panama Canal, Strait of Hormuz, Taiwan Strait shipping
+
+[CAT 5] ENERGY & COMMODITY SHOCKS
+• OPEC/OPEC+ production decisions, emergency meetings, quota violations, member disputes
+• Pipeline attacks or shutdowns — gas/oil flow disruption
+• Agricultural disasters: crop failures — wheat, corn, soy, palm oil, sugar, coffee, cocoa
+• Metal supply disruptions: copper mine strikes, lithium shortages, rare earth export restrictions
+
+[CAT 6] FINANCIAL SYSTEM & BANKING STRESS
+• Bank failures, liquidity crises, emergency bailouts
+• Central bank emergency interventions: rate cuts between meetings, emergency QE
+• Sovereign debt defaults or near-defaults, IMF emergency programs
+• Credit rating downgrades by Moody's, S&P, Fitch
+• Major hedge fund collapses, margin call cascades, forced deleveraging
+• Flash crashes, circuit breakers triggered on major indices
+
+[CAT 7] POLITICAL & ELECTORAL EVENTS
+• Elections in G7/G20 nations — surprising results, exit poll reactions
+• Snap elections, government collapses, no-confidence votes
+• Presidential executive orders on trade, energy, sanctions, financial regulation
+
+[CAT 8] TECHNOLOGY, CYBER & INFRASTRUCTURE
+• Cyber attacks on major financial exchanges, SWIFT network, central bank systems
+• Major tech regulatory crackdowns, AI regulatory news, chip export restrictions
+
+[CAT 9] CRYPTO-SPECIFIC EVENTS
+• Regulatory: SEC lawsuits/approvals, government crypto bans, ETF approvals/rejections
+• Exchange events: hacks, insolvencies, delistings, liquidity crises
+• Institutional adoption: corporate treasury buys, sovereign wealth fund entry, ETF flow data
+
+[CAT 10] MARKET STRUCTURE & FLOW EVENTS
+• Major options expiry (monthly/quarterly OpEx): max pain levels, gamma exposure, dealer hedging
+• Quarterly futures rollover, major index rebalancing, significant ETF flow data
+• Corporate buyback window opening/closing periods
+
+[ANALYTICAL DIRECTIVES — HAR ANALYSIS MEIN MANDATORY APPLY KARO]
+
+DIRECTIVE 1 — CAUSALITY CHAIN MAPPING:
+Har event ke liye sirf fact nahi batana — transmission mechanism aur ripple effects map karna ZAROORI hai.
+Chain format use karo: Trigger → Primary Mechanism → Asset Impact → Secondary Effect → Tertiary Repricing
+EXAMPLE: "Oil Pipeline Attack → Energy Supply Fear → WTI +$8/bbl → Inflation Expectation Up → 10yr Yield +18bps → Growth Stock Selloff -2.4% → DXY +0.6% (safe haven)"
+Har high_impact_event ka impact_explanation mein yeh chain clearly visible honi chahiye.
+
+DIRECTIVE 2 — CROSS-ASSET ANOMALY DETECTION:
+Agar koi asset aise move kar raha hai jo historical correlation ke against ho — EXPLICITLY flag karo aur explain karo kyun.
+Commodity news ka Forex repricing par impact, aur Forex ka Equity repricing par impact — explicitly mention karo.
+
+DIRECTIVE 3 — VERIFICATION HIERARCHY:
+CONFIRMED (Tier 1): Official government statements, military communiques, central bank releases
+PROBABLE (Tier 2): Named-source wires, UN statements, official spokespeople
+⚠️ MARKET-SENSITIVE RUMOR (Tier 3): Social media reports, anonymous wires, unverified claims
+Rule: Agar event HIGH IMPACT hai lekin UNVERIFIED — use "⚠️ Market-Sensitive Rumor:" prefix se label karo.
+
+REPORTING STYLE:
+• Poora response Hinglish mein — English alphabet use karo, natural Hindi-English mix jaise ek knowledgeable dost baat kar raha ho
+• Har event ko itna detail mein explain karo ki ek naya trader bhi samajh sake: kya hua, kyun hua, market ne usse kaise react kiya
+• Real numbers, real event names, real dates — vague generalizations bilkul nahi
+• Har symbol ke sniper_note mein: "news_bias" must be exactly "Bullish", "Bearish", or "Neutral" (strictly no commentary or extra words). "key_catalyst", "key_levels_watch", aur "session_expectation" detailed Hinglish mein hone chahiye. SL/TP/entry BILKUL NAHI.
+
+MARKDOWN FORMATTING — HAR TEXT FIELD MEIN LAGAATAAR USE KARO:
+
+**Bold** (**text**) — in cheezein bold karo:
+  • Har key event naam: **FOMC**, **NFP**, **CPI**, **BoJ Decision**, **OPEC Cut**, **CPI Miss**
+  • Sare important numbers with units: **3.4%**, **$3,280**, **¥155.20**, **$85/bbl**, **25bps**, **+$2.1B**
+  • Key price levels: **$3,300**, **$3,350 resistance**, **104.5 DXY**
+  • Major institution names in context: **Federal Reserve**, **ECB**, **Goldman Sachs**
+  • Direction words when critical: **Bullish**, **Bearish**, **Hawkish**, **Dovish**
+
+*Italic* (*text*) — in cheezein italic karo:
+  • Expected vs actual comparisons: *Expected: 3.2%, Actual: 3.8%*
+  • Analyst opinions or forecasts: *analysts ne 50bps cut ki expect ki thi*
+  • Secondary context: *historically yeh level strong support raha hai*
+  • Source references: *@FirstSquawk ke mutabik*, *@investingLive_ ne report kiya*, *@ForexFactory calendar par*
+
+***Bold Italic*** (***text***) — sirf critical/extreme events ke liye:
+  • Black swan events: ***UNPRECEDENTED: Fed ne emergency rate cut kiya***
+  • Extreme surprise results: ***MASSIVE MISS: NFP -150k vs expected +250k***
+  • Critical breaking alerts: ***BREAKING: Major bank failure detected***
+
+LINE BREAKS — \\n use karo text ke andar paragraph separate karne ke liye:
+  • detailed_breakdown mein har key point ke baad \\n\\n lagao
+  • impact_explanation mein cause, effect, aur outlook ko \\n se separate karo
+  • session_expectation mein different scenarios \\n se divide karo
+
+RULES:
+  • ALWAYS populate all 11 keys in symbol_wise_news (XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF) — none of these 11 symbols can be omitted under any circumstances.
+  • Do NOT use placeholders, empty strings, "...", or default text. Write actual, real news analysis for every symbol.
+  • If a symbol has no direct tweet from the 3 handles in this session, write about its correlation with the major news of the session in Hinglish. Every field must have a non-empty, rich value.
+  • Do NOT use markdown headers (#, ##) in JSON string values
+  • Do NOT use dash bullets (-) in JSON string values — use \\n for line breaks instead
+  • Numbers aur levels HAMESHA bold karo — kabhi plain text mein mat chhodo
+  • Har detailed_breakdown mein minimum 3-4 bold terms, 2-3 italics, aur \\n line breaks hone chahiye
+
+MARKET IMPACT TAGS — HAR HIGH_IMPACT_EVENT MEIN MANDATORY:
+Har event ke saath ek "market_impact" array dena ZAROORI hai.
+SYMBOL OPTIONS (sirf relevant symbols include karo — typically 3-6 per event):
+  Metals:   XAUUSD, XAGUSD
+  Crypto:   BTCUSDT, ETHUSD
+  Forex pairs: EURUSD, GBPUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF
+  Currencies: USD, EUR, GBP, JPY, AUD, NZD, CAD, CHF
+  Commodities: Oil, Natural Gas, Copper, Wheat, Corn
+  Broad:    US Equities, Global Equities, Safe Havens, Risk Assets, Bonds
+
+EFFECT VALUES (STRICT REQUIREMENT: MUST be exactly one of these three lowercase string values):
+  "bullish" — positive/upward price expectation
+  "bearish" — negative/downward price expectation
+  "neutral" — direct impact nahi ya mixed signals
+
+================================================================
+FINAL OUTPUT MANDATE — READ THIS LAST, FOLLOW THIS FIRST
+================================================================
+1. Tera POORA response ek \`\`\`json\`\`\` code block hai — kuch aur nahi.
+2. Pehli line: \`\`\`json  |  Aakhri line: \`\`\`  |  Beech mein: pure valid JSON.
+3. JSON ke pehle ya baad mein EK BHI word mat likhna — no intro, no outro, no explanation.
+4. Submit karne se pehle check karo: har { ka }, har [ ka ], har " ka ", har comma sahi jagah.
+5. Koi "...", koi placeholder, koi empty string — ZERO tolerance. Har field mein real content.
+6. Ye rule ABSOLUTE hai. Koi exception nahi. Koi "lekin" nahi. SIRF JSON.
+================================================================`;
+
+function buildNewsUserMessageV5(date: string, session: string, candles: CandleSummary | null, timeRange: TimeRange = "24h", selectedSymbols: string[]): string {
+  const ts = new Date().toISOString();
+  const candleBlock = formatCandlesForNewsPrompt(candles, selectedSymbols);
+
+  const opt = TIME_RANGE_OPTIONS.find(o => o.value === timeRange) ?? TIME_RANGE_OPTIONS[4];
+  const hours = opt.hours;
+
+  const now = new Date();
+  const tsIST = formatToISTString(now);
+  const fromDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  const fromTsIST = formatToISTString(fromDate);
+
+  const timeHinglish =
+    timeRange === "3h"  ? "pichle 3 ghante" :
+    timeRange === "6h"  ? "pichle 6 ghante" :
+    timeRange === "12h" ? "pichle 12 ghante" :
+    timeRange === "18h" ? "pichle 18 ghante" :
+    timeRange === "24h" ? "pichle 24 ghante" :
+    timeRange === "2d"  ? "pichle 2 din" :
+    timeRange === "3d"  ? "pichle 3 din" :
+                          "pichle ek hafte";
+
+  let dynamicSchemaTemplate = NEWS_SCHEMA_TEMPLATE;
+  try {
+    const schemaObj = JSON.parse(NEWS_SCHEMA_TEMPLATE);
+    const filteredSymbolWise: Record<string, any> = {};
+    for (const sym of selectedSymbols) {
+      if (schemaObj.symbol_wise_news[sym]) {
+        filteredSymbolWise[sym] = schemaObj.symbol_wise_news[sym];
+      }
+    }
+    schemaObj.symbol_wise_news = filteredSymbolWise;
+    dynamicSchemaTemplate = JSON.stringify(schemaObj, null, 2);
+  } catch (e) {
+    console.error("Failed to parse NEWS_SCHEMA_TEMPLATE", e);
+  }
+
+  return `================================================================
+CRITICAL INSTRUCTION — OUTPUT FORMAT
+================================================================
+Tera POORA response SIRF ek \`\`\`json ... \`\`\` code block hona chahiye.
+Koi bhi text — upar, neeche, ya beech mein — STRICTLY FORBIDDEN.
+Pehli line \`\`\`json, aakhri line \`\`\`, aur beech mein ONLY valid JSON.
+================================================================
+
+Aaj ka IST date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
+Current IST time: ${tsIST}
+
+⏰ NEWS TIME WINDOW: ${fromTsIST} SE LEKAR ${tsIST} TAK (${opt.display})
+STRICT RULE: Sirf is time window ke andar ki news aur events cover karo. Is window se pehle ki koi bhi news mat include karo.
+
+${candleBlock}
+
+Upar diye gaye REAL H4 aur H1 candle data ko price context ke liye use karo — recent price levels, highs, lows, aur movements dekho. Yeh data news ke impact ko contextualize karne ke liye hai, koi trade setup nahi banana.
+
+═══════════════════════════════════════════════════════
+TERA KAAM — TWITTER/X FEED SCRAPING & MARKET ANALYSIS
+(${timeHinglish} ki tweets — ${fromTsIST} ke baad ki)
+═══════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STRICT DATA SOURCES — ONLY THESE 3 TWITTER/X HANDLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Sirf neeche diye Twitter/X handles ki posts fetch karo (${opt.display} window):
+
+  @FirstSquawk      — breaking financial & market news alerts
+  @investingLive_   — live investing, markets & macro news feed
+  @ForexFactory     — forex calendar events, economic data releases
+
+ABSOLUTE RULE: KISI BHI doosre source se data MAT lo.
+  ✗ Koi website (Bloomberg, Reuters, CNBC) nahi
+  ✗ Koi Google / internet search nahi
+  ✗ Koi aur Twitter/X handle nahi
+  ✓ SIRF yeh teen handles — agar koi khabar in teen handles par nahi aayi toh use include MAT karo.
+
+In-handle posts ko scrape karo aur sirf unse milne wali news ko JSON schema mein synthesize karo.
+Noise zero — sirf wahi jo in handles ne post kiya.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Har symbol ke sniper_note mein sirf news-based directional suggestion — koi SL/TP/entry nahi. Sirf: bias (strictly and exactly one of "Bullish", "Bearish", or "Neutral" with NO other text or commentary), key catalyst, watch levels, session expectation.
+
+Neeche diya schema aur Reference JSON Example ka pattern/format use karke ek valid JSON output do:
+
+${dynamicSchemaTemplate}
+
+JSON FIELD REQUIREMENTS:
+• meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}", meta.language = "Hinglish"
+• NEWS TIME WINDOW: Sirf ${fromTsIST} se ${tsIST} ke beech ki tweets — older news strictly banned
+• all_news_section.summary = 250+ word Hinglish — sirf @FirstSquawk, @investingLive_, @ForexFactory ki posts se synthesize karo
+• all_news_section.high_impact_events = exactly 8 to 10 events (no exceptions) — ONLY from the 3 Twitter handles
+• Har high_impact_event mein "market_impact" array = 3-6 relevant symbols with "bullish"/"bearish"/"neutral"
+• Har symbol ke liye: exactly 2 specific real headlines (from the 3 handles), 120+ word Hinglish breakdown, specific trader_alert, complete sniper_note (strictly news_bias must be exactly "Bullish", "Bearish", or "Neutral" with NO suffix or commentary).
+• FORMATTING: **bold** for numbers/events/levels, *italic* for forecasts/comparisons, ***bold italic*** for critical only. Use \\n for line breaks inside strings.
+• Koi "...", koi placeholder, koi empty string — ZERO. Har field mein real Hinglish content.
+• JSON strings mein actual newline characters NAHI — sirf \\n (escaped backslash-n) use karo.
+
+================================================================
+ABSOLUTE FINAL RULE — NO EXCEPTIONS
+================================================================
+RESPONSE = \`\`\`json\\n{ ... complete JSON object ... }\\n\`\`\`
+NOTHING BEFORE THE FIRST BACKTICK.
+NOTHING AFTER THE LAST BACKTICK.
+NO INTRO. NO EXPLANATION. NO "Here is the JSON". NO "I hope this helps".
+JUST. THE. JSON. CODE. BLOCK.
+================================================================`;
+}
+
+// ─── Prompt version config ────────────────────────────────────────────────────
+
+const PROMPT_VERSIONS = [
+  { id: "v1", label: "V1 — Full Internet Search" },
+  { id: "v5", label: "V5 — Twitter Feeds Only" },
+] as const;
+type PromptVersion = typeof PROMPT_VERSIONS[number]["id"];
+
 function formatToISTString(d: Date): string {
   const istDate = new Date(d.getTime() + (330 * 60 * 1000));
   const y = istDate.getUTCFullYear();
@@ -1099,6 +1387,7 @@ function PromptModal({
   const [fetching,  setFetching]  = useState(true);
   const [fetchErr,  setFetchErr]  = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
+  const [promptVersion, setPromptVersion] = useState<PromptVersion>("v5");
 
   // User configuration options
   const [modalDate, setModalDate]       = useState(defaultDate);
@@ -1112,16 +1401,26 @@ function PromptModal({
       .catch(e => { setFetchErr(e.message); setFetching(false); });
   }, []);
 
-  const userMsg = selectedSymbols.length > 0
-    ? buildNewsUserMessage(modalDate, modalSession, candles, timeRange, selectedSymbols)
-    : "(Please select at least one currency pair / symbol)";
-
   const originalText = "• ALWAYS populate all 11 keys in symbol_wise_news (XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF) — none of these 11 symbols can be omitted under any circumstances.";
   const replacementText = selectedSymbols.length > 0
     ? `• ALWAYS populate all selected keys in symbol_wise_news (${selectedSymbols.join(", ")}) — none of these selected symbols can be omitted under any circumstances.`
     : "• ALWAYS populate all selected keys in symbol_wise_news — none of these selected symbols can be omitted under any circumstances.";
 
-  const dynamicSystemPrompt = NEWS_SYSTEM_PROMPT.replace(originalText, replacementText);
+  const isV5 = promptVersion === "v5";
+
+  const dynamicSystemPrompt = isV5
+    ? NEWS_SYSTEM_PROMPT_V5.replace(
+        "• ALWAYS populate all 11 keys in symbol_wise_news (XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF) — none of these 11 symbols can be omitted under any circumstances.",
+        replacementText,
+      )
+    : NEWS_SYSTEM_PROMPT.replace(originalText, replacementText);
+
+  const userMsg = selectedSymbols.length > 0
+    ? (isV5
+        ? buildNewsUserMessageV5(modalDate, modalSession, candles, timeRange, selectedSymbols)
+        : buildNewsUserMessage(modalDate, modalSession, candles, timeRange, selectedSymbols))
+    : "(Please select at least one currency pair / symbol)";
+
   const copyAllText = `=== SYSTEM PROMPT ===\n${dynamicSystemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${userMsg}`;
 
   return (
@@ -1130,16 +1429,34 @@ function PromptModal({
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.07] shrink-0">
-          <div className="flex items-center gap-2.5">
-            <Bot className="h-4 w-4 text-white/50" />
-            <div>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Bot className="h-4 w-4 text-white/50 shrink-0" />
+            <div className="min-w-0">
               <p className="text-[13px] font-semibold text-white/80">CHoCH QLM Hinglish News Prompt</p>
               <p className="text-[11px] text-white/30">
                 {fetching ? "Live candle data load ho rahi hai…" : fetchErr ? "Candle fetch failed — general knowledge use hogi" : `H1+H4 data embed hua · ${SESSION_LABELS[modalSession]} · ${modalDate}`}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition"><X className="h-4 w-4" /></button>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Prompt version dropdown */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest hidden sm:block">Prompt</span>
+              <select
+                value={promptVersion}
+                onChange={(e) => setPromptVersion(e.target.value as PromptVersion)}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-white/[0.05] border border-white/[0.10] text-white/70 focus:outline-none focus:border-white/[0.25] cursor-pointer appearance-none pr-6 relative"
+                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23ffffff44' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center" }}
+              >
+                {PROMPT_VERSIONS.map(v => (
+                  <option key={v.id} value={v.id} className="bg-[#1a1a1a] text-white">
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition"><X className="h-4 w-4" /></button>
+          </div>
         </div>
 
         {/* Date, Session and News Window */}
@@ -1253,6 +1570,17 @@ function PromptModal({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {isV5 && (
+              <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/[0.18]">
+                <span className="text-emerald-400 text-[13px] shrink-0 mt-0.5">𝕏</span>
+                <div>
+                  <p className="text-[11px] font-semibold text-emerald-400/80 mb-0.5">V5 — Twitter/X Feeds Only</p>
+                  <p className="text-[11px] text-white/35 leading-relaxed">
+                    AI sirf <span className="text-white/55 font-mono">@FirstSquawk</span>, <span className="text-white/55 font-mono">@investingLive_</span>, aur <span className="text-white/55 font-mono">@ForexFactory</span> se news fetch karega. Koi aur source nahi. Zero noise.
+                  </p>
+                </div>
+              </div>
+            )}
             {fetchErr && (
               <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/[0.07] border border-amber-500/20 text-[12px] text-amber-400/80">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -1286,7 +1614,15 @@ function PromptModal({
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
                 <div className="flex items-center gap-2">
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">1</span>
-                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">System Prompt — CHoCH QLM Hinglish</span>
+                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">System Prompt</span>
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide",
+                    isV5
+                      ? "bg-emerald-500/[0.12] text-emerald-400/80 border border-emerald-500/[0.20]"
+                      : "bg-white/[0.06] text-white/30 border border-white/[0.08]"
+                  )}>
+                    {isV5 ? "V5 · Twitter Only" : "V1 · Full Internet"}
+                  </span>
                 </div>
                 <CopyButton text={dynamicSystemPrompt} disabled={selectedSymbols.length === 0} />
               </div>
@@ -1297,7 +1633,9 @@ function PromptModal({
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
                 <div className="flex items-center gap-2">
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">2</span>
-                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">User Message + Real Candle Data</span>
+                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">
+                    {isV5 ? "User Message + Candle Data (Twitter Feeds)" : "User Message + Real Candle Data"}
+                  </span>
                   <span className="text-[10px] text-white/20">{SESSION_LABELS[modalSession]} · {modalDate}</span>
                 </div>
                 <CopyButton text={userMsg} disabled={selectedSymbols.length === 0} />

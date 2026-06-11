@@ -245,6 +245,35 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     return () => window.removeEventListener("keydown", handler);
   }, [lightboxIndex, screenshots.length]);
 
+  // Global paste handler to paste images directly from clipboard
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf("image") !== -1) {
+          const file = item.getAsFile();
+          if (!file) continue;
+
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              setScreenshots((prev) => [...prev, event.target!.result as string]);
+              markDirty();
+            }
+          };
+          reader.readAsDataURL(file);
+          e.preventDefault();
+        }
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [markDirty]);
+
   const handleChartScreenshot = useCallback((dataUrl: string) => {
     setScreenshots((prev) => [...prev, dataUrl]);
     markDirty();
