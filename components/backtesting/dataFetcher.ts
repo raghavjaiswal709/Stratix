@@ -154,7 +154,37 @@ async function fetchMonth(
     return data;
   };
 
-  // 3. Local / CDN static CSV
+  // ── Current month: hit the Dukascopy API FIRST so we always get the latest
+  //    intraday candles.  The GitHub CSV is generated on a nightly schedule and
+  //    will be missing the last several hours of data.  API is the only source
+  //    that is truly real-time.  CSV is only used as a fallback if the API fails.
+  if (currentMonth) {
+    const from    = new Date(Date.UTC(year, month, 1));
+    // Use tomorrow as exclusive ceiling so Dukascopy returns all of today's bars
+    const toDate  = (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); return d; })();
+    const params  = new URLSearchParams({
+      instrument, timeframe: "1m",
+      from: from.toISOString().slice(0, 10),
+      to:   toDate.toISOString().slice(0, 10),
+    });
+    try {
+      const res = await fetch(`/api/backtesting/candles?${params}`, { signal });
+      if (res.ok) {
+        const json = await res.json() as { candles?: Candle[] };
+        const data = json.candles ?? [];
+        if (data.length > 0) {
+          lastFetchedSource = "Dukascopy API";
+          return set(data); // don't cache — current month is still being written to
+        }
+      }
+    } catch (err: unknown) {
+      if ((err as Error).name === "AbortError") throw err;
+      console.warn(`[dataFetcher] Current-month API failed for ${key}, falling back to CSV —`, (err as Error).message);
+    }
+    // API failed or returned no data → fall through to CSV as a best-effort backup
+  }
+
+  // ── Historical months (and current-month API fallback): try static CSV first ──
   const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
   const csvUrl = `${baseCandlesUrl}/${instrument}/${instrument}_${year}_${monthStr}.csv`;
   try {
@@ -168,7 +198,7 @@ async function fetchMonth(
     if ((err as Error).name === "AbortError") throw err;
   }
 
-  // 4. NEXT_PUBLIC_CANDLES_URL local fallback
+  // ── NEXT_PUBLIC_CANDLES_URL local fallback ────────────────────────────────
   if (process.env.NEXT_PUBLIC_CANDLES_URL) {
     const localUrl = `/data/candles/${instrument}/${instrument}_${year}_${monthStr}.csv`;
     try {
@@ -183,36 +213,34 @@ async function fetchMonth(
     }
   }
 
-  // 5. Dukascopy API (slowest, always fresh)
-  const from = new Date(Date.UTC(year, month, 1));
-  // For the current month use tomorrow as the exclusive upper bound so the API
-  // returns all candles up to the latest available (including today's intraday
-  // bars).  For completed months, use the first day of the next month as usual.
-  const isToday = currentMonth;
-  const toDate  = isToday
-    ? (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); return d; })()
-    : new Date(Date.UTC(year, month + 1, 1));
-  const params = new URLSearchParams({
-    instrument, timeframe: "1m",
-    from: from.toISOString().slice(0, 10),
-    to:   toDate.toISOString().slice(0, 10),
-  });
-  try {
-    const res = await fetch(`/api/backtesting/candles?${params}`, { signal });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}) as Record<string, unknown>);
-      console.warn(`[dataFetcher] Skipping ${key}: HTTP ${res.status} —`, (body as { error?: string }).error ?? "");
+  // ── Historical months: Dukascopy API as last resort ───────────────────────
+  if (!currentMonth) {
+    const from   = new Date(Date.UTC(year, month, 1));
+    const toDate = new Date(Date.UTC(year, month + 1, 1));
+    const params = new URLSearchParams({
+      instrument, timeframe: "1m",
+      from: from.toISOString().slice(0, 10),
+      to:   toDate.toISOString().slice(0, 10),
+    });
+    try {
+      const res = await fetch(`/api/backtesting/candles?${params}`, { signal });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+        console.warn(`[dataFetcher] Skipping ${key}: HTTP ${res.status} —`, (body as { error?: string }).error ?? "");
+        return [];
+      }
+      const json = await res.json() as { candles?: Candle[] };
+      const data = json.candles ?? [];
+      lastFetchedSource = "Dukascopy API";
+      return set(data);
+    } catch (err: unknown) {
+      if ((err as Error).name === "AbortError") throw err;
+      console.warn(`[dataFetcher] Skipping ${key}: fetch failed —`, (err as Error).message);
       return [];
     }
-    const json = await res.json() as { candles?: Candle[] };
-    const data = json.candles ?? [];
-    lastFetchedSource = "Dukascopy API";
-    return set(data);
-  } catch (err: unknown) {
-    if ((err as Error).name === "AbortError") throw err;
-    console.warn(`[dataFetcher] Skipping ${key}: fetch failed —`, (err as Error).message);
-    return [];
   }
+
+  return [];
 }
 
 // ── Build list of calendar months covering a date range ───────────────────────
