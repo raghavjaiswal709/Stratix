@@ -174,6 +174,23 @@ export interface UserPreferences {
   sectionOrder: string[];    // ordered list of tab values
   tradesSortFilter?: TradesSortFilterPrefs;
   journalSortFilter?: JournalSortFilterPrefs;
+  showQuotes?: boolean;
+  sidebarItems?: {
+    dashboard: boolean;
+    trades: boolean;
+    journal: boolean;
+    tradeNotes: boolean;
+    backtesting: boolean;
+    data?: boolean;
+    newsAnalysis: boolean;
+    liveData?: boolean;
+    chart?: boolean;
+    aiReport?: boolean;
+    todo: boolean;
+    habits: boolean;
+    diary: boolean;
+    notes: boolean;
+  };
 }
 
 // ============ TRADES ============

@@ -44,6 +44,23 @@ const defaultPreferences: UserPreferences = {
   defaultPage: "/dashboard",
   defaultTab: "todos",
   sectionOrder: ["todos", "habits", "diary", "notes"],
+  showQuotes: true,
+  sidebarItems: {
+    dashboard: true,
+    trades: true,
+    journal: true,
+    tradeNotes: true,
+    backtesting: true,
+    data: true,
+    newsAnalysis: true,
+    liveData: true,
+    chart: true,
+    aiReport: true,
+    todo: true,
+    habits: true,
+    diary: true,
+    notes: true,
+  },
 };
 
 const defaultData: AppData = {

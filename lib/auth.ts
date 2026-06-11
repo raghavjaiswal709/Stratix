@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import Credentials from "next-auth/providers/credentials";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import { ObjectId } from "mongodb";
 import { authConfig } from "./auth.config";
@@ -12,6 +13,28 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
+    Credentials({
+      name: "Mock Account",
+      credentials: {
+        email: { label: "Email", type: "text" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email) return null;
+        const client = await clientPromise;
+        const db = client.db();
+        const user = await db.collection("users").findOne({ email: credentials.email as string });
+        if (user) {
+          return {
+            id: user._id.toString(),
+            name: user.name,
+            email: user.email,
+            image: user.image,
+            role: (user.role as string | undefined) ?? "user",
+          };
+        }
+        return null;
+      }
+    })
   ],
   adapter: MongoDBAdapter(clientPromise),
   session: {
