@@ -93,11 +93,13 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
     executionChecklist: {
       type: [ChecklistItemSchema],
       default: [
-        { item: "Checked higher timeframe", checked: false },
-        { item: "Risk within limits", checked: false },
-        { item: "Fits my trading plan", checked: false },
-        { item: "Key levels identified", checked: false },
-        { item: "Economic calendar checked", checked: false },
+        { item: "A+ level", checked: false },
+        { item: "Other Levels", checked: false },
+        { item: "Confirmation", checked: false },
+        { item: "RiskFree", checked: false },
+        { item: "Risk Management", checked: false },
+        { item: "News", checked: false },
+        { item: "Multi timeframe analysis", checked: false },
       ],
     },
     screenshots: { type: [String], default: [] },

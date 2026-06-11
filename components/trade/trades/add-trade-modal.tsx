@@ -23,11 +23,13 @@ const DEFAULT_LOT_SIZES = [0.01, 0.05, 0.10, 0.25, 0.50, 1.00];
 const TF_OPTIONS = ["1m", "5m", "15m", "30m", "1H", "4H"];
 
 const DEFAULT_CHECKLIST = [
-  "Checked higher timeframe",
-  "Risk within limits",
-  "Fits my trading plan",
-  "Key levels identified",
-  "Economic calendar checked",
+  "A+ level",
+  "Other Levels",
+  "Confirmation",
+  "RiskFree",
+  "Risk Management",
+  "News",
+  "Multi timeframe analysis",
 ];
 
 export interface EditableTrade {

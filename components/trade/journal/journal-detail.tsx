@@ -67,6 +67,23 @@ interface JournalDetailProps {
 
 const TF_OPTIONS = ["1m", "5m", "15m", "30m", "1H", "4H"];
 
+const EMOTION_TAGS = [
+  { name: "Calm", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
+  { name: "Confident", color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
+  { name: "Disciplined", color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20" },
+  { name: "Patient", color: "text-teal-400 bg-teal-500/10 border-teal-500/20" },
+  { name: "FOMO", color: "text-rose-400 bg-rose-500/10 border-rose-500/20" },
+  { name: "Anxious", color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
+  { name: "Greedy", color: "text-purple-400 bg-purple-500/10 border-purple-500/20" },
+  { name: "Fearful", color: "text-red-400 bg-red-500/10 border-red-500/20" },
+  { name: "Impatient", color: "text-orange-400 bg-orange-500/10 border-orange-500/20" },
+  { name: "Hesitant", color: "text-yellow-400 bg-yellow-500/10 border-yellow-500/20" },
+  { name: "Frustrated", color: "text-red-400 bg-red-500/10 border-red-500/20" },
+  { name: "Euphoric", color: "text-violet-400 bg-violet-500/10 border-violet-500/20" },
+  { name: "Regretful", color: "text-zinc-400 bg-zinc-500/10 border-zinc-500/20" },
+  { name: "Bored", color: "text-slate-400 bg-slate-500/10 border-slate-500/20" }
+];
+
 function fmt(n: number) {
   const sign = n >= 0 ? "+" : "";
   return `${sign}$${Math.abs(n).toFixed(2)}`;
@@ -84,8 +101,15 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
   const [copied, setCopied] = useState(false);
 
   // Journal state
-  const [checklist, setChecklist] = useState<ChecklistItem[]>(trade.executionChecklist ?? []);
-  const [customItem, setCustomItem] = useState("");
+  const [aPlusLevel, setAPlusLevel] = useState(false);
+  const [otherLevels, setOtherLevels] = useState(false);
+  const [otherLevelsValue, setOtherLevelsValue] = useState("");
+  const [confirmation, setConfirmation] = useState(false);
+  const [confirmationValues, setConfirmationValues] = useState<string[]>([]);
+  const [riskFree, setRiskFree] = useState(false);
+  const [riskManagement, setRiskManagement] = useState(false);
+  const [news, setNews] = useState(false);
+  const [multiTimeframe, setMultiTimeframe] = useState(false);
   const [screenshots, setScreenshots] = useState<string[]>(trade.screenshots ?? []);
   const [preTradeAnalysis, setPreTradeAnalysis] = useState(trade.preTradeAnalysis ?? "");
   const [postTradeReview, setPostTradeReview] = useState(trade.postTradeReview ?? "");
@@ -130,7 +154,32 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
 
   // Reset all state when trade switches
   useEffect(() => {
-    setChecklist(trade.executionChecklist ?? []);
+    const rawChecklist = trade.executionChecklist ?? [];
+    const hasAPlus = rawChecklist.find(c => c.item === "A+ level")?.checked ?? false;
+    const hasOther = rawChecklist.find(c => c.item === "Other Levels")?.checked ?? false;
+    const otherValItem = rawChecklist.find(c => c.item.startsWith("Other Level: ") && c.checked);
+    const otherVal = otherValItem ? otherValItem.item.replace("Other Level: ", "") : "";
+    
+    const hasConf = rawChecklist.find(c => c.item === "Confirmation" || c.item === "confirnation")?.checked ?? false;
+    const confVals = rawChecklist
+      .filter(c => c.item.startsWith("Confirmation: ") && c.checked)
+      .map(c => c.item.replace("Confirmation: ", ""));
+      
+    const hasRiskFree = rawChecklist.find(c => c.item === "RiskFree" || c.item === "Risk Free")?.checked ?? false;
+    const hasRiskMgmt = rawChecklist.find(c => c.item === "Risk Management" || c.item === "RIsk Management")?.checked ?? false;
+    const hasNews = rawChecklist.find(c => c.item === "News")?.checked ?? false;
+    const hasMultiTF = rawChecklist.find(c => c.item === "Multi timeframe analysis" || c.item === "multi timeframe analysis")?.checked ?? false;
+
+    setAPlusLevel(hasAPlus);
+    setOtherLevels(hasOther);
+    setOtherLevelsValue(otherVal);
+    setConfirmation(hasConf);
+    setConfirmationValues(confVals);
+    setRiskFree(hasRiskFree);
+    setRiskManagement(hasRiskMgmt);
+    setNews(hasNews);
+    setMultiTimeframe(hasMultiTF);
+    
     setScreenshots(trade.screenshots ?? []);
     setPreTradeAnalysis(trade.preTradeAnalysis ?? "");
     setPostTradeReview(trade.postTradeReview ?? "");
@@ -196,24 +245,99 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     markDirty();
   }, [markDirty]);
 
-  const toggleCheck = (i: number) => {
-    setChecklist((prev) => prev.map((c, idx) => (idx === i ? { ...c, checked: !c.checked } : c)));
+  const toggleAPlus = () => {
+    setAPlusLevel(!aPlusLevel);
     markDirty();
   };
 
-  const addCustomItem = () => {
-    if (!customItem.trim()) return;
-    setChecklist((prev) => [...prev, { item: customItem.trim(), checked: false }]);
-    setCustomItem("");
+  const toggleOtherLevels = () => {
+    const next = !otherLevels;
+    setOtherLevels(next);
+    if (!next) {
+      setOtherLevelsValue("");
+    }
+    markDirty();
+  };
+  
+  const selectOtherLevelValue = (val: string) => {
+    setOtherLevelsValue(val);
     markDirty();
   };
 
-  const removeCheckItem = (i: number) => {
-    setChecklist((prev) => prev.filter((_, idx) => idx !== i));
+  const toggleConfirmation = () => {
+    const next = !confirmation;
+    setConfirmation(next);
+    if (!next) {
+      setConfirmationValues([]);
+    }
     markDirty();
   };
 
-  const checkedCount = checklist.filter((c) => c.checked).length;
+  const toggleConfirmationValue = (val: string) => {
+    setConfirmationValues(prev => {
+      let next;
+      if (prev.includes(val)) {
+        next = prev.filter(v => v !== val);
+      } else {
+        next = [...prev, val];
+      }
+      if (next.length > 0) {
+        setConfirmation(true);
+      }
+      return next;
+    });
+    markDirty();
+  };
+
+  const toggleRiskFree = () => {
+    setRiskFree(!riskFree);
+    markDirty();
+  };
+
+  const toggleRiskManagement = () => {
+    setRiskManagement(!riskManagement);
+    markDirty();
+  };
+
+  const toggleNews = () => {
+    setNews(!news);
+    markDirty();
+  };
+
+  const toggleMultiTimeframe = () => {
+    setMultiTimeframe(!multiTimeframe);
+    markDirty();
+  };
+
+  const toggleEmotionTag = (tag: string) => {
+    const current = emotions
+      .split(",")
+      .map((e) => e.trim())
+      .filter((e) => e.length > 0);
+    const tagLower = tag.toLowerCase();
+    
+    const index = current.findIndex(e => e.toLowerCase() === tagLower);
+    let next: string[];
+    if (index >= 0) {
+      next = current.filter((_, i) => i !== index);
+    } else {
+      next = [...current, tag];
+    }
+    setEmotions(next.join(", "));
+    markDirty();
+  };
+
+  const checkedCount = [
+    aPlusLevel,
+    otherLevels,
+    confirmation,
+    riskFree,
+    riskManagement,
+    news,
+    multiTimeframe
+  ].filter(Boolean).length;
+
+  const totalChecklistItemsCount = 7;
 
   const filteredTradesForAnalytics = useMemo(() => {
     const now = new Date();
@@ -312,13 +436,25 @@ Please analyze this data and generate a detailed report:
 
   async function handleSave() {
     setSaving(true);
+    const compiledChecklist: ChecklistItem[] = [
+      { item: "A+ level", checked: aPlusLevel },
+      { item: "Other Levels", checked: otherLevels },
+      ...(otherLevels && otherLevelsValue ? [{ item: `Other Level: ${otherLevelsValue}`, checked: true }] : []),
+      { item: "Confirmation", checked: confirmation },
+      ...(confirmation ? confirmationValues.map(v => ({ item: `Confirmation: ${v}`, checked: true })) : []),
+      { item: "RiskFree", checked: riskFree },
+      { item: "Risk Management", checked: riskManagement },
+      { item: "News", checked: news },
+      { item: "Multi timeframe analysis", checked: multiTimeframe }
+    ];
+
     try {
       const res = await fetch(`/api/trade/${trade._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           journaled: true,
-          executionChecklist: checklist,
+          executionChecklist: compiledChecklist,
           screenshots,
           preTradeAnalysis,
           postTradeReview,
@@ -691,54 +827,209 @@ Please analyze this data and generate a detailed report:
               <CheckSquare className="h-4 w-4 text-white/65" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Execution Checklist</span>
             </div>
-            <span className="text-[12px] text-white/35">{checkedCount}/{checklist.length}</span>
+            <span className="text-[12px] text-white/35">{checkedCount}/{totalChecklistItemsCount}</span>
           </div>
-          <div className="p-4">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
-              {checklist.map((c, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition group",
-                    c.checked ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
-                  )}
-                  onClick={() => toggleCheck(i)}
-                >
-                  <div className={cn(
-                    "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                    c.checked ? "bg-white/[0.09] border-white/30" : "border-white/20"
-                  )}>
-                    {c.checked && (
-                      <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
-                        <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-white/60 flex-1">{c.item}</span>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeCheckItem(i); }}
-                    className="opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400 transition"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                value={customItem}
-                onChange={(e) => setCustomItem(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addCustomItem()}
-                placeholder="Add custom item..."
-                className="flex-1 rounded-lg bg-white/5 border border-white/8 px-3 py-2 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] transition"
-              />
-              <button
-                onClick={addCustomItem}
-                className="px-3 rounded-lg bg-white/[0.08] border border-white/[0.10] text-white/65 hover:bg-white/[0.09]/30 transition"
+          <div className="p-4 space-y-4">
+            {/* Main Predefined Checklist Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {/* 1. A+ Level */}
+              <div
+                className={cn(
+                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
+                  aPlusLevel ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
+                )}
+                onClick={toggleAPlus}
               >
-                <Plus className="h-4 w-4" />
-              </button>
+                <div className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
+                  aPlusLevel ? "bg-white/[0.09] border-white/30" : "border-white/20"
+                )}>
+                  {aPlusLevel && (
+                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-[11px] text-white/60 flex-1">A+ Level</span>
+              </div>
+
+              {/* 2. Other Levels Checkbox */}
+              <div
+                className={cn(
+                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
+                  otherLevels ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
+                )}
+                onClick={toggleOtherLevels}
+              >
+                <div className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
+                  otherLevels ? "bg-white/[0.09] border-white/30" : "border-white/20"
+                )}>
+                  {otherLevels && (
+                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-[11px] text-white/60 flex-1">Other Levels</span>
+              </div>
+
+              {/* 3. Confirmation Checkbox */}
+              <div
+                className={cn(
+                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
+                  confirmation ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
+                )}
+                onClick={toggleConfirmation}
+              >
+                <div className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
+                  confirmation ? "bg-white/[0.09] border-white/30" : "border-white/20"
+                )}>
+                  {confirmation && (
+                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-[11px] text-white/60 flex-1">Confirmation</span>
+              </div>
+
+              {/* 4. RiskFree */}
+              <div
+                className={cn(
+                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
+                  riskFree ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
+                )}
+                onClick={toggleRiskFree}
+              >
+                <div className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
+                  riskFree ? "bg-white/[0.09] border-white/30" : "border-white/20"
+                )}>
+                  {riskFree && (
+                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-[11px] text-white/60 flex-1">Risk Free</span>
+              </div>
+
+              {/* 5. Risk Management */}
+              <div
+                className={cn(
+                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
+                  riskManagement ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
+                )}
+                onClick={toggleRiskManagement}
+              >
+                <div className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
+                  riskManagement ? "bg-white/[0.09] border-white/30" : "border-white/20"
+                )}>
+                  {riskManagement && (
+                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-[11px] text-white/60 flex-1">Risk Management</span>
+              </div>
+
+              {/* 6. News */}
+              <div
+                className={cn(
+                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
+                  news ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
+                )}
+                onClick={toggleNews}
+              >
+                <div className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
+                  news ? "bg-white/[0.09] border-white/30" : "border-white/20"
+                )}>
+                  {news && (
+                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-[11px] text-white/60 flex-1">News</span>
+              </div>
+
+              {/* 7. Multi timeframe analysis */}
+              <div
+                className={cn(
+                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
+                  multiTimeframe ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
+                )}
+                onClick={toggleMultiTimeframe}
+              >
+                <div className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
+                  multiTimeframe ? "bg-white/[0.09] border-white/30" : "border-white/20"
+                )}>
+                  {multiTimeframe && (
+                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-[11px] text-white/60 flex-1">Multi Timeframe Analysis</span>
+              </div>
             </div>
+
+            {/* Conditional Sub-tags (Other Levels) */}
+            {otherLevels && (
+              <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Other Levels:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {["SBR/RBS", "DB/DT", "Level 3", "Level 4", "TJL1"].map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => selectOtherLevelValue(otherLevelsValue === lvl ? "" : lvl)}
+                      className={cn(
+                        "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                        otherLevelsValue === lvl
+                          ? "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
+                          : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                      )}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Conditional Sub-tags (Confirmation) */}
+            {confirmation && (
+              <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Confirmation:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {["Candle confirmation", "Choch confirmation"].map((conf) => {
+                    const isActive = confirmationValues.includes(conf);
+                    return (
+                      <button
+                        key={conf}
+                        type="button"
+                        onClick={() => toggleConfirmationValue(conf)}
+                        className={cn(
+                          "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                          isActive
+                            ? "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
+                            : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                        )}
+                      >
+                        {conf}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -853,7 +1144,7 @@ Please analyze this data and generate a detailed report:
               <Brain className="h-4 w-4 text-white/55" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Emotions</span>
             </div>
-            <div className="p-4">
+            <div className="p-4 space-y-3">
               <textarea
                 value={emotions}
                 onChange={(e) => { setEmotions(e.target.value); markDirty(); }}
@@ -861,6 +1152,31 @@ Please analyze this data and generate a detailed report:
                 rows={3}
                 className="w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none"
               />
+              
+              <div className="flex flex-wrap gap-1.5 pt-2.5 border-t border-white/5">
+                {EMOTION_TAGS.map((tag) => {
+                  const currentList = emotions
+                    .split(",")
+                    .map((e) => e.trim().toLowerCase())
+                    .filter((e) => e.length > 0);
+                  const isSelected = currentList.includes(tag.name.toLowerCase());
+                  return (
+                    <button
+                      key={tag.name}
+                      type="button"
+                      onClick={() => toggleEmotionTag(tag.name)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-full text-[10px] font-medium transition-all border",
+                        isSelected
+                          ? tag.color + " font-semibold shadow-sm border-transparent"
+                          : "bg-white/5 border-white/8 text-white/40 hover:text-white/80 hover:border-white/20"
+                      )}
+                    >
+                      {tag.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
           <div className="rounded-xl border border-white/7 overflow-hidden">
