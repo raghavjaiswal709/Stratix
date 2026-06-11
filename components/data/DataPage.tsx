@@ -41,23 +41,32 @@ function monthsAgoStr(n: number) {
   return d.toISOString().slice(0, 10);
 }
 
+// ── Module level Cache to persist data across page navigations/remounts ──
+let pageCache: {
+  instrument: InstrumentKey;
+  fromDate: string;
+  toDate: string;
+  rawCandles: Candle[];
+  dataSource: string | null;
+} | null = null;
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function DataPage() {
   // ── Controls ──
-  const [instrument, setInstrument] = useState<InstrumentKey>("xauusd");
-  const [fromDate, setFromDate]     = useState(monthsAgoStr(3));
-  const [toDate, setToDate]         = useState(todayStr());
+  const [instrument, setInstrument] = useState<InstrumentKey>(() => pageCache?.instrument || "xauusd");
+  const [fromDate, setFromDate]     = useState(() => pageCache?.fromDate || monthsAgoStr(3));
+  const [toDate, setToDate]         = useState(() => pageCache?.toDate || todayStr());
   const [timeframe, setTimeframe]   = useState<Timeframe>("1H");
 
   // ── Data ──
-  const [rawCandles,     setRawCandles]     = useState<Candle[]>([]);
-  const [displayCandles, setDisplayCandles] = useState<Candle[]>([]);
+  const [rawCandles,     setRawCandles]     = useState<Candle[]>(() => pageCache?.rawCandles || []);
+  const [displayCandles, setDisplayCandles] = useState<Candle[]>(() => pageCache ? resampleCandles(pageCache.rawCandles, "1H") : []);
   const [isLoading,      setIsLoading]      = useState(false);
   const [loadProgress,   setLoadProgress]   = useState(0);
   const [loadLabel,      setLoadLabel]      = useState("");
   const [error,          setError]          = useState<string | null>(null);
-  const [dataSource,     setDataSource]     = useState<string | null>(null);
+  const [dataSource,     setDataSource]     = useState<string | null>(() => pageCache?.dataSource || null);
   const [drawings,       setDrawings]       = useState<Drawing[]>([]);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -149,7 +158,17 @@ export function DataPage() {
       const resampled = resampleCandles(raw, tf);
       setRawCandles(raw);
       setDisplayCandles(resampled);
-      setDataSource(getLastFetchedSource());
+      const src = getLastFetchedSource();
+      setDataSource(src);
+      
+      // Update pageCache
+      pageCache = {
+        instrument: sym,
+        fromDate: from,
+        toDate: to,
+        rawCandles: raw,
+        dataSource: src
+      };
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setError(String(err));
@@ -164,6 +183,14 @@ export function DataPage() {
 
   // Initial load
   useEffect(() => {
+    // If we have matching page cache, restore it and skip fetching
+    if (pageCache && 
+        pageCache.instrument === instrument && 
+        pageCache.fromDate === fromDate && 
+        pageCache.toDate === toDate) {
+      setDisplayCandles(resampleCandles(pageCache.rawCandles, timeframe));
+      return;
+    }
     fetchData(instrument, fromDate, toDate, timeframe);
     return () => { abortRef.current?.abort(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
