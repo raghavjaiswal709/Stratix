@@ -36,11 +36,13 @@ TRADE_DEAL_TYPES = {"DEAL_TYPE_BUY", "DEAL_TYPE_SELL"}
 
 # Default checklist items matching the Mongoose schema default
 DEFAULT_CHECKLIST = [
-    {"item": "Checked higher timeframe", "checked": False},
-    {"item": "Risk within limits", "checked": False},
-    {"item": "Fits my trading plan", "checked": False},
-    {"item": "Key levels identified", "checked": False},
-    {"item": "Economic calendar checked", "checked": False},
+    {"item": "A+ level", "checked": False},
+    {"item": "Other Levels", "checked": False},
+    {"item": "Confirmation", "checked": False},
+    {"item": "RiskFree", "checked": False},
+    {"item": "Risk Management", "checked": False},
+    {"item": "News", "checked": False},
+    {"item": "Multi timeframe analysis", "checked": False},
 ]
 
 
