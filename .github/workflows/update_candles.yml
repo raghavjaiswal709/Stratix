@@ -1,18 +1,18 @@
 name: Update Candle Data
 
 # ─── Schedule ─────────────────────────────────────────────────────────────────
-#   Runs every hour at minute 0 (UTC), 24× per day.
+#   Runs every hour at minute :17 UTC, 24× per day.
 #   Dukascopy data is fetched incrementally — only new rows are appended.
+#
+#   NOTE: The push trigger was intentionally removed. When this workflow pushes
+#   candle files with GITHUB_TOKEN, GitHub blocks that push from re-triggering
+#   workflows (to prevent infinite loops), so a push trigger on candle paths
+#   would never fire and caused GitHub to consider the schedule inactive.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
   schedule:
-    - cron: "17 * * * *"   # every hour at minute :17 UTC (avoiding high-load :00 peak times)
-  push:
-    branches:
-      - master
-    paths:
-      - 'public/data/candles/**' # Can trigger automatically or manual dispatch
+    - cron: "17 * * * *"   # every hour at minute :17 UTC (avoiding high-load :00 peak)
   workflow_dispatch:
     inputs:
       session:
