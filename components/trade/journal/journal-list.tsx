@@ -28,6 +28,59 @@ function fmt(n: number) {
 
 const isWinner = (t: JournalTrade) => t.profit > 0;
 
+interface AggregatedJournalInfo {
+  lots: number;
+  profit: number;
+  entryPrice: number;
+  exitPrice?: number;
+  entryTime: string;
+  exitTime?: string;
+  childTrades: JournalTrade[];
+}
+
+function getAggregatedJournalInfo(parentTrade: JournalTrade, allTrades: JournalTrade[]): AggregatedJournalInfo {
+  const childTrades = allTrades.filter(t => t.parentTradeId === parentTrade._id || t._id === parentTrade._id);
+  
+  let totalLots = 0;
+  let totalProfit = 0;
+  let weightedEntrySum = 0;
+  let weightedExitSum = 0;
+  let exitLots = 0;
+  let earliestEntryTime = parentTrade.entryTime;
+  let latestExitTime = parentTrade.exitTime;
+
+  childTrades.forEach(t => {
+    totalLots += t.lots;
+    totalProfit += t.profit;
+    weightedEntrySum += t.entryPrice * t.lots;
+    if (t.exitPrice) {
+      weightedExitSum += t.exitPrice * t.lots;
+      exitLots += t.lots;
+    }
+    if (new Date(t.entryTime) < new Date(earliestEntryTime)) {
+      earliestEntryTime = t.entryTime;
+    }
+    if (t.exitTime) {
+      if (!latestExitTime || new Date(t.exitTime) > new Date(latestExitTime)) {
+        latestExitTime = t.exitTime;
+      }
+    }
+  });
+
+  const avgEntryPrice = totalLots > 0 ? weightedEntrySum / totalLots : parentTrade.entryPrice;
+  const avgExitPrice = exitLots > 0 ? weightedExitSum / exitLots : parentTrade.exitPrice;
+
+  return {
+    lots: totalLots,
+    profit: totalProfit,
+    entryPrice: Number(avgEntryPrice.toFixed(5)),
+    exitPrice: avgExitPrice ? Number(avgExitPrice.toFixed(5)) : undefined,
+    entryTime: earliestEntryTime,
+    exitTime: latestExitTime,
+    childTrades: childTrades.filter(t => t._id !== parentTrade._id)
+  };
+}
+
 const DEFAULT_PREFS: JournalSortFilterPrefs = {
   sortBy: "date",
   sortDir: "desc",
@@ -57,6 +110,7 @@ export function JournalList({
   const [durationFilter, setDurationFilter] = useState<"all" | "today" | "3days" | "week" | "2weeks" | "month">("all");
   const [sortOpen, setSortOpen] = useState(false);
   const [durationOpen, setDurationOpen] = useState(false);
+  const [extendedIds, setExtendedIds] = useState<string[]>([]);
 
   // Persist to preferences (debounced), skip initial mount
   const mounted = useRef(false);
@@ -86,13 +140,13 @@ export function JournalList({
     filterOutcome !== "all",
   ].filter(Boolean).length;
 
-  // Tab filter
+  // Tab filter - exclude child trades from the main list
   const tabFiltered =
     tab === "journaled"
-      ? trades.filter((t) => t.journaled)
+      ? trades.filter((t) => t.journaled && !t.parentTradeId)
       : tab === "pending"
-      ? trades.filter((t) => !t.journaled)
-      : trades;
+      ? trades.filter((t) => !t.journaled && !t.parentTradeId)
+      : trades.filter((t) => !t.parentTradeId);
 
   // Apply symbol/direction/outcome/duration filter + sort
   const filtered = tabFiltered
@@ -395,57 +449,84 @@ export function JournalList({
             )}
           </div>
         ) : (
-          paginated.map((trade) => (
-            <button
-              key={trade._id}
-              onClick={() => onSelect(trade._id)}
-              className={cn(
-                "w-full text-left px-4 py-3.5 border-b border-white/5 transition hover:bg-white/3",
-                selectedId === trade._id && "bg-white/[0.05] border-l-2 border-l-white/30",
-                trade._deleted && "opacity-40"
-              )}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
+          paginated.map((trade) => {
+            const isParent = trade.mergedTradeIds && trade.mergedTradeIds.length > 0;
+            const agg = isParent ? getAggregatedJournalInfo(trade, trades) : null;
+            const isExtended = extendedIds.includes(trade._id);
+            
+            const displayLots = agg ? agg.lots : trade.lots;
+            const displayProfit = agg ? agg.profit : trade.profit;
+            const displayEntryPrice = agg ? agg.entryPrice : trade.entryPrice;
+            const displayEntryTime = agg ? agg.entryTime : trade.entryTime;
+
+            return (
+              <div key={trade._id} className="border-b border-white/5">
+                <div
+                  onClick={() => onSelect(trade._id)}
+                  className={cn(
+                    "w-full text-left px-4 py-3.5 transition hover:bg-white/3 flex items-start gap-2 relative",
+                    selectedId === trade._id && "bg-white/[0.05] border-l-2 border-l-white/30",
+                    trade._deleted && "opacity-40"
+                  )}
+                >
                   {/* Symbol badge */}
                   <div className={cn(
                     "h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-[9px] font-bold",
-                    trade._deleted ? "bg-white/5 text-white/30" : isWinner(trade) ? "bg-amber-500/15 text-amber-400" : "bg-white/10 text-white/50"
+                    trade._deleted ? "bg-white/5 text-white/30" : displayProfit > 0 ? "bg-amber-500/15 text-amber-400" : "bg-white/10 text-white/50"
                   )}>
                     {trade.symbol.slice(0, 2)}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-semibold text-white">{trade.symbol}</span>
-                      {trade._deleted ? (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/8 text-white/40 border border-white/10">
-                          DELETED
-                        </span>
-                      ) : (
-                        <>
-                          {isWinner(trade) && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-                              WINNER
-                            </span>
-                          )}
-                          {!isWinner(trade) && trade.status === "closed" && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
-                              LOSER
-                            </span>
-                          )}
-                          {trade.status === "open" && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/10">
-                              OPEN
-                            </span>
-                          )}
-                          {!trade.journaled && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.06] text-white/50 border border-white/[0.08]">
-                              NEW
-                            </span>
-                          )}
-                        </>
+                  
+                  <div className="flex-grow min-w-0">
+                    <div className="flex items-center justify-between gap-1.5 w-full">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[13px] font-semibold text-white truncate">{trade.symbol}</span>
+                        {trade._deleted ? (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/8 text-white/40 border border-white/10 shrink-0">
+                            DELETED
+                          </span>
+                        ) : (
+                          <>
+                            {displayProfit > 0 && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 shrink-0">
+                                WINNER
+                              </span>
+                            )}
+                            {displayProfit <= 0 && trade.status === "closed" && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20 shrink-0">
+                                LOSER
+                              </span>
+                            )}
+                            {trade.status === "open" && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/10 shrink-0">
+                                OPEN
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {isParent && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            COMPILED ({agg?.childTrades.length ? agg.childTrades.length + 1 : 1})
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExtendedIds(prev =>
+                                prev.includes(trade._id) ? prev.filter(x => x !== trade._id) : [...prev, trade._id]
+                              );
+                            }}
+                            className="p-0.5 rounded hover:bg-white/10 transition text-white/40 hover:text-white flex items-center justify-center"
+                            title={isExtended ? "Collapse child trades" : "Extend child trades"}
+                          >
+                            <ChevronDown className={cn("h-3 w-3 transition-transform", isExtended && "rotate-180")} />
+                          </button>
+                        </div>
                       )}
                     </div>
+
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className={cn(
                         "text-[10px] font-semibold",
@@ -453,22 +534,61 @@ export function JournalList({
                       )}>
                         {trade.direction === "buy" ? "Long" : "Short"}
                       </span>
-                      <span className="text-[10px] text-white/30">${trade.entryPrice}</span>
+                      <span className="text-[10px] text-white/30">${displayEntryPrice}</span>
                       <span className={cn(
                         "text-[10px] font-semibold ml-auto",
-                        trade.profit >= 0 ? "text-emerald-400" : "text-red-400"
+                        displayProfit >= 0 ? "text-emerald-400" : "text-red-400"
                       )}>
-                        {fmt(trade.profit)}
+                        {fmt(displayProfit)}
                       </span>
                     </div>
                     <p className="text-[10px] text-white/25 mt-0.5">
-                      {format(parseISO(trade.entryTime), "MMM d, yyyy, HH:mm")}
+                      {format(parseISO(displayEntryTime), "MMM d, yyyy, HH:mm")}
                     </p>
                   </div>
                 </div>
+
+                {isParent && isExtended && agg && (
+                  <div className="bg-white/[0.02] border-t border-white/5 pl-4 divide-y divide-white/5">
+                    {/* The parent trade itself as first child */}
+                    <div
+                      onClick={() => onSelect(trade._id)}
+                      className={cn(
+                        "w-full text-left px-4 py-2 transition hover:bg-white/3 flex items-center gap-2",
+                        selectedId === trade._id && "bg-white/[0.05]"
+                      )}
+                    >
+                      <span className="text-[9px] text-white/40">#1 (Main)</span>
+                      <span className="text-[10px] text-white/60 font-semibold">{trade.symbol}</span>
+                      <span className="text-[9px] text-white/40">{trade.lots} lots</span>
+                      <span className={cn("text-[9px] font-semibold ml-auto", trade.profit >= 0 ? "text-emerald-400" : "text-red-400")}>
+                        {fmt(trade.profit)}
+                      </span>
+                    </div>
+                    
+                    {/* The other children */}
+                    {agg.childTrades.map((child, idx) => (
+                      <div
+                        key={child._id}
+                        onClick={() => onSelect(child._id)}
+                        className={cn(
+                          "w-full text-left px-4 py-2 transition hover:bg-white/3 flex items-center gap-2 cursor-pointer",
+                          selectedId === child._id && "bg-white/[0.05]"
+                        )}
+                      >
+                        <span className="text-[9px] text-white/40">#{idx + 2}</span>
+                        <span className="text-[10px] text-white/60 font-semibold">{child.symbol}</span>
+                        <span className="text-[9px] text-white/40">{child.lots} lots</span>
+                        <span className={cn("text-[9px] font-semibold ml-auto", child.profit >= 0 ? "text-emerald-400" : "text-red-400")}>
+                          {fmt(child.profit)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </button>
-          ))
+            );
+          })
         )}
       </div>
 

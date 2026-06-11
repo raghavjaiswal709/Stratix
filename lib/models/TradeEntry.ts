@@ -49,6 +49,8 @@ export interface ITradeEntry extends Document<string> {
   lessonsLearned?: string;
   tags: string[];
   rating?: number;       // 1–10
+  parentTradeId?: string;
+  mergedTradeIds?: string[];
 
   createdAt: Date;
   updatedAt: Date;
@@ -111,6 +113,8 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
     lessonsLearned: { type: String, default: "" },
     tags: { type: [String], default: [] },
     rating: { type: Number, min: 1, max: 10, default: 5 },
+    parentTradeId: { type: String, default: undefined },
+    mergedTradeIds: { type: [String], default: [] },
   },
   { timestamps: true }
 );
@@ -119,6 +123,10 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
 TradeEntrySchema.index({ userId: 1, entryTime: -1 });
 TradeEntrySchema.index({ userId: 1, ticket: 1 }, { sparse: true });
 TradeEntrySchema.index({ userId: 1, profileId: 1 });
+
+if (mongoose.models.TradeEntry && !mongoose.models.TradeEntry.schema.paths.parentTradeId) {
+  delete mongoose.models.TradeEntry;
+}
 
 export const TradeEntryModel =
   mongoose.models.TradeEntry ||
