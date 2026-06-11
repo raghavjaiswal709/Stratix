@@ -363,6 +363,14 @@ function CollapsedSidebar({
                   {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
                   {theme === "dark" ? "Light mode" : "Dark mode"}
                 </button>
+                <Link
+                  href="/settings"
+                  onClick={(e) => { setProfileOpen(false); handleNav(e, "/settings"); }}
+                  className="flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-white/55 hover:text-white/85 hover:bg-white/[0.06] transition-all"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  Settings
+                </Link>
                 <button
                   onClick={() => { setProfileOpen(false); handleSignOut(); }}
                   className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-all"
@@ -612,6 +620,14 @@ function ExpandedSidebar({
                   {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
                   {theme === "dark" ? "Light mode" : "Dark mode"}
                 </button>
+                <Link
+                  href="/settings"
+                  onClick={(e) => { setProfileOpen(false); handleNav(e, "/settings"); }}
+                  className="flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-white/55 hover:text-white/85 hover:bg-white/[0.06] transition-all duration-150"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  Settings
+                </Link>
                 <button
                   onClick={() => { setProfileOpen(false); handleSignOut(); }}
                   className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13px] text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-all duration-150"
