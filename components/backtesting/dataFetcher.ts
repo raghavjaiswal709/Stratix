@@ -58,6 +58,11 @@ async function idbSet(key: string, data: Candle[]): Promise<void> {
 // ── In-memory cache (fastest path, lost on refresh) ──────────────────────────
 const memCache = new Map<string, Candle[]>();
 
+// Short TTL cache specifically for the current month to avoid spamming the
+// Dukascopy API (which takes several seconds) on page reload/revisit.
+const currentMonthCache = new Map<string, { data: Candle[]; ts: number }>();
+const CURRENT_MONTH_TTL = 5 * 60 * 1000; // 5 minutes
+
 let lastFetchedSource: "IndexedDB" | "GitHub CDN" | "Local Static" | "Dukascopy API" = "Dukascopy API";
 
 export function getLastFetchedSource(): string { return lastFetchedSource; }
@@ -131,8 +136,16 @@ async function fetchMonth(
 
   const currentMonth = isCurrentMonth(year, month);
 
-  // 1. In-memory — skip for current month (data changes intraday)
-  if (!currentMonth && memCache.has(key)) return memCache.get(key)!;
+  // 1. In-memory — check standard cache for historical, or TTL cache for current month
+  if (!currentMonth) {
+    if (memCache.has(key)) return memCache.get(key)!;
+  } else {
+    const cached = currentMonthCache.get(key);
+    if (cached && Date.now() - cached.ts < CURRENT_MONTH_TTL) {
+      lastFetchedSource = "Dukascopy API";
+      return cached.data;
+    }
+  }
 
   // 2. IndexedDB — skip for current month (same reason)
   if (!currentMonth) {
@@ -148,9 +161,14 @@ async function fetchMonth(
   }
 
   const monthStr = String(month + 1).padStart(2, "0");
-  // Only persist completed months to cache; current month is always re-fetched
+  // Only persist completed months to cache; current month uses its own short TTL cache
   const set = (data: Candle[]) => {
-    if (!currentMonth) { memCache.set(key, data); idbSet(key, data); }
+    if (!currentMonth) {
+      memCache.set(key, data);
+      idbSet(key, data);
+    } else {
+      currentMonthCache.set(key, { data, ts: Date.now() });
+    }
     return data;
   };
 
