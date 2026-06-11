@@ -113,6 +113,14 @@ function parseCandlesCSV(text: string): Candle[] {
 
 // ── Single month fetch with three-tier cache: mem → IDB → network ────────────
 
+// Returns true when year/month (0-indexed) is the current calendar month.
+// Current-month data is still being written to, so we must never serve it from
+// cache — always fetch fresh to get today's candles.
+function isCurrentMonth(year: number, month: number): boolean {
+  const now = new Date();
+  return year === now.getUTCFullYear() && month === now.getUTCMonth();
+}
+
 async function fetchMonth(
   instrument: InstrumentKey,
   year: number,
@@ -121,19 +129,30 @@ async function fetchMonth(
 ): Promise<Candle[]> {
   const key = `${instrument}-${year}-${String(month + 1).padStart(2, "0")}`;
 
-  // 1. In-memory (instant)
-  if (memCache.has(key)) return memCache.get(key)!;
+  const currentMonth = isCurrentMonth(year, month);
 
-  // 2. IndexedDB (fast, persistent across refreshes)
-  const cached = await idbGet(key);
-  if (cached) {
-    memCache.set(key, cached);
-    lastFetchedSource = "IndexedDB";
-    return cached;
+  // 1. In-memory — skip for current month (data changes intraday)
+  if (!currentMonth && memCache.has(key)) return memCache.get(key)!;
+
+  // 2. IndexedDB — skip for current month (same reason)
+  if (!currentMonth) {
+    const cached = await idbGet(key);
+    if (cached) {
+      memCache.set(key, cached);
+      lastFetchedSource = "IndexedDB";
+      return cached;
+    }
+  } else {
+    // Evict stale current-month entry from memory so we re-fetch every time
+    memCache.delete(key);
   }
 
   const monthStr = String(month + 1).padStart(2, "0");
-  const set = (data: Candle[]) => { memCache.set(key, data); idbSet(key, data); return data; };
+  // Only persist completed months to cache; current month is always re-fetched
+  const set = (data: Candle[]) => {
+    if (!currentMonth) { memCache.set(key, data); idbSet(key, data); }
+    return data;
+  };
 
   // 3. Local / CDN static CSV
   const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
@@ -165,12 +184,18 @@ async function fetchMonth(
   }
 
   // 5. Dukascopy API (slowest, always fresh)
-  const from = new Date(Date.UTC(year, month,     1));
-  const to   = new Date(Date.UTC(year, month + 1, 1));
+  const from = new Date(Date.UTC(year, month, 1));
+  // For the current month use tomorrow as the exclusive upper bound so the API
+  // returns all candles up to the latest available (including today's intraday
+  // bars).  For completed months, use the first day of the next month as usual.
+  const isToday = currentMonth;
+  const toDate  = isToday
+    ? (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); return d; })()
+    : new Date(Date.UTC(year, month + 1, 1));
   const params = new URLSearchParams({
     instrument, timeframe: "1m",
     from: from.toISOString().slice(0, 10),
-    to:   to.toISOString().slice(0, 10),
+    to:   toDate.toISOString().slice(0, 10),
   });
   try {
     const res = await fetch(`/api/backtesting/candles?${params}`, { signal });
