@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GraffitiLogo } from "./graffiti-logo";
 import { HftBackground } from "./hft-background";
+import { useAppContext } from "@/lib/context";
 
 interface Quote {
   text: string;
@@ -122,8 +123,14 @@ const quotes: Quote[] = [
 export function TradingQuotesModal() {
   const [show, setShow] = useState(false);
   const [quote, setQuote] = useState<Quote | null>(null);
+  const { preferences } = useAppContext();
 
   useEffect(() => {
+    // Hide if preferences specify showQuotes is false
+    if (preferences?.showQuotes === false) {
+      setShow(false);
+      return;
+    }
     // Show a fresh quote every time the dashboard mounts (each visit/navigation).
     const randomIndex = Math.floor(Math.random() * quotes.length);
     const timer = setTimeout(() => {
@@ -131,7 +138,7 @@ export function TradingQuotesModal() {
       setShow(true);
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [preferences?.showQuotes]);
 
   if (!show || !quote) return null;
 
