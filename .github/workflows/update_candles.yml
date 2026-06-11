@@ -7,8 +7,12 @@ name: Update Candle Data
 
 on:
   schedule:
-    - cron: "0 * * * *"   # every hour at :00 UTC
-
+    - cron: "17 * * * *"   # every hour at minute :17 UTC (avoiding high-load :00 peak times)
+  push:
+    branches:
+      - main
+    paths:
+      - 'public/data/candles/**' # Can trigger automatically or manual dispatch
   workflow_dispatch:
     inputs:
       session:
