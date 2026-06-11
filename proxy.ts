@@ -13,9 +13,10 @@ export const config = {
      * Match everything EXCEPT:
      *  - _next/static  (static assets)
      *  - _next/image   (Next.js image optimiser)
-     *  - favicon.ico
+     *  - favicon.ico, favicon.svg
+     *  - manifest.json, apple-touch-icon.png, and other icons
      *  - public/       (public directory files)
      */
-    "/((?!_next/static|_next/image|favicon.ico|public/).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|favicon\\.svg|manifest\\.json|apple-touch-icon\\.png|icon-.*\\.png|.*\\.svg|public/).*)",
   ],
 };

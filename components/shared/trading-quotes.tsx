@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GraffitiLogo } from "./graffiti-logo";
+import { HftBackground } from "./hft-background";
 
 interface Quote {
   text: string;
@@ -142,13 +143,13 @@ export function TradingQuotesModal() {
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-6"
       >
-        <div className="absolute inset-0 bg-gradient-to-br from-white/[0.03] to-white/[0.01] pointer-events-none" />
+        <HftBackground />
         
         <motion.div 
           initial={{ scale: 0.9, y: 20 }}
           animate={{ scale: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 100, damping: 20 }}
-          className="relative max-w-4xl w-full text-center"
+          className="relative z-10 max-w-4xl w-full text-center"
         >
           <button
             onClick={() => setShow(false)}
