@@ -55,13 +55,13 @@ let pageCache: {
 export function DataPage() {
   // ── Controls ──
   const [instrument, setInstrument] = useState<InstrumentKey>(() => pageCache?.instrument || "xauusd");
-  const [fromDate, setFromDate]     = useState(() => pageCache?.fromDate || monthsAgoStr(3));
+  const [fromDate, setFromDate]     = useState(() => pageCache?.fromDate || monthsAgoStr(1));
   const [toDate, setToDate]         = useState(() => pageCache?.toDate || todayStr());
-  const [timeframe, setTimeframe]   = useState<Timeframe>("1H");
+  const [timeframe, setTimeframe]   = useState<Timeframe>("15m");
 
   // ── Data ──
   const [rawCandles,     setRawCandles]     = useState<Candle[]>(() => pageCache?.rawCandles || []);
-  const [displayCandles, setDisplayCandles] = useState<Candle[]>(() => pageCache ? resampleCandles(pageCache.rawCandles, "1H") : []);
+  const [displayCandles, setDisplayCandles] = useState<Candle[]>(() => pageCache ? resampleCandles(pageCache.rawCandles, "15m") : []);
   const [isLoading,      setIsLoading]      = useState(false);
   const [loadProgress,   setLoadProgress]   = useState(0);
   const [loadLabel,      setLoadLabel]      = useState("");
