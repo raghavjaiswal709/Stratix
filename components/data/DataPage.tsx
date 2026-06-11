@@ -21,9 +21,23 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Returns the calendar day AFTER the given YYYY-MM-DD string.
+// Used as the exclusive upper-bound for fetchCandleRange so that all
+// candles on `date` (which can be 23:59 IST = 18:29 UTC) are included.
+function nextDayStr(date: string): string {
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function monthsAgoStr(n: number) {
   const d = new Date();
-  d.setMonth(d.getMonth() - n);
+  // For fractional months (1W = 0.25) convert to days
+  if (n < 1) {
+    d.setDate(d.getDate() - Math.round(n * 30));
+  } else {
+    d.setMonth(d.getMonth() - Math.round(n));
+  }
   return d.toISOString().slice(0, 10);
 }
 
@@ -121,8 +135,14 @@ export function DataPage() {
     setDataSource(null);
 
     try {
+      // Pass nextDayStr(to) as the exclusive upper bound so the filter in
+      // fetchCandleRange (`c.time >= toTs`) does NOT cut off candles that fall
+      // on `to` itself.  Example: toDate="2026-06-11" → exclusive ceiling is
+      // "2026-06-12T00:00:00Z" so every June-11 candle (including 23:59 IST)
+      // is included.
+      const exclusiveTo = nextDayStr(to);
       const raw = await fetchCandleRange(
-        sym, from, to,
+        sym, from, exclusiveTo,
         (pct, label) => { setLoadProgress(pct); setLoadLabel(label); },
         abort.signal,
       );
