@@ -1,27 +1,18 @@
 name: Update Candle Data
 
-# ─── Schedule (all times IST → UTC) ──────────────────────────────────────────
-#
-#   Session    IST         UTC        cron
-#   ─────────  ──────────  ─────────  ──────────────
-#   Asian      05:15 AM    23:45      45 23 * * *
-#   London     11:15 AM    05:45      45 5 * * *
-#   New York   04:15 PM    10:45      45 10 * * *
-#
-# IST is UTC+05:30. All three fire before the corresponding session open
-# so fresh candles are available before trading begins.
+# ─── Schedule ─────────────────────────────────────────────────────────────────
+#   Runs every hour at minute 0 (UTC), 24× per day.
+#   Dukascopy data is fetched incrementally — only new rows are appended.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
   schedule:
-    - cron: "45 23 * * *"   # 05:15 AM IST  — before Asian session
-    - cron: "45 5 * * *"    # 11:15 AM IST  — before London session
-    - cron: "45 10 * * *"   # 04:15 PM IST  — before New York session
+    - cron: "0 * * * *"   # every hour at :00 UTC
 
   workflow_dispatch:
     inputs:
       session:
-        description: "Session label for commit message (asian / london / new_york / manual)"
+        description: "Session label for commit message (manual)"
         required: false
         default: "manual"
         type: string
@@ -55,20 +46,13 @@ jobs:
         run: npm ci
 
       # ── 4. Resolve session label ─────────────────────────────────────────
-      #    workflow_dispatch → use the input value
-      #    scheduled         → derive from UTC hour at runtime
       - name: Resolve session name
         id: session
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.session }}" ]; then
             echo "name=${{ github.event.inputs.session }}" >> "$GITHUB_OUTPUT"
           else
-            HOUR=$(date -u +%-H)
-            if   [ "$HOUR" -eq 23 ]; then echo "name=asian"    >> "$GITHUB_OUTPUT"
-            elif [ "$HOUR" -eq 5  ]; then echo "name=london"   >> "$GITHUB_OUTPUT"
-            elif [ "$HOUR" -eq 10 ]; then echo "name=new_york" >> "$GITHUB_OUTPUT"
-            else                          echo "name=scheduled" >> "$GITHUB_OUTPUT"
-            fi
+            echo "name=scheduled" >> "$GITHUB_OUTPUT"
           fi
 
       # ── 5. Run the incremental update ────────────────────────────────────
