@@ -1,6 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import clientPromise from "@/lib/mongodb-client";
+import { UserDataModel } from "@/lib/models/UserData";
+import dbConnect from "@/lib/mongodb";
+import { ObjectId } from "mongodb";
 
 export const dynamic = "force-dynamic";
 
@@ -71,4 +74,50 @@ export async function GET() {
   });
 
   return NextResponse.json({ users: enriched, accounts });
+}
+
+/**
+ * PUT /api/admin/users
+ * Updates preferences and theme settings for a specific user.
+ * Restricted to admin role only — 403 for everyone else.
+ */
+export async function PUT(req: NextRequest) {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (session.user.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  await dbConnect();
+  const body = await req.json();
+  const { userId, preferences, theme, role } = body;
+
+  if (!userId) {
+    return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+  }
+
+  const updateData: Record<string, any> = {};
+  if (preferences !== undefined) updateData.preferences = preferences;
+  if (theme !== undefined) updateData.theme = theme;
+
+  const userData = await UserDataModel.findOneAndUpdate(
+    { userId },
+    { $set: updateData },
+    { new: true, upsert: true }
+  );
+
+  if (role !== undefined && ObjectId.isValid(userId)) {
+    const client = await clientPromise;
+    const db = client.db();
+    await db.collection("users").updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { role } }
+    );
+  }
+
+  return NextResponse.json({ success: true, userData });
 }

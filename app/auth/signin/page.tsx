@@ -61,6 +61,32 @@ export default function SignInPage() {
             <p className="text-center text-[11.5px] text-white/30">
               Secure sign-in via Google OAuth
             </p>
+
+            {process.env.NODE_ENV === "development" && (
+              <div className="mt-4 p-3 border border-white/10 rounded-lg bg-white/5 space-y-2">
+                <p className="text-[10px] text-white/50 text-center font-semibold uppercase tracking-wider">
+                  Developer Login Shortcuts
+                </p>
+                <button
+                  onClick={async () => {
+                    setLoading(true);
+                    await signIn("credentials", { email: "raghavjaiswal8709@gmail.com", callbackUrl: "/dashboard" });
+                  }}
+                  className="w-full h-8 rounded bg-emerald-600/80 text-white text-xs font-semibold hover:bg-emerald-700 active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  Login as Admin (Raghav)
+                </button>
+                <button
+                  onClick={async () => {
+                    setLoading(true);
+                    await signIn("credentials", { email: "kumarrishav4555@gmail.com", callbackUrl: "/dashboard" });
+                  }}
+                  className="w-full h-8 rounded bg-blue-600/80 text-white text-xs font-semibold hover:bg-blue-700 active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  Login as User (RJ)
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
