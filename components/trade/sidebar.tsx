@@ -28,6 +28,8 @@ import {
   Check,
   BrainCircuit,
   Newspaper,
+  Settings,
+  Database,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -48,6 +50,7 @@ const tradeItems: NavItem[] = [
   { href: "/journal",       label: "Journal",       icon: BookOpen },
   { href: "/trade-notes",   label: "Trade Notes",   icon: FileText },
   { href: "/backtesting",   label: "Backtesting",   icon: ChartCandlestick, beta: true },
+  { href: "/data",          label: "Data",          icon: Database },
   { href: "/news-analysis", label: "News Analysis", icon: Newspaper },
 ];
 
@@ -64,6 +67,43 @@ const lifeItems = [
   { href: "/notes",  label: "Notes",  icon: StickyNote },
 ];
 
+function getActiveSidebarItems(preferences: any): {
+  tradeItems: NavItem[];
+  adminTradeItems: NavItem[];
+  lifeItems: { href: string; label: string; icon: any; }[];
+} {
+  const items = preferences?.sidebarItems;
+  if (!items) return { tradeItems, adminTradeItems, lifeItems };
+
+  const activeTrade = tradeItems.filter(item => {
+    if (item.href === "/dashboard") return items.dashboard !== false;
+    if (item.href === "/trades") return items.trades !== false;
+    if (item.href === "/journal") return items.journal !== false;
+    if (item.href === "/trade-notes") return items.tradeNotes !== false;
+    if (item.href === "/backtesting") return items.backtesting !== false;
+    if (item.href === "/data") return items.data !== false;
+    if (item.href === "/news-analysis") return items.newsAnalysis !== false;
+    return true;
+  });
+
+  const activeAdmin = adminTradeItems.filter(item => {
+    if (item.href === "/live-data") return items.liveData !== false;
+    if (item.href === "/chart") return items.chart !== false;
+    if (item.href === "/ai-report") return items.aiReport !== false;
+    return true;
+  });
+
+  const activeLife = lifeItems.filter(item => {
+    if (item.href === "/todo") return items.todo !== false;
+    if (item.href === "/habits") return items.habits !== false;
+    if (item.href === "/diary") return items.diary !== false;
+    if (item.href === "/notes") return items.notes !== false;
+    return true;
+  });
+
+  return { tradeItems: activeTrade, adminTradeItems: activeAdmin, lifeItems: activeLife };
+}
+
 interface TradeSidebarProps {
   open: boolean;
   onClose: () => void;
@@ -79,7 +119,8 @@ function CollapsedSidebar({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme, tradingProfiles, activeProfileId, setActiveProfileId } = useAppContext();
+  const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme, tradingProfiles, activeProfileId, setActiveProfileId, preferences } = useAppContext();
+  const { tradeItems: activeTradeItems, adminTradeItems: activeAdminTradeItems, lifeItems: activeLifeItems } = getActiveSidebarItems(preferences);
   const [profileOpen, setProfileOpen] = useState(false);
   const [showManage, setShowManage] = useState(false);
 
@@ -132,7 +173,7 @@ function CollapsedSidebar({
         <div className="w-8 my-0.5 border-t border-white/[0.05]" />
 
         {/* Trading */}
-        {tradeItems.map(({ href, label, icon: Icon, beta }) => {
+        {activeTradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Tooltip key={href}>
@@ -167,7 +208,7 @@ function CollapsedSidebar({
         })}
 
         {/* Admin-only items */}
-        {session?.user?.role === "admin" && adminTradeItems.map(({ href, label, icon: Icon, beta }) => {
+        {session?.user?.role === "admin" && activeAdminTradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Tooltip key={href}>
@@ -204,7 +245,7 @@ function CollapsedSidebar({
         <div className="w-8 my-1 border-t border-white/[0.06]" />
 
         {/* Life-OS */}
-        {lifeItems.map(({ href, label, icon: Icon }) => {
+        {activeLifeItems.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Tooltip key={href}>
@@ -351,7 +392,8 @@ function ExpandedSidebar({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme, tradingProfiles, activeProfileId, setActiveProfileId } = useAppContext();
+  const { hasUnsavedChanges, setHasUnsavedChanges, theme, setTheme, tradingProfiles, activeProfileId, setActiveProfileId, preferences } = useAppContext();
+  const { tradeItems: activeTradeItems, adminTradeItems: activeAdminTradeItems, lifeItems: activeLifeItems } = getActiveSidebarItems(preferences);
   const [profileOpen, setProfileOpen] = useState(false);
   const [showManage, setShowManage] = useState(false);
 
@@ -419,7 +461,7 @@ function ExpandedSidebar({
         </div>
 
         <p className="px-2 mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-white/20">Trading</p>
-        {tradeItems.map(({ href, label, icon: Icon, beta }) => {
+        {activeTradeItems.map(({ href, label, icon: Icon, beta }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Link
