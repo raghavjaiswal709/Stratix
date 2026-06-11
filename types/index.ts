@@ -282,6 +282,8 @@ export interface ApiTrade {
   mistakes?: string;
   lessons?: string;
   _deleted?: boolean;
+  parentTradeId?: string;
+  mergedTradeIds?: string[];
 }
 
 // ============ TRADING PROFILES ============

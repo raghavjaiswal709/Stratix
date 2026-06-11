@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, Fragment } from "react";
 import { format, parseISO } from "date-fns";
 import { useAppContext } from "@/lib/context";
 import {
@@ -27,10 +27,13 @@ import {
   ToggleRight,
   MousePointerClick,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { AddTradeModal, type EditableTrade } from "@/components/trade/trades/add-trade-modal";
 import { ConnectMT5Form } from "@/components/trade/mt5/connect-form";
 import { ImportModal } from "@/components/trade/trades/import-modal";
+import { MergeModal } from "@/components/trade/trades/merge-modal";
 import type { TradesSortFilterPrefs, ApiTrade } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +54,8 @@ interface Trade {
   source: "manual" | "mt5";
   leverage?: number;
   margin?: number;
+  parentTradeId?: string;
+  mergedTradeIds?: string[];
 }
 
 interface MT5Config {
@@ -64,6 +69,71 @@ interface MT5Config {
 function fmt(n: number) {
   const sign = n >= 0 ? "+" : "";
   return `${sign}$${Math.abs(n).toFixed(2)}`;
+}
+
+interface AggregatedTradeInfo {
+  lots: number;
+  profit: number;
+  entryPrice: number;
+  exitPrice?: number;
+  entryTime: string;
+  exitTime?: string;
+  leverage?: number;
+  margin?: number;
+  childTrades: Trade[];
+}
+
+function getAggregatedTradeInfo(parentTrade: Trade, allTrades: Trade[]): AggregatedTradeInfo {
+  const childTrades = allTrades.filter(t => t.parentTradeId === parentTrade._id || t._id === parentTrade._id);
+  
+  let totalLots = 0;
+  let totalProfit = 0;
+  let weightedEntrySum = 0;
+  let weightedExitSum = 0;
+  let exitLots = 0;
+  let earliestEntryTime = parentTrade.entryTime;
+  let latestExitTime = parentTrade.exitTime;
+  let totalMargin = 0;
+  let maxLeverage = parentTrade.leverage ?? 100;
+
+  childTrades.forEach(t => {
+    totalLots += t.lots;
+    totalProfit += t.profit;
+    weightedEntrySum += t.entryPrice * t.lots;
+    if (t.exitPrice) {
+      weightedExitSum += t.exitPrice * t.lots;
+      exitLots += t.lots;
+    }
+    if (new Date(t.entryTime) < new Date(earliestEntryTime)) {
+      earliestEntryTime = t.entryTime;
+    }
+    if (t.exitTime) {
+      if (!latestExitTime || new Date(t.exitTime) > new Date(latestExitTime)) {
+        latestExitTime = t.exitTime;
+      }
+    }
+    if (t.margin) {
+      totalMargin += t.margin;
+    }
+    if (t.leverage && t.leverage > maxLeverage) {
+      maxLeverage = t.leverage;
+    }
+  });
+
+  const avgEntryPrice = totalLots > 0 ? weightedEntrySum / totalLots : parentTrade.entryPrice;
+  const avgExitPrice = exitLots > 0 ? weightedExitSum / exitLots : parentTrade.exitPrice;
+
+  return {
+    lots: Number(totalLots.toFixed(2)),
+    profit: Number(totalProfit.toFixed(2)),
+    entryPrice: Number(avgEntryPrice.toFixed(5)),
+    exitPrice: avgExitPrice ? Number(avgExitPrice.toFixed(5)) : undefined,
+    entryTime: earliestEntryTime,
+    exitTime: latestExitTime,
+    leverage: maxLeverage,
+    margin: totalMargin > 0 ? Number(totalMargin.toFixed(2)) : undefined,
+    childTrades: childTrades.filter(t => t._id !== parentTrade._id)
+  };
 }
 
 const DEFAULT_PREFS: TradesSortFilterPrefs = {
@@ -146,6 +216,8 @@ export default function TradesPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [editingTrade, setEditingTrade] = useState<EditableTrade | null>(null);
+  const [extendedIds, setExtendedIds] = useState<string[]>([]);
+  const [mergeTrade, setMergeTrade] = useState<Trade | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -202,8 +274,15 @@ export default function TradesPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProfileId]);
 
+  useEffect(() => {
+    const handler = () => load(activeProfileId);
+    window.addEventListener("refresh-trades", handler);
+    return () => window.removeEventListener("refresh-trades", handler);
+  }, [activeProfileId, load]);
+
   // Apply filter
   const filtered = trades.filter((t) => {
+    if (t.parentTradeId) return false;
     if (filterSymbol && !t.symbol.toLowerCase().includes(filterSymbol.toLowerCase())) return false;
     if (filterDirection !== "all" && t.direction !== filterDirection) return false;
     if (filterStatus !== "all" && t.status !== filterStatus) return false;
@@ -220,6 +299,28 @@ export default function TradesPage() {
     else if (sortBy === "lots") cmp = a.lots - b.lots;
     return sortDir === "asc" ? cmp : -cmp;
   });
+
+  const mergeCandidates = useMemo(() => {
+    if (!mergeTrade) return [];
+    const candidates = trades.filter((t) => {
+      if (t._id === mergeTrade._id) return false;
+      if (t.parentTradeId && t.parentTradeId !== mergeTrade._id) return false;
+      if (t.parentTradeId === mergeTrade._id) return true;
+      if (filterSymbol && !t.symbol.toLowerCase().includes(filterSymbol.toLowerCase())) return false;
+      if (filterDirection !== "all" && t.direction !== filterDirection) return false;
+      if (filterStatus !== "all" && t.status !== filterStatus) return false;
+      if (filterSource !== "all" && t.source !== filterSource) return false;
+      return true;
+    });
+    return candidates.sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "date") cmp = new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime();
+      else if (sortBy === "pnl") cmp = a.profit - b.profit;
+      else if (sortBy === "symbol") cmp = a.symbol.localeCompare(b.symbol);
+      else if (sortBy === "lots") cmp = a.lots - b.lots;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [mergeTrade, trades, filterSymbol, filterDirection, filterStatus, filterSource, sortBy, sortDir]);
 
   const activeFilterCount = [
     filterSymbol !== "",
@@ -527,49 +628,149 @@ export default function TradesPage() {
           <>
             {/* Mobile: card list */}
             <div className="md:hidden divide-y divide-border">
-              {paginated.map((trade) => (
-                <div key={trade._id} className="px-4 py-3.5 flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-full bg-amber-500/15 flex items-center justify-center text-[10px] font-bold text-amber-400 shrink-0">
-                    {trade.symbol.slice(0, 2)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
-                        {trade.direction === "buy" ? "Long" : "Short"}
-                      </span>
-                      {trade.source === "mt5" && (
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-white/[0.06] border-white/[0.10] text-white/55">MT5</span>
-                      )}
+              {paginated.map((trade) => {
+                const isParent = trade.mergedTradeIds && trade.mergedTradeIds.length > 0;
+                const agg = isParent ? getAggregatedTradeInfo(trade, trades) : null;
+                const isExtended = extendedIds.includes(trade._id);
+
+                const displayLots = agg ? agg.lots : trade.lots;
+                const displayProfit = agg ? agg.profit : trade.profit;
+                const displayEntryPrice = agg ? agg.entryPrice : trade.entryPrice;
+                const displayEntryTime = agg ? agg.entryTime : trade.entryTime;
+                const displayExitTime = agg ? agg.exitTime : trade.exitTime;
+
+                return (
+                  <div key={trade._id} className="divide-y divide-white/5">
+                    {/* Main card */}
+                    <div className="px-4 py-3.5 flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-full bg-amber-500/15 flex items-center justify-center text-[10px] font-bold text-amber-400 shrink-0">
+                        {trade.symbol.slice(0, 2)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+                            {trade.direction === "buy" ? "Long" : "Short"}
+                          </span>
+                          {isParent && agg && (
+                            <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                              COMPILED ({agg.childTrades.length + 1})
+                            </span>
+                          )}
+                          {trade.source === "mt5" && (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-white/[0.06] border-white/[0.10] text-white/55">MT5</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {format(parseISO(displayEntryTime), "MMM d, HH:mm")}
+                          {displayExitTime && <> → {format(parseISO(displayExitTime), "MMM d, HH:mm")}</>}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Entry ${displayEntryPrice.toLocaleString()} · {displayLots} lots
+                          {trade.leverage && <> · <span className="text-white/55">{trade.leverage}×</span></>}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span className={`text-[14px] font-bold ${displayProfit > 0 ? "text-emerald-400" : displayProfit < 0 ? "text-red-400" : "text-muted-foreground"}`}>
+                          {fmt(displayProfit)}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setMergeTrade(trade)}
+                            className="text-muted-foreground/50 hover:text-amber-400 transition p-1"
+                            title="Merge trades"
+                          >
+                            <Puzzle className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => startEdit(trade)} className="text-muted-foreground/50 hover:text-white/80 transition p-1">
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirmId(trade._id)}
+                            disabled={deleting === trade._id}
+                            className="text-muted-foreground/50 hover:text-red-400 transition p-1"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                          {isParent && (
+                            <button
+                              onClick={() => setExtendedIds(prev => prev.includes(trade._id) ? prev.filter(x => x !== trade._id) : [...prev, trade._id])}
+                              className="text-muted-foreground/55 hover:text-foreground transition p-1"
+                            >
+                              {isExtended ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      {format(parseISO(trade.entryTime), "MMM d, HH:mm")}
-                      {trade.exitTime && <> → {format(parseISO(trade.exitTime), "MMM d, HH:mm")}</>}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Entry ${trade.entryPrice.toLocaleString()} · {trade.lots} lots
-                      {trade.leverage && <> · <span className="text-white/55">{trade.leverage}×</span></>}
-                    </p>
+
+                    {/* Extended child cards */}
+                    {isParent && isExtended && agg && (
+                      <div className="bg-white/[0.01] pl-6 py-1 divide-y divide-white/5">
+                        {/* Parent itself as first child */}
+                        <div className="py-2.5 flex items-center justify-between text-[11px] pr-4 text-muted-foreground">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-white/40 font-mono text-[8px]">#1 (Main)</span>
+                              <span className="font-semibold text-foreground/80">{trade.symbol}</span>
+                              <span className={trade.direction === "buy" ? "text-emerald-400" : "text-red-400"}>
+                                {trade.direction === "buy" ? "Long" : "Short"}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                              Entry: ${trade.entryPrice} · Lots: {trade.lots} · {format(parseISO(trade.entryTime), "MMM d, HH:mm")}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className={trade.profit > 0 ? "text-emerald-400/80" : trade.profit < 0 ? "text-red-400/80" : ""}>
+                              {fmt(trade.profit)}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button onClick={() => startEdit(trade)} className="text-muted-foreground/40 hover:text-white/80 transition p-0.5">
+                                <Edit2 className="h-3 w-3" />
+                              </button>
+                              <button onClick={() => setDeleteConfirmId(trade._id)} className="text-muted-foreground/40 hover:text-red-400 transition p-0.5">
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Other child trades */}
+                        {agg.childTrades.map((child, idx) => (
+                          <div key={child._id} className="py-2.5 flex items-center justify-between text-[11px] pr-4 text-muted-foreground">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-white/40 font-mono text-[8px]">#{idx + 2}</span>
+                                <span className="font-semibold text-foreground/80">{child.symbol}</span>
+                                <span className={child.direction === "buy" ? "text-emerald-400" : "text-red-400"}>
+                                  {child.direction === "buy" ? "Long" : "Short"}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                                Entry: ${child.entryPrice} · Lots: {child.lots} · {format(parseISO(child.entryTime), "MMM d, HH:mm")}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className={child.profit > 0 ? "text-emerald-400/80" : child.profit < 0 ? "text-red-400/80" : ""}>
+                                {fmt(child.profit)}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button onClick={() => startEdit(child)} className="text-muted-foreground/40 hover:text-white/80 transition p-0.5">
+                                  <Edit2 className="h-3 w-3" />
+                                </button>
+                                <button onClick={() => setDeleteConfirmId(child._id)} className="text-muted-foreground/40 hover:text-red-400 transition p-0.5">
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <span className={`text-[14px] font-bold ${trade.profit > 0 ? "text-emerald-400" : trade.profit < 0 ? "text-red-400" : "text-muted-foreground"}`}>
-                        {fmt(trade.profit)}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={() => startEdit(trade)} className="text-muted-foreground/50 hover:text-white/80 transition">
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmId(trade._id)}
-                          disabled={deleting === trade._id}
-                          className="text-muted-foreground/50 hover:text-red-400 transition"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Desktop: table */}
@@ -585,61 +786,215 @@ export default function TradesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {paginated.map((trade) => (
-                    <tr key={trade._id} className="hover:bg-muted/20 transition-colors group">
-                      <td className="px-5 py-3.5">
-                        <div className="text-[11px] text-muted-foreground">Open: {format(parseISO(trade.entryTime), "MMM d, hh:mm aa")}</div>
-                        {trade.exitTime && <div className="text-[11px] text-muted-foreground/70">Close: {format(parseISO(trade.exitTime), "MMM d, hh:mm aa")}</div>}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-full bg-amber-500/15 flex items-center justify-center text-[9px] font-bold text-amber-400">{trade.symbol.slice(0, 2)}</div>
-                          <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
-                          {trade.direction === "buy" ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                          {trade.direction === "buy" ? "Long" : "Short"}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-[13px] text-foreground/70">${trade.entryPrice.toLocaleString()}</td>
-                      <td className="px-5 py-3.5 text-[13px] text-muted-foreground">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : "—"}</td>
-                      <td className="px-5 py-3.5 text-[13px] text-foreground/60">{trade.lots}</td>
-                      <td className="px-5 py-3.5">
-                        <div className="text-[12px] font-bold text-white/55">{trade.leverage ?? 100}×</div>
-                        {trade.margin != null && (
-                          <div className="text-[10px] text-muted-foreground">M: ${trade.margin.toFixed(2)}</div>
+                  {paginated.map((trade) => {
+                    const isParent = trade.mergedTradeIds && trade.mergedTradeIds.length > 0;
+                    const agg = isParent ? getAggregatedTradeInfo(trade, trades) : null;
+                    const isExtended = extendedIds.includes(trade._id);
+
+                    const displayLots = agg ? agg.lots : trade.lots;
+                    const displayProfit = agg ? agg.profit : trade.profit;
+                    const displayEntryPrice = agg ? agg.entryPrice : trade.entryPrice;
+                    const displayExitPrice = agg ? agg.exitPrice : trade.exitPrice;
+                    const displayEntryTime = agg ? agg.entryTime : trade.entryTime;
+                    const displayExitTime = agg ? agg.exitTime : trade.exitTime;
+                    const displayLeverage = agg ? agg.leverage : trade.leverage;
+                    const displayMargin = agg ? agg.margin : trade.margin;
+
+                    return (
+                      <Fragment key={trade._id}>
+                        <tr className="hover:bg-muted/20 transition-colors group">
+                          <td className="px-5 py-3.5">
+                            <div className="text-[11px] text-muted-foreground">Open: {format(parseISO(displayEntryTime), "MMM d, hh:mm aa")}</div>
+                            {displayExitTime && <div className="text-[11px] text-muted-foreground/70">Close: {format(parseISO(displayExitTime), "MMM d, hh:mm aa")}</div>}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center gap-2">
+                              <div className="h-7 w-7 rounded-full bg-amber-500/15 flex items-center justify-center text-[9px] font-bold text-amber-400 shrink-0">{trade.symbol.slice(0, 2)}</div>
+                              <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
+                              {isParent && agg && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                  COMPILED ({agg.childTrades.length + 1})
+                                </span>
+                              )}
+                              {isParent && (
+                                <button
+                                  onClick={() => setExtendedIds(prev => prev.includes(trade._id) ? prev.filter(x => x !== trade._id) : [...prev, trade._id])}
+                                  className="p-1 rounded hover:bg-white/10 transition text-muted-foreground hover:text-foreground"
+                                >
+                                  {isExtended ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+                              {trade.direction === "buy" ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                              {trade.direction === "buy" ? "Long" : "Short"}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-[13px] text-foreground/70">${displayEntryPrice.toLocaleString()}</td>
+                          <td className="px-5 py-3.5 text-[13px] text-muted-foreground">{displayExitPrice ? `$${displayExitPrice.toLocaleString()}` : "—"}</td>
+                          <td className="px-5 py-3.5 text-[13px] text-foreground/60">{displayLots}</td>
+                          <td className="px-5 py-3.5">
+                            <div className="text-[12px] font-bold text-white/55">{displayLeverage ?? 100}×</div>
+                            {displayMargin != null && (
+                              <div className="text-[10px] text-muted-foreground">M: ${displayMargin.toFixed(2)}</div>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className={`text-[13px] font-bold ${displayProfit > 0 ? "text-emerald-400" : displayProfit < 0 ? "text-red-400" : "text-muted-foreground"}`}>{fmt(displayProfit)}</span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${trade.source === "mt5" ? "bg-white/[0.06] border-white/[0.10] text-white/55" : "bg-muted border-border text-muted-foreground"}`}>
+                              {trade.source === "mt5" ? "MT5" : "Manual"}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => setMergeTrade(trade)}
+                                className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 transition"
+                                title="Merge trades"
+                              >
+                                <Puzzle className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => startEdit(trade)}
+                                className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
+                                title="Edit trade"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmId(trade._id)}
+                                disabled={deleting === trade._id}
+                                className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
+                                title="Delete trade"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {isParent && isExtended && agg && (
+                          <>
+                            {/* Main parent itself as first child row */}
+                            <tr key={`${trade._id}-child-main`} className="bg-white/[0.01] hover:bg-muted/10 border-l-2 border-l-amber-500/20 text-muted-foreground/85 transition-colors group text-[12px]">
+                              <td className="px-5 py-2">
+                                <div className="text-[10px] text-muted-foreground/60">Open: {format(parseISO(trade.entryTime), "MMM d, hh:mm aa")}</div>
+                                {trade.exitTime && <div className="text-[10px] text-muted-foreground/50">Close: {format(parseISO(trade.exitTime), "MMM d, hh:mm aa")}</div>}
+                              </td>
+                              <td className="px-5 py-2">
+                                <div className="flex items-center gap-2 pl-4 text-[11px]">
+                                  <span className="text-white/45 font-mono text-[9px]">#1 (Main)</span>
+                                  <span className="font-semibold text-foreground/75">{trade.symbol}</span>
+                                </div>
+                              </td>
+                              <td className="px-5 py-2">
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.2 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/10 text-emerald-400/80" : "bg-red-500/10 text-red-400/80"}`}>
+                                  {trade.direction === "buy" ? "Long" : "Short"}
+                                </span>
+                              </td>
+                              <td className="px-5 py-2 text-[12px] text-foreground/50">${trade.entryPrice.toLocaleString()}</td>
+                              <td className="px-5 py-2 text-[12px] text-muted-foreground/50">{trade.exitPrice ? `$${trade.exitPrice.toLocaleString()}` : "—"}</td>
+                              <td className="px-5 py-2 text-[12px] text-foreground/50">{trade.lots}</td>
+                              <td className="px-5 py-2">
+                                <div className="text-[11px] font-bold text-white/45">{trade.leverage ?? 100}×</div>
+                                {trade.margin != null && (
+                                  <div className="text-[9px] text-muted-foreground/50">M: ${trade.margin.toFixed(2)}</div>
+                                )}
+                              </td>
+                              <td className="px-5 py-2">
+                                <span className={`text-[12px] font-semibold ${trade.profit > 0 ? "text-emerald-400/80" : trade.profit < 0 ? "text-red-400/80" : "text-muted-foreground/50"}`}>{fmt(trade.profit)}</span>
+                              </td>
+                              <td className="px-5 py-2">
+                                <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-muted text-muted-foreground/75">
+                                  {trade.source === "mt5" ? "MT5" : "Manual"}
+                                </span>
+                              </td>
+                              <td className="px-5 py-2">
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => startEdit(trade)}
+                                    className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
+                                    title="Edit trade"
+                                  >
+                                    <Edit2 className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirmId(trade._id)}
+                                    disabled={deleting === trade._id}
+                                    className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
+                                    title="Delete trade"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+
+                            {/* Aggregated child rows */}
+                            {agg.childTrades.map((child, idx) => (
+                              <tr key={child._id} className="bg-white/[0.01] hover:bg-muted/10 border-l-2 border-l-amber-500/20 text-muted-foreground/80 transition-colors group text-[12px]">
+                                <td className="px-5 py-2">
+                                  <div className="text-[10px] text-muted-foreground/60">Open: {format(parseISO(child.entryTime), "MMM d, hh:mm aa")}</div>
+                                  {child.exitTime && <div className="text-[10px] text-muted-foreground/50">Close: {format(parseISO(child.exitTime), "MMM d, hh:mm aa")}</div>}
+                                </td>
+                                <td className="px-5 py-2">
+                                  <div className="flex items-center gap-2 pl-4 text-[11px]">
+                                    <span className="text-white/45 font-mono text-[9px]">#{idx + 2}</span>
+                                    <span className="font-semibold text-foreground/75">{child.symbol}</span>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-2">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.2 rounded-full ${child.direction === "buy" ? "bg-emerald-500/10 text-emerald-400/80" : "bg-red-500/10 text-red-400/80"}`}>
+                                    {child.direction === "buy" ? "Long" : "Short"}
+                                  </span>
+                                </td>
+                                <td className="px-5 py-2 text-[12px] text-foreground/50">${child.entryPrice.toLocaleString()}</td>
+                                <td className="px-5 py-2 text-[12px] text-muted-foreground/50">{child.exitPrice ? `$${child.exitPrice.toLocaleString()}` : "—"}</td>
+                                <td className="px-5 py-2 text-[12px] text-foreground/50">{child.lots}</td>
+                                <td className="px-5 py-2">
+                                  <div className="text-[11px] font-bold text-white/40">{child.leverage ?? 100}×</div>
+                                  {child.margin != null && (
+                                    <div className="text-[9px] text-muted-foreground/50">M: ${child.margin.toFixed(2)}</div>
+                                  )}
+                                </td>
+                                <td className="px-5 py-2">
+                                  <span className={`text-[12px] font-semibold ${child.profit > 0 ? "text-emerald-400/80" : child.profit < 0 ? "text-red-400/80" : "text-muted-foreground/50"}`}>{fmt(child.profit)}</span>
+                                </td>
+                                <td className="px-5 py-2">
+                                  <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-muted text-muted-foreground/75">
+                                    {child.source === "mt5" ? "MT5" : "Manual"}
+                                  </span>
+                                </td>
+                                <td className="px-5 py-2">
+                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button
+                                      onClick={() => startEdit(child)}
+                                      className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
+                                      title="Edit trade"
+                                    >
+                                      <Edit2 className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteConfirmId(child._id)}
+                                      disabled={deleting === child._id}
+                                      className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
+                                      title="Delete trade"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </>
                         )}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className={`text-[13px] font-bold ${trade.profit > 0 ? "text-emerald-400" : trade.profit < 0 ? "text-red-400" : "text-muted-foreground"}`}>{fmt(trade.profit)}</span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${trade.source === "mt5" ? "bg-white/[0.06] border-white/[0.10] text-white/55" : "bg-muted border-border text-muted-foreground"}`}>
-                          {trade.source === "mt5" ? "MT5" : "Manual"}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => startEdit(trade)}
-                            className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
-                            title="Edit trade"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirmId(trade._id)}
-                            disabled={deleting === trade._id}
-                            className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -967,6 +1322,18 @@ export default function TradesPage() {
             )}
           </div>
         </div>
+      )}
+
+      {mergeTrade && (
+        <MergeModal
+          parentTrade={mergeTrade as any}
+          allTrades={mergeCandidates as any}
+          onClose={() => setMergeTrade(null)}
+          onMerged={() => {
+            setMergeTrade(null);
+            window.dispatchEvent(new CustomEvent("refresh-trades"));
+          }}
+        />
       )}
     </div>
   );

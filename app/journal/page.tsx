@@ -104,6 +104,12 @@ export default function JournalPage() {
 
   useEffect(() => { load(activeProfileId); }, [activeProfileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const handler = () => load(activeProfileId);
+    window.addEventListener("refresh-trades", handler);
+    return () => window.removeEventListener("refresh-trades", handler);
+  }, [activeProfileId, load]);
+
   // Reactively merge any trade edits made on the trades page into local state.
   // sharedTrades is updated immediately when a trade is edited, so this keeps
   // the journal in sync without a network round-trip.

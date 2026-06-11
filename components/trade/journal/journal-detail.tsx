@@ -21,9 +21,11 @@ import {
   AlertCircle,
   Trash2,
   LineChart,
+  Puzzle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/context";
+import { MergeModal } from "../trades/merge-modal";
 
 interface ChecklistItem {
   item: string;
@@ -57,6 +59,8 @@ export interface JournalDetailTrade {
   tags: string[];
   rating: number;
   _deleted?: boolean;
+  parentTradeId?: string;
+  mergedTradeIds?: string[];
 }
 
 interface JournalDetailProps {
@@ -90,10 +94,11 @@ function fmt(n: number) {
 }
 
 export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailProps) {
-  const { sharedTrades } = useAppContext();
+  const { sharedTrades, preferences } = useAppContext();
 
   // Chart visibility state
   const [showChart, setShowChart] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   // Analytics AI modal states
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
@@ -338,6 +343,39 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
   ].filter(Boolean).length;
 
   const totalChecklistItemsCount = 7;
+
+  const sortedCandidates = useMemo(() => {
+    const journalPrefs = preferences.journalSortFilter ?? {
+      sortBy: "date",
+      sortDir: "desc",
+      filterSymbol: "",
+      filterDirection: "all",
+      filterOutcome: "all",
+    };
+
+    return [...sharedTrades]
+      .filter((t) => {
+        if (t._deleted) return false;
+        if (t.parentTradeId && t.parentTradeId !== trade._id) return false;
+        if (journalPrefs.filterSymbol && !t.symbol.toLowerCase().includes(journalPrefs.filterSymbol.toLowerCase())) return false;
+        if (journalPrefs.filterDirection !== "all" && t.direction !== journalPrefs.filterDirection) return false;
+        if (journalPrefs.filterOutcome !== "all") {
+          if (journalPrefs.filterOutcome === "winner" && t.profit <= 0) return false;
+          if (journalPrefs.filterOutcome === "loser" && (t.profit >= 0 || t.status === "open")) return false;
+          if (journalPrefs.filterOutcome === "open" && t.status !== "open") return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        let cmp = 0;
+        const sortBy = journalPrefs.sortBy;
+        const sortDir = journalPrefs.sortDir;
+        if (sortBy === "date") cmp = new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime();
+        else if (sortBy === "pnl") cmp = a.profit - b.profit;
+        else if (sortBy === "symbol") cmp = a.symbol.localeCompare(b.symbol);
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+  }, [sharedTrades, trade._id, preferences.journalSortFilter]);
 
   const filteredTradesForAnalytics = useMemo(() => {
     const now = new Date();
@@ -635,6 +673,15 @@ Please analyze this data and generate a detailed report:
             <Edit2 className="h-3.5 w-3.5" />
             Edit
           </button>
+          {!trade.parentTradeId && (
+            <button
+              onClick={() => setMergeOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/5 transition"
+            >
+              <Puzzle className="h-3.5 w-3.5" />
+              Merge
+            </button>
+          )}
           <button
             onClick={() => setAnalyticsOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/5 transition"
@@ -1385,6 +1432,18 @@ Please analyze this data and generate a detailed report:
             </div>
           </div>
         </div>
+      )}
+
+      {mergeOpen && (
+        <MergeModal
+          parentTrade={trade as any}
+          allTrades={sortedCandidates as any}
+          onClose={() => setMergeOpen(false)}
+          onMerged={() => {
+            setMergeOpen(false);
+            window.dispatchEvent(new CustomEvent("refresh-trades"));
+          }}
+        />
       )}
     </div>
   );
