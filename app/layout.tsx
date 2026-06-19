@@ -5,6 +5,10 @@ import { AuthProvider } from "@/components/providers/auth-provider";
 import { AppProvider } from "@/lib/context";
 import { ClientLayout } from "./client-layout";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { auth } from "@/lib/auth";
+import dbConnect from "@/lib/mongodb";
+import { UserDataModel } from "@/lib/models/UserData";
+import type { InitialMeta } from "@/lib/context";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -33,11 +37,35 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+
+  let initialMeta: InitialMeta | null = null;
+  if (session?.user?.id) {
+    try {
+      await dbConnect();
+      const doc = await UserDataModel.findOne(
+        { userId: session.user.id },
+        "preferences scoreWeights theme tradingProfiles activeProfileId"
+      ).lean();
+      if (doc) {
+        initialMeta = {
+          preferences: (doc.preferences as InitialMeta["preferences"]) ?? null,
+          scoreWeights: (doc.scoreWeights as InitialMeta["scoreWeights"]) ?? null,
+          theme: (doc.theme as "light" | "dark") ?? null,
+          tradingProfiles: (doc.tradingProfiles as InitialMeta["tradingProfiles"]) ?? null,
+          activeProfileId: (doc.activeProfileId as string) ?? null,
+        };
+      }
+    } catch {
+      // Non-fatal — AppProvider will fetch on client as fallback
+    }
+  }
+
   return (
     <html
       lang="en"
@@ -45,8 +73,8 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        <AuthProvider>
-          <AppProvider>
+        <AuthProvider session={session}>
+          <AppProvider initialMeta={initialMeta}>
             <TooltipProvider>
               <ClientLayout>{children}</ClientLayout>
             </TooltipProvider>
