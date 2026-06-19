@@ -4,6 +4,15 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { useSession } from "next-auth/react";
 import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences, ApiTrade, TradingProfile } from "@/types";
 
+// Subset of AppData fetched server-side in the root layout for zero-flicker shell rendering.
+export interface InitialMeta {
+  preferences: UserPreferences | null;
+  scoreWeights: ScoreWeights | null;
+  theme: "light" | "dark" | null;
+  tradingProfiles: TradingProfile[] | null;
+  activeProfileId: string | null;
+}
+
 interface AppData {
   habitData: HabitData;
   todoData: TodoData;
@@ -30,6 +39,7 @@ interface AppContextType extends AppData {
   sharedTrades: ApiTrade[];
   setSharedTrades: (t: ApiTrade[]) => void;
   loading: boolean;
+  saveStatus: "idle" | "saving" | "saved" | "error";
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (val: boolean) => void;
   // Trading profiles
@@ -96,6 +106,7 @@ const AppContext = createContext<AppContextType>({
   sharedTrades: [],
   setSharedTrades: () => {},
   loading: true,
+  saveStatus: "idle",
   hasUnsavedChanges: false,
   setHasUnsavedChanges: () => {},
   setActiveProfileId: () => {},
@@ -105,17 +116,55 @@ const AppContext = createContext<AppContextType>({
 });
 
 const LS_ACTIVE_PROFILE_KEY = "stratix_activeProfileId";
+const LS_PENDING_SAVE_KEY = "stratix_pending_save";
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
+function buildInitialData(initialMeta: InitialMeta | null): AppData {
+  if (!initialMeta) return defaultData;
+  return {
+    ...defaultData,
+    preferences: initialMeta.preferences ?? defaultPreferences,
+    scoreWeights: initialMeta.scoreWeights ?? defaultData.scoreWeights,
+    theme: initialMeta.theme ?? "dark",
+    tradingProfiles: initialMeta.tradingProfiles ?? [],
+    activeProfileId: initialMeta.activeProfileId ?? "",
+  };
+}
+
+async function fetchWithRetry(url: string, options: RequestInit, maxAttempts = 3): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts - 1) {
+        await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastError;
+}
+
+export function AppProvider({
+  children,
+  initialMeta = null,
+}: {
+  children: React.ReactNode;
+  initialMeta?: InitialMeta | null;
+}) {
   const { data: session, status } = useSession();
-  const [data, setData] = useState<AppData>(defaultData);
+  const [data, setData] = useState<AppData>(() => buildInitialData(initialMeta));
   const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sharedTrades, setSharedTrades] = useState<ApiTrade[]>([]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const saveStatusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingUpdatesRef = useRef<Partial<AppData>>({});
 
-  // Load data from API
+  // Load full data from API (content fields: habits, todos, diary, notes, tradeData)
   useEffect(() => {
     if (status === "loading") return;
     if (!session?.user) {
@@ -123,14 +172,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return () => clearTimeout(timer);
     }
 
+    const localActiveId = typeof window !== "undefined"
+      ? (localStorage.getItem(LS_ACTIVE_PROFILE_KEY) ?? "")
+      : "";
+
     fetch("/api/user-data")
       .then((res) => res.json())
       .then((userData) => {
-        // Prefer localStorage for activeProfileId (instant, no round-trip)
-        const localActiveId = typeof window !== "undefined"
-          ? (localStorage.getItem(LS_ACTIVE_PROFILE_KEY) ?? "")
-          : "";
-
         const timer = setTimeout(() => {
           setData({
             habitData: userData.habitData || defaultData.habitData,
@@ -154,26 +202,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
   }, [session, status]);
 
-  // Save to API (debounced)
+  // After data loads, re-submit any save that failed in a previous session
+  useEffect(() => {
+    if (loading || !session?.user) return;
+    const raw = typeof window !== "undefined" ? localStorage.getItem(LS_PENDING_SAVE_KEY) : null;
+    if (!raw) return;
+    let pending: Partial<AppData>;
+    try {
+      pending = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem(LS_PENDING_SAVE_KEY);
+      return;
+    }
+
+    // Apply locally so the UI reflects the recovered state
+    setData(prev => ({ ...prev, ...pending }));
+
+    fetch("/api/user-data", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(pending),
+    })
+      .then(res => { if (res.ok) localStorage.removeItem(LS_PENDING_SAVE_KEY); })
+      .catch(() => {}); // Will be retried on the next session
+  }, [loading, session]);
+
+  // Save to API with retry and localStorage fallback
   const saveToApi = useCallback(
     (updates: Partial<AppData>) => {
       if (!session?.user) return;
 
       pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...updates };
 
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (saveStatusTimeoutRef.current) clearTimeout(saveStatusTimeoutRef.current);
 
-      saveTimeoutRef.current = setTimeout(() => {
+      setSaveStatus("saving");
+
+      saveTimeoutRef.current = setTimeout(async () => {
         const updatesToSend = pendingUpdatesRef.current;
         pendingUpdatesRef.current = {};
-        
-        fetch("/api/user-data", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updatesToSend),
-        }).catch(console.error);
+
+        try {
+          await fetchWithRetry("/api/user-data", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(updatesToSend),
+          });
+          setSaveStatus("saved");
+          localStorage.removeItem(LS_PENDING_SAVE_KEY);
+          saveStatusTimeoutRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+        } catch (err) {
+          console.error("Save failed after retries:", err);
+          // Persist locally so we can recover on next session
+          try {
+            const existing = JSON.parse(localStorage.getItem(LS_PENDING_SAVE_KEY) || "{}");
+            localStorage.setItem(LS_PENDING_SAVE_KEY, JSON.stringify({ ...existing, ...updatesToSend }));
+          } catch {}
+          setSaveStatus("error");
+        }
       }, 500);
     },
     [session]
@@ -263,7 +350,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
       };
-      
+
       const newTradingProfiles = [...data.tradingProfiles, newProfile];
       setData((prev) => ({ ...prev, tradingProfiles: newTradingProfiles }));
       saveToApi({ tradingProfiles: newTradingProfiles });
@@ -286,9 +373,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (id: string) => {
       const newTradingProfiles = data.tradingProfiles.filter((p) => p.id !== id);
       const activeProfileId = data.activeProfileId === id ? "" : data.activeProfileId;
-      
+
       setData((prev) => ({ ...prev, tradingProfiles: newTradingProfiles, activeProfileId }));
-      
+
       const apiUpdates: Partial<AppData> = { tradingProfiles: newTradingProfiles };
       if (activeProfileId !== data.activeProfileId) {
         apiUpdates.activeProfileId = activeProfileId;
@@ -331,6 +418,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         sharedTrades,
         setSharedTrades,
         loading,
+        saveStatus,
         hasUnsavedChanges,
         setHasUnsavedChanges,
         setActiveProfileId,
