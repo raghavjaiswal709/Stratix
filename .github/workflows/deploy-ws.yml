@@ -1,7 +1,8 @@
-name: Deploy WS Server → Fly.io
+name: Deploy WS Server → Koyeb
 
-# Auto-deploys the WebSocket server to Fly.io (Mumbai) whenever
-# anything inside server/ is pushed to master.
+# Auto-deploys the WebSocket server to Koyeb (Singapore, free tier)
+# whenever anything inside server/ is pushed to master.
+# Koyeb is free forever — no credit card, no trial.
 
 on:
   push:
@@ -12,17 +13,25 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to Fly.io
+    name: Deploy to Koyeb
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Deploy
-        run: flyctl deploy --remote-only --ha=false
-        working-directory: server
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Deploy to Koyeb
+        uses: koyeb/action-git-deploy@v1
+        with:
+          api-token: ${{ secrets.KOYEB_TOKEN }}
+          app-name: "stratix-ws"
+          service-name: "ws-server"
+          git-url: "github.com/raghavjaiswal709/Stratix"
+          git-branch: "master"
+          dockerfile-path: "server/Dockerfile"
+          docker-context: "server"
+          service-ports: "8080:http"
+          service-regions: "sin"
+          service-instance-type: "nano"
+          service-env: |
+            PORT=8080
+            NODE_ENV=production
