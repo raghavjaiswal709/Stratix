@@ -22,6 +22,7 @@
  */
 
 require("dotenv").config();
+const http = require("http");
 const { WebSocketServer, WebSocket } = require("ws");
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -89,14 +90,30 @@ function log(...args) {
   console.log(new Date().toISOString(), ...args);
 }
 
+// ── HTTP server (required for Fly.io health checks + hosts the WS server) ────
+// GET /health → 200 JSON  (Fly.io load-balancer checks this every 10 s)
+// All other HTTP requests get a 426 Upgrade Required so nothing else breaks.
+const httpServer = http.createServer((req, res) => {
+  if (req.url === "/health" || req.url === "/") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      status: "ok",
+      clients: wss ? wss.clients.size : 0,
+      uptime: Math.floor(process.uptime()),
+      symbols: [...latestPrices.keys()],
+    }));
+    return;
+  }
+  res.writeHead(426, { "Content-Type": "text/plain" });
+  res.end("WebSocket connections only");
+});
+
 // ── Dashboard-facing WebSocket server ────────────────────────────────────────
 const wss = new WebSocketServer({
-  port: PORT,
-  // Reject connections from disallowed origins (browsers always send Origin).
+  server: httpServer,               // shares the HTTP server — one port for both
   verifyClient: (info, done) => {
     const origin = info.origin || info.req.headers.origin;
-    // Non-browser clients (no Origin header) are allowed — e.g. server health checks.
-    if (!origin) return done(true);
+    if (!origin) return done(true); // non-browser clients (health probes etc.)
     if (ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes("*")) {
       return done(true);
     }
@@ -105,8 +122,8 @@ const wss = new WebSocketServer({
   },
 });
 
-wss.on("listening", () => {
-  log(`▲ Stratix WS server listening on :${PORT}`);
+httpServer.listen(PORT, () => {
+  log(`▲ Stratix WS server on :${PORT}  (HTTP /health + WebSocket)`);
   log("  Allowed origins:", ALLOWED_ORIGINS.join(", ") || "(none)");
 });
 
