@@ -204,102 +204,80 @@ export function CandlChart({ symbol, interval }: CandlChartProps) {
     };
   }, [symbol, interval]);
 
-  // ── 2. Live price stream — direct browser connections, no relay server ─────────
+  // ── 2. Live WebSocket stream (rebuilds when symbol/interval change) ──────────
   useEffect(() => {
+    const url = process.env.NEXT_PUBLIC_WS_URL;
+    if (!url) {
+      setStatus("disconnected");
+      return;
+    }
     let disposed = false;
     const bucketSec = INTERVAL_SECONDS[interval] ?? 60;
 
-    // Map each chart symbol to the Binance streams that carry its price
-    const BINANCE_STREAMS: Record<string, string> = {
-      BTCUSD: "btcusdt@trade",
-      ETHUSD: "ethusdt@trade",
-      XAUUSD: "xautusdt@bookTicker/paxgusdt@bookTicker",
-      // Forex and silver handled by REST polling below
-    };
-
-    const binanceStreams = BINANCE_STREAMS[symbol];
-
-    if (binanceStreams) {
-      // ── Binance WebSocket (BTC, ETH, XAU) ────────────────────────────────────
-      let ws: WebSocket | null = null;
-      let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-      const connect = () => {
-        if (disposed) return;
-        setStatus(s => s === "connected" ? s : "reconnecting");
-        ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${binanceStreams}`);
-        wsRef.current = ws;
-
-        ws.onopen = () => { if (!disposed) setStatus("connected"); };
-
-        ws.onmessage = (evt) => {
-          if (disposed) return;
-          try {
-            const msg = JSON.parse(evt.data as string);
-            const d = msg.data;
-            if (!d) return;
-
-            let price = 0;
-            if (d.e === "trade") price = parseFloat(d.p);
-            else if (d.b && d.a) price = (parseFloat(d.b) + parseFloat(d.a)) / 2;
-            if (!price) return;
-
-            const now = Date.now();
-            applyTick({ symbol, price, timestamp: d.T || now }, bucketSec);
-          } catch { /* ignore */ }
-        };
-
-        ws.onclose = () => {
-          if (disposed) return;
-          setStatus("disconnected");
-          reconnectTimer = setTimeout(connect, 5000);
-        };
-        ws.onerror = () => { try { ws?.close(); } catch { /* ignore */ } };
-      };
-
-      connect();
-      return () => {
-        disposed = true;
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        if (ws) { ws.onclose = null; try { ws.close(); } catch { /* ignore */ } }
-        wsRef.current = null;
-      };
-    }
-
-    // ── REST polling for Forex + Silver (Vercel proxy routes) ─────────────────
-    // These symbols have no Binance stream, so we poll our Vercel API every 1s.
-    setStatus("connected"); // REST polling is always "live"
-
-    const REST_ENDPOINTS: Record<string, string> = {
-      XAGUSD: "/api/silver",
-      EURUSD: "/api/forex-rates",
-      GBPUSD: "/api/forex-rates",
-      USDJPY: "/api/forex-rates",
-      USDCHF: "/api/forex-rates",
-      USDCAD: "/api/forex-rates",
-      AUDUSD: "/api/forex-rates",
-    };
-
-    const endpoint = REST_ENDPOINTS[symbol];
-    if (!endpoint) return;
-
-    const poll = async () => {
+    const connect = () => {
       if (disposed) return;
+      setStatus((s) => (s === "connected" ? s : "reconnecting"));
+
+      let ws: WebSocket;
       try {
-        const res = await fetch(endpoint);
-        if (!res.ok) return;
-        const data = await res.json();
-        // /api/silver returns { price } — /api/forex-rates returns { EURUSD: x, ... }
-        const price = data.price ?? data[symbol];
-        if (Number.isFinite(price) && price > 0) {
-          applyTick({ symbol, price, timestamp: Date.now() }, bucketSec);
+        ws = new WebSocket(url);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (!disposed) setStatus("connected");
+      };
+
+      ws.onmessage = (evt) => {
+        if (disposed) return;
+        let tick: Tick;
+        try {
+          tick = JSON.parse(evt.data);
+        } catch {
+          return;
         }
-      } catch { /* ignore */ }
+        if (tick.symbol !== symbol || !Number.isFinite(tick.price)) return;
+        applyTick(tick, bucketSec);
+      };
+
+      ws.onclose = () => {
+        if (disposed) return;
+        setStatus("disconnected");
+        scheduleReconnect();
+      };
+      ws.onerror = () => {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      };
     };
 
-    poll();
-    const id = setInterval(poll, 1000);
-    return () => { disposed = true; clearInterval(id); };
+    const scheduleReconnect = () => {
+      if (disposed) return;
+      setStatus("reconnecting");
+      reconnectRef.current = setTimeout(connect, 5000);
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        try {
+          wsRef.current.close();
+        } catch {
+          /* ignore */
+        }
+        wsRef.current = null;
+      }
+    };
   }, [symbol, interval]);
 
   /** Fold a tick into the in-progress candle and push it to the series. */
