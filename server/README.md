@@ -1,74 +1,59 @@
 # Stratix WebSocket Server
 
-A standalone Node.js WebSocket server that aggregates **free** real-time price
-feeds and fans them out to the Stratix dashboard. Runs on the Oracle Cloud ARM
-VM, completely separate from the Next.js app.
+Real-time price fan-out server. Deployed on **Koyeb** (Singapore, free forever, no card).
 
-## Data sources (all free, ₹0/month)
+## Data sources
 
-| Source         | Symbols                                   | Auth          |
-| -------------- | ----------------------------------------- | ------------- |
-| Binance WS     | BTCUSD, ETHUSD                            | none          |
-| Finnhub WS     | EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD | free API key |
-| gold-api.com   | XAUUSD, XAGUSD (polled every 1s)         | none          |
+| Source | Symbols | Key |
+|---|---|---|
+| Binance WS `@bookTicker` | XAUUSD (via XAUT/PAXG), BTCUSD, ETHUSD | none |
+| Finnhub WS (OANDA) | EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD | free key |
+| open.er-api.com REST | All 6 forex pairs (10s fallback) | none |
+| gold-api.com REST | XAGUSD silver (200ms poll) | none |
 
-Every tick is normalized to:
-
-```json
-{ "symbol": "XAUUSD", "price": 2345.67, "bid": 2345.5, "ask": 2345.84, "timestamp": 1718000000000, "source": "gold-api" }
-```
-
-## Local run
+## Local dev
 
 ```bash
-cd server
+cp .env.example .env   # fill in FINNHUB_API_KEY
 npm install
-cp .env.example .env        # then fill in FINNHUB_API_KEY
-npm start                   # listens on ws://localhost:8080
+npm start              # ws://localhost:8080
 ```
 
-Quick smoke test (in another terminal):
+Health check: `curl http://localhost:8080/health`
 
+## Deploy to Koyeb (free, no card)
+
+### Option A — Web Console (easiest)
+See the step-by-step guide below.
+
+### Option B — CLI (one command)
 ```bash
-node -e "const W=require('ws');const w=new W('ws://localhost:8080');w.on('message',m=>console.log(m.toString()));"
+npm install -g koyeb-cli
+koyeb login
+bash deploy.sh "YOUR_FINNHUB_KEY" "https://your-app.vercel.app"
 ```
 
-## Oracle VM Setup
+### Option C — GitHub Actions (auto-deploy on push)
+Add these secrets to your GitHub repo settings:
+- `KOYEB_TOKEN` — from Koyeb dashboard → API
+- `FINNHUB_API_KEY` — your Finnhub key
+- `VERCEL_URL` — your Vercel deployment URL
 
-1. SSH into your Oracle ARM VM
-2. Install Node.js 20+:
-   ```bash
-   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs
-   ```
-3. Install PM2: `npm install -g pm2`
-4. Clone repo or copy the `server/` folder to the VM
-5. `cd server && npm install`
-6. Copy `.env.example` to `.env` and fill in `FINNHUB_API_KEY`
-   (and set `ALLOWED_ORIGINS` to your Vercel domain)
-7. Start the server: `pm2 start ecosystem.config.js`
-8. Save the PM2 process list: `pm2 save`
-9. Set up PM2 startup: `pm2 startup` (follow the printed command)
-10. Allow port 8080:
-    ```bash
-    sudo iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
-    ```
-    Also open port 8080 in the Oracle Cloud **Security List / Network Security
-    Group** (Ingress rule, source `0.0.0.0/0`, TCP 8080).
+Every push to `master` that touches `server/` auto-deploys.
 
-## Verify it's running
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `PORT` | Yes | Set to `8080` |
+| `FINNHUB_API_KEY` | For forex | Free key from finnhub.io |
+| `ALLOWED_ORIGINS` | Yes | Comma-separated list of allowed browser origins |
+| `GOLD_API_BASE` | No | Default: `https://api.gold-api.com/price` |
+
+## PM2 commands (if self-hosted)
 
 ```bash
 pm2 status
-pm2 logs stratix-ws-server
+pm2 logs stratix-ws
+pm2 restart stratix-ws
 ```
-
-## Notes
-
-- Requires **Node 20+** (uses the global `fetch`).
-- All three upstream connections auto-reconnect after 5s on failure; a single
-  source going down never crashes the server.
-- The server replays the last known price for every symbol to each newly
-  connected client, so charts never start blank.
-- For a production TLS endpoint (`wss://`), terminate TLS with a reverse proxy
-  (Caddy/Nginx) in front of port 8080, or use Cloudflare. Browsers on an HTTPS
-  Vercel page **cannot** connect to a plain `ws://` server — you need `wss://`.
