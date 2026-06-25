@@ -1,0 +1,41 @@
+# Fly.io configuration for Stratix WebSocket server
+# Region: bom = Mumbai, India (lowest latency from India)
+# Free tier: shared-cpu-1x 256MB — enough for this WS fan-out server
+
+app = "stratix-ws-server"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  NODE_ENV = "production"
+
+# HTTP service — Fly.io terminates TLS, proxies to port 8080.
+# WebSocket upgrade is handled transparently by Fly's proxy.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # CRITICAL: never stop the machine — WebSocket server must be always-on
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 100
+    soft_limit = 80
+
+  # Health check — Fly uses this to decide if the machine is healthy
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "10s"
+    method = "GET"
+    path = "/health"
+    protocol = "http"
+    timeout = "3s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

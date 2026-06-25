@@ -1,0 +1,28 @@
+name: Deploy WS Server → Fly.io
+
+# Auto-deploys the WebSocket server to Fly.io (Mumbai) whenever
+# anything inside server/ is pushed to master.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "server/**"
+      - ".github/workflows/deploy-ws.yml"
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --ha=false
+        working-directory: server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
