@@ -1,8 +1,7 @@
 name: Deploy WS Server → Koyeb
 
-# Auto-deploys the WebSocket server to Koyeb (Singapore, free tier)
-# whenever anything inside server/ is pushed to master.
-# Koyeb is free forever — no credit card, no trial.
+# Runs on every push to master that touches the server folder.
+# Koyeb free tier: Singapore region, nano instance, always-on, no card needed.
 
 on:
   push:
@@ -10,11 +9,13 @@ on:
     paths:
       - "server/**"
       - ".github/workflows/deploy-ws.yml"
+  workflow_dispatch: # allow manual trigger from GitHub Actions tab
 
 jobs:
   deploy:
-    name: Deploy to Koyeb
+    name: Deploy to Koyeb (Singapore)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,16 +23,19 @@ jobs:
       - name: Deploy to Koyeb
         uses: koyeb/action-git-deploy@v1
         with:
-          api-token: ${{ secrets.KOYEB_TOKEN }}
-          app-name: "stratix-ws"
-          service-name: "ws-server"
-          git-url: "github.com/raghavjaiswal709/Stratix"
-          git-branch: "master"
-          dockerfile-path: "server/Dockerfile"
-          docker-context: "server"
-          service-ports: "8080:http"
-          service-regions: "sin"
-          service-instance-type: "nano"
-          service-env: |
+          api-token:            ${{ secrets.KOYEB_TOKEN }}
+          app-name:             stratix-ws
+          service-name:         ws-server
+          git-url:              github.com/raghavjaiswal709/Stratix
+          git-branch:           master
+          git-workdir:          server
+          dockerfile-path:      Dockerfile
+          service-ports:        "8080:http"
+          service-regions:      sin
+          service-instance-type: nano
+          service-env: >
             PORT=8080
             NODE_ENV=production
+            FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }}
+            GOLD_API_BASE=https://api.gold-api.com/price
+            ALLOWED_ORIGINS=${{ secrets.VERCEL_URL }},http://localhost:3000
