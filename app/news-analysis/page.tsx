@@ -9,6 +9,7 @@ interface HCandle { t: number; o: number; h: number; l: number; c: number }
 interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 import { cn } from "@/lib/utils";
 import { validateReportSchema } from "@/lib/newsValidation";
+import { MarketNews } from "@/components/chart/MarketNews";
 import {
   Newspaper,
   ChevronLeft,
@@ -33,6 +34,7 @@ import {
   User,
   Eye,
   Trash2,
+  Rss,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -2564,6 +2566,8 @@ function CardsSkeleton() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+type NewsMode = "generate" | "live";
+
 export default function NewsAnalysisPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -2572,6 +2576,9 @@ export default function NewsAnalysisPage() {
     if (status === "loading") return;
     if (!session?.user) router.replace("/auth/signin");
   }, [session, status, router]);
+
+  // ── Mode switcher ────────────────────────────────────────────────────────
+  const [newsMode, setNewsMode] = useState<NewsMode>("generate");
 
   const [reports,         setReports]         = useState<NewsEntry[]>([]);
   const [selectedDate,    setSelectedDate]    = useState<string>(getISTDateString());
@@ -2678,92 +2685,132 @@ export default function NewsAnalysisPage() {
               </div>
               <div>
                 <h1 className="text-[15px] font-bold text-white leading-none mb-0.5">News Analysis</h1>
-                <p className="text-[11px] text-white/30">Hinglish market news · Gemini 2.0 Flash</p>
+                <p className="text-[11px] text-white/30">
+                  {newsMode === "generate" ? "Hinglish market news · Gemini 2.0 Flash" : "Live multi-source market news feed"}
+                </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              {currentEntry && (
-                <span className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border",
-                  currentEntry.source === "db"
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400/80"
-                    : "bg-white/[0.04] border-white/[0.07] text-white/25",
-                )}>
-                  <Database className="h-2.5 w-2.5" />
-                  {currentEntry.source === "db" ? "DB" : "File"}
-                </span>
-              )}
-              {/* History button — shows version count badge */}
-              {currentEntry?.source === "db" && (
-                <button onClick={() => setHistoryOpen(true)}
-                  className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
-                  <History className="h-3.5 w-3.5" />
-                  History
-                  {(currentEntry.count ?? 0) > 0 && (
-                    <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
-                      {currentEntry.count}
+              {/* ── Mode switcher ───────────────────────────────────── */}
+              <div className="flex items-center gap-0.5 p-0.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+                <button
+                  onClick={() => setNewsMode("generate")}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150",
+                    newsMode === "generate"
+                      ? "bg-white/[0.10] text-white border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
+                      : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]"
+                  )}
+                >
+                  <Bot className="h-3 w-3" />
+                  Generate
+                </button>
+                <button
+                  onClick={() => setNewsMode("live")}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150",
+                    newsMode === "live"
+                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
+                      : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]"
+                  )}
+                >
+                  <Rss className="h-3 w-3" />
+                  Live News
+                </button>
+              </div>
+
+              {/* Generate-mode controls (hidden in live mode) */}
+              {newsMode === "generate" && (
+                <>
+                  {currentEntry && (
+                    <span className={cn(
+                      "flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border",
+                      currentEntry.source === "db"
+                        ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400/80"
+                        : "bg-white/[0.04] border-white/[0.07] text-white/25",
+                    )}>
+                      <Database className="h-2.5 w-2.5" />
+                      {currentEntry.source === "db" ? "DB" : "File"}
                     </span>
                   )}
-                </button>
+                  {currentEntry?.source === "db" && (
+                    <button onClick={() => setHistoryOpen(true)}
+                      className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
+                      <History className="h-3.5 w-3.5" />
+                      History
+                      {(currentEntry.count ?? 0) > 0 && (
+                        <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
+                          {currentEntry.count}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                  <button onClick={() => setPromptOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
+                    <Bot className="h-3.5 w-3.5" /> Prompt
+                  </button>
+                  <button onClick={() => setEditorOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
+                    <Pencil className="h-3.5 w-3.5" /> Add Report
+                  </button>
+                  <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span>Live: <span className="text-white/60 font-medium">{SESSION_LABELS[currentSession]}</span></span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                  </div>
+                </>
               )}
-              <button onClick={() => setPromptOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
-                <Bot className="h-3.5 w-3.5" /> Prompt
-              </button>
-              <button onClick={() => setEditorOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
-                <Pencil className="h-3.5 w-3.5" /> Add Report
-              </button>
-              <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1">
-                <Clock className="h-3.5 w-3.5" />
-                <span>Live: <span className="text-white/60 font-medium">{SESSION_LABELS[currentSession]}</span></span>
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+            </div>
+          </div>
+
+          {/* Date/Session navigation — generate mode only */}
+          {newsMode === "generate" && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-0.5 p-1 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                {SESSION_ORDER.map(s => {
+                  const available = sessionsForDate.includes(s);
+                  const active    = selectedSession === s;
+                  return (
+                    <button key={s} onClick={() => available && setSelectedSession(s)}
+                      disabled={!available && availableDates.length > 0}
+                      className={cn(
+                        "px-3.5 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150",
+                        active ? "bg-white/[0.10] text-white border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                               : available ? "text-white/40 hover:text-white/70 hover:bg-white/[0.05]"
+                               : "text-white/15 cursor-not-allowed",
+                      )}>
+                      {SESSION_LABELS[s]}
+                      {currentSession === s && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 ml-auto">
+                <button onClick={() => canGoBack && setSelectedDate(availableDates[dateIndex + 1])} disabled={!canGoBack}
+                  className="flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/80 hover:bg-white/[0.08] disabled:opacity-20 disabled:cursor-not-allowed transition">
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-[12px] font-medium text-white/70 min-w-[148px] text-center select-none">
+                  {selectedDate ? formatDateLabel(selectedDate) : "No reports"}
+                </span>
+                <button onClick={() => canGoFwd && setSelectedDate(availableDates[dateIndex - 1])} disabled={!canGoFwd}
+                  className="flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/80 hover:bg-white/[0.08] disabled:opacity-20 disabled:cursor-not-allowed transition">
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-0.5 p-1 rounded-xl bg-white/[0.04] border border-white/[0.06]">
-              {SESSION_ORDER.map(s => {
-                const available = sessionsForDate.includes(s);
-                const active    = selectedSession === s;
-                return (
-                  <button key={s} onClick={() => available && setSelectedSession(s)}
-                    disabled={!available && availableDates.length > 0}
-                    className={cn(
-                      "px-3.5 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150",
-                      active ? "bg-white/[0.10] text-white border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                             : available ? "text-white/40 hover:text-white/70 hover:bg-white/[0.05]"
-                             : "text-white/15 cursor-not-allowed",
-                    )}>
-                    {SESSION_LABELS[s]}
-                    {currentSession === s && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center gap-2 ml-auto">
-              <button onClick={() => canGoBack && setSelectedDate(availableDates[dateIndex + 1])} disabled={!canGoBack}
-                className="flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/80 hover:bg-white/[0.08] disabled:opacity-20 disabled:cursor-not-allowed transition">
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </button>
-              <span className="text-[12px] font-medium text-white/70 min-w-[148px] text-center select-none">
-                {selectedDate ? formatDateLabel(selectedDate) : "No reports"}
-              </span>
-              <button onClick={() => canGoFwd && setSelectedDate(availableDates[dateIndex - 1])} disabled={!canGoFwd}
-                className="flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/80 hover:bg-white/[0.08] disabled:opacity-20 disabled:cursor-not-allowed transition">
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
+          )}
 
         </div>
       </div>
 
       {/* Body */}
-      <div className="flex-1 px-5 md:px-8 py-6">
+      {newsMode === "live" && (
+        <MarketNews standalone />
+      )}
+      <div className={cn("flex-1 px-5 md:px-8 py-6", newsMode === "live" ? "hidden" : "")}>
 
         {availableDates.length === 0 && !error && (
           <div className="flex flex-col items-center justify-center min-h-[55vh] gap-5 text-center">

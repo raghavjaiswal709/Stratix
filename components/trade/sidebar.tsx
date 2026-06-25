@@ -23,6 +23,7 @@ import {
   Pin,
   PinOff,
   ChartCandlestick,
+  TrendingUp,
   Radio,
   Plus,
   Check,
@@ -46,6 +47,7 @@ interface NavItem {
 
 const tradeItems: NavItem[] = [
   { href: "/dashboard",     label: "Dashboard",     icon: LayoutDashboard },
+  { href: "/chart",         label: "Live Chart",    icon: TrendingUp },
   { href: "/trades",        label: "Trades",        icon: ArrowLeftRight },
   { href: "/journal",       label: "Journal",       icon: BookOpen },
   { href: "/trade-notes",   label: "Trade Notes",   icon: FileText },
@@ -56,7 +58,6 @@ const tradeItems: NavItem[] = [
 
 const adminTradeItems: NavItem[] = [
   { href: "/live-data",  label: "Live Data",  icon: Radio },
-  { href: "/chart",      label: "Chart",      icon: ChartCandlestick },
   { href: "/ai-report",  label: "AI Report",  icon: BrainCircuit },
 ];
 
@@ -77,6 +78,7 @@ function getActiveSidebarItems(preferences: any): {
 
   const activeTrade = tradeItems.filter(item => {
     if (item.href === "/dashboard") return items.dashboard !== false;
+    if (item.href === "/chart") return items.chart !== false;
     if (item.href === "/trades") return items.trades !== false;
     if (item.href === "/journal") return items.journal !== false;
     if (item.href === "/trade-notes") return items.tradeNotes !== false;
@@ -88,7 +90,6 @@ function getActiveSidebarItems(preferences: any): {
 
   const activeAdmin = adminTradeItems.filter(item => {
     if (item.href === "/live-data") return items.liveData !== false;
-    if (item.href === "/chart") return items.chart !== false;
     if (item.href === "/ai-report") return items.aiReport !== false;
     return true;
   });
