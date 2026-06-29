@@ -18,19 +18,19 @@ const SESSION_LABELS: Record<string, string> = {
 };
 
 const SYMBOL_DISPLAY_ORDER = [
-  "XAUUSD","XAGUSD","BTCUSDT","ETHUSD",
-  "EURUSD","GBPUSD","USDJPY","AUDUSD","NZDUSD","USDCAD","USDCHF",
+  "XAUUSD", "XAGUSD", "BTCUSDT", "ETHUSD",
+  "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF",
 ];
 
 const TIME_RANGE_OPTIONS = [
-  { value: "3h",  hours: 3   },
-  { value: "6h",  hours: 6   },
-  { value: "12h", hours: 12  },
-  { value: "18h", hours: 18  },
-  { value: "24h", hours: 24  },
-  { value: "2d",  hours: 48  },
-  { value: "3d",  hours: 72  },
-  { value: "7d",  hours: 168 },
+  { value: "3h", hours: 3 },
+  { value: "6h", hours: 6 },
+  { value: "12h", hours: 12 },
+  { value: "18h", hours: 18 },
+  { value: "24h", hours: 24 },
+  { value: "2d", hours: 48 },
+  { value: "3d", hours: 72 },
+  { value: "7d", hours: 168 },
 ] as const;
 type TimeRange = typeof TIME_RANGE_OPTIONS[number]["value"];
 
@@ -38,12 +38,12 @@ type TimeRange = typeof TIME_RANGE_OPTIONS[number]["value"];
 
 function formatToISTString(d: Date): string {
   const istDate = new Date(d.getTime() + 330 * 60 * 1000);
-  const y  = istDate.getUTCFullYear();
-  const m  = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+  const y = istDate.getUTCFullYear();
+  const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
   const dy = String(istDate.getUTCDate()).padStart(2, "0");
-  const h  = String(istDate.getUTCHours()).padStart(2, "0");
+  const h = String(istDate.getUTCHours()).padStart(2, "0");
   const mi = String(istDate.getUTCMinutes()).padStart(2, "0");
-  const s  = String(istDate.getUTCSeconds()).padStart(2, "0");
+  const s = String(istDate.getUTCSeconds()).padStart(2, "0");
   return `${y}-${m}-${dy} ${h}:${mi}:${s} IST`;
 }
 
@@ -59,7 +59,7 @@ function formatCandlesForPrompt(data: CandleSummary | null, selectedSymbols: str
       lines.push("  H4 (last 7 din):");
       for (const c of d.h4) {
         const ist = new Date((c.t * 1000) + 330 * 60 * 1000);
-        const dt = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth()+1).padStart(2,"0")}-${String(ist.getUTCDate()).padStart(2,"0")} ${String(ist.getUTCHours()).padStart(2,"0")}:00 IST`;
+        const dt = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-${String(ist.getUTCDate()).padStart(2, "0")} ${String(ist.getUTCHours()).padStart(2, "0")}:00 IST`;
         lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
       }
     }
@@ -67,7 +67,7 @@ function formatCandlesForPrompt(data: CandleSummary | null, selectedSymbols: str
       lines.push("  H1 (last 48 ghante):");
       for (const c of d.h1) {
         const ist = new Date((c.t * 1000) + 330 * 60 * 1000);
-        const dt = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth()+1).padStart(2,"0")}-${String(ist.getUTCDate()).padStart(2,"0")} ${String(ist.getUTCHours()).padStart(2,"0")}:${String(ist.getUTCMinutes()).padStart(2,"0")} IST`;
+        const dt = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-${String(ist.getUTCDate()).padStart(2, "0")} ${String(ist.getUTCHours()).padStart(2, "0")}:${String(ist.getUTCMinutes()).padStart(2, "0")} IST`;
         lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
       }
     }
@@ -250,14 +250,14 @@ function buildUserMessage(
   const fromTsIST = formatToISTString(fromDate);
 
   const timeHinglish =
-    timeRange === "3h"  ? "pichle 3 ghante" :
-    timeRange === "6h"  ? "pichle 6 ghante" :
-    timeRange === "12h" ? "pichle 12 ghante" :
-    timeRange === "18h" ? "pichle 18 ghante" :
-    timeRange === "24h" ? "pichle 24 ghante" :
-    timeRange === "2d"  ? "pichle 2 din" :
-    timeRange === "3d"  ? "pichle 3 din" :
-                          "pichle ek hafte";
+    timeRange === "3h" ? "pichle 3 ghante" :
+      timeRange === "6h" ? "pichle 6 ghante" :
+        timeRange === "12h" ? "pichle 12 ghante" :
+          timeRange === "18h" ? "pichle 18 ghante" :
+            timeRange === "24h" ? "pichle 24 ghante" :
+              timeRange === "2d" ? "pichle 2 din" :
+                timeRange === "3d" ? "pichle 3 din" :
+                  "pichle ek hafte";
 
   // Build dynamic schema with only selected symbols
   let dynamicSchema = NEWS_SCHEMA_TEMPLATE;
@@ -458,12 +458,12 @@ export async function POST(req: NextRequest) {
     const openai = new OpenAI({ apiKey });
     try {
       const response = await openai.responses.create({
-        model: "gpt-4o-search-preview",
+        model: "gpt-5.5-2026-04-23",
         tools: [{ type: "web_search_preview" }],
         max_output_tokens: 16000,
         input: [
           { role: "system", content: systemPrompt },
-          { role: "user",   content: userMessage  },
+          { role: "user", content: userMessage },
         ],
       } as Parameters<typeof openai.responses.create>[0]);
       rawResponse = (response as { output_text?: string }).output_text ?? "";
@@ -497,8 +497,8 @@ export async function POST(req: NextRequest) {
   await dbConnect();
   const doc = await new NewsReportModel({
     date,
-    session:    sessionParam,
-    data:       reportData,
+    session: sessionParam,
+    data: reportData,
     generatedBy: userSession.user?.email ?? "unknown",
     generatedAt: new Date(),
     reportType: "ai",

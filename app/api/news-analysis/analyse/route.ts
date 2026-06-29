@@ -10,11 +10,11 @@ export const maxDuration = 120;
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RawItem {
-  title:       string;
-  link:        string;
-  pubDate:     string;
-  source:      string;
-  category:    string;
+  title: string;
+  link: string;
+  pubDate: string;
+  source: string;
+  category: string;
   description: string;  // RSS <description> / summary text
   fullContent: string;  // Full scraped article body
 }
@@ -26,26 +26,26 @@ interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 // Removed Nasdaq (retail stock-picking advice, not market news)
 
 const FEEDS = [
-  { url: "https://www.fxstreet.com/rss/news",                              name: "FXStreet",      category: "Forex & Commodities"  },
-  { url: "https://www.forexlive.com/feed/news",                            name: "ForexLive",     category: "Forex Breaking News"  },
-  { url: "https://www.investing.com/rss/news_1.rss",                       name: "Investing.com", category: "Forex News"           },
-  { url: "https://www.investing.com/rss/news_14.rss",                      name: "Investing.com", category: "Economy"              },
-  { url: "https://www.investing.com/rss/news_95.rss",                      name: "Investing.com", category: "Economic Indicators"  },
-  { url: "https://www.investing.com/rss/news_25.rss",                      name: "Investing.com", category: "Market News"          },
-  { url: "https://www.investing.com/rss/news_301.rss",                     name: "Investing.com", category: "Crypto"               },
-  { url: "https://www.marketwatch.com/rss/topstories",                     name: "MarketWatch",   category: "Market News"          },
-  { url: "https://www.coindesk.com/arc/outboundfeeds/rss/",                name: "CoinDesk",      category: "Crypto"               },
-  { url: "https://www.kitco.com/news_rss/kitco_news_home.rss",             name: "Kitco",         category: "Commodities"          },
-  { url: "https://cointelegraph.com/rss",                                  name: "CoinTelegraph", category: "Crypto"               },
-  { url: "https://www.dailyfx.com/feeds/all-news",                         name: "DailyFX",       category: "Forex & Commodities"  },
-  { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",           name: "CNBC",          category: "Market News"          },
-  { url: "https://feeds.feedburner.com/zerohedge/feed",                    name: "ZeroHedge",     category: "Market News"          },
-  { url: "https://www.bullionvault.com/gold-news/rss/gold-news.xml",       name: "BullionVault",  category: "Commodities"          },
-  { url: "https://decrypt.co/feed",                                        name: "Decrypt",       category: "Crypto"               },
-  { url: "https://www.investing.com/rss/news_4.rss",                       name: "Investing.com", category: "Commodities"          },
-  { url: "https://www.theblock.co/rss",                                    name: "The Block",     category: "Crypto"               },
-  { url: "https://actionforex.com/feed/",                                  name: "ActionForex",   category: "Forex & Commodities"  },
-  { url: "https://www.fxempire.com/api/v1/en/article/feed",                name: "FXEmpire",      category: "Forex & Commodities"  },
+  { url: "https://www.fxstreet.com/rss/news", name: "FXStreet", category: "Forex & Commodities" },
+  { url: "https://www.forexlive.com/feed/news", name: "ForexLive", category: "Forex Breaking News" },
+  { url: "https://www.investing.com/rss/news_1.rss", name: "Investing.com", category: "Forex News" },
+  { url: "https://www.investing.com/rss/news_14.rss", name: "Investing.com", category: "Economy" },
+  { url: "https://www.investing.com/rss/news_95.rss", name: "Investing.com", category: "Economic Indicators" },
+  { url: "https://www.investing.com/rss/news_25.rss", name: "Investing.com", category: "Market News" },
+  { url: "https://www.investing.com/rss/news_301.rss", name: "Investing.com", category: "Crypto" },
+  { url: "https://www.marketwatch.com/rss/topstories", name: "MarketWatch", category: "Market News" },
+  { url: "https://www.coindesk.com/arc/outboundfeeds/rss/", name: "CoinDesk", category: "Crypto" },
+  { url: "https://www.kitco.com/news_rss/kitco_news_home.rss", name: "Kitco", category: "Commodities" },
+  { url: "https://cointelegraph.com/rss", name: "CoinTelegraph", category: "Crypto" },
+  { url: "https://www.dailyfx.com/feeds/all-news", name: "DailyFX", category: "Forex & Commodities" },
+  { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html", name: "CNBC", category: "Market News" },
+  { url: "https://feeds.feedburner.com/zerohedge/feed", name: "ZeroHedge", category: "Market News" },
+  { url: "https://www.bullionvault.com/gold-news/rss/gold-news.xml", name: "BullionVault", category: "Commodities" },
+  { url: "https://decrypt.co/feed", name: "Decrypt", category: "Crypto" },
+  { url: "https://www.investing.com/rss/news_4.rss", name: "Investing.com", category: "Commodities" },
+  { url: "https://www.theblock.co/rss", name: "The Block", category: "Crypto" },
+  { url: "https://actionforex.com/feed/", name: "ActionForex", category: "Forex & Commodities" },
+  { url: "https://www.fxempire.com/api/v1/en/article/feed", name: "FXEmpire", category: "Forex & Commodities" },
 ];
 
 // ─── Market relevance filter ──────────────────────────────────────────────────
@@ -104,7 +104,7 @@ const SYMBOL_CONFIG: Record<
   }
 > = {
   ALL: {
-    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20],
+    primaryFeeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
     secondaryFeeds: [],
     keywords: [],
     googleQuery: "",
@@ -199,15 +199,15 @@ function matchesKeywords(title: string, keywords: string[]): boolean {
 // ─── Volume targets per time range ────────────────────────────────────────────
 
 const ARTICLE_TARGETS: Record<string, number> = {
-  "2h":  15,
-  "5h":  20,
+  "2h": 15,
+  "5h": 20,
   "12h": 25,
   "24h": 30,
 };
 
 const TIME_RANGE_LABELS: Record<string, string> = {
-  "2h":  "Last 2 Hours",
-  "5h":  "Last 5 Hours",
+  "2h": "Last 2 Hours",
+  "5h": "Last 5 Hours",
   "12h": "Last 12 Hours",
   "24h": "Last 24 Hours",
 };
@@ -279,7 +279,7 @@ function extractDescription(block: string): string {
   if (startIdx === -1) return "";
   const endIdx = block.indexOf(endTag, startIdx + startTag.length);
   if (endIdx === -1) return "";
-  
+
   let rawDesc = block.substring(startIdx + startTag.length, endIdx);
   if (rawDesc.startsWith("<![CDATA[")) {
     rawDesc = rawDesc.substring(9);
@@ -287,7 +287,7 @@ function extractDescription(block: string): string {
       rawDesc = rawDesc.substring(0, rawDesc.length - 3);
     }
   }
-  
+
   return decodeHtml(
     rawDesc
       .replace(/<[^>]*>/g, " ")
@@ -310,11 +310,11 @@ function parseRSS(xml: string, sourceName: string, category: string): RawItem[] 
       /<guid[^>]*isPermaLink="true"[^>]*>([^<]+)<\/guid>/.exec(block) ||
       /<guid[^>]*>([^<]+)<\/guid>/.exec(block);
     const pubDateMatch = /<pubDate>([^<]+)<\/pubDate>/.exec(block);
-    const description  = extractDescription(block);
+    const description = extractDescription(block);
     if (titleMatch && linkMatch) {
       const rawTitle = decodeHtml(titleMatch[1].trim());
-      const link     = linkMatch[1].trim();
-      const pubDate  = pubDateMatch ? pubDateMatch[1].trim() : "";
+      const link = linkMatch[1].trim();
+      const pubDate = pubDateMatch ? pubDateMatch[1].trim() : "";
       let title = rawTitle;
       const dashIdx = title.lastIndexOf(" - ");
       if (dashIdx !== -1 && dashIdx > title.length * 0.5 && title.length - dashIdx < 40)
@@ -347,13 +347,13 @@ async function fetchFeed(feed: { url: string; name: string; category: string }):
 
 function formatToIST(d: Date): string {
   const ist = new Date(d.getTime() + 330 * 60 * 1000);
-  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth()+1).padStart(2,"0")}-${String(ist.getUTCDate()).padStart(2,"0")} ${String(ist.getUTCHours()).padStart(2,"0")}:${String(ist.getUTCMinutes()).padStart(2,"0")} IST`;
+  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-${String(ist.getUTCDate()).padStart(2, "0")} ${String(ist.getUTCHours()).padStart(2, "0")}:${String(ist.getUTCMinutes()).padStart(2, "0")} IST`;
 }
 
 // Map time-range label → how many H1 candles to include (keeps tokens tight)
 const H1_CANDLE_COUNTS: Record<string, number> = {
-  "2h":  4,
-  "5h":  8,
+  "2h": 4,
+  "5h": 8,
   "12h": 14,
   "24h": 26,
 };
@@ -363,7 +363,7 @@ function formatCandlesForPrompt(data: CandleSummary | null, instrument: string, 
 
   // Which symbols to include
   const syms: string[] = instrument === "ALL"
-    ? ["xauusd","xagusd","btcusdt","ethusd","eurusd","gbpusd","usdjpy","audusd","nzdusd","usdcad","usdchf"]
+    ? ["xauusd", "xagusd", "btcusdt", "ethusd", "eurusd", "gbpusd", "usdjpy", "audusd", "nzdusd", "usdcad", "usdchf"]
     : [instrument.toLowerCase()];
 
   const h1Limit = H1_CANDLE_COUNTS[timeRange] ?? 26;
@@ -380,7 +380,7 @@ function formatCandlesForPrompt(data: CandleSummary | null, instrument: string, 
       lines.push(`  H1 (last ${h1Limit} candles):`);
       for (const c of recent) {
         const ist = new Date((c.t * 1000) + 330 * 60 * 1000);
-        const dt = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth()+1).padStart(2,"0")}-${String(ist.getUTCDate()).padStart(2,"0")} ${String(ist.getUTCHours()).padStart(2,"0")}:00 IST`;
+        const dt = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-${String(ist.getUTCDate()).padStart(2, "0")} ${String(ist.getUTCHours()).padStart(2, "0")}:00 IST`;
         lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
       }
     }
@@ -391,7 +391,7 @@ function formatCandlesForPrompt(data: CandleSummary | null, instrument: string, 
       lines.push(`  H4 (last 6 candles):`);
       for (const c of recent4) {
         const ist = new Date((c.t * 1000) + 330 * 60 * 1000);
-        const dt = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth()+1).padStart(2,"0")}-${String(ist.getUTCDate()).padStart(2,"0")} ${String(ist.getUTCHours()).padStart(2,"0")}:00 IST`;
+        const dt = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-${String(ist.getUTCDate()).padStart(2, "0")} ${String(ist.getUTCHours()).padStart(2, "0")}:00 IST`;
         lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
       }
     }
@@ -572,15 +572,14 @@ MARKET INTELLIGENCE ANALYSIS REQUEST — ${timeRangeLabel}
 Current IST Time: ${toIST}
 Total News Articles Provided: ${articles.length}
 
-${
-  candleBlock
-    ? `${candleBlock}
+${candleBlock
+      ? `${candleBlock}
 
 ▶ PRICE REFERENCE RULE: Upar diye gaye OHLC candle data se actual price levels directly quote karo.
   Last H1 close = current reference price. E.g. "Gold currently at $X,XXX (last H1 close)".
 `
-    : ""
-}
+      : ""
+    }
 ================================================================
 NEWS ARTICLES — COMPLETE PROVIDED DATA (${articles.length} articles):
 RULE: Neeche diye gaye articles ke headlines aur summaries ko WORD BY WORD padhkar analyse karo.
@@ -623,11 +622,11 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
-  const timeRange     = (body.timeRange ?? "24h") as string;
-  const timeLabel     = TIME_RANGE_LABELS[timeRange] ?? "Last 24 Hours";
+  const timeRange = (body.timeRange ?? "24h") as string;
+  const timeLabel = TIME_RANGE_LABELS[timeRange] ?? "Last 24 Hours";
   const articleTarget = ARTICLE_TARGETS[timeRange] ?? 100;
-  const model         = body.model ?? "openai";
-  const instrument    = body.instrument ?? "ALL";
+  const model = body.model ?? "openai";
+  const instrument = body.instrument ?? "ALL";
   const selectedLinks = body.selectedLinks ?? null;
 
   // ── Fetch all feeds in parallel ──────────────────────────────────────────────
@@ -638,7 +637,7 @@ export async function POST(req: NextRequest) {
   });
 
   // ── Deduplicate ──────────────────────────────────────────────────────────────
-  const seen    = new Set<string>();
+  const seen = new Set<string>();
   const deduped = allItems.filter(item => {
     const key = item.title.toLowerCase().replace(/\s+/g, " ").slice(0, 60);
     if (seen.has(key)) return false;
@@ -689,7 +688,7 @@ export async function POST(req: NextRequest) {
   // ── Fetch candle data (H1 + H4) for real price context ──────────────────────
   let candles: CandleSummary | null = null;
   try {
-    const origin    = new URL(req.url).origin;
+    const origin = new URL(req.url).origin;
     const candleRes = await fetch(`${origin}/api/candle-summary`, {
       headers: { cookie: req.headers.get("cookie") ?? "" },
       signal: AbortSignal.timeout(10000),
@@ -698,7 +697,7 @@ export async function POST(req: NextRequest) {
   } catch { /* proceed without candles */ }
 
   // ── Build prompt ─────────────────────────────────────────────────────────────
-  const now   = new Date();
+  const now = new Date();
   const toIST = formatToIST(now);
   const userMsg = buildUserMessage(articles, toIST, timeLabel, instrument, candles, timeRange);
 
@@ -707,10 +706,10 @@ export async function POST(req: NextRequest) {
       ok: true,
       news_count: articles.length,
       articles: articles.map(a => ({
-        title:    a.title,
-        source:   a.source,
-        pubDate:  a.pubDate,
-        link:     a.link,
+        title: a.title,
+        source: a.source,
+        pubDate: a.pubDate,
+        link: a.link,
         category: a.category,
       })),
       prompt: userMsg,
@@ -791,12 +790,12 @@ export async function POST(req: NextRequest) {
     const openai = new OpenAI({ apiKey });
     try {
       const response = await openai.responses.create({
-        model: "gpt-4o-search-preview",
+        model: "gpt-5.5-2026-04-23",
         tools: [{ type: "web_search_preview" }],
         max_output_tokens: 16000,
         input: [
-          { role: "system",  content: dynamicSystemPrompt },
-          { role: "user",    content: userMsg },
+          { role: "system", content: dynamicSystemPrompt },
+          { role: "user", content: userMsg },
         ],
       } as Parameters<typeof openai.responses.create>[0]);
 
@@ -829,31 +828,31 @@ export async function POST(req: NextRequest) {
     timeRange,
     timeRangeLabel: timeLabel,
     instrument,
-    newsCount:      articles.length,
-    articles:       articles.map(a => ({
-      title:    a.title,
-      source:   a.source,
-      pubDate:  a.pubDate,
-      link:     a.link,
+    newsCount: articles.length,
+    articles: articles.map(a => ({
+      title: a.title,
+      source: a.source,
+      pubDate: a.pubDate,
+      link: a.link,
       category: a.category,
     })),
-    prompt:      userMsg,
-    data:        analysisData,
+    prompt: userMsg,
+    data: analysisData,
     generatedBy: userSession.user.email ?? "unknown",
     generatedAt: new Date(),
   }).save();
 
   return NextResponse.json({
-    ok:         true,
-    _id:        String(doc._id),
+    ok: true,
+    _id: String(doc._id),
     instrument,
     news_count: articles.length,
-    data:       analysisData,
-    articles:   articles.map(a => ({
-      title:    a.title,
-      source:   a.source,
-      pubDate:  a.pubDate,
-      link:     a.link,
+    data: analysisData,
+    articles: articles.map(a => ({
+      title: a.title,
+      source: a.source,
+      pubDate: a.pubDate,
+      link: a.link,
       category: a.category,
     })),
     prompt: userMsg,
