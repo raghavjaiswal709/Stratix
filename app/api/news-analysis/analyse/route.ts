@@ -791,7 +791,7 @@ export async function POST(req: NextRequest) {
     const openai = new OpenAI({ apiKey });
     try {
       const response = await openai.responses.create({
-        model: "gpt-5.5-2026-04-23",
+        model: "gpt-4o-search-preview",
         tools: [{ type: "web_search_preview" }],
         max_output_tokens: 16000,
         input: [
