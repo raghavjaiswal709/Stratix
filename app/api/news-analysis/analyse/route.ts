@@ -231,7 +231,7 @@ async function scrapeFullContent(url: string): Promise<string> {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return "";
 
@@ -334,7 +334,7 @@ async function fetchFeed(feed: { url: string; name: string; category: string }):
         Accept: "application/rss+xml, application/xml, text/xml, */*",
         "Cache-Control": "no-cache",
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) return [];
     const xml = await res.text();
@@ -691,7 +691,7 @@ export async function POST(req: NextRequest) {
     const origin = new URL(req.url).origin;
     const candleRes = await fetch(`${origin}/api/candle-summary`, {
       headers: { cookie: req.headers.get("cookie") ?? "" },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(1500),
     });
     if (candleRes.ok) candles = await candleRes.json() as CandleSummary;
   } catch { /* proceed without candles */ }
@@ -743,7 +743,7 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
 
     try {
       const payload = {
@@ -790,7 +790,7 @@ export async function POST(req: NextRequest) {
     const openai = new OpenAI({ apiKey });
     try {
       const response = await openai.responses.create({
-        model: "gpt-5.5-2026-04-23",
+        model: "gpt-4o-search-preview",
         tools: [{ type: "web_search_preview" }],
         max_output_tokens: 16000,
         input: [

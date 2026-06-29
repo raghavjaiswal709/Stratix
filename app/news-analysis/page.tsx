@@ -4446,7 +4446,12 @@ export default function NewsAnalysisPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date, session: sess, timeRange: "24h", selectedSymbols: SYMBOL_DISPLAY_ORDER, model }),
       });
-      const json = await res.json();
+      let json: any;
+      try {
+        json = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): Generation failed.`);
+      }
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       await refreshReports();
       if (json.data) {
@@ -4488,7 +4493,12 @@ export default function NewsAnalysisPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ timeRange: analyseTimeRange, model, instrument: analyseInstrument, selectedLinks }),
       });
-      const json = await res.json() as { error?: string; _id?: string; data?: NewsAnalysisResult; news_count?: number; articles?: AnalyseArticle[]; prompt?: string; instrument?: string };
+      let json: { error?: string; _id?: string; data?: NewsAnalysisResult; news_count?: number; articles?: AnalyseArticle[]; prompt?: string; instrument?: string };
+      try {
+        json = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): Analysis failed.`);
+      }
       if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
       setAnalyseResult(json.data ?? null);
       setAnalyseNewsCount(json.news_count ?? 0);
@@ -4510,7 +4520,12 @@ export default function NewsAnalysisPage() {
     setAnalyseError(null);
     try {
       const res = await fetch(`/api/news-analysis/reports?id=${encodeURIComponent(id)}`);
-      const json = await res.json() as { error?: string; data?: NewsAnalysisResult; newsCount?: number; articles?: AnalyseArticle[]; prompt?: string; timeRange?: string; instrument?: string };
+      let json: { error?: string; data?: NewsAnalysisResult; newsCount?: number; articles?: AnalyseArticle[]; prompt?: string; timeRange?: string; instrument?: string };
+      try {
+        json = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): Failed to load report.`);
+      }
       if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
       setAnalyseResult(json.data ?? null);
       setAnalyseNewsCount(json.newsCount ?? 0);
