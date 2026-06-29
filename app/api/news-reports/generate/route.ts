@@ -389,7 +389,7 @@ export async function POST(req: NextRequest) {
     const origin = new URL(req.url).origin;
     const candleRes = await fetch(`${origin}/api/candle-summary`, {
       headers: { cookie: req.headers.get("cookie") ?? "" },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(1500),
     });
     if (candleRes.ok) candles = await candleRes.json();
   } catch { /* proceed without candles */ }
@@ -411,7 +411,7 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
 
     try {
       const payload = {
@@ -458,7 +458,7 @@ export async function POST(req: NextRequest) {
     const openai = new OpenAI({ apiKey });
     try {
       const response = await openai.responses.create({
-        model: "gpt-5.5-2026-04-23",
+        model: "gpt-4o-search-preview",
         tools: [{ type: "web_search_preview" }],
         max_output_tokens: 16000,
         input: [
