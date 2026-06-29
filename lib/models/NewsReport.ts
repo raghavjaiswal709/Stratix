@@ -6,6 +6,7 @@ export interface INewsReport extends Document {
   data:        Record<string, unknown>;
   generatedBy: string;
   generatedAt: Date;
+  reportType:  "ai" | "manual";
   createdAt:   Date;
   updatedAt:   Date;
 }
@@ -17,6 +18,7 @@ const NewsReportSchema = new Schema<INewsReport>(
     data:        { type: Schema.Types.Mixed, required: true },
     generatedBy: { type: String, default: "admin" },
     generatedAt: { type: Date, default: () => new Date() },
+    reportType:  { type: String, enum: ["ai", "manual"], default: "manual" },
   },
   { timestamps: true },
 );

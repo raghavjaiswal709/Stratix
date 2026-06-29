@@ -31,6 +31,7 @@ import {
   Newspaper,
   Settings,
   Database,
+  Layers2,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -62,10 +63,11 @@ const adminTradeItems: NavItem[] = [
 ];
 
 const lifeItems = [
-  { href: "/todo",   label: "To-Do",  icon: ListTodo },
-  { href: "/habits", label: "Habits", icon: Activity },
-  { href: "/diary",  label: "Diary",  icon: PenLine },
-  { href: "/notes",  label: "Notes",  icon: StickyNote },
+  { href: "/todo",             label: "To-Do",          icon: ListTodo },
+  { href: "/habits",           label: "Habits",         icon: Activity },
+  { href: "/diary",            label: "Diary",          icon: PenLine },
+  { href: "/notes",            label: "Notes",          icon: StickyNote },
+  { href: "/content-creator",  label: "Content Creator", icon: Layers2 },
 ];
 
 function getActiveSidebarItems(preferences: any): {

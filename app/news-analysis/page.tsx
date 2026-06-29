@@ -35,6 +35,11 @@ import {
   Eye,
   Trash2,
   Rss,
+  Microscope,
+  ArrowUpRight,
+  Sparkles,
+  Send,
+  MessageSquare,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -71,19 +76,76 @@ interface NewsReport {
 }
 
 interface NewsEntry {
-  date:     string;
-  session:  string;
-  source:   "db" | "file";
-  count?:   number;
-  latestAt?: string;
-  latestBy?: string;
+  date:       string;
+  session:    string;
+  source:     "db" | "file";
+  count?:     number;
+  latestAt?:  string;
+  latestBy?:  string;
+  reportType?: "ai" | "manual";
 }
 
 interface NewsVersion {
   _id:         string;
   generatedAt: string;
   generatedBy: string;
+  reportType?: "ai" | "manual";
 }
+
+// ─── Analyse with AI types ────────────────────────────────────────────────────
+
+interface InstrumentAnalysis {
+  sentiment:    "Bullish" | "Bearish" | "Neutral";
+  summary:      string;
+  news_drivers: string[];
+  outlook:      string;
+}
+
+interface HighImpactNewsItem {
+  headline:             string;
+  source:               string;
+  impact_level:         "High" | "Medium" | "Low";
+  sentiment:            "Bullish" | "Bearish" | "Neutral";
+  affected_instruments: string[];
+  analysis:             string;
+}
+
+interface NewsAnalysisResult {
+  meta: {
+    time_range:   string;
+    news_count:   number;
+    analysed_at:  string;
+    from:         string;
+    to:           string;
+  };
+  overall_sentiment: {
+    label:          "Bullish" | "Bearish" | "Neutral";
+    risk_sentiment: "Risk-On" | "Risk-Off" | "Neutral";
+    summary:        string;
+    key_themes:     string[];
+  };
+  high_impact_news:     HighImpactNewsItem[];
+  instrument_analysis:  Record<string, InstrumentAnalysis>;
+}
+
+interface AnalyseArticle {
+  title:    string;
+  source:   string;
+  pubDate:  string;
+  link:     string;
+  category: string;
+}
+
+interface AnalyseHistoryEntry {
+  _id:            string;
+  timeRange:      string;
+  timeRangeLabel: string;
+  newsCount:      number;
+  generatedBy:    string;
+  generatedAt:    string;
+}
+
+type AnalyseTab = "result" | "articles" | "prompt";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -109,6 +171,29 @@ const SYMBOL_DISPLAY_ORDER = [
   "XAUUSD","XAGUSD","BTCUSDT","ETHUSD",
   "EURUSD","GBPUSD","USDJPY","AUDUSD","NZDUSD","USDCAD","USDCHF",
 ];
+
+const ANALYSE_TIME_RANGES = [
+  { value: "2h",  label: "2h",  display: "Last 2 Hours",  hours: 2  },
+  { value: "5h",  label: "5h",  display: "Last 5 Hours",  hours: 5  },
+  { value: "12h", label: "12h", display: "Last 12 Hours", hours: 12 },
+  { value: "24h", label: "24h", display: "Last 24 Hours", hours: 24 },
+] as const;
+type AnalyseTimeRange = typeof ANALYSE_TIME_RANGES[number]["value"];
+
+const ANALYSE_INSTRUMENTS = [
+  { value: "ALL",     label: "🌐 All Instruments" },
+  { value: "XAUUSD",  label: "🥇 Gold (XAU/USD)" },
+  { value: "XAGUSD",  label: "🥈 Silver (XAG/USD)" },
+  { value: "BTCUSDT", label: "₿ Bitcoin (BTC/USDT)" },
+  { value: "ETHUSD",  label: "Ξ Ethereum (ETH/USD)" },
+  { value: "EURUSD",  label: "🇪🇺 EUR/USD" },
+  { value: "GBPUSD",  label: "🇬🇧 GBP/USD" },
+  { value: "USDJPY",  label: "🇯🇵 USD/JPY" },
+  { value: "USDCHF",  label: "🇨🇭 USD/CHF" },
+  { value: "USDCAD",  label: "🇨🇦 USD/CAD" },
+  { value: "AUDUSD",  label: "🇦🇺 AUD/USD" },
+  { value: "NZDUSD",  label: "🇳🇿 NZD/USD" },
+] as const;
 
 const TIME_RANGE_OPTIONS = [
   { value: "3h",  label: "3h",     display: "Last 3 Hours",  hours: 3   },
@@ -1410,10 +1495,12 @@ function PromptModal({
   defaultDate,
   defaultSession,
   onClose,
+  embedded = false,
 }: {
   defaultDate: string;
   defaultSession: string;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const [candles,   setCandles]   = useState<CandleSummary | null>(null);
   const [fetching,  setFetching]  = useState(true);
@@ -1455,11 +1542,16 @@ function PromptModal({
 
   const copyAllText = `=== SYSTEM PROMPT ===\n${dynamicSystemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${userMsg}`;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-[#111] border border-white/[0.10] shadow-2xl overflow-hidden">
+  const inner = (
+    <div className={cn(
+      "relative flex flex-col overflow-hidden",
+      embedded
+        ? "w-full h-full bg-transparent"
+        : "w-full max-w-3xl max-h-[90vh] rounded-2xl bg-[#111] border border-white/[0.10] shadow-2xl"
+    )}>
 
         {/* Header */}
+        {!embedded && (
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.07] shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <Bot className="h-4 w-4 text-white/50 shrink-0" />
@@ -1487,9 +1579,10 @@ function PromptModal({
                 ))}
               </select>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition"><X className="h-4 w-4" /></button>
+            {!embedded && <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition"><X className="h-4 w-4" /></button>}
           </div>
         </div>
+        )}
 
         {/* Date, Session and News Window */}
         <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] shrink-0 space-y-3">
@@ -1697,9 +1790,15 @@ function PromptModal({
 
         <div className="px-5 py-3 border-t border-white/[0.07] shrink-0 flex items-center justify-between gap-3">
           <CopyButton text={copyAllText} label="Copy All Blocks" disabled={selectedSymbols.length === 0} />
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] border border-white/[0.08] transition">Close</button>
+          {!embedded && <button onClick={onClose} className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] border border-white/[0.08] transition">Close</button>}
         </div>
-      </div>
+    </div>
+  );
+
+  if (embedded) return inner;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      {inner}
     </div>
   );
 }
@@ -1742,10 +1841,10 @@ function CheckItem({ label, status, details }: { label: string; status: "success
 }
 
 function EditorModal({
-  date, session, initialJson, onClose, onSaved,
+  date, session, initialJson, onClose, onSaved, embedded = false,
 }: {
   date: string; session: string; initialJson: string;
-  onClose: () => void; onSaved: () => void;
+  onClose: () => void; onSaved: () => void; embedded?: boolean;
 }) {
   const [json,      setJson]      = useState(initialJson);
   const [modalDate, setModalDate] = useState(date);
@@ -1971,9 +2070,11 @@ function EditorModal({
   const charCount = json.length;
   const lineCount = json ? json.split("\n").length : 0;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="relative w-full max-w-5xl h-[90vh] flex flex-col rounded-2xl bg-[#0d0d0d] border border-white/[0.10] shadow-2xl overflow-hidden">
+  const editorInner = (
+    <div className={cn(
+      "relative flex flex-col overflow-hidden",
+      embedded ? "w-full h-full bg-transparent" : "w-full max-w-5xl h-[90vh] rounded-2xl bg-[#0d0d0d] border border-white/[0.10] shadow-2xl"
+    )}>
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/[0.07] shrink-0">
@@ -2032,9 +2133,11 @@ function EditorModal({
               className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-white/[0.05] border border-white/[0.08] text-white/40 hover:text-white/70 hover:bg-white/[0.08] transition">
               Format
             </button>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
-              <X className="h-4 w-4" />
-            </button>
+            {!embedded && (
+              <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -2108,7 +2211,13 @@ function EditorModal({
           </div>
         </div>
 
-      </div>
+    </div>
+  );
+
+  if (embedded) return editorInner;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      {editorInner}
     </div>
   );
 }
@@ -2403,7 +2512,7 @@ function ImpactTag({ tag }: { tag: MarketImpactTag }) {
   );
 }
 
-function EventCard({ event }: { event: HighImpactEvent }) {
+function EventCard({ event, isAI = false }: { event: HighImpactEvent; isAI?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const LIMIT = 200;
   const eventName = event?.event_name || "Unknown Event";
@@ -2412,30 +2521,34 @@ function EventCard({ event }: { event: HighImpactEvent }) {
   const tags = event?.market_impact ?? [];
 
   return (
-    <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-4 flex flex-col gap-2.5">
-
-      {/* Event name row */}
+    <div
+      className="rounded-xl p-4 flex flex-col gap-2.5"
+      style={isAI
+        ? { background: "rgba(255,255,255,0.025)", border: "1px solid rgba(124,58,237,0.18)", boxShadow: "0 0 20px rgba(124,58,237,0.04)" }
+        : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }
+      }
+    >
       <div className="flex items-start gap-2.5">
-        <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white/[0.08] border border-white/[0.10]">
-          <Zap className="h-3 w-3 text-white/50" />
+        <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
+          style={isAI
+            ? { background: "linear-gradient(135deg, rgba(5,150,105,0.25), rgba(124,58,237,0.25))", border: "1px solid rgba(124,58,237,0.25)" }
+            : { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.10)" }
+          }>
+          <Zap className="h-3 w-3" style={isAI ? { color: "#a78bfa" } : { color: "rgba(255,255,255,0.5)" }} />
         </div>
-        <p className="text-[13px] font-semibold text-white/80 leading-snug">
+        <p className="text-[13px] font-semibold leading-snug" style={{ color: isAI ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.8)" }}>
           <MarkdownText text={eventName} />
         </p>
       </div>
 
-      {/* Market impact tags — always visible */}
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pl-7">
           {tags.map((tag, i) => tag && <ImpactTag key={i} tag={tag} />)}
         </div>
       )}
 
-      {/* Impact explanation */}
-      <div className={cn(
-        "text-[12px] text-white/50 leading-[1.8] pl-7",
-        !expanded && needsExpand && "line-clamp-4",
-      )}>
+      <div className={cn("text-[12px] leading-[1.8] pl-7", !expanded && needsExpand && "line-clamp-4")}
+        style={{ color: isAI ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.5)" }}>
         <MarkdownText text={impactExplanation} />
       </div>
 
@@ -2449,10 +2562,13 @@ function EventCard({ event }: { event: HighImpactEvent }) {
   );
 }
 
-function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
+function SymbolCard({ symbol, news, isAI = false }: { symbol: string; news: SymbolNews; isAI?: boolean }) {
   const meta = SYMBOL_META[symbol] ?? { label: symbol, assetClass: "Other", flag: "•" };
   const [expanded, setExpanded] = useState(false);
   const LIMIT = 260;
+  const sniper = news?.sniper_note;
+  const bullish = sniper?.news_bias === "Bullish";
+  const bearish = sniper?.news_bias === "Bearish";
 
   if (!news) {
     return (
@@ -2467,29 +2583,65 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
   const needsExpand = detailedBreakdown.length > LIMIT;
   const latestHeadlines = Array.isArray(news.latest_headlines) ? news.latest_headlines : [];
 
+  // For AI reports, pick glow color based on bias
+  const glowColor = isAI
+    ? bullish ? "rgba(16,185,129,0.12)" : bearish ? "rgba(239,68,68,0.10)" : "rgba(124,58,237,0.08)"
+    : "transparent";
+  const borderColor = isAI
+    ? bullish ? "rgba(16,185,129,0.22)" : bearish ? "rgba(239,68,68,0.18)" : "rgba(124,58,237,0.18)"
+    : "rgba(255,255,255,0.07)";
+  const headerBorderColor = isAI
+    ? bullish ? "rgba(16,185,129,0.12)" : bearish ? "rgba(239,68,68,0.10)" : "rgba(124,58,237,0.10)"
+    : "rgba(255,255,255,0.05)";
+
   return (
-    <div className="flex flex-col rounded-2xl bg-white/[0.025] border border-white/[0.07] hover:border-white/[0.11] transition-colors duration-200 overflow-hidden">
-      <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/[0.05]">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] border border-white/[0.08] text-[15px] select-none">
+    <div
+      className="flex flex-col rounded-2xl overflow-hidden transition-all duration-200"
+      style={{ background: isAI ? "rgba(10,10,18,0.8)" : "rgba(255,255,255,0.025)", border: `1px solid ${borderColor}`, boxShadow: isAI ? `0 0 30px ${glowColor}` : "none" }}
+    >
+      <div className="flex items-center gap-3 px-5 pt-5 pb-4" style={{ borderBottom: `1px solid ${headerBorderColor}` }}>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[15px] select-none"
+          style={isAI
+            ? { background: bullish ? "rgba(16,185,129,0.15)" : bearish ? "rgba(239,68,68,0.12)" : "rgba(124,58,237,0.15)", border: `1px solid ${borderColor}` }
+            : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }
+          }>
           {meta.flag}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-0.5">
             <h3 className="text-[14px] font-bold text-white leading-none">{meta.label}</h3>
-            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest bg-white/[0.05] text-white/25 border border-white/[0.07] rounded">
+            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded"
+              style={isAI
+                ? { background: "rgba(124,58,237,0.12)", color: "rgba(167,139,250,0.7)", border: "1px solid rgba(124,58,237,0.18)" }
+                : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.07)" }
+              }>
               {meta.assetClass}
             </span>
           </div>
-          <span className="text-[10px] text-white/20 font-mono tracking-wider">{symbol}</span>
+          <span className="text-[10px] font-mono tracking-wider" style={{ color: isAI ? "rgba(167,139,250,0.4)" : "rgba(255,255,255,0.20)" }}>{symbol}</span>
         </div>
+        {isAI && sniper?.news_bias && (
+          <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold"
+            style={bullish
+              ? { background: "rgba(16,185,129,0.15)", color: "#10b981", border: "1px solid rgba(16,185,129,0.25)" }
+              : bearish
+              ? { background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.25)" }
+              : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.10)" }
+            }>
+            {bullish ? "▲" : bearish ? "▼" : "—"} {sniper.news_bias}
+          </span>
+        )}
       </div>
 
       <div className="px-5 py-4">
-        <p className="text-[10px] font-semibold text-white/20 uppercase tracking-widest mb-2.5">Latest Khabar</p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest mb-2.5"
+          style={isAI ? { background: "linear-gradient(90deg, #10b981, #7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "rgba(255,255,255,0.20)" }}>
+          Latest Khabar
+        </p>
         <ul className="space-y-2">
           {latestHeadlines.map((h, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-[12px] text-white/60 leading-relaxed">
-              <span className="mt-[7px] h-1 w-1 rounded-full bg-white/25 shrink-0" />
+            <li key={i} className="flex items-start gap-2.5 text-[12px] leading-relaxed" style={{ color: isAI ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.60)" }}>
+              <span className="mt-[7px] h-1 w-1 rounded-full shrink-0" style={{ background: isAI ? borderColor : "rgba(255,255,255,0.25)" }} />
               <MarkdownText text={h || ""} />
             </li>
           ))}
@@ -2497,11 +2649,12 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
       </div>
 
       <div className="px-5 pb-4">
-        <p className="text-[10px] font-semibold text-white/20 uppercase tracking-widest mb-2.5">Detailed Breakdown</p>
-        <div className={cn(
-          "text-[12px] text-white/55 leading-[1.85]",
-          !expanded && needsExpand && "line-clamp-5",
-        )}>
+        <p className="text-[10px] font-semibold uppercase tracking-widest mb-2.5"
+          style={isAI ? { background: "linear-gradient(90deg, #7c3aed, #0891b2)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "rgba(255,255,255,0.20)" }}>
+          Detailed Breakdown
+        </p>
+        <div className={cn("text-[12px] leading-[1.85]", !expanded && needsExpand && "line-clamp-5")}
+          style={{ color: isAI ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.55)" }}>
           <MarkdownText text={news.detailed_breakdown || ""} />
         </div>
         {needsExpand && (
@@ -2514,7 +2667,11 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
 
       {news.trader_alert && (
         <div className="px-5 pb-5 mt-auto">
-          <div className="rounded-xl bg-amber-500/[0.07] border border-amber-500/[0.18] px-4 py-3">
+          <div className="rounded-xl px-4 py-3"
+            style={isAI
+              ? { background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.20)" }
+              : { background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.18)" }
+            }>
             <div className="flex items-center gap-1.5 mb-2">
               <AlertTriangle className="h-3 w-3 text-amber-400/70 shrink-0" />
               <span className="text-[9px] font-bold text-amber-400/60 uppercase tracking-widest">Trader Alert</span>
@@ -2526,7 +2683,6 @@ function SymbolCard({ symbol, news }: { symbol: string; news: SymbolNews }) {
         </div>
       )}
 
-      {/* Sniper note — news-based directional suggestion */}
       {news.sniper_note && <SniperNoteSection note={news.sniper_note} />}
     </div>
   );
@@ -2564,9 +2720,1635 @@ function CardsSkeleton() {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Analyse helpers ─────────────────────────────────────────────────────────
 
-type NewsMode = "generate" | "live";
+function formatPubDate(dateStr: string): string {
+  if (!dateStr) return "";
+  try {
+    const ms = new Date(dateStr).getTime();
+    if (isNaN(ms)) return "";
+    const diff = Date.now() - ms;
+    if (diff < 0) return "Just now";
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "Just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  } catch { return ""; }
+}
+
+function AnalyseHistoryModal({
+  history,
+  loadingId,
+  deletingId,
+  onLoad,
+  onDelete,
+  onClose,
+}: {
+  history: AnalyseHistoryEntry[];
+  loadingId: string | null;
+  deletingId: string | null;
+  onLoad: (id: string) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const { data: uSession } = useSession();
+
+  function fmtTime(iso: string) {
+    return new Date(iso).toLocaleString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+      timeZone: "Asia/Kolkata", timeZoneName: "short",
+    });
+  }
+
+  function abbrev(email: string) {
+    const [local, domain] = email.split("@");
+    return `${local.slice(0, 12)}${local.length > 12 ? "…" : ""}@${domain}`;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="relative w-full max-w-lg max-h-[80vh] flex flex-col rounded-2xl bg-[#0f0f0f] border border-white/[0.10] shadow-2xl overflow-hidden">
+
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.07] shrink-0">
+          <div className="flex items-center gap-2.5">
+            <History className="h-4 w-4 text-white/40" />
+            <div>
+              <p className="text-[13px] font-semibold text-white/80">Analysis History</p>
+              <p className="text-[11px] text-white/30">{history.length} saved reports</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {history.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Database className="h-6 w-6 text-white/15" />
+              <p className="text-[12px] text-white/30">Koi saved analysis nahi mila</p>
+            </div>
+          )}
+          {history.length > 0 && (
+            <div className="p-4 space-y-2">
+              {history.map((entry, idx) => (
+                <div key={entry._id}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors",
+                    idx === 0
+                      ? "bg-white/[0.04] border-white/[0.10]"
+                      : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.09]",
+                  )}>
+                  <div className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold",
+                    idx === 0 ? "bg-white/[0.12] text-white/70" : "bg-white/[0.05] text-white/25",
+                  )}>
+                    {idx === 0 ? "●" : `${history.length - idx}`}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[12px] font-semibold text-white/70">{entry.timeRangeLabel}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-white/[0.06] text-white/30 border border-white/[0.08]">
+                        {entry.newsCount} articles
+                      </span>
+                      {idx === 0 && <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Latest</span>}
+                    </div>
+                    <p className="text-[10px] text-white/30">{fmtTime(entry.generatedAt)}</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <User className="h-2.5 w-2.5 text-white/20 shrink-0" />
+                      <p className="text-[10px] text-white/25 truncate">{abbrev(entry.generatedBy)}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => onLoad(entry._id)}
+                      disabled={loadingId === entry._id || deletingId === entry._id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border bg-white/[0.04] border-white/[0.08] text-white/40 hover:text-white/70 hover:bg-white/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    >
+                      {loadingId === entry._id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+                      {loadingId === entry._id ? "Loading…" : "View"}
+                    </button>
+                    {(() => {
+                      const userEmail = uSession?.user?.email;
+                      const isOwner = entry.generatedBy && userEmail && entry.generatedBy.toLowerCase() === userEmail.toLowerCase();
+                      const isAdmin = (uSession?.user as { role?: string })?.role === "admin";
+                      if (!isOwner && !isAdmin) return null;
+                      return (
+                        <button
+                          onClick={() => onDelete(entry._id)}
+                          disabled={deletingId === entry._id || loadingId === entry._id}
+                          className="flex items-center justify-center p-2 rounded-lg border border-red-500/20 bg-red-500/[0.07] text-red-400 hover:bg-red-500/[0.15] disabled:opacity-40 disabled:cursor-not-allowed transition"
+                        >
+                          {deletingId === entry._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-white/[0.07] shrink-0 flex justify-between items-center">
+          <p className="text-[11px] text-white/20">
+            {history.length > 0 ? `${history.length} report${history.length > 1 ? "s" : ""} saved` : ""}
+          </p>
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/40 hover:text-white/70 hover:bg-white/[0.06] border border-white/[0.07] transition">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Model Selection Modal ───────────────────────────────────────────────────
+
+interface ModelSelectionModalProps {
+  onSelect: (model: "openai" | "gemini") => void;
+  onClose: () => void;
+}
+
+function ModelSelectionModal({ onSelect, onClose }: ModelSelectionModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="relative w-full max-w-md rounded-2xl bg-[#0f0f0f] border border-white/[0.10] shadow-2xl overflow-hidden">
+        
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.07] shrink-0">
+          <div className="flex items-center gap-2.5">
+            <Bot className="h-4 w-4 text-white/40" />
+            <div>
+              <p className="text-[13px] font-semibold text-white/80">Choose AI Model</p>
+              <p className="text-[11px] text-white/30">Select model for report generation</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          {/* Claude Sonnet 4.6 (OpenAI backend) Option */}
+          <button
+            onClick={() => onSelect("openai")}
+            className="w-full flex items-start gap-4 p-4 rounded-xl border border-white/[0.06] bg-white/[0.01] hover:bg-white/[0.03] hover:border-white/[0.12] transition text-left group"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500/20 transition duration-300">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[12.5px] font-semibold text-white/80 group-hover:text-white transition">Claude Sonnet 4.6</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300">DEFAULT</span>
+              </div>
+              <p className="text-[11px] text-white/35 mt-1 leading-relaxed">
+                Fast, highly accurate market reports. Leverages web search preview grounding for the latest real-time details.
+              </p>
+            </div>
+          </button>
+
+          {/* Gemini Option */}
+          <button
+            onClick={() => onSelect("gemini")}
+            className="w-full flex items-start gap-4 p-4 rounded-xl border border-white/[0.06] bg-white/[0.01] hover:bg-white/[0.03] hover:border-white/[0.12] transition text-left group"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] text-white/40 group-hover:bg-white/[0.10] transition duration-300">
+              <Zap className="h-4 w-4" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[12.5px] font-semibold text-white/80 group-hover:text-white transition">Gemini 3.5 Flash</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-white/[0.06] text-white/35">ALT</span>
+              </div>
+              <p className="text-[11px] text-white/35 mt-1 leading-relaxed">
+                Google Search grounding context, top-tier Hinglish/conversational explanations and reasoning.
+              </p>
+            </div>
+          </button>
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-white/[0.07] bg-white/[0.01]">
+          <button
+            onClick={onClose}
+            className="px-3.5 py-1.5 rounded-lg text-[11px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition"
+          >
+            Cancel
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ─── Analyse with AI sub-components ──────────────────────────────────────────
+
+function AnalyseInstrumentCard({ symbol, analysis }: { symbol: string; analysis: InstrumentAnalysis }) {
+  const meta    = SYMBOL_META[symbol] ?? { label: symbol, assetClass: "Other", flag: "•" };
+  const bullish = analysis.sentiment === "Bullish";
+  const bearish = analysis.sentiment === "Bearish";
+
+  return (
+    <div className="flex flex-col rounded-2xl bg-white/[0.025] border border-white/[0.07] hover:border-white/[0.11] transition-colors duration-200 overflow-hidden">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/[0.05]">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] border border-white/[0.08] text-[15px] select-none">
+          {meta.flag}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-0.5">
+            <h3 className="text-[14px] font-bold text-white leading-none">{meta.label}</h3>
+            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest bg-white/[0.05] text-white/25 border border-white/[0.07] rounded">
+              {meta.assetClass}
+            </span>
+          </div>
+          <span className="text-[10px] text-white/20 font-mono tracking-wider">{symbol}</span>
+        </div>
+        <span className={cn(
+          "px-2.5 py-1 rounded-full text-[11px] font-bold border shrink-0",
+          bullish ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" :
+          bearish ? "bg-red-500/15 text-red-400 border-red-500/25" :
+          "bg-white/[0.05] text-white/40 border-white/[0.10]",
+        )}>
+          {bullish ? "▲" : bearish ? "▼" : "—"} {analysis.sentiment}
+        </span>
+      </div>
+
+      {/* Summary */}
+      <div className="px-5 py-4">
+        <p className="text-[12px] text-white/60 leading-[1.85]">{analysis.summary}</p>
+      </div>
+
+      {/* News drivers */}
+      {Array.isArray(analysis.news_drivers) && analysis.news_drivers.length > 0 && (
+        <div className="px-5 pb-4">
+          <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest mb-2">News Drivers</p>
+          <ul className="space-y-1.5">
+            {analysis.news_drivers.slice(0, 3).map((d, i) => (
+              <li key={i} className="flex items-start gap-2 text-[11px] text-white/45 leading-relaxed">
+                <span className="mt-[5px] h-1 w-1 rounded-full bg-white/20 shrink-0" />
+                {d}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Outlook */}
+      {analysis.outlook && (
+        <div className="px-5 pb-5 mt-auto">
+          <div className={cn(
+            "rounded-xl px-4 py-3 border",
+            bullish ? "bg-emerald-500/[0.06] border-emerald-500/20" :
+            bearish ? "bg-red-500/[0.06] border-red-500/20" :
+            "bg-white/[0.03] border-white/[0.07]",
+          )}>
+            <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest mb-1.5">Outlook</p>
+            <p className={cn(
+              "text-[12px] leading-relaxed",
+              bullish ? "text-emerald-400/70" : bearish ? "text-red-400/70" : "text-white/55",
+            )}>{analysis.outlook}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalyseHighImpactCard({ item }: { item: HighImpactNewsItem }) {
+  const bull = item.sentiment === "Bullish";
+  const bear = item.sentiment === "Bearish";
+  const high = item.impact_level === "High";
+  const med  = item.impact_level === "Medium";
+
+  return (
+    <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-4 flex flex-col gap-2.5">
+
+      {/* Badges */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={cn(
+          "px-2 py-0.5 rounded text-[10px] font-bold border",
+          high ? "bg-red-500/15 text-red-400 border-red-500/25" :
+          med  ? "bg-amber-500/15 text-amber-400 border-amber-500/25" :
+          "bg-white/[0.05] text-white/35 border-white/[0.08]",
+        )}>
+          {item.impact_level} IMPACT
+        </span>
+        <span className={cn(
+          "px-2 py-0.5 rounded text-[10px] font-bold border",
+          bull ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" :
+          bear ? "bg-red-500/15 text-red-400 border-red-500/25" :
+          "bg-white/[0.05] text-white/35 border-white/[0.08]",
+        )}>
+          {bull ? "▲" : bear ? "▼" : "—"} {item.sentiment}
+        </span>
+        {item.source && (
+          <span className="text-[10px] text-white/25 ml-auto font-medium">{item.source}</span>
+        )}
+      </div>
+
+      {/* Headline */}
+      <p className="text-[13px] font-semibold text-white/80 leading-snug">{item.headline}</p>
+
+      {/* Affected instruments */}
+      {Array.isArray(item.affected_instruments) && item.affected_instruments.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {item.affected_instruments.map((inst, i) => (
+            <span key={i} className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white/[0.05] text-white/40 border border-white/[0.08]">
+              {inst}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Analysis */}
+      {item.analysis && (
+        <p className="text-[12px] text-white/50 leading-[1.8]">{item.analysis}</p>
+      )}
+    </div>
+  );
+}
+
+// ─── AI Loading Animation ─────────────────────────────────────────────────────
+
+function AILoadingAnimation({ label = "Claude Sonnet 4.6 is analyzing..." }: { label?: string }) {
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes aiBlob {
+          0%,100% { transform: translate(0,0) scale(1); }
+          25% { transform: translate(40px,-40px) scale(1.12); }
+          50% { transform: translate(-25px,35px) scale(0.88); }
+          75% { transform: translate(35px,15px) scale(1.06); }
+        }
+        @keyframes aiShimmer {
+          0% { background-position: -200% center; }
+          100% { background-position: 200% center; }
+        }
+        @keyframes aiFloat {
+          0%,100% { transform: translateY(0px); }
+          50% { transform: translateY(-8px); }
+        }
+        .ai-blob { animation: aiBlob 8s ease-in-out infinite; }
+        .ai-blob-2 { animation: aiBlob 8s ease-in-out infinite; animation-delay: -2.8s; }
+        .ai-blob-3 { animation: aiBlob 8s ease-in-out infinite; animation-delay: -5.4s; }
+        .ai-shimmer { background: linear-gradient(90deg, transparent, #10b981, #7c3aed, #06b6d4, transparent); background-size: 200% 100%; animation: aiShimmer 2s ease-in-out infinite; }
+        .ai-float { animation: aiFloat 3s ease-in-out infinite; }
+      `}} />
+      <div className="flex flex-col items-center justify-center min-h-[55vh] gap-8 relative overflow-hidden select-none">
+        {/* Gradient orbs */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="ai-blob absolute w-[480px] h-[480px] rounded-full opacity-[0.12]" style={{ background: "radial-gradient(circle, #10b981 0%, transparent 70%)" }} />
+          <div className="ai-blob-2 absolute w-[380px] h-[380px] rounded-full opacity-[0.10]" style={{ background: "radial-gradient(circle, #7c3aed 0%, transparent 70%)" }} />
+          <div className="ai-blob-3 absolute w-[320px] h-[320px] rounded-full opacity-[0.09]" style={{ background: "radial-gradient(circle, #06b6d4 0%, transparent 70%)" }} />
+        </div>
+
+        {/* Central card */}
+        <div className="ai-float relative z-10 flex flex-col items-center gap-6">
+          <div className="relative">
+            <div className="h-24 w-24 rounded-3xl bg-white/[0.04] border border-white/[0.10] flex items-center justify-center backdrop-blur-sm shadow-[0_0_60px_rgba(16,185,129,0.08)]">
+              <Sparkles className="h-10 w-10 text-white/50" />
+            </div>
+            <div className="absolute -inset-1.5 rounded-[28px] border border-white/[0.06] animate-ping" style={{ animationDuration: "2s" }} />
+            <div className="absolute -inset-3 rounded-[32px] border border-white/[0.03] animate-ping" style={{ animationDuration: "2.5s", animationDelay: "0.4s" }} />
+          </div>
+
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center gap-1.5 mb-2">
+              {[0, 150, 300].map((delay, i) => (
+                <div key={i} className={cn(
+                  "h-1.5 w-1.5 rounded-full animate-bounce",
+                  i === 0 ? "bg-emerald-400" : i === 1 ? "bg-violet-400" : "bg-cyan-400"
+                )} style={{ animationDelay: `${delay}ms` }} />
+              ))}
+            </div>
+            <p className="text-[16px] font-semibold text-white/75 tracking-tight">{label}</p>
+            <p className="text-[12px] text-white/30 leading-relaxed">
+              Fetching live news · running sentiment analysis
+              <br/>
+              <span className="text-white/20">FXStreet · ForexLive · Investing.com · CoinDesk</span>
+            </p>
+          </div>
+
+          {/* Shimmer bar */}
+          <div className="w-64 h-[3px] bg-white/[0.05] rounded-full overflow-hidden">
+            <div className="ai-shimmer h-full rounded-full" />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Report View Modal (full-screen) ─────────────────────────────────────────
+
+// ─── AI gradient tag (reusable) ───────────────────────────────────────────────
+
+function AITag() {
+  return (
+    <span
+      className="shrink-0 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide text-white"
+      style={{
+        background: "linear-gradient(135deg, rgba(5,150,105,0.30) 0%, rgba(124,58,237,0.30) 50%, rgba(8,145,178,0.30) 100%)",
+        border: "1px solid rgba(16,185,129,0.22)",
+        textShadow: "0 0 8px rgba(16,185,129,0.4)",
+      }}
+    >
+      ✦ AI
+    </span>
+  );
+}
+
+function ManualTag() {
+  return (
+    <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold border border-white/[0.08] uppercase text-white/30 bg-white/[0.04]">
+      Manual
+    </span>
+  );
+}
+
+// ─── Report View Modal ────────────────────────────────────────────────────────
+
+function ReportViewModal({
+  report, entry, onClose,
+}: {
+  report: NewsReport;
+  entry?: NewsEntry | null;
+  onClose: () => void;
+}) {
+  const isAI = entry?.reportType === "ai";
+  const orderedSymbols = report?.symbol_wise_news
+    ? SYMBOL_DISPLAY_ORDER.filter(s => s in report.symbol_wise_news)
+    : [];
+
+  return (
+    <>
+    <div className="fixed inset-0 z-[49] bg-black/55 backdrop-blur-xl" onClick={onClose} />
+    <div
+      className="fixed inset-4 md:inset-8 z-50 flex flex-col rounded-2xl overflow-hidden"
+      style={isAI
+        ? { background: "#08080f", border: "1px solid rgba(255,255,255,0.09)", boxShadow: "0 0 0 1px rgba(16,185,129,0.07), 0 0 100px rgba(124,58,237,0.08), 0 25px 60px rgba(0,0,0,0.85)" }
+        : { background: "#0d0d0d", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 25px 50px rgba(0,0,0,0.8)" }
+      }
+    >
+      {/* AI ambient glow strip at top */}
+      {isAI && (
+        <div className="shrink-0 h-[2px] w-full" style={{ background: "linear-gradient(90deg, transparent 0%, #059669 25%, #7c3aed 55%, #0891b2 75%, transparent 100%)", opacity: 0.7 }} />
+      )}
+
+      {/* Header */}
+      <div
+        className="flex items-center justify-between gap-3 px-5 py-3.5 border-b shrink-0 backdrop-blur-sm"
+        style={{ borderColor: isAI ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.07)", background: isAI ? "rgba(8,8,15,0.95)" : "rgba(13,13,13,0.90)" }}
+      >
+        <div className="flex items-center gap-3">
+          {isAI ? (
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg shrink-0"
+              style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }}>
+              <Sparkles className="h-3.5 w-3.5 text-white" />
+            </div>
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg shrink-0 bg-white/[0.05] border border-white/[0.09]">
+              <Newspaper className="h-3.5 w-3.5 text-white/50" />
+            </div>
+          )}
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-[13px] font-semibold text-white/85 leading-none">
+                {report?.meta?.session ?? "Unknown"} Session — {entry?.date ?? report?.meta?.date ?? ""}
+              </p>
+              {isAI ? <AITag /> : <ManualTag />}
+            </div>
+            <p className="text-[10px] text-white/25 mt-0.5">
+              {report?.meta?.generated_at
+                ? new Date(report.meta.generated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST"
+                : ""}
+            </p>
+          </div>
+        </div>
+        <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto px-5 md:px-8 py-6">
+        {report?.all_news_section && (
+          <div
+            className="rounded-2xl overflow-hidden mb-6"
+            style={isAI
+              ? { border: "1px solid rgba(16,185,129,0.12)", background: "rgba(255,255,255,0.015)", boxShadow: "0 0 40px rgba(124,58,237,0.04)" }
+              : { border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.025)" }
+            }
+          >
+            <div
+              className="flex items-center gap-2.5 px-6 py-3 border-b"
+              style={{ borderColor: isAI ? "rgba(16,185,129,0.10)" : "rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.015)" }}
+            >
+              {isAI ? (
+                <>
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: "#10b981" }} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest"
+                    style={{ background: "linear-gradient(90deg, #10b981, #7c3aed, #06b6d4)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                    AI Generated Report
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Newspaper className="h-3.5 w-3.5 text-white/30 shrink-0" />
+                  <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest">Aaj Ki Sabse Badi Khabar</span>
+                </>
+              )}
+            </div>
+            <div className="px-6 py-5">
+              <h2 className="text-[18px] sm:text-[20px] font-bold text-white leading-snug mb-4">
+                <MarkdownText text={report.all_news_section.headline || ""} />
+              </h2>
+              <p className="text-[13px] text-white/60 leading-[1.85]">
+                <MarkdownText text={report.all_news_section.summary || ""} />
+              </p>
+            </div>
+          </div>
+        )}
+
+        {report?.all_news_section?.high_impact_events?.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              {isAI
+                ? <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ background: "linear-gradient(90deg, #10b981, #7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>High Impact Events</span>
+                : <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">High Impact Events</h2>
+              }
+              <span className="text-[10px] text-white/15">{report.all_news_section.high_impact_events.length} events</span>
+              <div className="flex-1 h-px" style={isAI ? { background: "linear-gradient(90deg, rgba(16,185,129,0.25), rgba(124,58,237,0.20), transparent)" } : { background: "rgba(255,255,255,0.05)" }} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {report.all_news_section.high_impact_events.map((ev, i) => ev && <EventCard key={i} event={ev} isAI={isAI} />)}
+            </div>
+          </div>
+        )}
+
+        {orderedSymbols.length > 0 && (
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              {isAI
+                ? <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ background: "linear-gradient(90deg, #7c3aed, #0891b2)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>Symbol-Wise Breakdown</span>
+                : <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">Symbol-Wise Breakdown</h2>
+              }
+              <span className="text-[10px] text-white/15">{orderedSymbols.length} instruments</span>
+              <div className="flex-1 h-px" style={isAI ? { background: "linear-gradient(90deg, rgba(124,58,237,0.25), rgba(8,145,178,0.20), transparent)" } : { background: "rgba(255,255,255,0.05)" }} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {orderedSymbols.map(sym => <SymbolCard key={sym} symbol={sym} news={report?.symbol_wise_news?.[sym]} isAI={isAI} />)}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+    </>
+  );
+}
+
+// ─── Global History Drawer ────────────────────────────────────────────────────
+
+function GlobalHistoryDrawer({
+  reports,
+  analyseHistory,
+  onViewReport,
+  onViewAnalysis,
+  onClose,
+}: {
+  reports: NewsEntry[];
+  analyseHistory: AnalyseHistoryEntry[];
+  onViewReport: (entry: NewsEntry) => void;
+  onViewAnalysis: (id: string) => void;
+  onClose: () => void;
+}) {
+  function fmtDate(iso: string) {
+    return new Date(iso).toLocaleString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+      timeZone: "Asia/Kolkata", timeZoneName: "short",
+    });
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      {/* Drawer */}
+      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-sm flex flex-col bg-[#0f0f0f] border-l border-white/[0.08] shadow-2xl">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.07] shrink-0">
+          <div className="flex items-center gap-2.5">
+            <History className="h-4 w-4 text-white/40" />
+            <div>
+              <p className="text-[13px] font-semibold text-white/80">Report History</p>
+              <p className="text-[11px] text-white/30">{reports.length + analyseHistory.length} saved items</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {(reports.length > 0 || analyseHistory.length > 0) && (() => {
+            // Build a single time-sorted combined list (latest first)
+            type CItem =
+              | { kind: "report";   sortMs: number; entry: NewsEntry }
+              | { kind: "analysis"; sortMs: number; entry: AnalyseHistoryEntry };
+
+            const combined: CItem[] = [
+              ...reports.map(r => ({
+                kind: "report" as const,
+                sortMs: r.latestAt ? new Date(r.latestAt).getTime() : 0,
+                entry: r,
+              })),
+              ...analyseHistory.map(a => ({
+                kind: "analysis" as const,
+                sortMs: new Date(a.generatedAt).getTime(),
+                entry: a,
+              })),
+            ].sort((a, b) => b.sortMs - a.sortMs);
+
+            return (
+              <div className="p-4 space-y-1.5">
+                {combined.map((item, idx) => {
+                  const isFirst = idx === 0;
+                  if (item.kind === "report") {
+                    const e = item.entry;
+                    const isAIReport = e.reportType === "ai";
+                    return (
+                      <button key={`r-${e.date}-${e.session}`} onClick={() => onViewReport(e)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition hover:bg-white/[0.05]"
+                        style={isFirst
+                          ? { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)" }
+                          : { background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)" }
+                        }
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold"
+                          style={isFirst ? { background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.70)" } : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.25)" }}>
+                          {SESSION_LABELS[e.session]?.charAt(0) ?? "?"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-semibold text-white/70 truncate">
+                            {SESSION_LABELS[e.session]} · {formatDateLabel(e.date)}
+                          </p>
+                          {e.latestAt && <p className="text-[10px] text-white/25 mt-0.5">{fmtDate(e.latestAt)}</p>}
+                        </div>
+                        {isAIReport ? <AITag /> : <ManualTag />}
+                      </button>
+                    );
+                  } else {
+                    const e = item.entry;
+                    return (
+                      <button key={`a-${e._id}`} onClick={() => onViewAnalysis(e._id)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition hover:bg-white/[0.05]"
+                        style={isFirst
+                          ? { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)" }
+                          : { background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)" }
+                        }
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold"
+                          style={{ background: "rgba(124,58,237,0.12)", color: "rgba(167,139,250,0.65)" }}>
+                          ✦
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-semibold text-white/65 truncate">{e.timeRangeLabel}</p>
+                          <p className="text-[10px] text-white/25 mt-0.5">{fmtDate(e.generatedAt)} · {e.newsCount} articles</p>
+                        </div>
+                        <AITag />
+                      </button>
+                    );
+                  }
+                })}
+              </div>
+            );
+          })()}
+
+          {reports.length === 0 && analyseHistory.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Database className="h-6 w-6 text-white/15" />
+              <p className="text-[12px] text-white/30">Koi saved report nahi mila</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Manual Modal (Prompt + Add Report + Generate) ───────────────────────────
+
+type ManualTab = "prompt" | "editor" | "generate";
+
+function ManualModal({
+  reports,
+  onClose,
+  onSaved,
+  onGenerateAI,
+  generating,
+  generateError,
+}: {
+  reports: NewsEntry[];
+  onClose: () => void;
+  onSaved: () => void;
+  onGenerateAI: (date: string, session: string, model: "openai" | "gemini") => void;
+  generating: boolean;
+  generateError: string | null;
+}) {
+  const [tab, setTab] = useState<ManualTab>("prompt");
+  const [selectedDate, setSelectedDate] = useState(getISTDateString());
+  const [selectedSession, setSelectedSession] = useState(getCurrentSessionIST());
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+
+  const nextInfo = getNextSessionAndDate();
+
+  const tabs: { key: ManualTab; label: string; icon: React.ReactNode }[] = [
+    { key: "prompt", label: "Prompt", icon: <Bot className="h-3.5 w-3.5" /> },
+    { key: "editor", label: "Add Report", icon: <Pencil className="h-3.5 w-3.5" /> },
+    { key: "generate", label: "Generate with AI", icon: <Zap className="h-3.5 w-3.5" /> },
+  ];
+
+  return (
+    <>
+    <div className="fixed inset-0 z-[49] bg-black/55 backdrop-blur-xl" onClick={onClose} />
+    <div className="fixed inset-4 md:inset-8 z-50 flex flex-col rounded-2xl bg-[#0d0d0d] border border-white/[0.08] shadow-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/[0.07] shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] border border-white/[0.10]">
+            <Pencil className="h-3.5 w-3.5 text-white/60" />
+          </div>
+          <div>
+            <p className="text-[14px] font-semibold text-white/85">Manual</p>
+            <p className="text-[10px] text-white/30">Prompt · Add Report · Generate with AI</p>
+          </div>
+        </div>
+        <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-white/[0.06] shrink-0">
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition",
+              tab === t.key
+                ? "bg-white/[0.10] text-white border border-white/[0.12]"
+                : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]"
+            )}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {tab === "prompt" && (
+          <PromptModal
+            defaultDate={nextInfo.date}
+            defaultSession={nextInfo.session}
+            onClose={onClose}
+            embedded
+          />
+        )}
+        {tab === "editor" && (
+          <EditorModal
+            date={selectedDate}
+            session={selectedSession}
+            initialJson=""
+            onClose={onClose}
+            onSaved={onSaved}
+            embedded
+          />
+        )}
+        {tab === "generate" && (
+          <div className="flex flex-col items-center justify-center h-full gap-8 px-8 py-12">
+            <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/[0.05] border border-white/[0.09]">
+                <Zap className="h-7 w-7 text-white/40" />
+              </div>
+              <div>
+                <p className="text-[16px] font-semibold text-white/70 mb-2">Generate with AI</p>
+                <p className="text-[12px] text-white/35 leading-relaxed">
+                  AI automatically fetches market news for the selected date/session and generates a full analysis report.
+                </p>
+              </div>
+            </div>
+
+            {/* Date + Session selector */}
+            <div className="flex flex-col items-center gap-4 w-full max-w-xs">
+              <div className="flex items-center gap-3 w-full">
+                <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0 w-16">Session</span>
+                <div className="flex items-center gap-1 p-0.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                  {SESSION_ORDER.map(s => (
+                    <button key={s} onClick={() => setSelectedSession(s)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-[11px] font-medium transition",
+                        selectedSession === s ? "bg-white/[0.10] text-white border border-white/[0.12]" : "text-white/40 hover:text-white/70"
+                      )}>
+                      {SESSION_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 w-full">
+                <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0 w-16">Date</span>
+                <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
+                  className="px-2 py-1 rounded-lg text-[11px] font-medium bg-white/[0.03] border border-white/[0.08] text-white/70 focus:outline-none focus:border-white/[0.20]" />
+              </div>
+            </div>
+
+            {generateError && (
+              <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/[0.08] border border-red-500/20 text-[12px] text-red-400">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {generateError}
+              </div>
+            )}
+
+            <button
+              onClick={() => setModelSelectorOpen(true)}
+              disabled={generating}
+              className={cn(
+                "flex items-center gap-2 px-6 py-3 rounded-xl text-[13px] font-semibold border transition",
+                generating
+                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400/60 cursor-not-allowed"
+                  : "bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 hover:text-emerald-300"
+              )}
+            >
+              {generating
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
+                : <><Sparkles className="h-4 w-4" /> Generate Report</>
+              }
+            </button>
+          </div>
+        )}
+      </div>
+
+      {modelSelectorOpen && (
+        <ModelSelectionModal
+          onClose={() => setModelSelectorOpen(false)}
+          onSelect={(model) => {
+            setModelSelectorOpen(false);
+            onGenerateAI(selectedDate, selectedSession, model);
+          }}
+        />
+      )}
+    </div>
+    </>
+  );
+}
+
+// ─── AI Analysis Modal (full-screen) ─────────────────────────────────────────
+
+function AIAnalysisModal({
+  analysing,
+  analyseError,
+  analyseResult,
+  analyseNewsCount,
+  analyseArticles,
+  analysePrompt,
+  analyseTab,
+  analyseTimeRange,
+  analyseInstrument,
+  analyseHistory,
+  selectedLinks,
+  previewLoading,
+  previewFetchedRange,
+  previewFetchedInstrument,
+  onClose,
+  onSetAnalyseTab,
+  onSetAnalyseTimeRange,
+  onSetAnalyseInstrument,
+  onSetSelectedLinks,
+  onAnalyse,
+  onFetchPreview,
+  onHistoryLoad,
+  onHistoryDelete,
+  onRefreshHistory,
+  analyseHistoryLoading,
+  analyseHistoryDeleteId,
+}: {
+  analysing: boolean;
+  analyseError: string | null;
+  analyseResult: NewsAnalysisResult | null;
+  analyseNewsCount: number;
+  analyseArticles: AnalyseArticle[];
+  analysePrompt: string;
+  analyseTab: AnalyseTab;
+  analyseTimeRange: AnalyseTimeRange;
+  analyseInstrument: string;
+  analyseHistory: AnalyseHistoryEntry[];
+  selectedLinks: string[];
+  previewLoading: boolean;
+  previewFetchedRange: string | null;
+  previewFetchedInstrument: string | null;
+  onClose: () => void;
+  onSetAnalyseTab: (t: AnalyseTab) => void;
+  onSetAnalyseTimeRange: (r: AnalyseTimeRange) => void;
+  onSetAnalyseInstrument: (i: string) => void;
+  onSetSelectedLinks: (l: string[]) => void;
+  onAnalyse: (model: "openai" | "gemini") => void;
+  onFetchPreview: (range: string, inst: string, links: string[] | null) => void;
+  onHistoryLoad: (id: string) => void;
+  onHistoryDelete: (id: string) => void;
+  onRefreshHistory: () => void;
+  analyseHistoryLoading: boolean;
+  analyseHistoryDeleteId: string | null;
+}) {
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(false);
+
+  const { data: uSession } = useSession();
+
+  useEffect(() => {
+    if (!analysing && analyseTimeRange !== previewFetchedRange || analyseInstrument !== previewFetchedInstrument) {
+      onFetchPreview(analyseTimeRange, analyseInstrument, null);
+    }
+  }, [analyseTimeRange, analyseInstrument]);
+
+  const s = analyseResult?.overall_sentiment;
+  const bullish = s?.label === "Bullish";
+  const bearish = s?.label === "Bearish";
+  const riskOn  = s?.risk_sentiment === "Risk-On";
+  const riskOff = s?.risk_sentiment === "Risk-Off";
+  const orderedAnalysis = s ? SYMBOL_DISPLAY_ORDER.filter(sym => analyseResult?.instrument_analysis?.[sym]) : [];
+
+  function fmtTime(iso: string) {
+    return new Date(iso).toLocaleString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata", timeZoneName: "short",
+    });
+  }
+
+  return (
+    <>
+    <div className="fixed inset-0 z-[49] bg-black/55 backdrop-blur-xl" onClick={onClose} />
+    <div className="fixed inset-4 md:inset-8 z-50 flex flex-col rounded-2xl bg-[#0a0a0a] border border-white/[0.08] shadow-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/[0.07] shrink-0 bg-[#0a0a0a]/95 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          {/* Gradient icon */}
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg shrink-0" style={{ background: "linear-gradient(135deg, #10b981 0%, #7c3aed 60%, #06b6d4 100%)" }}>
+            <Sparkles className="h-3.5 w-3.5 text-white" />
+          </div>
+          <div>
+            <p className="text-[14px] font-semibold text-white/85">AI News Analysis</p>
+            <p className="text-[10px] text-white/30">Claude Sonnet 4.6 · Live RSS sentiment analysis</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Time range */}
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+            {ANALYSE_TIME_RANGES.map(opt => (
+              <button key={opt.value} onClick={() => onSetAnalyseTimeRange(opt.value)}
+                disabled={analysing}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-[11px] font-semibold transition border",
+                  analyseTimeRange === opt.value
+                    ? "bg-white/[0.10] text-white border-white/[0.15]"
+                    : "text-white/35 border-transparent hover:text-white/60 hover:bg-white/[0.04]"
+                )}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Instrument filter */}
+          <select
+            value={analyseInstrument}
+            onChange={e => onSetAnalyseInstrument(e.target.value)}
+            disabled={analysing}
+            className="appearance-none pl-3 pr-7 py-1.5 rounded-lg text-[11px] font-semibold bg-white/[0.03] border border-white/[0.07] text-white/60 focus:outline-none cursor-pointer"
+            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23ffffff44' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
+          >
+            {ANALYSE_INSTRUMENTS.map(inst => (
+              <option key={inst.value} value={inst.value} className="bg-[#121212] text-white">{inst.label}</option>
+            ))}
+          </select>
+
+          {/* Analyse button */}
+          <button
+            onClick={() => setModelSelectorOpen(true)}
+            disabled={analysing}
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold border transition",
+              analysing
+                ? "bg-white/[0.05] border-white/[0.08] text-white/30 cursor-not-allowed"
+                : "text-white border-transparent"
+            )}
+            style={analysing ? {} : { background: "linear-gradient(135deg, #10b981 0%, #7c3aed 60%, #06b6d4 100%)", border: "1px solid rgba(255,255,255,0.15)" }}
+          >
+            {analysing
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Analysing…</>
+              : <><Sparkles className="h-3.5 w-3.5" /> Analyse with AI</>
+            }
+          </button>
+
+          {/* History icon */}
+          <button
+            onClick={() => { onRefreshHistory(); setHistoryPanelOpen(v => !v); }}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition",
+              historyPanelOpen
+                ? "bg-white/[0.08] border-white/[0.12] text-white/70"
+                : "bg-white/[0.03] border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
+            )}
+          >
+            <History className="h-3.5 w-3.5" />
+            {analyseHistory.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
+                {analyseHistory.length}
+              </span>
+            )}
+          </button>
+
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Main content */}
+        <div className="flex-1 overflow-y-auto px-5 md:px-8 py-6">
+
+          {/* Loading */}
+          {analysing && <AILoadingAnimation />}
+
+          {/* Error */}
+          {analyseError && !analysing && (
+            <div className="max-w-xl mx-auto mt-12">
+              <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-5 py-4 flex items-start gap-3">
+                <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-[13px] font-semibold text-red-400 mb-1">Analysis failed</p>
+                  <p className="text-[12px] text-red-400/70">{analyseError}</p>
+                  <button onClick={() => setModelSelectorOpen(true)} className="mt-3 flex items-center gap-1.5 text-[12px] text-white/40 hover:text-white/70 transition">
+                    <RefreshCw className="h-3 w-3" /> Dobara try karo
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!analysing && !analyseError && (
+            <>
+              {/* Meta bar */}
+              {s && (
+                <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+                  <span className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold border",
+                    bullish ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" :
+                    bearish ? "bg-red-500/15 text-red-400 border-red-500/25" :
+                    "bg-white/[0.07] text-white/55 border-white/[0.10]",
+                  )}>
+                    {bullish ? "▲" : bearish ? "▼" : "—"} {s.label}
+                  </span>
+                  <span className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold border",
+                    riskOn  ? "bg-emerald-500/10 text-emerald-400/70 border-emerald-500/15" :
+                    riskOff ? "bg-red-500/10 text-red-400/70 border-red-500/15" :
+                    "bg-white/[0.04] text-white/30 border-white/[0.07]",
+                  )}>
+                    {s.risk_sentiment}
+                  </span>
+                  <span className="text-[11px] text-white/25">
+                    {analyseNewsCount} articles · {ANALYSE_TIME_RANGES.find(o => o.value === analyseTimeRange)?.display}
+                  </span>
+                </div>
+              )}
+
+              {/* Tabs */}
+              <div className="flex items-center gap-1 mb-5 p-1 rounded-xl bg-white/[0.03] border border-white/[0.06] w-fit">
+                {([
+                  { key: "result",   label: "Analysis Result" },
+                  { key: "articles", label: `Articles (${analyseNewsCount})` },
+                  { key: "prompt",   label: "Prompt" },
+                ] as { key: AnalyseTab; label: string }[]).map(t => (
+                  <button key={t.key}
+                    onClick={() => !(t.key === "result" && !analyseResult) && onSetAnalyseTab(t.key)}
+                    disabled={t.key === "result" && !analyseResult}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-lg text-[11px] font-semibold transition",
+                      t.key === "result" && !analyseResult
+                        ? "opacity-30 cursor-not-allowed text-white/35"
+                        : analyseTab === t.key
+                          ? "bg-white/[0.10] text-white border border-white/[0.12]"
+                          : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]"
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab: Result */}
+              {analyseTab === "result" && analyseResult && s && (
+                <>
+                  <div className="rounded-2xl bg-white/[0.025] border border-white/[0.07] overflow-hidden mb-6">
+                    <div className="flex items-center gap-2 px-6 py-3 border-b border-white/[0.05] bg-white/[0.02]">
+                      <Microscope className="h-3.5 w-3.5 text-white/30 shrink-0" />
+                      <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest">Overall Market Sentiment</span>
+                    </div>
+                    <div className="px-6 py-5">
+                      <p className="text-[13px] text-white/60 leading-[1.85] mb-4">{s.summary}</p>
+                      {s.key_themes?.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {s.key_themes.map((theme, i) => (
+                            <span key={i} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/[0.05] border border-white/[0.08] text-white/40">{theme}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {analyseResult.high_impact_news?.length > 0 && (
+                    <div className="mb-8">
+                      <div className="flex items-center gap-3 mb-4">
+                        <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">High Impact News</h2>
+                        <span className="text-[10px] text-white/15">{analyseResult.high_impact_news.length} items</span>
+                        <div className="flex-1 h-px bg-white/[0.05]" />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {analyseResult.high_impact_news.map((item, i) => <AnalyseHighImpactCard key={i} item={item} />)}
+                      </div>
+                    </div>
+                  )}
+                  {orderedAnalysis.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-3 mb-4">
+                        <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">Instrument Analysis</h2>
+                        <span className="text-[10px] text-white/15">{orderedAnalysis.length} instruments</span>
+                        <div className="flex-1 h-px bg-white/[0.05]" />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {orderedAnalysis.map(sym => <AnalyseInstrumentCard key={sym} symbol={sym} analysis={analyseResult.instrument_analysis[sym]} />)}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {analyseTab === "result" && !analyseResult && (
+                <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/[0.07]">
+                    <Sparkles className="h-7 w-7 text-white/15" />
+                  </div>
+                  <div>
+                    <p className="text-[15px] font-semibold text-white/50">Analysis not run yet</p>
+                    <p className="text-[12px] text-white/25 max-w-xs mt-1">Click "Analyse with AI" to run sentiment analysis on the latest articles.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab: Articles */}
+              {analyseTab === "articles" && (
+                <div>
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">Live News Articles</h2>
+                      <span className="text-[10px] text-white/15">{selectedLinks.length} / {analyseArticles.length} selected</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => { const all = analyseArticles.map(a => a.link); onSetSelectedLinks(all); onFetchPreview(analyseTimeRange, analyseInstrument, all); }}
+                        className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition">
+                        Select All
+                      </button>
+                      <button onClick={() => { onSetSelectedLinks([]); onFetchPreview(analyseTimeRange, analyseInstrument, []); }}
+                        className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition">
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  {previewLoading ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3">
+                      <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
+                      <p className="text-[12px] text-white/30">Fetching articles…</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {analyseArticles.map((a, i) => {
+                        const cat = a.category || "";
+                        const catColor =
+                          cat.includes("Crypto")    ? "text-yellow-400/70 bg-yellow-500/10 border-yellow-500/20" :
+                          cat.includes("Commodit")  ? "text-amber-400/70 bg-amber-500/10 border-amber-500/20" :
+                          cat.includes("Central")   ? "text-violet-400/70 bg-violet-500/10 border-violet-500/20" :
+                          cat.includes("Economic")  ? "text-sky-400/70 bg-sky-500/10 border-sky-500/20" :
+                          cat.includes("Geopolit")  ? "text-orange-400/70 bg-orange-500/10 border-orange-500/20" :
+                          "text-white/30 bg-white/[0.04] border-white/[0.07]";
+                        return (
+                          <div key={i} className="flex items-start gap-3 px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:bg-white/[0.04] hover:border-white/[0.09] transition group">
+                            <span className="text-[9px] text-white/15 font-mono mt-1.5 shrink-0 w-6 text-right">{i + 1}</span>
+                            <input type="checkbox" checked={selectedLinks.includes(a.link)}
+                              onChange={e => {
+                                const next = e.target.checked
+                                  ? [...selectedLinks, a.link]
+                                  : selectedLinks.filter(l => l !== a.link);
+                                onSetSelectedLinks(next);
+                                onFetchPreview(analyseTimeRange, analyseInstrument, next);
+                              }}
+                              className="mt-1 h-3.5 w-3.5 rounded border-white/10 bg-white/5 text-white/70 focus:ring-0 cursor-pointer shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <a href={a.link || "#"} target="_blank" rel="noopener noreferrer"
+                                className="text-[12px] font-medium text-white/70 hover:text-white leading-snug block line-clamp-2 transition-colors">
+                                {a.title}
+                              </a>
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                <span className="text-[10px] font-semibold text-white/35">{a.source}</span>
+                                {a.pubDate && <span className="flex items-center gap-0.5 text-[10px] text-white/20"><Clock className="h-2.5 w-2.5" />{formatPubDate(a.pubDate)}</span>}
+                                {cat && <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-semibold border", catColor)}>{cat}</span>}
+                              </div>
+                            </div>
+                            <ArrowUpRight className="h-3.5 w-3.5 text-white/15 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab: Prompt */}
+              {analyseTab === "prompt" && (
+                <div>
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">Prompt Sent to AI</h2>
+                      <span className="text-[10px] text-white/15">{analysePrompt.length.toLocaleString()} chars</span>
+                    </div>
+                    <CopyButton text={analysePrompt} label="Copy Prompt" />
+                  </div>
+                  {previewLoading ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3">
+                      <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
+                      <p className="text-[12px] text-white/30">Generating prompt preview…</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] overflow-hidden">
+                      <pre className="px-5 py-4 text-[11px] text-white/45 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-[70vh] overflow-y-auto">
+                        {analysePrompt}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* History side panel */}
+        {historyPanelOpen && (
+          <div className="w-72 border-l border-white/[0.07] flex flex-col overflow-hidden bg-white/[0.01]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
+              <p className="text-[11px] font-semibold text-white/50 uppercase tracking-widest">Analysis History</p>
+              <button onClick={() => setHistoryPanelOpen(false)} className="text-white/25 hover:text-white/60 transition">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {analyseHistory.length === 0 && (
+                <p className="text-[11px] text-white/25 text-center py-8">No history yet</p>
+              )}
+              {analyseHistory.map((entry, idx) => (
+                <div key={entry._id}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl border bg-white/[0.02] border-white/[0.06] hover:border-white/[0.10] transition">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-semibold text-white/60 truncate">{entry.timeRangeLabel}</p>
+                    <p className="text-[9px] text-white/25">{entry.newsCount} articles · {new Date(entry.generatedAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => { onHistoryLoad(entry._id); setHistoryPanelOpen(false); }}
+                      className="p-1.5 rounded-lg bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 transition">
+                      <Eye className="h-3 w-3" />
+                    </button>
+                    {(() => {
+                      const userEmail = uSession?.user?.email;
+                      const isOwner = entry.generatedBy && userEmail && entry.generatedBy.toLowerCase() === userEmail.toLowerCase();
+                      const isAdmin = (uSession?.user as { role?: string })?.role === "admin";
+                      if (!isOwner && !isAdmin) return null;
+                      return (
+                        <button onClick={() => onHistoryDelete(entry._id)}
+                          disabled={analyseHistoryDeleteId === entry._id}
+                          className="p-1.5 rounded-lg border border-red-500/20 bg-red-500/[0.07] text-red-400 hover:bg-red-500/[0.15] transition">
+                          {analyseHistoryDeleteId === entry._id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {modelSelectorOpen && (
+        <ModelSelectionModal
+          onClose={() => setModelSelectorOpen(false)}
+          onSelect={model => { setModelSelectorOpen(false); onAnalyse(model); }}
+        />
+      )}
+    </div>
+    </>
+  );
+}
+
+
+// ─── Ask AI Modal ────────────────────────────────────────────────────────────
+
+const ASK_INSTRUMENTS = [
+  { value: "XAUUSD",  label: "🥇 Gold (XAU/USD)" },
+  { value: "XAGUSD",  label: "🥈 Silver (XAG/USD)" },
+  { value: "BTCUSDT", label: "₿ Bitcoin (BTC/USDT)" },
+  { value: "ETHUSD",  label: "Ξ Ethereum (ETH/USD)" },
+  { value: "EURUSD",  label: "🇪🇺 EUR/USD" },
+  { value: "GBPUSD",  label: "🇬🇧 GBP/USD" },
+  { value: "USDJPY",  label: "🇯🇵 USD/JPY" },
+  { value: "USDCHF",  label: "🇨🇭 USD/CHF" },
+  { value: "USDCAD",  label: "🇨🇦 USD/CAD" },
+  { value: "AUDUSD",  label: "🇦🇺 AUD/USD" },
+  { value: "NZDUSD",  label: "🇳🇿 NZD/USD" },
+];
+
+interface ChatMessage { role: "user" | "assistant"; content: string }
+
+function AskAIModal({ onClose }: { onClose: () => void }) {
+  const [instrument, setInstrument]         = useState("XAUUSD");
+  const [input, setInput]                   = useState("");
+  const [messages, setMessages]             = useState<ChatMessage[]>([]);
+  const [loading, setLoading]               = useState(false);
+  const [promptText, setPromptText]         = useState("");
+  const [promptOpen, setPromptOpen]         = useState(false);
+  const [candleCount, setCandleCount]       = useState(0);
+  const [newsCount, setNewsCount]           = useState(0);
+  const [error, setError]                   = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  // Auto-resize textarea
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setInput(e.target.value);
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+  }
+
+  async function handleSend() {
+    const q = input.trim();
+    if (!q || loading) return;
+    setInput("");
+    if (inputRef.current) { inputRef.current.style.height = "auto"; }
+    setError(null);
+
+    const newMessages: ChatMessage[] = [...messages, { role: "user", content: q }];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/ask-ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instrument,
+          query: q,
+          history: messages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+      const json = await res.json() as { response?: string; prompt?: string; newsCount?: number; candleCount?: number; error?: string };
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setMessages([...newMessages, { role: "assistant", content: json.response ?? "" }]);
+      if (json.prompt) setPromptText(json.prompt);
+      if (json.newsCount != null) setNewsCount(json.newsCount);
+      if (json.candleCount != null) setCandleCount(json.candleCount);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
+      setMessages(prev => prev.slice(0, -1)); // remove the optimistic user message
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  }
+
+  const instrLabel = ASK_INSTRUMENTS.find(i => i.value === instrument)?.label ?? instrument;
+
+  return (
+    <>
+    <div className="fixed inset-0 z-[49] bg-black/55 backdrop-blur-xl" onClick={onClose} />
+    <div
+      className="fixed inset-4 md:inset-8 z-50 flex flex-col rounded-2xl overflow-hidden"
+      style={{ background: "#08080f", border: "1px solid rgba(255,255,255,0.09)", boxShadow: "0 0 0 1px rgba(124,58,237,0.08), 0 0 80px rgba(124,58,237,0.07), 0 25px 60px rgba(0,0,0,0.9)" }}
+    >
+      {/* Gradient top strip */}
+      <div className="shrink-0 h-[2px]" style={{ background: "linear-gradient(90deg, transparent 0%, #059669 20%, #7c3aed 55%, #0891b2 80%, transparent 100%)", opacity: 0.8 }} />
+
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b shrink-0" style={{ borderColor: "rgba(255,255,255,0.07)", background: "rgba(8,8,15,0.95)" }}>
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg shrink-0"
+            style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }}>
+            <MessageSquare className="h-3.5 w-3.5 text-white" />
+          </div>
+          <div>
+            <p className="text-[14px] font-semibold text-white/85 leading-none">Ask AI</p>
+            <p className="text-[10px] text-white/30 mt-0.5">Claude Sonnet 4.6 · 1-min price data + live news</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Instrument selector */}
+          <select
+            value={instrument}
+            onChange={e => { setInstrument(e.target.value); setMessages([]); setPromptText(""); }}
+            className="appearance-none pl-3 pr-8 py-1.5 rounded-xl text-[12px] font-semibold focus:outline-none cursor-pointer transition-all"
+            style={{ background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.25)", color: "rgba(200,185,255,0.85)", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a78bfa' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center" }}
+          >
+            {ASK_INSTRUMENTS.map(i => (
+              <option key={i.value} value={i.value} className="bg-[#13091f] text-white">{i.label}</option>
+            ))}
+          </select>
+
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Prompt accordion */}
+      {promptText && (
+        <div className="shrink-0 border-b" style={{ borderColor: "rgba(124,58,237,0.10)" }}>
+          <button
+            onClick={() => setPromptOpen(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-2.5 text-left transition hover:bg-white/[0.02]"
+          >
+            <div className="flex items-center gap-2.5">
+              <Bot className="h-3.5 w-3.5 shrink-0" style={{ color: "#7c3aed" }} />
+              <span className="text-[11px] font-semibold" style={{ background: "linear-gradient(90deg, #7c3aed, #0891b2)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                Prompt · {candleCount} 1-min candles · {newsCount} news articles
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <CopyButton text={promptText} label="Copy" />
+              {promptOpen ? <ChevronUp className="h-3.5 w-3.5 text-white/30" /> : <ChevronDown className="h-3.5 w-3.5 text-white/30" />}
+            </div>
+          </button>
+          {promptOpen && (
+            <div className="px-5 pb-4 max-h-64 overflow-y-auto" style={{ borderTop: "1px solid rgba(124,58,237,0.08)" }}>
+              <pre className="text-[10.5px] text-white/40 leading-relaxed whitespace-pre-wrap font-mono pt-3">
+                {promptText}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Messages area */}
+      <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+        {messages.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center h-full gap-6 text-center pb-8">
+            <div className="relative">
+              <div className="h-20 w-20 rounded-3xl flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg, rgba(5,150,105,0.2), rgba(124,58,237,0.2), rgba(8,145,178,0.2))", border: "1px solid rgba(124,58,237,0.2)" }}>
+                <MessageSquare className="h-9 w-9" style={{ color: "#a78bfa" }} />
+              </div>
+              <div className="absolute -inset-1 rounded-[28px] border border-white/[0.05] animate-ping" style={{ animationDuration: "2.5s" }} />
+            </div>
+            <div>
+              <p className="text-[16px] font-semibold text-white/70 mb-2">Ask anything about {instrLabel}</p>
+              <p className="text-[12px] text-white/30 leading-relaxed max-w-sm">
+                Your question will be answered using the latest 1-minute candle data and live news — all context auto-loaded.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg w-full">
+              {[
+                "What is the current trend for this instrument?",
+                "Key support and resistance levels right now?",
+                "Any major news affecting price today?",
+                "Should I be bullish or bearish right now?",
+              ].map((suggestion) => (
+                <button key={suggestion} onClick={() => { setInput(suggestion); inputRef.current?.focus(); }}
+                  className="px-3 py-2 rounded-xl text-[11px] text-white/50 text-left transition hover:text-white/75 hover:bg-white/[0.05]"
+                  style={{ border: "1px solid rgba(124,58,237,0.12)", background: "rgba(124,58,237,0.04)" }}>
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {messages.map((msg, i) => (
+          <div key={i} className={cn("flex gap-3", msg.role === "user" ? "justify-end" : "justify-start")}>
+            {msg.role === "assistant" && (
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg mt-0.5"
+                style={{ background: "linear-gradient(135deg, #059669, #7c3aed)" }}>
+                <Sparkles className="h-3.5 w-3.5 text-white" />
+              </div>
+            )}
+            <div
+              className="max-w-[80%] rounded-2xl px-4 py-3 text-[13px] leading-[1.75]"
+              style={msg.role === "user"
+                ? { background: "rgba(124,58,237,0.18)", border: "1px solid rgba(124,58,237,0.25)", color: "rgba(255,255,255,0.85)", borderRadius: "18px 18px 4px 18px", whiteSpace: "pre-wrap" }
+                : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.80)", borderRadius: "4px 18px 18px 18px" }
+              }
+            >
+              {msg.role === "assistant"
+                // eslint-disable-next-line react/no-danger
+                ? <span dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                : msg.content
+              }
+            </div>
+            {msg.role === "user" && (
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg mt-0.5 bg-white/[0.08] border border-white/[0.10]">
+                <User className="h-3.5 w-3.5 text-white/50" />
+              </div>
+            )}
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex gap-3 justify-start">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+              style={{ background: "linear-gradient(135deg, #059669, #7c3aed)" }}>
+              <Sparkles className="h-3.5 w-3.5 text-white animate-pulse" />
+            </div>
+            <div className="px-4 py-3 rounded-2xl" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "4px 18px 18px 18px" }}>
+              <div className="flex items-center gap-1.5">
+                {[0, 200, 400].map((d, i) => (
+                  <div key={i} className="h-1.5 w-1.5 rounded-full animate-bounce"
+                    style={{ background: i === 0 ? "#10b981" : i === 1 ? "#7c3aed" : "#0891b2", animationDelay: `${d}ms` }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-[12px]"
+            style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.18)", color: "rgba(248,113,113,0.85)" }}>
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input area */}
+      <div className="shrink-0 px-4 pb-4 pt-3 border-t" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
+        <div className="flex items-end gap-2 rounded-2xl px-4 py-3"
+          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(124,58,237,0.20)" }}>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder={`Ask about ${instrLabel}... (Enter to send, Shift+Enter for new line)`}
+            rows={1}
+            className="flex-1 resize-none bg-transparent text-[13px] text-white/80 placeholder-white/25 focus:outline-none leading-relaxed"
+            style={{ maxHeight: "120px", minHeight: "24px" }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || loading}
+            className="shrink-0 flex h-8 w-8 items-center justify-center rounded-xl transition-all disabled:opacity-30"
+            style={input.trim() && !loading
+              ? { background: "linear-gradient(135deg, #059669, #7c3aed)", boxShadow: "0 0 16px rgba(124,58,237,0.3)" }
+              : { background: "rgba(255,255,255,0.06)" }
+            }
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 text-white animate-spin" /> : <Send className="h-3.5 w-3.5 text-white" />}
+          </button>
+        </div>
+        <p className="text-[9px] text-white/15 text-center mt-2">Context: 1-min candles + live news auto-loaded · {instrLabel}</p>
+      </div>
+    </div>
+    </>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NewsAnalysisPage() {
   const { data: session, status } = useSession();
@@ -2577,427 +4359,440 @@ export default function NewsAnalysisPage() {
     if (!session?.user) router.replace("/auth/signin");
   }, [session, status, router]);
 
-  // ── Mode switcher ────────────────────────────────────────────────────────
-  const [newsMode, setNewsMode] = useState<NewsMode>("generate");
+  // ── Report index state ───────────────────────────────────────────────────
+  const [reports,      setReports]      = useState<NewsEntry[]>([]);
+  const [indexLoading, setIndexLoading] = useState(true);
 
-  const [reports,         setReports]         = useState<NewsEntry[]>([]);
-  const [selectedDate,    setSelectedDate]    = useState<string>(getISTDateString());
-  const [selectedSession, setSelectedSession] = useState<string>(getCurrentSessionIST());
-  const [report,          setReport]          = useState<NewsReport | null>(null);
-  const [indexLoading,    setIndexLoading]    = useState(true);
-  const [reportLoading,   setReportLoading]   = useState(false);
-  const [error,           setError]           = useState<string | null>(null);
+  // ── Modal open state ─────────────────────────────────────────────────────
+  const [manualOpen,        setManualOpen]        = useState(false);
+  const [askAiOpen,         setAskAiOpen]         = useState(false);
+  const [aiAnalysisOpen,    setAiAnalysisOpen]    = useState(false);
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
+  const [reportViewEntry,  setReportViewEntry]  = useState<NewsEntry | null>(null);
+  const [reportViewData,   setReportViewData]   = useState<NewsReport | null>(null);
+  const [reportViewLoading, setReportViewLoading] = useState(false);
 
-  const [editorOpen,   setEditorOpen]   = useState(false);
-  const [promptOpen,   setPromptOpen]   = useState(false);
-  const [historyOpen,  setHistoryOpen]  = useState(false);
-  const [viewingVersion, setViewingVersion] = useState<NewsVersion | null>(null);
+  // ── Generate state ───────────────────────────────────────────────────────
+  const [generating,    setGenerating]    = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
-  const currentSession = getCurrentSession();
+  // ── Analyse state ────────────────────────────────────────────────────────
+  const [analyseTimeRange,       setAnalyseTimeRange]       = useState<AnalyseTimeRange>("24h");
+  const [analysing,              setAnalysing]              = useState(false);
+  const [analyseResult,          setAnalyseResult]          = useState<NewsAnalysisResult | null>(null);
+  const [analyseError,           setAnalyseError]           = useState<string | null>(null);
+  const [analyseNewsCount,       setAnalyseNewsCount]       = useState(0);
+  const [analyseTab,             setAnalyseTab]             = useState<AnalyseTab>("result");
+  const [analyseArticles,        setAnalyseArticles]        = useState<AnalyseArticle[]>([]);
+  const [analysePrompt,          setAnalysePrompt]          = useState("");
+  const [analyseCurrentId,       setAnalyseCurrentId]       = useState<string | null>(null);
+  const [analyseHistory,         setAnalyseHistory]         = useState<AnalyseHistoryEntry[]>([]);
+  const [analyseHistoryLoading,  setAnalyseHistoryLoading]  = useState(false);
+  const [analyseHistoryDeleteId, setAnalyseHistoryDeleteId] = useState<string | null>(null);
+  const [previewLoading,         setPreviewLoading]         = useState(false);
+  const [previewFetchedRange,    setPreviewFetchedRange]    = useState<string | null>(null);
+  const [previewFetchedInstrument, setPreviewFetchedInstrument] = useState<string | null>(null);
+  const [analyseInstrument,      setAnalyseInstrument]      = useState<string>("ALL");
+  const [selectedLinks,          setSelectedLinks]          = useState<string[]>([]);
 
-  // Dynamically compute availableDates from database reports + always include today
-  const todayIST = getISTDateString();
-  const datesSet = new Set(reports.map(r => r.date));
-  datesSet.add(todayIST);
-  const availableDates = [...datesSet].sort().reverse();
-
+  // ── Load report index on mount ───────────────────────────────────────────
   useEffect(() => {
     fetch("/api/news-reports")
-      .then(async (r) => {
-        if (!r.ok) {
-          const errData = await r.json().catch(() => ({}));
-          throw new Error(errData.error || `HTTP ${r.status}`);
-        }
+      .then(async r => {
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || `HTTP ${r.status}`); }
         return r.json();
       })
       .then((data: NewsEntry[]) => {
-        if (!Array.isArray(data)) {
-          throw new Error("Invalid response format");
-        }
-        setReports(data);
-        
-        // If today has existing reports, auto-align default session to the latest one
-        const forToday = data.filter(r => r.date === todayIST);
-        if (forToday.length > 0) {
-          const best = SESSION_ORDER.slice().reverse().find(s => forToday.some(r => r.session === s));
-          if (best) setSelectedSession(best);
-        }
+        if (Array.isArray(data)) setReports(data);
       })
-      .catch((e: Error) => {
-        setError(e.message === "Forbidden" || e.message === "Unauthorized" ? "Aap logged in nahi hain ya authorized nahi hain." : "Report index load nahi hua.");
-      })
+      .catch(() => {})
       .finally(() => setIndexLoading(false));
   }, []);
 
-  const loadReport = useCallback(async (date: string, sess: string) => {
-    const hasEntry = reports.some(r => r.date === date && r.session === sess);
-    if (!hasEntry) { setReport(null); return; }
-    setReportLoading(true); setError(null);
+  // Determine truly latest item: compare latest session report vs latest AI analysis
+  const latestSessionMs = reports[0]?.latestAt ? new Date(reports[0].latestAt).getTime() : 0;
+  const latestAnalysisMs = analyseHistory[0]?.generatedAt ? new Date(analyseHistory[0].generatedAt).getTime() : 0;
+  const latestIsAnalysis = latestAnalysisMs > latestSessionMs && latestAnalysisMs > 0;
+  const latestReport = reports[0] ?? null;
+
+  // ── Refresh index ────────────────────────────────────────────────────────
+  const refreshReports = useCallback(async () => {
     try {
-      const res = await fetch(`/api/news-reports?date=${encodeURIComponent(date)}&session=${encodeURIComponent(sess)}`);
+      const r = await fetch("/api/news-reports");
+      if (r.ok) { const d: NewsEntry[] = await r.json(); if (Array.isArray(d)) setReports(d); }
+    } catch { /* silent */ }
+  }, []);
+
+  // ── Open a report from history ───────────────────────────────────────────
+  const openReportView = useCallback(async (entry: NewsEntry) => {
+    setReportViewEntry(entry);
+    setReportViewLoading(true);
+    try {
+      const res = await fetch(`/api/news-reports?date=${encodeURIComponent(entry.date)}&session=${encodeURIComponent(entry.session)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setReport(await res.json());
+      setReportViewData(await res.json());
+    } catch { setReportViewData(null); }
+    finally { setReportViewLoading(false); }
+    setHistoryDrawerOpen(false);
+  }, []);
+
+  // ── Generate with AI ─────────────────────────────────────────────────────
+  const handleGenerate = useCallback(async (date: string, sess: string, model: "openai" | "gemini" = "openai") => {
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      const res = await fetch("/api/news-reports/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, session: sess, timeRange: "24h", selectedSymbols: SYMBOL_DISPLAY_ORDER, model }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      await refreshReports();
+      if (json.data) {
+        setReportViewData(json.data as NewsReport);
+        // Find the entry
+        const e = { date, session: sess, source: "db" as const, reportType: "ai" as const };
+        setReportViewEntry(e);
+      }
+      setManualOpen(false);
     } catch (e: unknown) {
-      setError(`Report load nahi hua: ${e instanceof Error ? e.message : "Unknown error"}`);
-      setReport(null);
+      setGenerateError(e instanceof Error ? e.message : "Generation failed");
     } finally {
-      setReportLoading(false);
+      setGenerating(false);
     }
-  }, [reports]);
+  }, [refreshReports]);
+
+  // ── Analyse with AI ──────────────────────────────────────────────────────
+  const refreshAnalyseHistory = useCallback(async () => {
+    setAnalyseHistoryLoading(true);
+    try {
+      const res = await fetch("/api/news-analysis/reports");
+      if (res.ok) setAnalyseHistory((await res.json()) as AnalyseHistoryEntry[]);
+    } catch { /* silent */ }
+    finally { setAnalyseHistoryLoading(false); }
+  }, []);
+
+  const handleAnalyse = useCallback(async (model: "openai" | "gemini" = "openai") => {
+    setAnalysing(true);
+    setAnalyseError(null);
+    setAnalyseResult(null);
+    setAnalyseNewsCount(0);
+    setAnalyseArticles([]);
+    setAnalysePrompt("");
+    setAnalyseCurrentId(null);
+    setAnalyseTab("result");
+    try {
+      const res = await fetch("/api/news-analysis/analyse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeRange: analyseTimeRange, model, instrument: analyseInstrument, selectedLinks }),
+      });
+      const json = await res.json() as { error?: string; _id?: string; data?: NewsAnalysisResult; news_count?: number; articles?: AnalyseArticle[]; prompt?: string; instrument?: string };
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setAnalyseResult(json.data ?? null);
+      setAnalyseNewsCount(json.news_count ?? 0);
+      setAnalyseArticles(json.articles ?? []);
+      setAnalysePrompt(json.prompt ?? "");
+      setAnalyseCurrentId(json._id ?? null);
+      setPreviewFetchedRange(analyseTimeRange);
+      setPreviewFetchedInstrument(json.instrument ?? analyseInstrument);
+      refreshAnalyseHistory();
+    } catch (e) {
+      setAnalyseError(e instanceof Error ? e.message : "Analysis failed.");
+    } finally {
+      setAnalysing(false);
+    }
+  }, [analyseTimeRange, analyseInstrument, selectedLinks, refreshAnalyseHistory]);
+
+  const handleLoadAnalyseReport = useCallback(async (id: string) => {
+    setAnalysing(true);
+    setAnalyseError(null);
+    try {
+      const res = await fetch(`/api/news-analysis/reports?id=${encodeURIComponent(id)}`);
+      const json = await res.json() as { error?: string; data?: NewsAnalysisResult; newsCount?: number; articles?: AnalyseArticle[]; prompt?: string; timeRange?: string; instrument?: string };
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setAnalyseResult(json.data ?? null);
+      setAnalyseNewsCount(json.newsCount ?? 0);
+      setAnalyseArticles(json.articles ?? []);
+      setSelectedLinks((json.articles ?? []).map(a => a.link));
+      setAnalysePrompt(json.prompt ?? "");
+      setAnalyseCurrentId(id);
+      setAnalyseTab("result");
+      if (json.timeRange) { setAnalyseTimeRange(json.timeRange as AnalyseTimeRange); setPreviewFetchedRange(json.timeRange); }
+      if (json.instrument) { setAnalyseInstrument(json.instrument); setPreviewFetchedInstrument(json.instrument); }
+    } catch (e) {
+      setAnalyseError(e instanceof Error ? e.message : "Failed to load report");
+    } finally {
+      setAnalysing(false);
+    }
+  }, []);
+
+  const handleDeleteAnalyseReport = useCallback(async (id: string) => {
+    if (!window.confirm("Delete this analysis report?")) return;
+    setAnalyseHistoryDeleteId(id);
+    try {
+      const res = await fetch(`/api/news-analysis/reports?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (res.ok) {
+        setAnalyseHistory(prev => prev.filter(e => e._id !== id));
+        if (analyseCurrentId === id) { setAnalyseResult(null); setAnalyseArticles([]); setAnalysePrompt(""); setAnalyseCurrentId(null); }
+      }
+    } catch { /* silent */ }
+    finally { setAnalyseHistoryDeleteId(null); }
+  }, [analyseCurrentId]);
+
+  const fetchPreview = useCallback(async (range: string, inst: string, links: string[] | null = null) => {
+    setPreviewLoading(true);
+    try {
+      const res = await fetch("/api/news-analysis/analyse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeRange: range, instrument: inst, selectedLinks: links, preview: true }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        if (links === null) { setAnalyseArticles(json.articles || []); setAnalyseNewsCount(json.news_count || 0); setSelectedLinks((json.articles || []).map((a: AnalyseArticle) => a.link)); }
+        setAnalysePrompt(json.prompt || "");
+        setPreviewFetchedRange(range);
+        setPreviewFetchedInstrument(inst);
+      }
+    } catch { /* silent */ }
+    finally { setPreviewLoading(false); }
+  }, []);
+
+  // Auto-set tab when result disappears
+  useEffect(() => {
+    if (!analyseResult && analyseTab === "result") setAnalyseTab("articles");
+  }, [analyseResult, analyseTab]);
+
+  // Load analyse history on mount + when AI modal opens
+  useEffect(() => {
+    refreshAnalyseHistory();
+  }, [refreshAnalyseHistory]);
 
   useEffect(() => {
-    setViewingVersion(null);
-    if (selectedDate && selectedSession && reports.length > 0) loadReport(selectedDate, selectedSession);
-  }, [selectedDate, selectedSession, reports, loadReport]);
-
-  const dateIndex       = availableDates.indexOf(selectedDate);
-  const canGoBack       = dateIndex < availableDates.length - 1;
-  const canGoFwd        = dateIndex > 0;
-  const sessionsForDate = reports.filter(r => r.date === selectedDate).map(r => r.session);
-  const orderedSymbols  = report?.symbol_wise_news
-    ? SYMBOL_DISPLAY_ORDER.filter(s => s in report.symbol_wise_news)
-    : [];
-
-  const currentEntry = reports.find(r => r.date === selectedDate && r.session === selectedSession);
+    if (aiAnalysisOpen) refreshAnalyseHistory();
+  }, [aiAnalysisOpen, refreshAnalyseHistory]);
 
   if (status === "loading" || !session?.user) return null;
 
-  if (indexLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[70vh] gap-3">
-        <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
-        <p className="text-[12px] text-white/30 tracking-wide">News reports load ho rahe hain…</p>
-      </div>
-    );
+  function fmtLatest(iso?: string) {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST";
   }
 
   return (
     <div className="flex flex-col min-h-full">
 
-      {/* Sticky header */}
-      <div className="sticky top-0 z-20 bg-[#0f0f0f]/80 backdrop-blur-xl border-b border-white/[0.055]">
-        <div className="px-5 md:px-8 py-4 space-y-4">
-
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06] border border-white/[0.10] shrink-0">
-                <Newspaper className="h-4 w-4 text-white/70" />
-              </div>
-              <div>
-                <h1 className="text-[15px] font-bold text-white leading-none mb-0.5">News Analysis</h1>
-                <p className="text-[11px] text-white/30">
-                  {newsMode === "generate" ? "Hinglish market news · Gemini 2.0 Flash" : "Live multi-source market news feed"}
-                </p>
-              </div>
+      {/* ── Sticky header ─────────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-20 bg-[#0f0f0f]/85 backdrop-blur-xl border-b border-white/[0.055]">
+        <div className="px-5 md:px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
+          {/* Left: title */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06] border border-white/[0.10] shrink-0">
+              <Newspaper className="h-4 w-4 text-white/70" />
             </div>
-
-            <div className="flex items-center gap-2">
-              {/* ── Mode switcher ───────────────────────────────────── */}
-              <div className="flex items-center gap-0.5 p-0.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
-                <button
-                  onClick={() => setNewsMode("generate")}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150",
-                    newsMode === "generate"
-                      ? "bg-white/[0.10] text-white border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
-                      : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]"
-                  )}
-                >
-                  <Bot className="h-3 w-3" />
-                  Generate
-                </button>
-                <button
-                  onClick={() => setNewsMode("live")}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-150",
-                    newsMode === "live"
-                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
-                      : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]"
-                  )}
-                >
-                  <Rss className="h-3 w-3" />
-                  Live News
-                </button>
-              </div>
-
-              {/* Generate-mode controls (hidden in live mode) */}
-              {newsMode === "generate" && (
-                <>
-                  {currentEntry && (
-                    <span className={cn(
-                      "flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border",
-                      currentEntry.source === "db"
-                        ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400/80"
-                        : "bg-white/[0.04] border-white/[0.07] text-white/25",
-                    )}>
-                      <Database className="h-2.5 w-2.5" />
-                      {currentEntry.source === "db" ? "DB" : "File"}
-                    </span>
-                  )}
-                  {currentEntry?.source === "db" && (
-                    <button onClick={() => setHistoryOpen(true)}
-                      className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
-                      <History className="h-3.5 w-3.5" />
-                      History
-                      {(currentEntry.count ?? 0) > 0 && (
-                        <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
-                          {currentEntry.count}
-                        </span>
-                      )}
-                    </button>
-                  )}
-                  <button onClick={() => setPromptOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
-                    <Bot className="h-3.5 w-3.5" /> Prompt
-                  </button>
-                  <button onClick={() => setEditorOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
-                    <Pencil className="h-3.5 w-3.5" /> Add Report
-                  </button>
-                  <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1">
-                    <Clock className="h-3.5 w-3.5" />
-                    <span>Live: <span className="text-white/60 font-medium">{SESSION_LABELS[currentSession]}</span></span>
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                  </div>
-                </>
-              )}
+            <div>
+              <h1 className="text-[15px] font-bold text-white leading-none mb-0.5">News Analysis</h1>
+              <p className="text-[11px] text-white/30">Live market news · Hinglish session reports</p>
             </div>
           </div>
 
-          {/* Date/Session navigation — generate mode only */}
-          {newsMode === "generate" && (
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-0.5 p-1 rounded-xl bg-white/[0.04] border border-white/[0.06]">
-                {SESSION_ORDER.map(s => {
-                  const available = sessionsForDate.includes(s);
-                  const active    = selectedSession === s;
-                  return (
-                    <button key={s} onClick={() => available && setSelectedSession(s)}
-                      disabled={!available && availableDates.length > 0}
-                      className={cn(
-                        "px-3.5 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150",
-                        active ? "bg-white/[0.10] text-white border border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                               : available ? "text-white/40 hover:text-white/70 hover:bg-white/[0.05]"
-                               : "text-white/15 cursor-not-allowed",
-                      )}>
-                      {SESSION_LABELS[s]}
-                      {currentSession === s && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle" />}
-                    </button>
-                  );
-                })}
-              </div>
+          {/* Right: 3 action buttons */}
+          <div className="flex items-center gap-2">
+            {/* Manual */}
+            <button
+              onClick={() => setManualOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold border bg-white/[0.05] border-white/[0.10] text-white/60 hover:bg-white/[0.09] hover:text-white/85 hover:border-white/[0.16] transition"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Manual
+            </button>
 
-              <div className="flex items-center gap-2 ml-auto">
-                <button onClick={() => canGoBack && setSelectedDate(availableDates[dateIndex + 1])} disabled={!canGoBack}
-                  className="flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/80 hover:bg-white/[0.08] disabled:opacity-20 disabled:cursor-not-allowed transition">
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </button>
-                <span className="text-[12px] font-medium text-white/70 min-w-[148px] text-center select-none">
-                  {selectedDate ? formatDateLabel(selectedDate) : "No reports"}
+            {/* Ask AI */}
+            <button
+              onClick={() => setAskAiOpen(true)}
+              className="relative flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold text-white transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]"
+              style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.25) 0%, rgba(8,145,178,0.22) 100%)", border: "1px solid rgba(124,58,237,0.30)", boxShadow: "0 0 16px rgba(124,58,237,0.12)" }}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Ask AI
+            </button>
+
+            {/* AI News Analysis — gradient button */}
+            <button
+              onClick={() => setAiAnalysisOpen(true)}
+              className="relative flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold text-white transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]"
+              style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 55%, #0891b2 100%)", boxShadow: "0 0 20px rgba(124,58,237,0.25), 0 0 40px rgba(5,150,105,0.10)" }}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              AI News Analysis
+            </button>
+
+            {/* History */}
+            <button
+              onClick={() => { refreshAnalyseHistory(); setHistoryDrawerOpen(true); }}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold border bg-white/[0.04] border-white/[0.08] text-white/45 hover:bg-white/[0.07] hover:text-white/70 hover:border-white/[0.13] transition"
+            >
+              <History className="h-3.5 w-3.5" />
+              History
+              {(reports.length + analyseHistory.length) > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
+                  {reports.length + analyseHistory.length}
                 </span>
-                <button onClick={() => canGoFwd && setSelectedDate(availableDates[dateIndex - 1])} disabled={!canGoFwd}
-                  className="flex items-center justify-center h-7 w-7 rounded-lg bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/80 hover:bg-white/[0.08] disabled:opacity-20 disabled:cursor-not-allowed transition">
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Body */}
-      {newsMode === "live" && (
-        <MarketNews standalone />
-      )}
-      <div className={cn("flex-1 px-5 md:px-8 py-6", newsMode === "live" ? "hidden" : "")}>
-
-        {availableDates.length === 0 && !error && (
-          <div className="flex flex-col items-center justify-center min-h-[55vh] gap-5 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/[0.04] border border-white/[0.07]">
-              <Radio className="h-7 w-7 text-white/20" />
-            </div>
-            <div className="max-w-xs">
-              <p className="text-[15px] font-semibold text-white/60 mb-2">Abhi koi news report nahi hai</p>
-              <p className="text-[12px] text-white/30 leading-relaxed">
-                Reports GitHub Actions se auto-generate hote hain, ya <span className="text-white/50">Edit JSON</span> button se manually add karo.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-[13px] text-red-400 mb-6">{error}</div>
-        )}
-
-        {/* Historical version banner */}
-        {viewingVersion && (
-          <div className="flex items-center gap-3 mb-4 px-4 py-2.5 rounded-xl bg-amber-500/[0.07] border border-amber-500/[0.18]">
-            <History className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <span className="text-[12px] text-amber-300/80">
-                Viewing historical version —{" "}
-                {new Date(viewingVersion.generatedAt).toLocaleString("en-US", {
-                  month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                  timeZone: "Asia/Kolkata", timeZoneName: "short",
-                })}
-                {" "}by{" "}
-                <span className="font-medium">{viewingVersion.generatedBy}</span>
-              </span>
-            </div>
+      {/* ── Latest report banner ───────────────────────────────────────────── */}
+      {!indexLoading && (latestReport || latestIsAnalysis) && (
+        <div className="px-5 md:px-8 pt-5">
+          {latestIsAnalysis && analyseHistory[0] ? (
+            /* Latest is an AI analysis report */
             <button
-              onClick={() => { setViewingVersion(null); loadReport(selectedDate, selectedSession); }}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-amber-500/[0.10] border border-amber-500/[0.20] text-amber-400/80 hover:bg-amber-500/[0.18] transition shrink-0">
-              <RefreshCw className="h-3 w-3" /> Latest
+              onClick={() => { setAiAnalysisOpen(true); handleLoadAnalyseReport(analyseHistory[0]._id); }}
+              className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border transition text-left group"
+              style={{ background: "rgba(8,8,15,0.6)", border: "1px solid rgba(16,185,129,0.12)", boxShadow: "0 0 30px rgba(124,58,237,0.05)" }}
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }}>
+                <Sparkles className="h-4 w-4 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-[12px] font-semibold text-white/70">
+                    Latest: {analyseHistory[0].timeRangeLabel} AI Analysis
+                  </span>
+                  <AITag />
+                </div>
+                <p className="text-[10px] text-white/25">{fmtLatest(analyseHistory[0].generatedAt)} · {analyseHistory[0].newsCount} articles</p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
+                <Eye className="h-3.5 w-3.5" />
+                View Analysis
+              </div>
             </button>
-          </div>
-        )}
-
-        {reportLoading && <><BannerSkeleton /><CardsSkeleton /></>}
-
-        {!reportLoading && !error && selectedDate && !report && availableDates.length > 0 && (
-          <div className="flex flex-col items-center justify-center min-h-[45vh] gap-4 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.04] border border-white/[0.07]">
-              <RefreshCw className="h-5 w-5 text-white/20" />
-            </div>
-            <div>
-              <p className="text-[14px] font-medium text-white/50 mb-1">
-                {formatDateLabel(selectedDate)} ke liye {SESSION_LABELS[selectedSession]} news report nahi hai
-              </p>
-              <p className="text-[11px] text-white/25">
-                <span className="text-white/40">Edit JSON</span> button se manually add karo.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {!reportLoading && report && (
-          <>
-            <div className="flex items-center gap-3 mb-5 flex-wrap">
-              <span className="px-2.5 py-1 text-[11px] font-semibold bg-white/[0.07] border border-white/[0.10] rounded-full text-white/65">
-                {report?.meta?.session ?? "Unknown"} Session
-              </span>
-              <span className="px-2.5 py-1 text-[11px] font-semibold bg-white/[0.04] border border-white/[0.07] rounded-full text-white/35">
-                {report?.meta?.language ?? "Hinglish"}
-              </span>
-              <span className="text-[11px] text-white/25">
-                {report?.meta?.generated_at ? new Date(report.meta.generated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST par generate hua" : ""}
-              </span>
-              {report?.meta?.generated_by && (
-                <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold bg-white/[0.04] border border-white/[0.07] rounded-full text-white/35">
-                  <User className="h-3.5 w-3.5 opacity-60" />
-                  By {report.meta.generated_by}
-                </span>
-              )}
-            </div>
-
-            {/* All News Banner */}
-            {report?.all_news_section && (
-              <div className="rounded-2xl bg-white/[0.025] border border-white/[0.07] overflow-hidden mb-3">
-                <div className="flex items-center gap-2 px-6 py-3 border-b border-white/[0.05] bg-white/[0.02]">
-                  <Newspaper className="h-3.5 w-3.5 text-white/30 shrink-0" />
-                  <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest">Aaj Ki Sabse Badi Khabar</span>
-                </div>
-                <div className="px-6 py-5">
-                  <h2 className="text-[18px] sm:text-[20px] font-bold text-white leading-snug mb-4">
-                    <MarkdownText text={report.all_news_section.headline || ""} />
-                  </h2>
-                  <p className="text-[13px] text-white/60 leading-[1.85]">
-                    <MarkdownText text={report.all_news_section.summary || ""} />
-                  </p>
-                </div>
+          ) : latestReport ? (
+            /* Latest is a session report */
+            <button
+              onClick={() => openReportView(latestReport)}
+              className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border transition text-left group"
+              style={latestReport.reportType === "ai"
+                ? { background: "rgba(8,8,15,0.6)", border: "1px solid rgba(16,185,129,0.12)", boxShadow: "0 0 30px rgba(124,58,237,0.05)" }
+                : { background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }
+              }
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                style={latestReport.reportType === "ai"
+                  ? { background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }
+                  : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)" }
+                }
+              >
+                {latestReport.reportType === "ai"
+                  ? <Sparkles className="h-4 w-4 text-white" />
+                  : <Newspaper className="h-4 w-4 text-white/50" />
+                }
               </div>
-            )}
-
-            {/* High Impact Events */}
-            {report?.all_news_section?.high_impact_events && Array.isArray(report.all_news_section.high_impact_events) && report.all_news_section.high_impact_events.length > 0 && (
-              <div className="mb-8">
-                <div className="flex items-center gap-3 mb-4">
-                  <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">High Impact Events</h2>
-                  <span className="text-[10px] text-white/15">{report.all_news_section.high_impact_events.length} events</span>
-                  <div className="flex-1 h-px bg-white/[0.05]" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-[12px] font-semibold text-white/70">
+                    Latest: {SESSION_LABELS[latestReport.session]} Session · {formatDateLabel(latestReport.date)}
+                  </span>
+                  {latestReport.reportType === "ai" ? <AITag /> : <ManualTag />}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {report.all_news_section.high_impact_events.map((ev, i) => ev && <EventCard key={i} event={ev} />)}
-                </div>
+                {latestReport.latestAt && (
+                  <p className="text-[10px] text-white/25">{fmtLatest(latestReport.latestAt)}</p>
+                )}
               </div>
-            )}
-
-            {/* Symbol grid */}
-            {orderedSymbols.length > 0 && (
-              <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <h2 className="text-[11px] font-semibold text-white/25 uppercase tracking-widest">Symbol-Wise Breakdown</h2>
-                  <span className="text-[10px] text-white/15">{orderedSymbols.length} instruments</span>
-                  <div className="flex-1 h-px bg-white/[0.05]" />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {orderedSymbols.map(sym => <SymbolCard key={sym} symbol={sym} news={report?.symbol_wise_news?.[sym]} />)}
-                </div>
+              <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
+                <Eye className="h-3.5 w-3.5" />
+                View Report
               </div>
-            )}
-          </>
-        )}
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      {/* ── Main: Live News ────────────────────────────────────────────────── */}
+      <div className="flex-1 pt-5">
+        <MarketNews standalone />
       </div>
 
-      {/* Modals */}
-      {editorOpen && (
-        <EditorModal
-          date={selectedDate}
-          session={selectedSession}
-          initialJson=""
-          onClose={() => setEditorOpen(false)}
-          onSaved={() => {
-            setViewingVersion(null);
-            // Re-fetch index so count badge updates, then load latest
-             fetch("/api/news-reports")
-              .then(r => {
-                if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                return r.json();
-              })
-              .then((data: NewsEntry[]) => {
-                if (Array.isArray(data)) {
-                  setReports(data);
-                }
-              })
-              .catch(() => {});
-            loadReport(selectedDate, selectedSession);
-          }}
+      {/* ── Report View Modal ──────────────────────────────────────────────── */}
+      {(reportViewData || reportViewLoading) && (
+        <div className="fixed inset-4 md:inset-8 z-50">
+          {reportViewLoading ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 rounded-2xl bg-[#0d0d0d] border border-white/[0.08]">
+              <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
+              <p className="text-[12px] text-white/30">Loading report…</p>
+            </div>
+          ) : reportViewData ? (
+            <ReportViewModal
+              report={reportViewData}
+              entry={reportViewEntry}
+              onClose={() => { setReportViewData(null); setReportViewEntry(null); }}
+            />
+          ) : null}
+        </div>
+      )}
+
+      {/* ── Ask AI Modal ──────────────────────────────────────────────────── */}
+      {askAiOpen && <AskAIModal onClose={() => setAskAiOpen(false)} />}
+
+      {/* ── Manual Modal ──────────────────────────────────────────────────── */}
+      {manualOpen && (
+        <ManualModal
+          reports={reports}
+          onClose={() => setManualOpen(false)}
+          onSaved={() => { refreshReports(); setManualOpen(false); }}
+          onGenerateAI={handleGenerate}
+          generating={generating}
+          generateError={generateError}
         />
       )}
-      {promptOpen && (() => {
-        const nextInfo = getNextSessionAndDate();
-        return (
-          <PromptModal
-            defaultDate={nextInfo.date}
-            defaultSession={nextInfo.session}
-            onClose={() => setPromptOpen(false)}
-          />
-        );
-      })()}
-      {historyOpen && (
-        <HistoryModal
-          date={selectedDate}
-          session={selectedSession}
-          onClose={() => setHistoryOpen(false)}
-          onViewVersion={(data, version) => {
-            setReport(data);
-            setViewingVersion(version);
-          }}
-          onDeleteVersion={(deletedId) => {
-            // Re-fetch index so count badge updates, then load latest
-            fetch("/api/news-reports")
-              .then(r => r.json())
-              .then((data: NewsEntry[]) => {
-                if (Array.isArray(data)) setReports(data);
-              })
-              .catch(() => {});
-            
-            if (viewingVersion?._id === deletedId) {
-              setViewingVersion(null);
-            }
-            loadReport(selectedDate, selectedSession);
-          }}
+
+      {/* ── AI Analysis Modal ─────────────────────────────────────────────── */}
+      {aiAnalysisOpen && (
+        <AIAnalysisModal
+          analysing={analysing}
+          analyseError={analyseError}
+          analyseResult={analyseResult}
+          analyseNewsCount={analyseNewsCount}
+          analyseArticles={analyseArticles}
+          analysePrompt={analysePrompt}
+          analyseTab={analyseTab}
+          analyseTimeRange={analyseTimeRange}
+          analyseInstrument={analyseInstrument}
+          analyseHistory={analyseHistory}
+          selectedLinks={selectedLinks}
+          previewLoading={previewLoading}
+          previewFetchedRange={previewFetchedRange}
+          previewFetchedInstrument={previewFetchedInstrument}
+          onClose={() => setAiAnalysisOpen(false)}
+          onSetAnalyseTab={setAnalyseTab}
+          onSetAnalyseTimeRange={setAnalyseTimeRange}
+          onSetAnalyseInstrument={setAnalyseInstrument}
+          onSetSelectedLinks={setSelectedLinks}
+          onAnalyse={handleAnalyse}
+          onFetchPreview={fetchPreview}
+          onHistoryLoad={handleLoadAnalyseReport}
+          onHistoryDelete={handleDeleteAnalyseReport}
+          onRefreshHistory={refreshAnalyseHistory}
+          analyseHistoryLoading={analyseHistoryLoading}
+          analyseHistoryDeleteId={analyseHistoryDeleteId}
+        />
+      )}
+
+      {/* ── Global History Drawer ──────────────────────────────────────────── */}
+      {historyDrawerOpen && (
+        <GlobalHistoryDrawer
+          reports={reports}
+          analyseHistory={analyseHistory}
+          onViewReport={openReportView}
+          onViewAnalysis={(id) => { setHistoryDrawerOpen(false); setAiAnalysisOpen(true); handleLoadAnalyseReport(id); }}
+          onClose={() => setHistoryDrawerOpen(false)}
         />
       )}
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 15;
+export const maxDuration = 30;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,78 +24,71 @@ interface RawItem {
 }
 
 // ─── Feed Definitions ─────────────────────────────────────────────────────────
+//
+// Index map (do NOT reorder — SYMBOL_CONFIG references by index):
+//   0  FXStreet              Forex & Commodities
+//   1  ForexLive             Forex Breaking News
+//   2  Investing.com Forex   Forex News
+//   3  Investing.com Economy Economy
+//   4  Investing.com Indicators Economic Indicators
+//   5  Investing.com Markets Market News
+//   6  Investing.com Crypto  Crypto
+//   7  MarketWatch           Market News
+//   8  CoinDesk              Crypto
+//   9  Kitco News            Commodities  (gold/silver specialist)
+//  10  CoinTelegraph         Crypto
+//  11  DailyFX               Forex & Commodities
+//  12  CNBC Markets          Market News
+//  13  ZeroHedge             Market News  (macro/geopolitical)
+//  14  BullionVault          Commodities  (gold/silver)
+//  15  Decrypt               Crypto
+//  16  Investing.com Commodities Commodities
+//  17  The Block             Crypto
+//  18  ActionForex           Forex & Commodities
+//  19  Nasdaq Markets        Market News
+//  20  FXEmpire              Forex & Commodities
 
-/**
- * Each entry: { url, name, category }
- * category is used for the badge shown on the card.
- */
 const FEEDS: { url: string; name: string; category: string }[] = [
-  // FXStreet – premier real-time forex/commodities/crypto analysis feed
-  {
-    url: "https://www.fxstreet.com/rss/news",
-    name: "FXStreet",
-    category: "Forex & Commodities",
-  },
-  // InvestingLive (ForexLive) – real-time breaking forex headlines
-  {
-    url: "https://www.forexlive.com/feed/news",
-    name: "ForexLive",
-    category: "Forex Breaking News",
-  },
-  // Investing.com – Forex News category
-  {
-    url: "https://www.investing.com/rss/news_1.rss",
-    name: "Investing.com",
-    category: "Forex News",
-  },
-  // Investing.com – Economy (central bank decisions, GDP, trade)
-  {
-    url: "https://www.investing.com/rss/news_14.rss",
-    name: "Investing.com",
-    category: "Economy",
-  },
-  // Investing.com – Economic Indicators (CPI, NFP, PMI, etc.)
-  {
-    url: "https://www.investing.com/rss/news_95.rss",
-    name: "Investing.com",
-    category: "Economic Indicators",
-  },
-  // Investing.com – Stock / general market news (macro risk-off/on flows)
-  {
-    url: "https://www.investing.com/rss/news_25.rss",
-    name: "Investing.com",
-    category: "Market News",
-  },
-  // Investing.com – Cryptocurrency News
-  {
-    url: "https://www.investing.com/rss/news_301.rss",
-    name: "Investing.com",
-    category: "Crypto",
-  },
-  // MarketWatch – broad US market, macro, geopolitical
-  {
-    url: "https://www.marketwatch.com/rss/topstories",
-    name: "MarketWatch",
-    category: "Market News",
-  },
-  // CoinDesk – specialist crypto/blockchain news
-  {
-    url: "https://www.coindesk.com/arc/outboundfeeds/rss/",
-    name: "CoinDesk",
-    category: "Crypto",
-  },
+  // ── Forex & Macro ──────────────────────────────────────────────────────────
+  { url: "https://www.fxstreet.com/rss/news",                             name: "FXStreet",     category: "Forex & Commodities"   }, // 0
+  { url: "https://www.forexlive.com/feed/news",                           name: "ForexLive",    category: "Forex Breaking News"   }, // 1
+  { url: "https://www.investing.com/rss/news_1.rss",                      name: "Investing.com",category: "Forex News"            }, // 2
+  { url: "https://www.investing.com/rss/news_14.rss",                     name: "Investing.com",category: "Economy"               }, // 3
+  { url: "https://www.investing.com/rss/news_95.rss",                     name: "Investing.com",category: "Economic Indicators"   }, // 4
+  { url: "https://www.investing.com/rss/news_25.rss",                     name: "Investing.com",category: "Market News"           }, // 5
+  // ── Crypto ────────────────────────────────────────────────────────────────
+  { url: "https://www.investing.com/rss/news_301.rss",                    name: "Investing.com",category: "Crypto"                }, // 6
+  // ── Broad Market ──────────────────────────────────────────────────────────
+  { url: "https://www.marketwatch.com/rss/topstories",                    name: "MarketWatch",  category: "Market News"           }, // 7
+  // ── Crypto specialist ─────────────────────────────────────────────────────
+  { url: "https://www.coindesk.com/arc/outboundfeeds/rss/",               name: "CoinDesk",     category: "Crypto"                }, // 8
+  // ── Gold / Silver specialist ──────────────────────────────────────────────
+  { url: "https://www.kitco.com/news_rss/kitco_news_home.rss",            name: "Kitco",        category: "Commodities"           }, // 9
+  // ── Crypto specialist ─────────────────────────────────────────────────────
+  { url: "https://cointelegraph.com/rss",                                 name: "CoinTelegraph",category: "Crypto"                }, // 10
+  // ── Forex analysis ────────────────────────────────────────────────────────
+  { url: "https://www.dailyfx.com/feeds/all-news",                        name: "DailyFX",      category: "Forex & Commodities"   }, // 11
+  // ── Broad market / macro ──────────────────────────────────────────────────
+  { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",          name: "CNBC",         category: "Market News"           }, // 12
+  { url: "https://feeds.feedburner.com/zerohedge/feed",                   name: "ZeroHedge",    category: "Market News"           }, // 13
+  // ── Gold / Silver specialist ──────────────────────────────────────────────
+  { url: "https://www.bullionvault.com/gold-news/rss/gold-news.xml",      name: "BullionVault", category: "Commodities"           }, // 14
+  // ── Crypto specialist ─────────────────────────────────────────────────────
+  { url: "https://decrypt.co/feed",                                       name: "Decrypt",      category: "Crypto"                }, // 15
+  // ── Commodities ───────────────────────────────────────────────────────────
+  { url: "https://www.investing.com/rss/news_4.rss",                      name: "Investing.com",category: "Commodities"           }, // 16
+  // ── Crypto specialist ─────────────────────────────────────────────────────
+  { url: "https://www.theblock.co/rss",                                   name: "The Block",    category: "Crypto"                }, // 17
+  // ── Forex analysis ────────────────────────────────────────────────────────
+  { url: "https://actionforex.com/feed/",                                 name: "ActionForex",  category: "Forex & Commodities"   }, // 18
+  // ── AP Business (replaces Nasdaq which published retail stock-picking advice)
+  { url: "https://feeds.feedburner.com/AP/business",                      name: "AP Business",  category: "Market News"           }, // 19
+  // ── Forex / Commodities analysis ──────────────────────────────────────────
+  { url: "https://www.fxempire.com/api/v1/en/article/feed",               name: "FXEmpire",     category: "Forex & Commodities"   }, // 20
 ];
 
 // ─── Instrument keyword filters ───────────────────────────────────────────────
 
-/**
- * For each symbol, we define:
- *  - primaryFeeds: indices into FEEDS[] always fetched (most relevant)
- *  - secondaryFeeds: indices fetched to broaden macro/geopolitical coverage
- *  - keywords: token list — at least ONE must appear in a title (case-insensitive)
- *              to include an article. Empty → include everything from primary feeds.
- *  - googleQuery: fallback Google News RSS query
- */
 const SYMBOL_CONFIG: Record<
   string,
   {
@@ -105,124 +98,144 @@ const SYMBOL_CONFIG: Record<
     googleQuery: string;
   }
 > = {
+  // ── ALL ── special: no keyword filter, all feeds ───────────────────────────
+  ALL: {
+    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20],
+    secondaryFeeds: [],
+    keywords: [], // empty = include everything
+    googleQuery: "",
+  },
+
+  // ── Gold ──────────────────────────────────────────────────────────────────
   XAUUSD: {
-    // FXStreet (0), InvestingLive (1), Investing Forex (2), Economy (3), Indicators (4), MarketWatch (7)
-    primaryFeeds: [0, 1, 2],
-    secondaryFeeds: [3, 4, 7],
+    primaryFeeds: [0, 1, 9, 14, 16],       // FXStreet, ForexLive, Kitco, BullionVault, Inv.Commodities
+    secondaryFeeds: [3, 4, 5, 7, 11, 12, 13, 18], // Economy, Indicators, MarketWatch, DailyFX, CNBC, ZeroHedge, ActionForex
     keywords: [
-      "gold", "xau", "xauusd", "bullion", "precious metal",
-      "safe haven", "inflation", "fed", "federal reserve", "rate",
-      "dollar", "usd", "treasury", "geopolit", "conflict", "war",
-      "sanction", "china", "opec", "oil", "risk off", "risk-off",
-      "cpi", "nfp", "payroll", "powell", "boj", "ecb",
+      "gold", "xau", "xauusd", "bullion", "yellow metal",
     ],
     googleQuery:
-      '"gold price" OR "XAU/USD" OR "XAUUSD" OR "bullion" OR "safe haven demand" OR "Federal Reserve rate" OR "geopolitical tension" OR "inflation CPI" OR "US dollar" OR "gold forecast"',
+      '"gold price" OR "XAU/USD" OR "XAUUSD" OR "bullion" OR "yellow metal"',
   },
+
+  // ── Silver ────────────────────────────────────────────────────────────────
   XAGUSD: {
-    primaryFeeds: [0, 1, 2],
-    secondaryFeeds: [3, 4, 7],
+    primaryFeeds: [0, 1, 9, 14, 16],       // FXStreet, ForexLive, Kitco, BullionVault, Inv.Commodities
+    secondaryFeeds: [3, 4, 5, 7, 11, 13],
     keywords: [
-      "silver", "xag", "xagusd", "precious metal",
-      "industrial demand", "manufacturing", "pmi", "inflation",
-      "fed", "federal reserve", "rate", "dollar", "cpi",
-      "gold", "commodity", "risk off", "risk-off",
+      "silver", "xag", "xagusd",
     ],
     googleQuery:
-      '"silver price" OR "XAG/USD" OR "XAGUSD" OR "industrial metal" OR "silver deficit" OR "manufacturing PMI" OR "Federal Reserve" OR "inflation CPI" OR "commodities"',
+      '"silver price" OR "XAG/USD" OR "XAGUSD" OR "silver spot"',
   },
+
+  // ── EUR/USD ───────────────────────────────────────────────────────────────
   EURUSD: {
-    primaryFeeds: [0, 1, 2],
-    secondaryFeeds: [3, 4, 7],
+    primaryFeeds: [0, 1, 2, 11, 18],       // FXStreet, ForexLive, Inv.Forex, DailyFX, ActionForex
+    secondaryFeeds: [3, 4, 5, 7, 12],
     keywords: [
-      "eur", "euro", "eurusd", "ecb", "european central bank",
-      "eurozone", "germany", "france", "inflation", "cpi",
-      "fed", "federal reserve", "rate hike", "rate cut",
-      "dollar", "dxy", "trade", "geopolit", "ukraine",
+      "eur", "euro", "eurusd", "eur/usd",
     ],
     googleQuery:
-      '"EUR/USD" OR "EURUSD" OR "ECB interest rate" OR "Eurozone CPI" OR "Federal Reserve" OR "euro dollar" OR "geopolitical risk" OR "European economy"',
+      '"EUR/USD" OR "EURUSD" OR "euro dollar"',
   },
+
+  // ── GBP/USD ───────────────────────────────────────────────────────────────
   GBPUSD: {
-    primaryFeeds: [0, 1, 2],
-    secondaryFeeds: [3, 4, 7],
+    primaryFeeds: [0, 1, 2, 11, 18],
+    secondaryFeeds: [3, 4, 5, 7, 12],
     keywords: [
-      "gbp", "pound", "gbpusd", "bank of england", "boe",
-      "uk", "united kingdom", "britain", "sterling",
-      "inflation", "cpi", "budget", "rate",
-      "fed", "dollar", "brexit", "trade",
+      "gbp", "pound", "gbpusd", "gbp/usd", "sterling",
     ],
     googleQuery:
-      '"GBP/USD" OR "GBPUSD" OR "Bank of England" OR "UK CPI" OR "British pound" OR "pound sterling" OR "UK economy" OR "UK GDP"',
+      '"GBP/USD" OR "GBPUSD" OR "Pound Sterling" OR "sterling pound"',
   },
+
+  // ── USD/JPY ───────────────────────────────────────────────────────────────
   USDJPY: {
-    primaryFeeds: [0, 1, 2],
-    secondaryFeeds: [3, 4, 7],
+    primaryFeeds: [0, 1, 2, 11, 18],
+    secondaryFeeds: [3, 4, 5, 7, 12],
     keywords: [
-      "jpy", "yen", "usdjpy", "bank of japan", "boj",
-      "japan", "japanese", "intervention", "carry trade",
-      "treasury", "yield", "fed", "federal reserve",
-      "dollar", "rate", "inflation", "geopolit",
+      "jpy", "yen", "usdjpy", "usd/jpy",
     ],
     googleQuery:
-      '"USD/JPY" OR "USDJPY" OR "Bank of Japan" OR "yen intervention" OR "carry trade" OR "Japanese yen" OR "US Treasury yields" OR "BOJ policy"',
+      '"USD/JPY" OR "USDJPY" OR "dollar yen"',
   },
+
+  // ── USD/CHF ───────────────────────────────────────────────────────────────
   USDCHF: {
-    primaryFeeds: [0, 1, 2],
-    secondaryFeeds: [3, 4, 7],
+    primaryFeeds: [0, 1, 2, 11, 18],
+    secondaryFeeds: [3, 4, 5, 7, 12, 13],
     keywords: [
-      "chf", "franc", "usdchf", "snb", "swiss national bank",
-      "switzerland", "swiss", "safe haven",
-      "fed", "dollar", "rate", "geopolit", "crisis",
+      "chf", "franc", "usdchf", "usd/chf", "swiss franc",
     ],
     googleQuery:
-      '"USD/CHF" OR "USDCHF" OR "Swiss National Bank" OR "SNB" OR "Swiss franc" OR "safe haven" OR "geopolitical crisis" OR "US dollar CHF"',
+      '"USD/CHF" OR "USDCHF" OR "Swiss franc"',
   },
+
+  // ── USD/CAD ───────────────────────────────────────────────────────────────
   USDCAD: {
-    primaryFeeds: [0, 1, 2],
-    secondaryFeeds: [3, 4, 7],
+    primaryFeeds: [0, 1, 2, 11, 16, 18],   // Added Inv.Commodities (oil)
+    secondaryFeeds: [3, 4, 5, 7, 12],
     keywords: [
-      "cad", "canadian dollar", "usdcad", "bank of canada", "boc",
-      "canada", "oil", "crude", "wti", "opec",
-      "fed", "dollar", "rate", "trade",
+      "cad", "loonie", "usdcad", "usd/cad", "canadian dollar",
     ],
     googleQuery:
-      '"USD/CAD" OR "USDCAD" OR "Bank of Canada" OR "crude oil price" OR "WTI oil" OR "OPEC" OR "Canadian dollar" OR "oil price forecast"',
+      '"USD/CAD" OR "USDCAD" OR "Canadian dollar" OR "loonie"',
   },
+
+  // ── AUD/USD ───────────────────────────────────────────────────────────────
   AUDUSD: {
-    primaryFeeds: [0, 1, 2],
-    secondaryFeeds: [3, 4, 7],
+    primaryFeeds: [0, 1, 2, 11, 16, 18],
+    secondaryFeeds: [3, 4, 5, 7, 12],
     keywords: [
-      "aud", "aussie", "audusd", "rba", "reserve bank of australia",
-      "australia", "china", "iron ore", "commodity",
-      "fed", "dollar", "rate", "inflation", "cpi",
+      "aud", "aussie", "audusd", "aud/usd", "australian dollar",
     ],
     googleQuery:
-      '"AUD/USD" OR "AUDUSD" OR "Reserve Bank of Australia" OR "RBA" OR "Australian dollar" OR "China GDP" OR "iron ore price" OR "commodity currencies"',
+      '"AUD/USD" OR "AUDUSD" OR "Australian dollar" OR "Aussie dollar"',
   },
+
+  // ── NZD/USD ───────────────────────────────────────────────────────────────
+  NZDUSD: {
+    primaryFeeds: [0, 1, 2, 11, 18],
+    secondaryFeeds: [3, 4, 5, 7],
+    keywords: [
+      "nzd", "kiwi", "nzdusd", "nzd/usd", "new zealand dollar",
+    ],
+    googleQuery:
+      '"NZD/USD" OR "NZDUSD" OR "New Zealand dollar" OR "kiwi dollar"',
+  },
+
+  // ── Bitcoin ───────────────────────────────────────────────────────────────
   BTCUSD: {
-    primaryFeeds: [6, 8, 0], // Crypto + CoinDesk + FXStreet
-    secondaryFeeds: [3, 7],
+    primaryFeeds: [6, 8, 10, 15, 17],  // Inv.Crypto, CoinDesk, CoinTelegraph, Decrypt, TheBlock
+    secondaryFeeds: [0, 5, 7, 12, 13],
     keywords: [
-      "bitcoin", "btc", "btcusd", "crypto", "cryptocurrency",
-      "blockchain", "etf", "sec", "regulation",
-      "macro", "liquidity", "halving", "mining",
-      "digital asset", "coinbase", "binance", "institutional",
+      "bitcoin", "btc", "btcusd", "btcusdt",
     ],
     googleQuery:
-      '"Bitcoin" OR "BTCUSD" OR "BTC/USD" OR "crypto ETF" OR "SEC crypto" OR "Bitcoin price" OR "institutional Bitcoin" OR "crypto regulation" OR "macro liquidity BTC"',
+      '"Bitcoin" OR "BTCUSD" OR "BTC/USD" OR "Bitcoin price"',
   },
+
+  // ── Ethereum ──────────────────────────────────────────────────────────────
   ETHUSD: {
-    primaryFeeds: [6, 8, 0], // Crypto + CoinDesk + FXStreet
-    secondaryFeeds: [3, 7],
+    primaryFeeds: [6, 8, 10, 15, 17],
+    secondaryFeeds: [0, 5, 7, 12],
     keywords: [
-      "ethereum", "eth", "ethusd", "crypto", "cryptocurrency",
-      "defi", "nft", "layer 2", "layer2", "ethereum etf",
-      "gas fee", "blockchain", "smartcontract", "smart contract",
-      "digital asset", "staking", "sec", "regulation",
+      "ethereum", "eth", "ethusd", "eth/usd",
     ],
     googleQuery:
-      '"Ethereum" OR "ETHUSD" OR "ETH/USD" OR "Ethereum ETF" OR "DeFi" OR "Layer 2" OR "Ethereum price" OR "crypto regulation" OR "ETH staking"',
+      '"Ethereum" OR "ETHUSD" OR "ETH/USD" OR "Ethereum price"',
+  },
+
+  // ── BTCUSDT alias ─────────────────────────────────────────────────────────
+  BTCUSDT: {
+    primaryFeeds: [6, 8, 10, 15, 17],
+    secondaryFeeds: [0, 5, 7, 12, 13],
+    keywords: [
+      "bitcoin", "btc", "btcusd", "btcusdt",
+    ],
+    googleQuery:
+      '"Bitcoin" OR "BTCUSDT" OR "BTC/USDT" OR "Bitcoin price"',
   },
 };
 
@@ -239,7 +252,7 @@ function decodeHtml(str: string): string {
     .replace(/&ndash;/g, "–")
     .replace(/&mdash;/g, "—")
     .replace(/&nbsp;/g, " ")
-    .replace(/&#\d+;/g, ""); // remove remaining numeric entities
+    .replace(/&#\d+;/g, "");
 }
 
 // ─── RSS parser ────────────────────────────────────────────────────────────────
@@ -252,18 +265,15 @@ function parseRSS(xml: string, sourceName: string): RawItem[] {
   while ((match = itemRegex.exec(xml)) !== null) {
     const block = match[1];
 
-    // Title: handle CDATA or plain
     const titleMatch =
       /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(block) ||
       /<title>([^<]*)<\/title>/.exec(block);
-    // Link: prefer <link> tag (not atom:link)
     const linkMatch =
       /<link>([^<]+)<\/link>/.exec(block) ||
       /<guid[^>]*isPermaLink="true"[^>]*>([^<]+)<\/guid>/.exec(block) ||
       /<guid[^>]*>([^<]+)<\/guid>/.exec(block);
     const pubDateMatch = /<pubDate>([^<]+)<\/pubDate>/.exec(block);
 
-    // Source name override from <source> tag if present
     const sourceTagMatch = /<source[^>]*>([^<]*)<\/source>/.exec(block);
     const source = sourceTagMatch
       ? decodeHtml(sourceTagMatch[1].trim())
@@ -274,7 +284,6 @@ function parseRSS(xml: string, sourceName: string): RawItem[] {
       const link = linkMatch[1].trim();
       const pubDate = pubDateMatch ? pubDateMatch[1].trim() : "";
 
-      // Remove trailing " - SourceName" suffix common in Google News / FXStreet
       let title = rawTitle;
       const dashIdx = title.lastIndexOf(" - ");
       if (
@@ -294,11 +303,11 @@ function parseRSS(xml: string, sourceName: string): RawItem[] {
   return items;
 }
 
-// ─── Fetch a single feed ───────────────────────────────────────────────────────
+// ─── Feed fetcher ──────────────────────────────────────────────────────────────
 
 async function fetchFeed(
   feed: { url: string; name: string; category: string },
-  timeoutMs = 6000
+  timeoutMs = 7000
 ): Promise<RawItem[]> {
   try {
     const res = await fetch(feed.url, {
@@ -323,6 +332,7 @@ async function fetchFeed(
 // ─── Google News fallback ──────────────────────────────────────────────────────
 
 async function fetchGoogleNews(query: string): Promise<RawItem[]> {
+  if (!query) return [];
   const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
   try {
     const res = await fetch(url, {
@@ -340,12 +350,43 @@ async function fetchGoogleNews(query: string): Promise<RawItem[]> {
   }
 }
 
-// ─── Keyword filter ────────────────────────────────────────────────────────────
-
 function matchesKeywords(title: string, keywords: string[]): boolean {
   if (keywords.length === 0) return true;
   const lower = title.toLowerCase();
-  return keywords.some((kw) => lower.includes(kw.toLowerCase()));
+  return keywords.some((kw) => {
+    const isShortCode = /^[a-z]{3,4}$/.test(kw);
+    if (isShortCode) {
+      const regex = new RegExp(`\\b${kw}\\b`, "i");
+      return regex.test(title);
+    }
+    return lower.includes(kw.toLowerCase());
+  });
+}
+
+// ─── Market relevance filter (for ALL mode) ───────────────────────────────────
+// Filters out retail stock-picking advice, dividend tips, individual company
+// analysis that pollutes macro/forex/commodities/crypto market news feeds.
+
+const MARKET_RELEVANCE_KEYWORDS = [
+  "fed", "fomc", "federal reserve", "ecb", "boj", "boe", "central bank",
+  "rate", "inflation", "cpi", "ppi", "gdp", "pmi", "nfp", "payroll",
+  "gold", "silver", "xau", "xag", "bullion", "precious",
+  "bitcoin", "ethereum", "btc", "eth", "crypto", "blockchain",
+  "oil", "crude", "opec", "brent", "wti", "energy", "natural gas",
+  "dollar", "usd", "dxy", "yen", "euro", "pound", "franc", "yuan", "currency", "forex",
+  "eurusd", "gbpusd", "usdjpy", "audusd", "nzdusd", "usdcad", "usdchf",
+  "war", "conflict", "geopolit", "sanction", "military", "iran", "russia",
+  "ukraine", "china", "taiwan", "middle east", "attack", "strike",
+  "tariff", "trade war", "export ban",
+  "yield", "treasury", "bond", "market crash", "risk-off", "safe haven",
+  "powell", "lagarde", "ueda", "hawkish", "dovish", "monetary policy",
+  "bank failure", "debt", "default", "recession", "recession",
+  "commodity", "copper", "iron ore", "wheat", "corn",
+];
+
+function isMarketRelevantForAll(title: string): boolean {
+  const lower = title.toLowerCase();
+  return MARKET_RELEVANCE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
 // ─── Deduplication ────────────────────────────────────────────────────────────
@@ -353,7 +394,6 @@ function matchesKeywords(title: string, keywords: string[]): boolean {
 function deduplicateItems<T extends RawItem>(items: T[]): T[] {
   const seen = new Set<string>();
   return items.filter((item) => {
-    // Normalise to first 60 chars of title (lowercase, strip spaces) as key
     const key = item.title.toLowerCase().replace(/\s+/g, " ").slice(0, 60);
     if (seen.has(key)) return false;
     seen.add(key);
@@ -379,7 +419,8 @@ function analyzeSentiment(title: string): {
     "stimulus", "easing", "rate cut", "rate cuts", "dovish", "support",
     "demand", "record high", "all-time high", "positive", "outperform",
     "growth", "expansion", "safe haven demand", "inflows", "peak", "accord",
-    "deal", "agreement", "ceasefire", "resolution", "stabilize",
+    "deal", "agreement", "ceasefire", "resolution", "stabilize", "boost",
+    "accelerate", "exceed", "beat", "above expectation", "above forecast",
   ];
 
   const negativePatterns = [
@@ -388,12 +429,13 @@ function analyzeSentiment(title: string): {
     "slips", "slipped", "decline", "declines", "declined", "crash", "crashes",
     "crashed", "sell-off", "selloff", "weakness", "weak", "lower", "downward",
     "selling", "bearish", "recession", "slowdown", "contraction", "default",
-    "crisis", "debt", "deficit", "deficit", "inflation", "rate hike", "rate hikes",
+    "crisis", "debt", "deficit", "inflation", "rate hike", "rate hikes",
     "hawkish", "tightening", "sanction", "sanctions", "trade war", "tariff",
     "tariffs", "conflict", "escalation", "escalate", "tension", "tensions",
     "shutdown", "geopolitical risk", "risk-off", "risk off", "outflows",
     "pressure", "negative", "warning", "concern", "fears", "downturn",
-    "correction", "breakdown", "resistance",
+    "correction", "breakdown", "resistance", "miss", "below expectation",
+    "below forecast", "disappoints", "cut", "layoff", "bankruptcy",
   ];
 
   let posScore = 0;
@@ -426,7 +468,7 @@ function analyzeSentiment(title: string): {
   return { score, label, impact };
 }
 
-// ─── Category inference (fallback) ────────────────────────────────────────────
+// ─── Category inference ────────────────────────────────────────────────────────
 
 function inferCategory(title: string, feedCategory: string): string {
   const t = title.toLowerCase();
@@ -440,19 +482,27 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("ukraine") ||
     t.includes("middle east") ||
     t.includes("iran") ||
-    t.includes("russia")
+    t.includes("russia") ||
+    t.includes("china") && (t.includes("tension") || t.includes("taiwan"))
   )
     return "Geopolitical";
   if (
     t.includes("fed") ||
     t.includes("ecb") ||
     t.includes("boj") ||
+    t.includes("boe") ||
+    t.includes("rba") ||
+    t.includes("rbnz") ||
+    t.includes("snb") ||
     t.includes("central bank") ||
     t.includes("rate hike") ||
     t.includes("rate cut") ||
     t.includes("interest rate") ||
     t.includes("monetary policy") ||
-    t.includes("quantitative")
+    t.includes("quantitative") ||
+    t.includes("fomc") ||
+    t.includes("powell") ||
+    t.includes("lagarde")
   )
     return "Central Bank";
   if (
@@ -464,7 +514,13 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("pmi") ||
     t.includes("employment") ||
     t.includes("jobs") ||
-    t.includes("economic data")
+    t.includes("economic data") ||
+    t.includes("retail sales") ||
+    t.includes("consumer price") ||
+    t.includes("producer price") ||
+    t.includes("ppi") ||
+    t.includes("ism") ||
+    t.includes("housing")
   )
     return "Economic Data";
   if (
@@ -472,7 +528,12 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("ethereum") ||
     t.includes("crypto") ||
     t.includes("defi") ||
-    t.includes("blockchain")
+    t.includes("blockchain") ||
+    t.includes("nft") ||
+    t.includes("altcoin") ||
+    t.includes("token") ||
+    t.includes("stablecoin") ||
+    t.includes("web3")
   )
     return "Crypto";
   if (
@@ -481,7 +542,14 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("opec") ||
     t.includes("gold") ||
     t.includes("silver") ||
-    t.includes("commodity")
+    t.includes("commodity") ||
+    t.includes("bullion") ||
+    t.includes("copper") ||
+    t.includes("iron ore") ||
+    t.includes("natural gas") ||
+    t.includes("lng") ||
+    t.includes("wheat") ||
+    t.includes("energy")
   )
     return "Commodities";
   return feedCategory;
@@ -493,65 +561,96 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get("symbol") || "XAUUSD").toUpperCase();
 
-  const config =
-    SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG["XAUUSD"];
+  // ALL mode: fetch every feed, no keyword filter, return 100 articles
+  const isAll = symbol === "ALL";
+  const config = SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG["XAUUSD"];
 
-  // Build list of feeds to fetch (primary + secondary, deduplicated)
+  let feedsToFetch: typeof FEEDS;
+  let googleItems: RawItem[] = [];
+
+  if (isAll) {
+    // Fetch all feeds in parallel — no google query needed
+    feedsToFetch = FEEDS;
+    const results = await Promise.allSettled(FEEDS.map((f) => fetchFeed(f)));
+
+    const allRaw: (RawItem & { feedIdx: number })[] = [];
+    results.forEach((res, i) => {
+      if (res.status === "fulfilled") {
+        res.value.forEach((item) => allRaw.push({ ...item, feedIdx: i }));
+      }
+    });
+
+    const deduped = deduplicateItems(allRaw);
+
+    // Apply market-relevance filter: remove retail stock-picking, dividend tips, etc.
+    const marketFiltered = deduped.filter(item => isMarketRelevantForAll(item.title));
+
+    marketFiltered.sort((a, b) => {
+      const ta = a.pubDate ? new Date(a.pubDate).getTime() : 0;
+      const tb = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+      return tb - ta;
+    });
+
+    const articles: NewsArticle[] = marketFiltered.slice(0, 100).map((item) => {
+      const feedDef = item.feedIdx >= 0 ? FEEDS[item.feedIdx] : { category: "News" };
+      const category = inferCategory(item.title, feedDef.category || "News");
+      const { score, label, impact } = analyzeSentiment(item.title);
+      return {
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+        source: item.source,
+        sentiment: label,
+        sentimentScore: score,
+        marketImpact: impact,
+        category,
+      };
+    });
+
+    return NextResponse.json(articles, {
+      headers: { "Cache-Control": "public, s-maxage=120, stale-while-revalidate=60" },
+    });
+  }
+
+  // Symbol-specific mode
   const feedIndices = Array.from(
     new Set([...config.primaryFeeds, ...config.secondaryFeeds])
   );
-  const feedsToFetch = feedIndices.map((i) => FEEDS[i]).filter(Boolean);
+  feedsToFetch = feedIndices.map((i) => FEEDS[i]).filter(Boolean);
 
-  // Fetch all feeds in parallel + Google News fallback
-  const [googleItems, ...feedResults] = await Promise.all([
+  // Fetch feeds + Google News in parallel
+  const [gnItems, ...feedResults] = await Promise.allSettled([
     fetchGoogleNews(config.googleQuery),
     ...feedsToFetch.map((feed) => fetchFeed(feed)),
   ]);
 
-  // Merge: primary feeds first (highest signal), then Google News
+  if (gnItems.status === "fulfilled") googleItems = gnItems.value;
+
   const allRaw: (RawItem & { feedIdx: number })[] = [];
 
-  feedResults.forEach((items, i) => {
-    const feed = feedsToFetch[i];
-    items.forEach((item) =>
-      allRaw.push({ ...item, feedIdx: feedIndices[i] })
-    );
-    // Suppress TS unused warning
-    void feed;
-  });
-
-  googleItems.forEach((item) =>
-    allRaw.push({ ...item, feedIdx: -1 })
-  );
-
-  // Filter by instrument keywords (primary feeds bypass filter to always show relevant news)
-  const primarySet = new Set(config.primaryFeeds);
-  const filtered = allRaw.filter((item) => {
-    if (primarySet.has(item.feedIdx)) {
-      // For primary feeds (specialist forex/crypto sites), be lenient — only
-      // exclude if clearly irrelevant (no keyword AND very short)
-      if (config.keywords.length === 0) return true;
-      return (
-        matchesKeywords(item.title, config.keywords) || item.title.length > 30
+  feedResults.forEach((res, i) => {
+    if (res.status === "fulfilled") {
+      res.value.forEach((item) =>
+        allRaw.push({ ...item, feedIdx: feedIndices[i] })
       );
     }
-    // Secondary / macro feeds: keyword-filter strictly so we only show
-    // articles that actually touch this instrument's drivers
+  });
+  googleItems.forEach((item) => allRaw.push({ ...item, feedIdx: -1 }));
+
+  // Keyword filter
+  const filtered = allRaw.filter((item) => {
     return matchesKeywords(item.title, config.keywords);
   });
 
-  // Deduplicate by title
   const deduped = deduplicateItems(filtered);
 
-  // Sort by recency (most recent first); items with no pubDate go to end
   deduped.sort((a, b) => {
     const ta = a.pubDate ? new Date(a.pubDate).getTime() : 0;
     const tb = b.pubDate ? new Date(b.pubDate).getTime() : 0;
     return tb - ta;
   });
 
-  // Build final article list (up to 60 articles for pagination support)
-  const articles: NewsArticle[] = deduped.slice(0, 60).map((item) => {
+  const articles: NewsArticle[] = deduped.slice(0, 80).map((item) => {
     const feedDef =
       item.feedIdx >= 0 ? FEEDS[item.feedIdx] : { category: "News" };
     const category = inferCategory(item.title, feedDef.category || "News");

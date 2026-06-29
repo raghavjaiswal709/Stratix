@@ -68,9 +68,19 @@ export default function JournalPage() {
     sharedTrades.length > 0 ? (sharedTrades as unknown as JournalTrade[]) : []
   );
   const [loading, setLoading] = useState(sharedTrades.length === 0);
-  const [selectedId, setSelectedId] = useState<string | null>(
-    sharedTrades.length > 0 ? (sharedTrades[0] as ApiTrade)._id : null
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tradeId = params.get("tradeId");
+      if (tradeId) {
+        // Resolve parent if cached in sharedTrades
+        const cached = sharedTrades.find(t => t._id === tradeId);
+        if (cached && cached.parentTradeId) return cached.parentTradeId;
+        return tradeId;
+      }
+    }
+    return sharedTrades.length > 0 ? (sharedTrades[0] as ApiTrade)._id : null;
+  });
   const [tab, setTab] = useState<JournalTab>("all");
   const [isDirty, setIsDirty] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -83,6 +93,21 @@ export default function JournalPage() {
     };
   }, [isDirty, setHasUnsavedChanges]);
 
+  // Sync selection to query param if it changes or loads
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tradeId = params.get("tradeId");
+      if (tradeId) {
+        const targetTrade = trades.find(t => t._id === tradeId);
+        const resolvedId = (targetTrade && targetTrade.parentTradeId) || tradeId;
+        if (resolvedId !== selectedId) {
+          setSelectedId(resolvedId);
+        }
+      }
+    }
+  }, [trades]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const load = useCallback((profileId: string) => {
     const url = profileId ? `/api/trade?profileId=${encodeURIComponent(profileId)}` : "/api/trade";
     fetch(url)
@@ -92,8 +117,19 @@ export default function JournalPage() {
         const timer = setTimeout(() => {
           setTrades(arr);
           setSharedTrades(arr as unknown as ApiTrade[]);
-          if (!selectedId && arr.length > 0) {
-            setSelectedId(arr[0]._id);
+          
+          let targetId = selectedId;
+          if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            const tradeId = params.get("tradeId");
+            if (tradeId) {
+              const targetTrade = arr.find(t => t._id === tradeId);
+              targetId = (targetTrade && targetTrade.parentTradeId) || tradeId;
+            }
+          }
+          
+          if (arr.length > 0) {
+            setSelectedId(targetId || arr[0]._id);
           }
           setLoading(false);
         }, 0);

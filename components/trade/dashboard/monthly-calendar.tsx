@@ -23,6 +23,10 @@ interface Trade {
   swap?: number;
   commission?: number;
   status: string;
+  symbol: string;
+  journaled?: boolean;
+  lots?: number;
+  direction?: string;
 }
 
 interface MonthlyCalendarProps {
@@ -132,15 +136,18 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
 
             const cells = days.map((day) => {
               const inMonth = day >= monthStart && day <= monthEnd;
-              const pnl     = inMonth ? getPnLForDay(trades, day)  : 0;
-              const count   = inMonth ? getCountForDay(trades, day) : 0;
+              const dayTrades = inMonth
+                ? trades.filter((t) => isSameDay(parseISO(t.entryTime), day))
+                : [];
+              const pnl     = inMonth ? dayTrades.reduce((sum, t) => sum + t.profit + (t.swap || 0) + (t.commission || 0), 0) : 0;
+              const count   = dayTrades.length;
 
               if (inMonth) {
                 weekPnL   += pnl;
                 weekCount += count;
               }
 
-              return { day, inMonth, pnl, count, hasTraded: inMonth && count > 0 };
+              return { day, inMonth, pnl, count, hasTraded: inMonth && count > 0, dayTrades };
             });
 
             return (
@@ -149,14 +156,14 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                 className="grid gap-px"
                 style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}
               >
-                {cells.map(({ day, inMonth, pnl, hasTraded }) => (
+                {cells.map(({ day, inMonth, pnl, hasTraded, dayTrades }) => (
                   <div
                     key={day.toISOString()}
                     className={cn(
-                      "min-h-[42px] flex flex-col items-center justify-center rounded-lg text-center p-1 transition",
+                      "relative group min-h-[42px] flex flex-col items-center justify-center rounded-lg text-center p-1 transition",
                       !inMonth && "opacity-0 pointer-events-none",
-                      hasTraded && pnl >= 0 && "bg-emerald-500/10 border border-emerald-500/20",
-                      hasTraded && pnl  < 0 && "bg-red-500/10 border border-red-500/20",
+                      hasTraded && pnl >= 0 && "bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20",
+                      hasTraded && pnl  < 0 && "bg-red-500/10 border border-red-500/20 hover:bg-red-500/20",
                       !hasTraded && inMonth && "bg-muted/30 border border-transparent"
                     )}
                   >
@@ -172,6 +179,57 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                       >
                         {fmt(pnl)}
                       </span>
+                    )}
+
+                    {/* Trades list hover popover */}
+                    {hasTraded && dayTrades.length > 0 && (
+                      <div className="absolute bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2 opacity-0 scale-95 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto flex flex-col w-56 rounded-xl border border-white/[0.08] bg-[#0c0c0c] shadow-2xl p-2 z-30 text-left transition-all duration-150 delay-100 group-hover:delay-0">
+                        {/* Invisible bridge to prevent pointer gap hover exit */}
+                        <div className="absolute top-full left-0 right-0 h-[8px] bg-transparent pointer-events-auto" />
+                        <div className="px-2 py-1.5 border-b border-white/[0.06] mb-1.5 relative z-10">
+                          <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
+                            Trades on {format(day, "MMM d, yyyy")}
+                          </span>
+                        </div>
+                        <div className="space-y-1 max-h-[160px] overflow-y-auto pr-0.5">
+                          {dayTrades.map((trade) => {
+                            const tradeNet = trade.profit + (trade.swap || 0) + (trade.commission || 0);
+                            return (
+                              <div
+                                key={trade._id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(`/journal?tradeId=${trade._id}`, "_blank");
+                                }}
+                                className="flex items-center justify-between rounded-lg bg-white/[0.02] hover:bg-white/[0.08] border border-white/[0.04] hover:border-white/[0.12] px-2 py-1.5 cursor-pointer transition"
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  {/* Green dot for journaled */}
+                                  {trade.journaled ? (
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" title="Journaled" />
+                                  ) : (
+                                    <span className="h-1.5 w-1.5 rounded-full bg-white/10 shrink-0" />
+                                  )}
+                                  <span className="text-[11px] font-bold text-white uppercase truncate">
+                                    {trade.symbol}
+                                  </span>
+                                  {trade.lots && trade.direction && (
+                                    <span className="text-[9px] text-white/30 font-medium">
+                                      {trade.direction === "buy" ? "🟢" : "🔴"} {trade.lots.toFixed(2)}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className={cn(
+                                  "text-[10px] font-bold font-mono",
+                                  tradeNet >= 0 ? "text-emerald-400" : "text-red-400"
+                                )}>
+                                  {fmt(tradeNet)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))}
