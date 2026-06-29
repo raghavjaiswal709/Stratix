@@ -47,29 +47,35 @@ interface NewsArticle {
 const PAGE_SIZE = 30;
 
 const SYMBOLS = [
+  { value: "ALL",    label: "🌐 All Instruments" },
   { value: "XAUUSD", label: "🥇 Gold (XAU/USD)" },
   { value: "XAGUSD", label: "🥈 Silver (XAG/USD)" },
+  { value: "BTCUSDT",label: "₿ Bitcoin (BTC/USDT)" },
+  { value: "ETHUSD", label: "Ξ Ethereum (ETH/USD)" },
   { value: "EURUSD", label: "🇪🇺 EUR/USD" },
   { value: "GBPUSD", label: "🇬🇧 GBP/USD" },
   { value: "USDJPY", label: "🇯🇵 USD/JPY" },
   { value: "USDCHF", label: "🇨🇭 USD/CHF" },
   { value: "USDCAD", label: "🇨🇦 USD/CAD" },
   { value: "AUDUSD", label: "🇦🇺 AUD/USD" },
+  { value: "NZDUSD", label: "🇳🇿 NZD/USD" },
   { value: "BTCUSD", label: "₿ Bitcoin (BTC/USD)" },
-  { value: "ETHUSD", label: "Ξ Ethereum (ETH/USD)" },
 ];
 
 const ASSET_NAMES: Record<string, string> = {
+  ALL:    "All Instruments",
   XAUUSD: "Gold (XAU/USD)",
   XAGUSD: "Silver (XAG/USD)",
+  BTCUSDT:"Bitcoin (BTC/USDT)",
+  ETHUSD: "Ethereum (ETH/USD)",
   EURUSD: "EUR/USD",
   GBPUSD: "GBP/USD",
   USDJPY: "USD/JPY",
   USDCHF: "USD/CHF",
   USDCAD: "USD/CAD",
   AUDUSD: "AUD/USD",
+  NZDUSD: "NZD/USD",
   BTCUSD: "Bitcoin (BTC/USD)",
-  ETHUSD: "Ethereum (ETH/USD)",
 };
 
 // ─── Category normalisation ─────────────────────────────────────────────────
@@ -198,8 +204,9 @@ function buildPageRange(current: number, total: number): (number | "…")[] {
 
 export function MarketNews({ symbol, standalone }: MarketNewsProps) {
   // Symbol
-  const [localSymbol, setLocalSymbol] = useState("XAUUSD");
+  const [localSymbol, setLocalSymbol] = useState("ALL");
   const activeSymbol = standalone ? localSymbol : symbol || "XAUUSD";
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Data
   const [articles, setArticles] = useState<NewsArticle[]>([]);
@@ -213,6 +220,30 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "bullish" | "bearish">("newest");
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Scraped modal states
+  const [selectedArticleForModal, setSelectedArticleForModal] = useState<NewsArticle | null>(null);
+  const [modalContent, setModalContent] = useState<string | null>(null);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  const handleOpenArticleModal = useCallback(async (article: NewsArticle) => {
+    setSelectedArticleForModal(article);
+    setModalLoading(true);
+    setModalContent(null);
+    setModalError(null);
+    try {
+      const res = await fetch(`/api/news/content?url=${encodeURIComponent(article.link)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setModalContent(json.content || "No content extracted.");
+    } catch (err: any) {
+      setModalError(err.message || "Failed to load content");
+    } finally {
+      setModalLoading(false);
+    }
+  }, []);
 
   const fetchNews = useCallback(
     async (isRefresh = false) => {
@@ -332,16 +363,32 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                 Market Intelligence &amp; News Feed
               </h2>
               <p className="text-xs text-white/35 leading-none">
-                Multi-source live coverage for{" "}
-                <span className="text-white/55 font-medium">
-                  {ASSET_NAMES[activeSymbol] || activeSymbol}
-                </span>{" "}
-                — geopolitical, macro, central bank &amp; technical
+                {activeSymbol === "ALL"
+                  ? "All feeds · FXStreet · ForexLive · Kitco · CoinTelegraph · DailyFX · CNBC · ZeroHedge · BullionVault · CoinDesk · Decrypt · TheBlock + more"
+                  : <>Multi-source live coverage for{" "}
+                      <span className="text-white/55 font-medium">
+                        {ASSET_NAMES[activeSymbol] || activeSymbol}
+                      </span>{" "}
+                      — geopolitical, macro, central bank &amp; commodities</>
+                }
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {!loading && articles.length > 0 && (
+              <button
+                onClick={() => setFiltersOpen(v => !v)}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${filtersOpen ? "bg-white/[0.07] border-white/[0.14] text-white/70" : "border-white/[0.08] bg-white/[0.03] text-white/45 hover:bg-white/[0.06] hover:text-white/70"}`}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Filters
+                {(categoryFilter !== "All" || sentimentFilter !== "All" || search) && (
+                  <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                )}
+                <ChevronDown className={`h-3 w-3 transition-transform ${filtersOpen ? "rotate-180" : ""}`} />
+              </button>
+            )}
             <button
               onClick={() => fetchNews(true)}
               disabled={loading || refreshing}
@@ -370,10 +417,14 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
         )}
       </div>
 
+      {/* ── Collapsible filter panel ────────────────────────────────── */}
+      {filtersOpen && (
+      <div className="mb-5 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3.5 space-y-3">
+
       {/* ── Symbol selector (standalone mode only) ────────────────── */}
       {standalone && (
-        <div className="mb-5 flex items-center gap-2">
-          <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-white/25 uppercase tracking-widest shrink-0 w-20">
             Instrument
           </span>
           <div className="relative">
@@ -399,7 +450,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
 
       {/* ── Filter + sort bar ─────────────────────────────────────── */}
       {!loading && articles.length > 0 && (
-        <div className="mb-5 space-y-3">
+        <div className="space-y-3">
           {/* Category filter chips */}
           <div className="flex items-center gap-2 flex-wrap">
             <SlidersHorizontal className="h-3 w-3 text-white/25 shrink-0" />
@@ -523,19 +574,22 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
             </div>
           </div>
 
-          {/* Stats row */}
-          <div className="flex items-center gap-2 text-[10px] text-white/25">
-            <span>
-              {sorted.length === 0
-                ? "No articles match filters"
-                : `Showing ${startItem}–${endItem} of ${sorted.length} articles`}
-            </span>
-            {articles.length !== sorted.length && (
-              <span className="text-white/15">
-                ({articles.length} fetched)
-              </span>
-            )}
-          </div>
+        </div>
+      )}
+      </div>
+      )}
+
+      {/* Article count shown outside filter panel */}
+      {!loading && articles.length > 0 && (
+        <div className="flex items-center gap-2 mb-4 text-[10px] text-white/25">
+          <span>
+            {sorted.length === 0
+              ? "No articles match filters"
+              : `Showing ${startItem}–${endItem} of ${sorted.length} articles`}
+          </span>
+          {articles.length !== sorted.length && (
+            <span className="text-white/15">({articles.length} fetched)</span>
+          )}
         </div>
       )}
 
@@ -633,7 +687,8 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
             return (
               <div
                 key={`${activeSymbol}-${item.link}-${idx}`}
-                className="group flex flex-col justify-between rounded-xl border border-white/[0.05] bg-white/[0.01] p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.12] hover:bg-white/[0.03] hover:shadow-lg hover:shadow-black/30"
+                onClick={() => handleOpenArticleModal(item)}
+                className="group flex flex-col justify-between rounded-xl border border-white/[0.05] bg-white/[0.01] p-4 cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.12] hover:bg-white/[0.03] hover:shadow-lg hover:shadow-black/30"
               >
                 <div>
                   {/* Index + Source + Time + Sentiment */}
@@ -669,15 +724,12 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                   )}
 
                   {/* Headline */}
-                  <a
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group/link mb-3 flex items-start gap-1 text-sm font-medium leading-snug text-white/75 transition-colors hover:text-white"
+                  <div
+                    className="group/link mb-3 flex items-start gap-1 text-sm font-medium leading-snug text-white/75 transition-colors group-hover:text-white"
                   >
                     <span className="line-clamp-3">{item.title}</span>
-                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0 mt-0.5 opacity-0 transition-opacity group-hover/link:opacity-100" />
-                  </a>
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100" />
+                  </div>
                 </div>
 
                 {/* Market Impact */}
@@ -740,6 +792,91 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
           <span className="ml-2 text-[10px] text-white/20">
             Page {currentPage} of {totalPages} · {sorted.length} articles
           </span>
+        </div>
+      )}
+
+      {/* ── Scraped Article Modal ── */}
+      {selectedArticleForModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm"
+          onClick={() => setSelectedArticleForModal(null)}
+        >
+          <div 
+            className="relative w-full max-w-3xl max-h-[85vh] flex flex-col rounded-2xl border border-white/[0.10] bg-[#0c0c0c] shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-white/[0.06] flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
+                    {selectedArticleForModal.source}
+                  </span>
+                  <span className="text-white/10">·</span>
+                  <span className="text-[10px] text-white/30">
+                    {new Date(selectedArticleForModal.pubDate).toLocaleString()}
+                  </span>
+                  <span className="text-white/10">·</span>
+                  <CategoryBadge category={selectedArticleForModal.category} />
+                </div>
+                <h3 className="text-base sm:text-lg font-semibold text-white leading-snug">
+                  {selectedArticleForModal.title}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedArticleForModal(null)}
+                className="rounded-lg p-1.5 text-white/40 hover:text-white hover:bg-white/[0.05] transition shrink-0"
+              >
+                <span className="text-xl font-medium leading-none">&times;</span>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-6 py-6 text-sm text-white/70 leading-relaxed font-normal space-y-4">
+              {modalLoading ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <RefreshCw className="h-6 w-6 text-white/30 animate-spin" />
+                  <p className="text-xs text-white/30">Fetching full article content...</p>
+                </div>
+              ) : modalError ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                  <AlertCircle className="h-7 w-7 text-rose-500/40" />
+                  <p className="text-sm font-semibold text-white/60">Could not retrieve content</p>
+                  <p className="text-xs text-white/30 max-w-md">{modalError}</p>
+                  <a
+                    href={selectedArticleForModal.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 text-xs text-emerald-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    Read original article <ArrowUpRight className="h-3 w-3" />
+                  </a>
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap select-text">
+                  {modalContent}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-white/[0.06] bg-white/[0.01] flex items-center justify-between">
+              <a
+                href={selectedArticleForModal.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-white/45 hover:text-white transition inline-flex items-center gap-1 hover:underline"
+              >
+                Read original source <ArrowUpRight className="h-3.5 w-3.5" />
+              </a>
+              <button
+                onClick={() => setSelectedArticleForModal(null)}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-white/[0.08] text-white hover:bg-white/[0.12] transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

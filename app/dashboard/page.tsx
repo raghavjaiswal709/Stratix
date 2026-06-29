@@ -6,6 +6,7 @@ import { PerformanceChart } from "@/components/trade/dashboard/performance-chart
 import { MonthlyCalendar } from "@/components/trade/dashboard/monthly-calendar";
 import { OpenPositions } from "@/components/trade/dashboard/open-positions";
 import { TradingInsights } from "@/components/trade/dashboard/trading-insights";
+import { LatestNewsWidget } from "@/components/trade/dashboard/latest-news";
 import { TradingQuotesModal } from "@/components/shared/trading-quotes";
 import { SyncButton } from "@/components/trade/sync/sync-button";
 import { TradesTable } from "@/components/trade/sync/trades-table";
@@ -157,6 +158,9 @@ export default function DashboardPage() {
       <TradingInsights trades={trades} />
 
       <OpenPositions trades={trades.filter((t) => t.status === "open")} />
+
+      {/* ── Latest News ──────────────────────────────────────────────────── */}
+      <LatestNewsWidget />
 
       {/* ── MT5 section ──────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-card p-5 space-y-4">

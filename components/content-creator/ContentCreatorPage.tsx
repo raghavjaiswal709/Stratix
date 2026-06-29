@@ -1,0 +1,4009 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+import {
+  Download,
+  Code2,
+  RefreshCw,
+  X,
+  Copy,
+  Check,
+  ChevronRight,
+  AlertCircle,
+  ImagePlus,
+  Layers2,
+  Palette,
+  Sliders,
+  Edit3,
+  Plus,
+  Trash2,
+  Bot,
+  Sparkles,
+  Loader2,
+} from "lucide-react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Metric  { label: string; value: string; }
+interface Section { label: string; content: string; }
+
+interface PosterData {
+  category?: string;
+  title?: string;
+  subtitle?: string;
+  index?: string;
+  description?: string;
+  sections?: Section[];
+  metrics?: Metric[];
+  formula?: string;
+  tags?: string[];
+  imageUrl?: string;
+  footer?: string;
+  date?: string;
+}
+
+interface AnalysisData {
+  category?: string;
+  instrument: string;
+  levelName: string;
+  timeframe: string;
+  session?: string;
+  description: string;
+  whatToDo?: string;
+  keyLevels?: string;
+  imageUrl?: string;
+  layout?: "standard" | "split" | "banner";
+  footer?: string;
+  date?: string;
+}
+
+interface NewsItem {
+  title: string;
+  description: string;
+  imageUrl?: string;
+  source?: string;
+  date?: string;
+  impact?: "High" | "Medium" | "Low";
+  sentiment?: "Bullish" | "Bearish" | "Neutral";
+  affectedAssets?: string;
+  keyTakeaway?: string;
+}
+
+interface AspectRatio { id: string; label: string; w: number; h: number; desc: string; }
+
+interface PosterColors {
+  bg: string;
+  accent: string;
+  text: string;
+  muted: string;
+  card: string;
+  subtle: string;
+}
+
+interface PosterConfig {
+  showGrid: boolean;
+  gridSize: number;
+  gridOpacity: number;
+  showBorder: boolean;
+  borderWidth: number;
+  showCrosses: boolean;
+  crossSize: number;
+  fontScale: number;
+}
+
+interface PosterElement {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const RATIOS: AspectRatio[] = [
+  { id: "square",    label: "1:1",  w: 800,  h: 800,  desc: "Post"     },
+  { id: "portrait",  label: "4:5",  w: 800,  h: 1000, desc: "Portrait" },
+  { id: "story",     label: "9:16", w: 800,  h: 1422, desc: "Story"    },
+  { id: "landscape", label: "16:9", w: 1600, h: 900,  desc: "Banner"   },
+  { id: "a4",        label: "A4",   w: 794,  h: 1123, desc: "Print"    },
+];
+
+const COLOR_PRESETS: (PosterColors & { name: string })[] = [
+  {
+    name: "Stratix Amber (Light)",
+    bg: "#FAF9F6",
+    accent: "#C1683A",
+    text: "#111211",
+    muted: "#5A5B5A",
+    card: "#FDF2EC",
+    subtle: "#EAEAEA",
+  },
+  {
+    name: "Royal Sapphire (Light)",
+    bg: "#F4F7FB",
+    accent: "#1E40AF",
+    text: "#0F172A",
+    muted: "#475569",
+    card: "#EFF6FF",
+    subtle: "#E2E8F0",
+  },
+  {
+    name: "Emerald Mint (Light)",
+    bg: "#F3FDF7",
+    accent: "#065F46",
+    text: "#064E3B",
+    muted: "#374151",
+    card: "#ECFDF5",
+    subtle: "#D1FAE5",
+  },
+  {
+    name: "Vivid Orchid (Light)",
+    bg: "#FAF5FF",
+    accent: "#6B21A8",
+    text: "#1E1B4B",
+    muted: "#4B5563",
+    card: "#F5F3FF",
+    subtle: "#F3E8FF",
+  },
+  {
+    name: "Warm Terracotta (Light)",
+    bg: "#FDF8F5",
+    accent: "#C2410C",
+    text: "#431407",
+    muted: "#6B7280",
+    card: "#FFF1F2",
+    subtle: "#FFEDD5",
+  },
+  {
+    name: "Nord Light",
+    bg: "#E5E9F0",
+    accent: "#5E81AC",
+    text: "#2E3440",
+    muted: "#4C566A",
+    card: "#ECEFF4",
+    subtle: "#D8DEE9",
+  },
+  {
+    name: "Slate Minimalist (Light)",
+    bg: "#F8FAFC",
+    accent: "#0F172A",
+    text: "#0F172A",
+    muted: "#64748B",
+    card: "#F1F5F9",
+    subtle: "#E2E8F0",
+  },
+  {
+    name: "Crimson Rose",
+    bg: "#FFF5F7",
+    accent: "#BE123C",
+    text: "#4C0519",
+    muted: "#9F1239",
+    card: "#FFF1F2",
+    subtle: "#FCE7F3",
+  },
+  {
+    name: "Teal Breeze",
+    bg: "#F0FDFA",
+    accent: "#0F766E",
+    text: "#115E59",
+    muted: "#134E4A",
+    card: "#E6FFFA",
+    subtle: "#CCFBF1",
+  },
+  {
+    name: "Sunset Gold",
+    bg: "#FEFCE8",
+    accent: "#B45309",
+    text: "#78350F",
+    muted: "#92400E",
+    card: "#FEF9C3",
+    subtle: "#FEF08A",
+  },
+  {
+    name: "Indigo Velvet",
+    bg: "#EEF2FF",
+    accent: "#4338CA",
+    text: "#312E81",
+    muted: "#3730A3",
+    card: "#E0E7FF",
+    subtle: "#C7D2FE",
+  },
+  {
+    name: "Forest Fern",
+    bg: "#F0FDF4",
+    accent: "#15803D",
+    text: "#14532D",
+    muted: "#166534",
+    card: "#DCFCE7",
+    subtle: "#BBF7D0",
+  },
+  {
+    name: "Bright Fuchsia",
+    bg: "#FDF4FF",
+    accent: "#BE185D",
+    text: "#701A75",
+    muted: "#86198F",
+    card: "#FAE8FF",
+    subtle: "#F5D0FE",
+  },
+  {
+    name: "Neon Lime",
+    bg: "#F7FEE7",
+    accent: "#4D7C0F",
+    text: "#1A2E05",
+    muted: "#3F6212",
+    card: "#ECFCCB",
+    subtle: "#D9F99D",
+  },
+  {
+    name: "Copper Rust",
+    bg: "#FAFAF9",
+    accent: "#854D0E",
+    text: "#451A03",
+    muted: "#A8A29E",
+    card: "#F5EBE6",
+    subtle: "#F5F5F4",
+  },
+  {
+    name: "Electric Blue",
+    bg: "#ECFEFF",
+    accent: "#0891B2",
+    text: "#164E63",
+    muted: "#0E7490",
+    card: "#CFFAFE",
+    subtle: "#A5F3FC",
+  },
+  {
+    name: "Coffee Latte",
+    bg: "#FAF7F5",
+    accent: "#78350F",
+    text: "#451A03",
+    muted: "#8B5A2B",
+    card: "#F5EBE6",
+    subtle: "#EEDCD3",
+  },
+  {
+    name: "Ocean Coral",
+    bg: "#FFF5F5",
+    accent: "#E11D48",
+    text: "#881337",
+    muted: "#BE123C",
+    card: "#FFE4E6",
+    subtle: "#FECDD3",
+  },
+  {
+    name: "Steel Blue",
+    bg: "#F1F5F9",
+    accent: "#334155",
+    text: "#0F172A",
+    muted: "#475569",
+    card: "#E2E8F0",
+    subtle: "#CBD5E1",
+  },
+  {
+    name: "Charcoal Slate",
+    bg: "#F8FAFC",
+    accent: "#1E293B",
+    text: "#0F172A",
+    muted: "#475569",
+    card: "#F1F5F9",
+    subtle: "#E2E8F0",
+  },
+  {
+    name: "Canary Yellow",
+    bg: "#FFFBEB",
+    accent: "#D97706",
+    text: "#78350F",
+    muted: "#B45309",
+    card: "#FEF3C7",
+    subtle: "#FDE68A",
+  },
+  {
+    name: "Vibrant Orange",
+    bg: "#FFF7ED",
+    accent: "#EA580C",
+    text: "#7C2D12",
+    muted: "#C2410C",
+    card: "#FFEDD5",
+    subtle: "#FED7AA",
+  },
+  {
+    name: "Plum Wine",
+    bg: "#FDF4FF",
+    accent: "#86198F",
+    text: "#4A044E",
+    muted: "#701A75",
+    card: "#F5D0FE",
+    subtle: "#F0ABFC",
+  },
+  {
+    name: "Sage Olive",
+    bg: "#F4FBF7",
+    accent: "#4B6B58",
+    text: "#2D3F34",
+    muted: "#3B5244",
+    card: "#E8F4EC",
+    subtle: "#D4E8DC",
+  },
+  {
+    name: "Sky Cyan",
+    bg: "#F0F9FF",
+    accent: "#0284C7",
+    text: "#0C4A6E",
+    muted: "#0369A1",
+    card: "#E0F2FE",
+    subtle: "#BAE6FD",
+  },
+  {
+    name: "Desert Clay",
+    bg: "#FAF6F0",
+    accent: "#C2410C",
+    text: "#431407",
+    muted: "#9A3412",
+    card: "#FBEBE0",
+    subtle: "#F7D7C4",
+  },
+  {
+    name: "Midnight Slate (Light)",
+    bg: "#F8F9FA",
+    accent: "#1A1E29",
+    text: "#0D0E15",
+    muted: "#3B4254",
+    card: "#EDEFF2",
+    subtle: "#DCDFE4",
+  },
+  {
+    name: "Pistachio Green",
+    bg: "#F5FCF6",
+    accent: "#3F8C56",
+    text: "#1E4D2B",
+    muted: "#2D6A4F",
+    card: "#E3F5E7",
+    subtle: "#C7ECD1",
+  },
+  {
+    name: "Cobalt Royal",
+    bg: "#F3F4FE",
+    accent: "#2563EB",
+    text: "#1E3A8A",
+    muted: "#1D4ED8",
+    card: "#E0E7FF",
+    subtle: "#C7D2FE",
+  },
+  {
+    name: "Saffron Spice",
+    bg: "#FFFDF5",
+    accent: "#D97706",
+    text: "#78350F",
+    muted: "#B45309",
+    card: "#FFF8E1",
+    subtle: "#FFE082",
+  },
+];
+
+const SAMPLE: PosterData = {
+  category: "TECHNICAL ANALYSIS",
+  title: "Relative Strength Index",
+  subtitle: "A Momentum-Based Oscillator",
+  index: "01",
+  description: "Measures the magnitude of recent price changes to evaluate overbought or oversold conditions in the price of an asset.",
+  sections: [
+    {
+      label: "HOW IT WORKS",
+      content:
+        "RSI compares average gains to average losses over a set period (default 14), producing a normalized value from 0 to 100.",
+    },
+    {
+      label: "TRADING SIGNALS",
+      content:
+        "A reading above 70 signals overbought conditions. Below 30 signals oversold. Divergence from price often precedes reversals.",
+    },
+  ],
+  metrics: [
+    { label: "TYPE",   value: "Oscillator" },
+    { label: "RANGE",  value: "0 – 100"    },
+    { label: "PERIOD", value: "14"         },
+    { label: "SIGNAL", value: "Momentum"   },
+  ],
+  formula: "RSI = 100 − [ 100 ÷ (1 + RS) ]",
+  tags: ["MOMENTUM", "OSCILLATOR", "MEAN-REVERSION"],
+  footer: "STRATIX RESEARCH",
+  date: "2026",
+  imageUrl: "",
+};
+
+const SAMPLE_ANALYSIS: AnalysisData = {
+  category: "DAILY ANALYSIS",
+  instrument: "XAUUSD (Gold)",
+  levelName: "Daily Demand Zone",
+  timeframe: "D1",
+  session: "London / NY",
+  description: "Gold price is approaching a critical daily support cluster and demand zone. We are looking for lower timeframe entry triggers (e.g. bullish order block on 1H/15M) to establish long positions with targets at the recent highs.",
+  whatToDo: "Monitor the D1 demand block. Watch for a bullish reversal pattern on the 1H/15M chart before executing long orders.",
+  keyLevels: "Support: 2320.50, 2305.00 | Resistance: 2355.00, 2370.00",
+  imageUrl: "https://images.unsplash.com/photo-1610374792793-f016b77ca51a?w=800",
+  layout: "standard",
+  footer: "STRATIX RESEARCH",
+  date: "2026",
+};
+
+const SAMPLE_NEWS: NewsItem[] = [
+  {
+    title: "US Inflation Cools Down to 2.8% in May",
+    description: "CPI data cools down to 2.8% vs expected 3.0%. Retail inflation is slowing down at a faster pace, which has fueled speculation of an early rate cut by the Federal Reserve.",
+    imageUrl: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
+    source: "Bloomberg",
+    date: "June 27, 2026",
+    impact: "High",
+    sentiment: "Bearish",
+    affectedAssets: "USD, XAUUSD, US Equities",
+    keyTakeaway: "Treasury yields dropped immediately, weakening the DXY and providing a massive safety bid to Gold prices.",
+  },
+  {
+    title: "Ethereum Spot ETFs Witness Record Inflows",
+    description: "Ether spot exchange-traded funds recorded their highest daily net inflow since launch. Institutional asset managers are rapidly buying and establishing custody holdings.",
+    imageUrl: "https://images.unsplash.com/photo-1622790694511-9a5aba0a93c7?w=800",
+    source: "Reuters",
+    date: "June 27, 2026",
+    impact: "Medium",
+    sentiment: "Bullish",
+    affectedAssets: "ETHUSD, BTCUSDT, Crypto",
+    keyTakeaway: "DeFi protocols saw a lockup surge. Layer 2 networks are gaining strong volume momentum.",
+  },
+];
+
+const buildCreatorNewsPrompt = (date: string, session: string, candles: any) => {
+  const ts = new Date().toISOString();
+  
+  // Format candles nicely
+  let candleBlock = "";
+  if (candles) {
+    const lines: string[] = ["=== REAL MARKET DATA CONTEXT (OHLCV) ==="];
+    const symbols = ["XAUUSD", "XAGUSD", "BTCUSDT", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF"];
+    for (const sym of symbols) {
+      const d = candles[sym.toLowerCase()];
+      if (d && d.h1 && d.h1.length > 0) {
+        lines.push(`\n${sym}:`);
+        d.h1.slice(-5).forEach((c: any) => {
+          const dt = new Date(c.t * 1000).toISOString().replace("T", " ").slice(0, 16);
+          lines.push(`  ${dt} UTC: O:${c.o} H:${c.h} L:${c.l} C:${c.c}`);
+        });
+      }
+    }
+    candleBlock = lines.join("\n");
+  } else {
+    candleBlock = "=== REAL MARKET DATA CONTEXT ===\nNo live data summary available. Rely on real-world news sources.";
+  }
+
+  return `You are a world-class financial news analyst. Generate a valid JSON array of NewsItem items for the upcoming trading session.
+  
+================================================================
+SESSION DETAILS:
+================================================================
+Date: ${date}
+Session: ${session} (Asian | London | New York)
+Generated At: ${ts}
+
+================================================================
+LIVE PRICE ACTION (REAL OHLCV):
+================================================================
+${candleBlock}
+
+================================================================
+INSTRUCTIONS:
+================================================================
+1. Extract or research the most important global macro events, central bank announcements, natural disasters, or geopolitical shocks for this date/session.
+2. Produce a valid JSON array containing a batch of news items (at least 2-5 items).
+3. Do NOT include markdown blocks, introductory texts, or code explanations. Return ONLY the JSON code block.
+4. Each news item must have EXACTLY the following fields:
+   - "title": A short, engaging headline (e.g. "US Inflation Cools Down to 2.8%")
+   - "description": A highly detailed paragraph in Hinglish or simple English (100-150 words) mapping the transmission mechanism (Trigger -> Impact -> Ripple effect) with bold figures and italic contexts.
+   - "imageUrl": A high-quality Unsplash image URL matching the theme of the headline (e.g. stock market, oil refinery, gold bars, bitcoin coin, central bank building). Use actual working Unsplash links.
+   - "source": "Bloomberg" | "Reuters" | "CNBC" | etc.
+   - "date": Date string (e.g. "June 27, 2026")
+   - "impact": "High" | "Medium" | "Low"
+   - "sentiment": "Bullish" | "Bearish" | "Neutral"
+   - "affectedAssets": Comma-separated list of symbols (e.g. "USD, XAUUSD, US Equities")
+   - "keyTakeaway": A concise summary (40-60 words) highlighting immediate trader action bias and technical levels.
+
+================================================================
+OUTPUT SCHEMA:
+================================================================
+\`\`\`json
+[
+  {
+    "title": "US Inflation Cools Down to 2.8% in May",
+    "description": "CPI data cools down to 2.8% vs expected 3.0%. Retail inflation is slowing down at a faster pace, which has fueled speculation of an early rate cut by the Federal Reserve.",
+    "imageUrl": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
+    "source": "Bloomberg",
+    "date": "June 27, 2026",
+    "impact": "High",
+    "sentiment": "Bearish",
+    "affectedAssets": "USD, XAUUSD, US Equities",
+    "keyTakeaway": "Treasury yields dropped immediately, weakening the DXY and providing a massive safety bid to Gold prices."
+  }
+]
+\`\`\`
+`;
+};
+
+// ─── Canvas utilities ─────────────────────────────────────────────────────────
+
+function rrect(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number,
+) {
+  const R = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + R, y);
+  ctx.lineTo(x + w - R, y); ctx.arcTo(x + w, y, x + w, y + R, R);
+  ctx.lineTo(x + w, y + h - R); ctx.arcTo(x + w, y + h, x + w - R, y + h, R);
+  ctx.lineTo(x + R, y + h); ctx.arcTo(x, y + h, x, y + h - R, R);
+  ctx.lineTo(x, y + R); ctx.arcTo(x, y, x + R, y, R);
+  ctx.closePath();
+}
+
+function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  if (!text) return [];
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const test = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function fitText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxW: number,
+  maxH: number,
+  minSize: number,
+  maxSize: number
+): { lines: string[]; fontSize: number; lineSpacing: number } {
+  let bestFontSize = minSize;
+  let bestLines: string[] = [];
+  let bestLineSpacing = minSize * 1.5;
+
+  // Search for the largest font size that fits within maxH
+  for (let sz = minSize; sz <= maxSize; sz += 0.5) {
+    ctx.font = `500 ${sz}px "Inter", system-ui, -apple-system, sans-serif`;
+    const lines = wrap(ctx, text, maxW);
+    const spacing = sz * 1.5;
+    const totalH = lines.length * spacing;
+
+    if (totalH <= maxH) {
+      bestFontSize = sz;
+      bestLines = lines;
+      bestLineSpacing = spacing;
+    } else {
+      break;
+    }
+  }
+
+  // Fallback if no size fits
+  if (bestLines.length === 0) {
+    ctx.font = `500 ${minSize}px "Inter", system-ui, -apple-system, sans-serif`;
+    bestLines = wrap(ctx, text, maxW);
+    bestFontSize = minSize;
+    bestLineSpacing = minSize * 1.5;
+  }
+
+  return { lines: bestLines, fontSize: bestFontSize, lineSpacing: bestLineSpacing };
+}
+
+// ─── Daily Analysis Canvas Layouts ──────────────────────────────────────────
+
+function drawDailyAnalysisStandard(
+  ctx: CanvasRenderingContext2D,
+  data: AnalysisData,
+  img: HTMLImageElement | null | undefined,
+  W: number, H: number, S: number,
+  PAD: number, CX: number, CXR: number, CW: number, GUT: number,
+  r: Rfn, font: FontFns,
+  colors: PosterColors,
+  config: PosterConfig,
+): PosterElement[] {
+  const bounds: PosterElement[] = [];
+  let Y = PAD + GUT;
+
+  // Colorful Header Banner block (solid accent background spanning full content width) - Taller!
+  const catY = Y;
+  const bannerH = r(38);
+  rrect(ctx, CX, Y, CW, bannerH, r(4));
+  ctx.fillStyle = colors.accent; ctx.fill();
+
+  ctx.font = font.label(12, true); ctx.textBaseline = "middle";
+  ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "left";
+  ctx.fillText(` ◆  ${(data.category || "DAILY ANALYSIS").toUpperCase()}`, CX + r(14), Y + bannerH / 2);
+  
+  // Date inside the banner (Bigger!)
+  if (data.date) {
+    ctx.textAlign = "right"; ctx.fillStyle = "#FFFFFF";
+    ctx.fillText(data.date, CXR - r(14), Y + bannerH / 2);
+  }
+  bounds.push({ id: "category", label: "Category & Date", x: CX, y: catY, w: CW, h: bannerH });
+  Y += bannerH + r(24);
+
+  // Instrument Name
+  const instY = Y;
+  ctx.font = font.serif(42, true); ctx.fillStyle = colors.text; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  const instName = data.instrument || "XAUUSD";
+  ctx.fillText(instName, CX, Y);
+  const instW = ctx.measureText(instName).width;
+
+  // Row of solid pills: Timeframe & Session next to Instrument
+  let pillX = CX + instW + r(18);
+  const pillY = Y + r(10);
+  
+  if (data.timeframe) {
+    const tf = data.timeframe.toUpperCase();
+    ctx.font = font.label(10.5, true);
+    const tfW = ctx.measureText(tf).width + r(18);
+    const tfH = r(24);
+    
+    rrect(ctx, pillX, pillY, tfW, tfH, r(4));
+    ctx.fillStyle = colors.accent; ctx.fill();
+    ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(tf, pillX + tfW / 2, pillY + tfH / 2);
+    pillX += tfW + r(10);
+  }
+
+  if (data.session) {
+    const sess = data.session.toUpperCase();
+    ctx.font = font.label(10.5, true);
+    const sessW = ctx.measureText(sess).width + r(18);
+    const tfH = r(24);
+    
+    rrect(ctx, pillX, pillY, sessW, tfH, r(4));
+    ctx.fillStyle = colors.accent; ctx.fill();
+    ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(sess, pillX + sessW / 2, pillY + tfH / 2);
+  }
+  
+  bounds.push({ id: "instrument", label: "Instrument & Pills", x: CX, y: instY, w: CW, h: r(50) });
+  Y += r(54);
+
+  // Level Name
+  if (data.levelName) {
+    const lvlY = Y;
+    ctx.font = font.serif(19, true); ctx.fillStyle = colors.muted; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText(data.levelName, CX, Y);
+    bounds.push({ id: "levelName", label: "Level Name", x: CX, y: lvlY, w: CW, h: r(24) });
+    Y += r(30);
+  }
+
+  // 1. Image Frame (Chart screenshot) - Constant height in all ratios
+  let imgH = 0;
+  if (img) {
+    imgH = r(245);
+    const imgY = Y;
+    rrect(ctx, CX, Y, CW, imgH, r(5));
+    ctx.fillStyle = colors.card; ctx.fill();
+    ctx.strokeStyle = colors.subtle; ctx.lineWidth = 1.5; ctx.stroke();
+    
+    ctx.save();
+    rrect(ctx, CX + r(1), Y + r(1), CW - r(2), imgH - r(2), r(4));
+    ctx.clip();
+    
+    // Cover crop algorithm to perfectly fill the canvas space
+    const iAR = img.naturalWidth / img.naturalHeight;
+    const fAR = CW / imgH;
+    let drawW = CW, drawH = imgH, drawX = CX, drawY = Y;
+    if (iAR > fAR) {
+      drawW = imgH * iAR;
+      drawX = CX + (CW - drawW) / 2;
+    } else {
+      drawH = CW / iAR;
+      drawY = Y + (imgH - drawH) / 2;
+    }
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.restore();
+    
+    bounds.push({ id: "imageUrl", label: "Chart Screenshot", x: CX, y: imgY, w: CW, h: imgH });
+    Y += imgH + r(20);
+  }
+
+  // 2. Sections (Explanation, Action Plan, Key Levels) - dynamic heights scaling to fill remaining empty space!
+  const FY = H - PAD - GUT;
+  const footerSpace = r(28) + r(14);
+  const totalContentH = FY - Y - footerSpace;
+
+  if (totalContentH > 0) {
+    const sections: { id: string; label: string; text: string; share: number; cardH: number }[] = [];
+    if (data.description) sections.push({ id: "description", label: "◆ EXPLANATION", text: data.description, share: 0.50, cardH: 0 });
+    if (data.whatToDo)     sections.push({ id: "whatToDo",     label: "◆ ACTION PLAN (WHAT TO DO)", text: data.whatToDo,     share: 0.30, cardH: 0 });
+    if (data.keyLevels)    sections.push({ id: "keyLevels",    label: "◆ KEY LEVELS",    text: data.keyLevels,    share: 0.20, cardH: 0 });
+    
+    if (sections.length > 0) {
+      const totalShare = sections.reduce((acc, s) => acc + s.share, 0);
+      const gapSize = r(12);
+      const totalGaps = (sections.length - 1) * gapSize;
+      const availForCards = totalContentH - totalGaps;
+      
+      sections.forEach(s => {
+        s.cardH = Math.floor(availForCards * (s.share / totalShare));
+      });
+
+      sections.forEach((s) => {
+        const cardH = s.cardH;
+        rrect(ctx, CX, Y, CW, cardH, r(5));
+        ctx.fillStyle = colors.card; ctx.fill();
+        ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5; ctx.stroke();
+        
+        ctx.fillStyle = colors.accent;
+        ctx.fillRect(CX, Y + r(6), r(5), cardH - r(12));
+        
+        ctx.font = font.label(8.5, true); ctx.textBaseline = "top";
+        ctx.fillStyle = colors.accent; ctx.textAlign = "left";
+        ctx.fillText(s.label, CX + r(16), Y + r(10));
+        
+        const titleSpace = r(24);
+        const fit = fitText(ctx, s.text, CW - r(32), cardH - titleSpace - r(16), r(10.5), r(16));
+        
+        ctx.fillStyle = colors.text; ctx.textBaseline = "top"; ctx.textAlign = "left";
+        fit.lines.forEach((l, i) => {
+          const lineY = Y + titleSpace + r(8) + i * fit.lineSpacing;
+          if (lineY + fit.lineSpacing < Y + cardH) {
+            ctx.fillText(l, CX + r(16), lineY);
+          }
+        });
+        
+        bounds.push({ id: s.id, label: s.label, x: CX, y: Y, w: CW, h: cardH });
+        Y += cardH + gapSize;
+      });
+    }
+  }
+
+  // Footer
+  ctx.strokeStyle = colors.subtle; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(CX, FY - r(14)); ctx.lineTo(CXR, FY - r(14)); ctx.stroke();
+  
+  ctx.font = font.label(9.5, true); ctx.fillStyle = colors.muted;
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(data.footer || "STRATIX", CX, FY - r(5));
+  ctx.textAlign = "right"; ctx.fillStyle = colors.accent;
+  ctx.fillText("stratix.app", CXR, FY - r(5));
+  bounds.push({ id: "footer", label: "Footer", x: CX, y: FY - r(14), w: CW, h: r(28) });
+
+  return bounds;
+}
+
+function drawDailyAnalysisSplit(
+  ctx: CanvasRenderingContext2D,
+  data: AnalysisData,
+  img: HTMLImageElement | null | undefined,
+  W: number, H: number, S: number,
+  PAD: number, CX: number, CXR: number, CW: number, GUT: number,
+  r: Rfn, font: FontFns,
+  colors: PosterColors,
+  config: PosterConfig,
+): PosterElement[] {
+  const bounds: PosterElement[] = [];
+  const COL_GAP = r(28);
+  const LC = Math.round(CW * 0.45); // left col width (text details)
+  const RC = CW - LC - COL_GAP;     // right col width (full-height chart image)
+  const RCX = CX + LC + COL_GAP;    // right col X
+
+  let LY = PAD + GUT;
+
+  // Category Banner block for Split - Taller!
+  const catY = LY;
+  const bannerH = r(34);
+  rrect(ctx, CX, LY, LC, bannerH, r(4));
+  ctx.fillStyle = colors.accent; ctx.fill();
+  
+  ctx.font = font.label(11, true); ctx.textBaseline = "middle";
+  ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "left";
+  ctx.fillText(` ◆  ${(data.category || "DAILY ANALYSIS").toUpperCase()}`, CX + r(10), LY + bannerH / 2);
+  
+  if (data.date) {
+    ctx.textAlign = "right"; ctx.fillStyle = "#FFFFFF";
+    ctx.fillText(data.date, CX + LC - r(10), LY + bannerH / 2);
+  }
+  bounds.push({ id: "category", label: "Category & Date", x: CX, y: catY, w: LC, h: bannerH });
+  LY += bannerH + r(20);
+
+  // Line Separator
+  ctx.strokeStyle = colors.subtle; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(CX, LY); ctx.lineTo(CX + LC, LY); ctx.stroke();
+  LY += r(22);
+
+  // Instrument Name
+  const instY = LY;
+  ctx.font = font.serif(34, true); ctx.fillStyle = colors.text; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  const instName = data.instrument || "XAUUSD";
+  ctx.fillText(instName, CX, LY);
+  const instW = ctx.measureText(instName).width;
+
+  // Solid Timeframe & Session Row
+  let pillX = CX + instW + r(14);
+  const pillY = LY + r(8);
+  
+  if (data.timeframe) {
+    const tf = data.timeframe.toUpperCase();
+    ctx.font = font.label(9, true);
+    const tfW = ctx.measureText(tf).width + r(14);
+    const tfH = r(20);
+    
+    rrect(ctx, pillX, pillY, tfW, tfH, r(4));
+    ctx.fillStyle = colors.accent; ctx.fill();
+    ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(tf, pillX + tfW / 2, pillY + tfH / 2);
+    pillX += tfW + r(8);
+  }
+
+  if (data.session) {
+    const sess = data.session.toUpperCase();
+    ctx.font = font.label(9, true);
+    const sessW = ctx.measureText(sess).width + r(14);
+    const tfH = r(20);
+    
+    rrect(ctx, pillX, pillY, sessW, tfH, r(4));
+    ctx.fillStyle = colors.accent; ctx.fill();
+    ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(sess, pillX + sessW / 2, pillY + tfH / 2);
+  }
+  bounds.push({ id: "instrument", label: "Instrument", x: CX, y: instY, w: LC, h: r(40) });
+  LY += r(40);
+
+  // Level Name
+  if (data.levelName) {
+    const lvlY = LY;
+    ctx.font = font.serif(17, true); ctx.fillStyle = colors.muted; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText(data.levelName, CX, LY);
+    bounds.push({ id: "levelName", label: "Level Name", x: CX, y: lvlY, w: LC, h: r(22) });
+    LY += r(26);
+  }
+
+  // Explanation/Description Card (Left Column) - Dynamic Height Stretch & Word Wrap
+  const FY = H - PAD - GUT;
+  const footerSpace = r(28) + r(14);
+  const cardH = FY - LY - footerSpace; // Stretch to align with footer line
+
+  if (cardH > 0) {
+    const sections: { id: string; label: string; text: string; share: number; cardH: number }[] = [];
+    if (data.description) sections.push({ id: "description", label: "◆ EXPLANATION", text: data.description, share: 0.50, cardH: 0 });
+    if (data.whatToDo)     sections.push({ id: "whatToDo",     label: "◆ ACTION PLAN", text: data.whatToDo,     share: 0.30, cardH: 0 });
+    if (data.keyLevels)    sections.push({ id: "keyLevels",    label: "◆ KEY LEVELS",    text: data.keyLevels,    share: 0.20, cardH: 0 });
+
+    if (sections.length > 0) {
+      const totalShare = sections.reduce((acc, s) => acc + s.share, 0);
+      const gapSize = r(10);
+      const totalGaps = (sections.length - 1) * gapSize;
+      const availForCards = cardH - totalGaps;
+
+      sections.forEach(s => {
+        s.cardH = Math.floor(availForCards * (s.share / totalShare));
+      });
+
+      let currentLY = LY;
+      sections.forEach((s) => {
+        const secCardH = s.cardH;
+        rrect(ctx, CX, currentLY, LC, secCardH, r(5));
+        ctx.fillStyle = colors.card; ctx.fill();
+        ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5; ctx.stroke();
+        
+        ctx.fillStyle = colors.accent;
+        ctx.fillRect(CX, currentLY + r(4), r(4), secCardH - r(8));
+        
+        ctx.font = font.label(8, true); ctx.textBaseline = "top";
+        ctx.fillStyle = colors.accent; ctx.textAlign = "left";
+        ctx.fillText(s.label, CX + r(12), currentLY + r(8));
+        
+        const titleSpace = r(20);
+        const fit = fitText(ctx, s.text, LC - r(24), secCardH - titleSpace - r(12), r(9.5), r(14));
+        
+        ctx.fillStyle = colors.text; ctx.textBaseline = "top"; ctx.textAlign = "left";
+        fit.lines.forEach((l, i) => {
+          const lineY = currentLY + titleSpace + r(6) + i * fit.lineSpacing;
+          if (lineY + fit.lineSpacing < currentLY + secCardH) {
+            ctx.fillText(l, CX + r(12), lineY);
+          }
+        });
+
+        bounds.push({ id: s.id, label: s.label, x: CX, y: currentLY, w: LC, h: secCardH });
+        currentLY += secCardH + gapSize;
+      });
+    }
+  }
+
+  // Vertical column separator
+  ctx.strokeStyle = colors.subtle; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(CX + LC + COL_GAP / 2, PAD + GUT);
+  ctx.lineTo(CX + LC + COL_GAP / 2, FY);
+  ctx.stroke();
+
+  // Right Column: Full-Height Image
+  const imgY = PAD + GUT;
+  const imgH = FY - imgY - r(40);
+  if (img) {
+    rrect(ctx, RCX, imgY, RC, imgH, r(5));
+    ctx.fillStyle = colors.card; ctx.fill();
+    ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5; ctx.stroke();
+    
+    ctx.save();
+    rrect(ctx, RCX + r(1), imgY + r(1), RC - r(2), imgH - r(2), r(4));
+    ctx.clip();
+    
+    // Cover Crop
+    const iAR = img.naturalWidth / img.naturalHeight;
+    const fAR = RC / imgH;
+    let drawW = RC, drawH = imgH, drawX = RCX, drawY = imgY;
+    if (iAR > fAR) {
+      drawW = imgH * iAR;
+      drawX = RCX + (RC - drawW) / 2;
+    } else {
+      drawH = RC / iAR;
+      drawY = imgY + (imgH - drawH) / 2;
+    }
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.restore();
+  } else {
+    rrect(ctx, RCX, imgY, RC, imgH, r(5));
+    ctx.fillStyle = colors.card; ctx.fill();
+    ctx.strokeStyle = colors.subtle; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.font = font.label(10, true); ctx.fillStyle = colors.muted;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("CHART SCREENSHOT", RCX + RC / 2, imgY + imgH / 2);
+  }
+  bounds.push({ id: "imageUrl", label: "Chart Screenshot", x: RCX, y: imgY, w: RC, h: imgH });
+
+  // Footer (Full Width)
+  ctx.strokeStyle = colors.subtle; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(CX, FY - r(14)); ctx.lineTo(CXR, FY - r(14)); ctx.stroke();
+  
+  ctx.font = font.label(9, true); ctx.fillStyle = colors.muted;
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(data.footer || "STRATIX", CX, FY - r(5));
+  ctx.textAlign = "right"; ctx.fillStyle = colors.accent;
+  ctx.fillText("stratix.app", CXR, FY - r(5));
+  bounds.push({ id: "footer", label: "Footer", x: CX, y: FY - r(14), w: CW, h: r(28) });
+
+  return bounds;
+}
+
+function drawDailyAnalysis(
+  ctx: CanvasRenderingContext2D,
+  data: AnalysisData,
+  img: HTMLImageElement | null | undefined,
+  W: number, H: number, S: number,
+  PAD: number, CX: number, CXR: number, CW: number, GUT: number,
+  r: Rfn, font: FontFns,
+  colors: PosterColors,
+  config: PosterConfig,
+  land: boolean
+): PosterElement[] {
+  if (land) {
+    return drawDailyAnalysisSplit(ctx, data, img, W, H, S, PAD, CX, CXR, CW, GUT, r, font, colors, config);
+  } else {
+    return drawDailyAnalysisStandard(ctx, data, img, W, H, S, PAD, CX, CXR, CW, GUT, r, font, colors, config);
+  }
+}
+
+// ─── News Poster Canvas Layout ──────────────────────────────────────────────
+
+function drawNewsPoster(
+  ctx: CanvasRenderingContext2D,
+  data: NewsItem,
+  img: HTMLImageElement | null | undefined,
+  W: number, H: number, S: number,
+  PAD: number, CX: number, CXR: number, CW: number, GUT: number,
+  r: Rfn, font: FontFns,
+  colors: PosterColors,
+  config: PosterConfig,
+  land: boolean
+): PosterElement[] {
+  const bounds: PosterElement[] = [];
+  let Y = PAD + GUT;
+
+  // Colorful Header Banner - Taller!
+  const catY = Y;
+  const bannerH = r(38);
+  rrect(ctx, CX, Y, CW, bannerH, r(4));
+  ctx.fillStyle = colors.accent; ctx.fill();
+
+  ctx.font = font.label(12, true); ctx.textBaseline = "middle";
+  ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "left";
+  ctx.fillText(` ◆  MARKET NEWS`, CX + r(14), Y + bannerH / 2);
+  
+  // News Source inside banner
+  if (data.source) {
+    ctx.textAlign = "right"; ctx.fillStyle = "#FFFFFF";
+    ctx.fillText(data.source.toUpperCase(), CXR - r(14), Y + bannerH / 2);
+  }
+  bounds.push({ id: "source", label: "News Source", x: CX, y: catY, w: CW, h: bannerH });
+  Y += bannerH + r(24);
+
+  // Solid line separator
+  ctx.strokeStyle = colors.subtle; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(CX, Y); ctx.lineTo(CXR, Y); ctx.stroke();
+  Y += r(24);
+
+  // News Headline (Title) - Extra bold modern sans-serif
+  const titleY = Y;
+  ctx.font = font.serif(28, true); ctx.fillStyle = colors.text; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  const tLines = wrap(ctx, data.title || "Headline", CW);
+  const tLH = r(34 * config.fontScale);
+  tLines.forEach((l, i) => ctx.fillText(l, CX, Y + i * tLH));
+  const headlineH = Math.max(tLines.length * tLH, r(24));
+  bounds.push({ id: "title", label: "Headline", x: CX, y: titleY, w: CW, h: headlineH });
+  Y += headlineH + r(14);
+
+  // Draw Pills under headline: Impact, Sentiment & Affected Assets
+  let pillX = CX;
+  const pillY = Y;
+  const tfH = r(22);
+  
+  if (data.impact) {
+    const impText = `${data.impact.toUpperCase()} IMPACT`;
+    ctx.font = font.label(8.5, true);
+    const tfW = ctx.measureText(impText).width + r(14);
+    
+    rrect(ctx, pillX, pillY, tfW, tfH, r(4));
+    ctx.fillStyle = data.impact === "High" ? "#EF4444" : data.impact === "Medium" ? "#F97316" : colors.muted;
+    ctx.fill();
+    
+    ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(impText, pillX + tfW / 2, pillY + tfH / 2);
+    pillX += tfW + r(8);
+  }
+
+  if (data.sentiment) {
+    const sentText = data.sentiment.toUpperCase();
+    ctx.font = font.label(8.5, true);
+    const tfW = ctx.measureText(sentText).width + r(14);
+    
+    rrect(ctx, pillX, pillY, tfW, tfH, r(4));
+    ctx.fillStyle = data.sentiment === "Bullish" ? "#22C55E" : data.sentiment === "Bearish" ? "#EF4444" : colors.muted;
+    ctx.fill();
+    
+    ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(sentText, pillX + tfW / 2, pillY + tfH / 2);
+    pillX += tfW + r(8);
+  }
+
+  if (data.affectedAssets) {
+    const assetsText = data.affectedAssets.toUpperCase();
+    ctx.font = font.label(8.5, true);
+    const tfW = ctx.measureText(assetsText).width + r(14);
+    
+    rrect(ctx, pillX, pillY, tfW, tfH, r(4));
+    ctx.fillStyle = colors.accent; ctx.fill();
+    
+    ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(assetsText, pillX + tfW / 2, pillY + tfH / 2);
+  }
+  Y += tfH + r(20);
+
+  // News Image - Constant Height
+  let imgH = 0;
+  if (img) {
+    imgH = r(245);
+    const imgY = Y;
+    rrect(ctx, CX, Y, CW, imgH, r(5));
+    ctx.fillStyle = colors.card; ctx.fill();
+    ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5; ctx.stroke();
+    
+    ctx.save();
+    rrect(ctx, CX + r(1), Y + r(1), CW - r(2), imgH - r(2), r(4));
+    ctx.clip();
+    
+    // Cover crop
+    const iAR = img.naturalWidth / img.naturalHeight;
+    const fAR = CW / imgH;
+    let drawW = CW, drawH = imgH, drawX = CX, drawY = Y;
+    if (iAR > fAR) {
+      drawW = imgH * iAR;
+      drawX = CX + (CW - drawW) / 2;
+    } else {
+      drawH = CW / iAR;
+      drawY = Y + (imgH - drawH) / 2;
+    }
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.restore();
+    
+    bounds.push({ id: "imageUrl", label: "News Image", x: CX, y: imgY, w: CW, h: imgH });
+    Y += imgH + r(20);
+  }
+
+  // News Description & Takeaways - dynamic heights scaling to fill remaining empty space!
+  const FY = H - PAD - GUT;
+  const footerSpace = r(28) + r(14);
+  const totalContentH = FY - Y - footerSpace;
+
+  if (totalContentH > 0) {
+    const sections: { id: string; label: string; text: string; share: number; cardH: number }[] = [];
+    if (data.description) sections.push({ id: "description", label: "◆ DETAILED ANALYSIS", text: data.description, share: 0.65, cardH: 0 });
+    if (data.keyTakeaway)  sections.push({ id: "keyTakeaway",  label: "◆ KEY TAKEAWAYS & MARKET BIAS", text: data.keyTakeaway,  share: 0.35, cardH: 0 });
+    
+    if (sections.length > 0) {
+      const totalShare = sections.reduce((acc, s) => acc + s.share, 0);
+      const gapSize = r(12);
+      const totalGaps = (sections.length - 1) * gapSize;
+      const availForCards = totalContentH - totalGaps;
+      
+      sections.forEach(s => {
+        s.cardH = Math.floor(availForCards * (s.share / totalShare));
+      });
+
+      sections.forEach((s) => {
+        const cardH = s.cardH;
+        rrect(ctx, CX, Y, CW, cardH, r(5));
+        ctx.fillStyle = colors.card; ctx.fill();
+        ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5; ctx.stroke();
+        
+        ctx.fillStyle = colors.accent;
+        ctx.fillRect(CX, Y + r(6), r(5), cardH - r(12));
+        
+        ctx.font = font.label(8.5, true); ctx.textBaseline = "top";
+        ctx.fillStyle = colors.accent; ctx.textAlign = "left";
+        ctx.fillText(s.label, CX + r(16), Y + r(10));
+        
+        const titleSpace = r(24);
+        const fit = fitText(ctx, s.text, CW - r(32), cardH - titleSpace - r(16), r(10.5), r(16));
+        
+        ctx.fillStyle = colors.text; ctx.textBaseline = "top"; ctx.textAlign = "left";
+        fit.lines.forEach((l, i) => {
+          const lineY = Y + titleSpace + r(8) + i * fit.lineSpacing;
+          if (lineY + fit.lineSpacing < Y + cardH) {
+            ctx.fillText(l, CX + r(16), lineY);
+          }
+        });
+        
+        bounds.push({ id: s.id, label: s.label, x: CX, y: Y, w: CW, h: cardH });
+        Y += cardH + gapSize;
+      });
+    }
+  }
+
+  // Footer
+  ctx.strokeStyle = colors.subtle; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(CX, FY - r(14)); ctx.lineTo(CXR, FY - r(14)); ctx.stroke();
+  
+  ctx.font = font.label(9.5, true); ctx.fillStyle = colors.muted;
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(data.date || "TODAY", CX, FY - r(5));
+  ctx.textAlign = "right"; ctx.fillStyle = colors.accent;
+  ctx.fillText("stratix.app", CXR, FY - r(5));
+  bounds.push({ id: "footer", label: "Footer", x: CX, y: FY - r(14), w: CW, h: r(28) });
+
+  return bounds;
+}
+
+// ─── Main canvas draw ─────────────────────────────────────────────────────────
+
+function drawPoster(
+  canvas: HTMLCanvasElement,
+  data: any,
+  ar: AspectRatio,
+  colors: PosterColors,
+  config: PosterConfig,
+  img: HTMLImageElement | null | undefined,
+  mode: "analysis" | "news" | "indicator" = "analysis",
+): PosterElement[] {
+  const W = ar.w, H = ar.h;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d")!;
+  const S = Math.min(W, H) / 720;
+  const land = ar.id === "landscape";
+
+  const r = (n: number) => Math.round(n * S);
+  const font = {
+    label: (sz = 9,  bold = false) => `${bold ? "bold " : ""}${r(sz * config.fontScale)}px "Inter", system-ui, -apple-system, sans-serif`,
+    body:  (sz = 12, bold = false) => `${bold ? "bold " : ""}${r(sz * config.fontScale)}px "Impact", "Arial Black", sans-serif`,
+    serif: (sz = 16, bold = false) => `${bold ? "bold " : ""}${r(sz * config.fontScale)}px "Inter", system-ui, -apple-system, sans-serif`,
+  };
+
+  // ── Background
+  ctx.fillStyle = colors.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Dot grid
+  if (config.showGrid) {
+    ctx.save();
+    ctx.fillStyle = colors.accent;
+    ctx.globalAlpha = config.gridOpacity * 1.4;
+    const gSpace = r(config.gridSize);
+    for (let x = gSpace; x < W; x += gSpace) {
+      for (let y = gSpace; y < H; y += gSpace) {
+        ctx.beginPath();
+        ctx.arc(x, y, 0.85, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  const PAD = r(24);
+
+  // ── Outer border
+  if (config.showBorder) {
+    ctx.strokeStyle = colors.accent; ctx.lineWidth = config.borderWidth;
+    ctx.strokeRect(PAD + 0.75, PAD + 0.75, W - PAD * 2 - 1.5, H - PAD * 2 - 1.5);
+  }
+
+  // ── Corner L-brackets
+  if (config.showCrosses) {
+    const CL = r(config.crossSize + 8);
+    ctx.strokeStyle = colors.accent;
+    ctx.lineWidth = 2.5;
+    for (const [cx, cy, sx, sy] of [
+      [PAD, PAD, 1, 1], [W - PAD, PAD, -1, 1],
+      [PAD, H - PAD, 1, -1], [W - PAD, H - PAD, -1, -1],
+    ] as [number, number, number, number][]) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + sy * CL);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx + sx * CL, cy);
+      ctx.stroke();
+    }
+  }
+
+  const GUT = r(24);
+  const CX = PAD + GUT, CXR = W - PAD - GUT, CW = CXR - CX;
+
+  if (mode === "analysis") {
+    return drawDailyAnalysis(ctx, data, img, W, H, S, PAD, CX, CXR, CW, GUT, r, font, colors, config, land);
+  } else if (mode === "news") {
+    return drawNewsPoster(ctx, data, img, W, H, S, PAD, CX, CXR, CW, GUT, r, font, colors, config, land);
+  } else {
+    if (land) {
+      return drawLandscape(ctx, data, img, W, H, S, PAD, CX, CXR, CW, GUT, r, font, colors, config);
+    } else {
+      return drawPortrait(ctx, data, img, W, H, S, PAD, CX, CXR, CW, GUT, r, font, colors, config);
+    }
+  }
+}
+
+type FontFns = { label: (sz?: number, bold?: boolean) => string; body: (sz?: number, bold?: boolean) => string; serif: (sz?: number, bold?: boolean) => string; };
+type Rfn = (n: number) => number;
+
+// ─── Portrait / Square / Story / A4 layout ───────────────────────────────────
+
+function drawPortrait(
+  ctx: CanvasRenderingContext2D,
+  data: PosterData,
+  img: HTMLImageElement | null | undefined,
+  W: number, H: number, S: number,
+  PAD: number, CX: number, CXR: number, CW: number, GUT: number,
+  r: Rfn, font: FontFns,
+  colors: PosterColors,
+  config: PosterConfig,
+): PosterElement[] {
+  const bounds: PosterElement[] = [];
+  let Y = PAD + GUT;
+
+  // ── Ghost index number (editorial depth behind title)
+  if (data.index) {
+    ctx.save();
+    ctx.font = `bold ${r(200)}px Georgia, 'Times New Roman', serif`;
+    ctx.fillStyle = colors.accent + "09";
+    ctx.textAlign = "right"; ctx.textBaseline = "top";
+    ctx.fillText(String(data.index).padStart(2, "0"), CXR, Y - r(10));
+    ctx.restore();
+  }
+
+  // ── Category badge (solid accent fill, white text)
+  const catLabel = (data.category || "CONTENT").toUpperCase();
+  ctx.font = font.label(8.5); ctx.textBaseline = "middle";
+  const catTW = ctx.measureText(catLabel).width;
+  const badgeW = catTW + r(18), badgeH = r(22), badgeR = r(3);
+  rrect(ctx, CX, Y, badgeW, badgeH, badgeR);
+  ctx.fillStyle = colors.accent; ctx.fill();
+  ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "left";
+  ctx.fillText(catLabel, CX + r(9), Y + badgeH / 2);
+  ctx.textBaseline = "top";
+
+  if (data.index || data.date) {
+    const parts = [data.index ? `NO. ${data.index}` : "", data.date || ""].filter(Boolean).join("  ·  ");
+    ctx.font = font.label(9); ctx.fillStyle = colors.muted;
+    ctx.textAlign = "right"; ctx.textBaseline = "top";
+    ctx.fillText(parts, CXR, Y + r(5));
+  }
+  bounds.push({ id: "category", label: "Category & Index", x: CX, y: Y, w: CW, h: badgeH });
+  Y += badgeH + r(18);
+
+  // ── Bold orange divider
+  ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(CX, Y + 0.5); ctx.lineTo(CXR, Y + 0.5); ctx.stroke();
+  Y += r(26);
+
+  // ── Title (large bold serif — hero element)
+  const titleY = Y;
+  ctx.font = font.serif(46, true); ctx.fillStyle = colors.text;
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  const tLines = wrap(ctx, data.title || "Untitled", CW);
+  const tLH = r(56 * config.fontScale);
+  tLines.forEach((l, i) => ctx.fillText(l, CX, Y + i * tLH));
+  const titleH = Math.max(tLines.length * tLH, r(24));
+  bounds.push({ id: "title", label: "Title", x: CX, y: titleY, w: CW, h: titleH });
+  Y += titleH + r(8);
+
+  // ── Subtitle (italic serif)
+  if (data.subtitle) {
+    const subY = Y;
+    ctx.font = `italic ${r(16 * config.fontScale)}px Georgia, 'Times New Roman', serif`;
+    ctx.fillStyle = colors.muted; ctx.textBaseline = "top";
+    ctx.fillText(data.subtitle, CX, Y);
+    bounds.push({ id: "subtitle", label: "Subtitle", x: CX, y: subY, w: CW, h: r(26) });
+    Y += r(28);
+  }
+
+  // ── Tags (pill badges — rounded, bordered)
+  if (data.tags?.length) {
+    Y += r(6);
+    const tagsY = Y;
+    ctx.font = font.label(8);
+    const tH = r(22), tPX = r(10), tGap = r(6), tR = r(11);
+    let tX = CX; ctx.textBaseline = "middle";
+    for (const tag of data.tags) {
+      const tw = ctx.measureText(tag).width + tPX * 2;
+      if (tX + tw > CXR) break;
+      rrect(ctx, tX, Y, tw, tH, tR);
+      ctx.fillStyle = colors.accent + "20"; ctx.fill();
+      ctx.strokeStyle = colors.accent + "88"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = colors.accent; ctx.textAlign = "left";
+      ctx.fillText(tag, tX + tPX, Y + tH / 2);
+      tX += tw + tGap;
+    }
+    ctx.textBaseline = "top";
+    bounds.push({ id: "tags", label: "Tags", x: CX, y: tagsY, w: CW, h: tH });
+    Y += tH + r(18);
+  }
+
+  // ── Thin secondary separator
+  ctx.strokeStyle = colors.accent + "45"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(CX, Y + 0.5); ctx.lineTo(CXR, Y + 0.5); ctx.stroke();
+  Y += r(18);
+
+  // ── Description card (orange top-stripe + card fill)
+  if (data.description) {
+    const descY = Y;
+    ctx.font = font.body(12.5);
+    const dLines = wrap(ctx, data.description, CW - r(26));
+    const dLH = r(20);
+    const cardPX = r(18), cardPY = r(16);
+    const cardH = dLines.length * dLH + cardPY * 2;
+    rrect(ctx, CX, Y, CW, cardH, r(6));
+    ctx.fillStyle = colors.card; ctx.fill();
+    ctx.strokeStyle = colors.accent + "55"; ctx.lineWidth = 1; ctx.stroke();
+    // Orange top stripe (clipped to card shape)
+    ctx.save();
+    rrect(ctx, CX, Y, CW, cardH, r(6)); ctx.clip();
+    ctx.fillStyle = colors.accent;
+    ctx.fillRect(CX, Y, CW, r(3));
+    ctx.restore();
+    ctx.fillStyle = colors.text; ctx.textBaseline = "top"; ctx.textAlign = "left";
+    dLines.forEach((l, i) => ctx.fillText(l, CX + cardPX, Y + cardPY + i * dLH));
+    bounds.push({ id: "description", label: "Description", x: CX, y: descY, w: CW, h: cardH });
+    Y += cardH + r(18);
+  }
+
+  // ── Sections (orange dot bullet + label + body)
+  if (data.sections?.length) {
+    const secY = Y;
+    let secHSum = 0;
+    for (const sec of data.sections) {
+      const curY = Y + secHSum;
+      // Dot bullet
+      ctx.fillStyle = colors.accent;
+      ctx.beginPath(); ctx.arc(CX + r(4), curY + r(5.5), r(3), 0, Math.PI * 2); ctx.fill();
+      // Label
+      ctx.font = font.label(9); ctx.fillStyle = colors.accent;
+      ctx.textBaseline = "top"; ctx.textAlign = "left";
+      ctx.fillText(sec.label.toUpperCase(), CX + r(14), curY + r(0.5));
+      // Body
+      ctx.font = font.body(12.5); ctx.fillStyle = colors.text + "E8";
+      const sLines = wrap(ctx, sec.content, CW - r(12));
+      const sLH = r(19);
+      sLines.forEach((l, i) => ctx.fillText(l, CX + r(10), curY + r(17) + i * sLH));
+      secHSum += r(17) + sLines.length * sLH + r(14);
+    }
+    bounds.push({ id: "sections", label: "Sections", x: CX, y: secY, w: CW, h: secHSum });
+    Y += secHSum + r(4);
+  }
+
+  // ── Formula card (dashed orange border)
+  if (data.formula) {
+    const formulaY = Y;
+    const fPX = r(16), fPY = r(14);
+    const fH = fPY + r(14) + r(6) + r(22) + fPY;
+    rrect(ctx, CX, Y, CW, fH, r(6));
+    ctx.fillStyle = colors.subtle; ctx.fill();
+    ctx.setLineDash([r(4), r(3)]);
+    ctx.strokeStyle = colors.accent + "AA"; ctx.lineWidth = 1.5;
+    rrect(ctx, CX, Y, CW, fH, r(6)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = font.label(8); ctx.fillStyle = colors.accent;
+    ctx.textBaseline = "top"; ctx.textAlign = "left";
+    ctx.fillText("FORMULA", CX + fPX, Y + fPY);
+    ctx.font = font.serif(16); ctx.fillStyle = colors.text;
+    ctx.textBaseline = "top";
+    ctx.fillText(data.formula, CX + fPX, Y + fPY + r(14) + r(6));
+    bounds.push({ id: "formula", label: "Formula Box", x: CX, y: formulaY, w: CW, h: fH });
+    Y += fH + r(18);
+  }
+
+  // ── Metrics grid (orange dot accent, bold serif values)
+  if (data.metrics?.length) {
+    const metricsY = Y;
+    const mets = data.metrics.slice(0, 4);
+    const cols = mets.length <= 2 ? mets.length : 2;
+    const mGap = r(9), mH = r(68), mR = r(6);
+    const mW = (CW - mGap * (cols - 1)) / cols;
+    mets.forEach((m, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const mx = CX + col * (mW + mGap), my = Y + row * (mH + mGap);
+      rrect(ctx, mx, my, mW, mH, mR);
+      ctx.fillStyle = colors.card; ctx.fill();
+      ctx.strokeStyle = colors.accent + "55"; ctx.lineWidth = 1; ctx.stroke();
+      // Orange dot accent
+      ctx.fillStyle = colors.accent;
+      ctx.beginPath(); ctx.arc(mx + r(13), my + r(13), r(2.5), 0, Math.PI * 2); ctx.fill();
+      // Label (monospace, muted)
+      ctx.font = font.label(8); ctx.fillStyle = colors.muted;
+      ctx.textBaseline = "top"; ctx.textAlign = "left";
+      ctx.fillText(m.label.toUpperCase(), mx + r(23), my + r(9));
+      // Value (bold serif, full brightness)
+      ctx.font = font.serif(20, true); ctx.fillStyle = colors.text;
+      ctx.textBaseline = "bottom";
+      ctx.fillText(m.value, mx + r(12), my + mH - r(12));
+    });
+    const metricsH = Math.ceil(mets.length / cols) * (mH + mGap);
+    bounds.push({ id: "metrics", label: "Metrics Grid", x: CX, y: metricsY, w: CW, h: metricsH });
+    Y += metricsH + r(10);
+  }
+
+  // ── Image
+  if (img) {
+    const avail = H - PAD - GUT - Y - r(44);
+    if (avail > r(50)) {
+      const iH = Math.min(avail, r(190));
+      const iAR = img.naturalWidth / img.naturalHeight;
+      const iW = Math.min(CW, iH * iAR);
+      const iX = CX + (CW - iW) / 2;
+      ctx.save();
+      rrect(ctx, CX, Y, CW, iH, r(6)); ctx.clip();
+      ctx.drawImage(img, iX, Y, iW, iH);
+      ctx.restore();
+      bounds.push({ id: "imageUrl", label: "Image Frame", x: CX, y: Y, w: CW, h: iH });
+    }
+  }
+
+  // ── Footer
+  const FY = H - PAD - GUT;
+  ctx.strokeStyle = colors.accent + "40"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(CX, FY - r(16) + 0.5); ctx.lineTo(CXR, FY - r(16) + 0.5); ctx.stroke();
+  ctx.font = font.label(9); ctx.fillStyle = colors.muted;
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(data.footer || "STRATIX", CX, FY - r(7));
+  ctx.textAlign = "right"; ctx.fillStyle = colors.accent + "CC";
+  ctx.fillText("stratix.app", CXR, FY - r(7));
+  bounds.push({ id: "footer", label: "Footer Website", x: CX, y: FY - r(16), w: CW, h: r(28) });
+
+  return bounds;
+}
+
+// ─── Landscape (16:9) two-column layout ──────────────────────────────────────
+
+function drawLandscape(
+  ctx: CanvasRenderingContext2D,
+  data: PosterData,
+  img: HTMLImageElement | null | undefined,
+  W: number, H: number, S: number,
+  PAD: number, CX: number, CXR: number, CW: number, GUT: number,
+  r: Rfn, font: FontFns,
+  colors: PosterColors,
+  config: PosterConfig,
+): PosterElement[] {
+  const bounds: PosterElement[] = [];
+  const COL_GAP = r(32);
+  const LC = Math.round(CW * 0.48);
+  const RC = CW - LC - COL_GAP;
+  const RCX = CX + LC + COL_GAP;
+
+  let LY = PAD + GUT, RY = PAD + GUT;
+
+  // ── Left: ghost index
+  if (data.index) {
+    ctx.save();
+    ctx.font = `bold ${r(150)}px Georgia, 'Times New Roman', serif`;
+    ctx.fillStyle = colors.accent + "09";
+    ctx.textAlign = "right"; ctx.textBaseline = "top";
+    ctx.fillText(String(data.index).padStart(2, "0"), CX + LC, LY - r(5));
+    ctx.restore();
+  }
+
+  // ── Left: category badge
+  const catLabel = (data.category || "CONTENT").toUpperCase();
+  ctx.font = font.label(8.5); ctx.textBaseline = "middle";
+  const catTW = ctx.measureText(catLabel).width;
+  const badgeW = catTW + r(18), badgeH = r(22), badgeR = r(3);
+  rrect(ctx, CX, LY, badgeW, badgeH, badgeR);
+  ctx.fillStyle = colors.accent; ctx.fill();
+  ctx.fillStyle = "#FFFFFF"; ctx.textAlign = "left";
+  ctx.fillText(catLabel, CX + r(9), LY + badgeH / 2);
+  ctx.textBaseline = "top";
+
+  if (data.index || data.date) {
+    const parts = [data.index ? `NO. ${data.index}` : "", data.date || ""].filter(Boolean).join("  ·  ");
+    ctx.font = font.label(9); ctx.fillStyle = colors.muted;
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText(parts, CX, LY + badgeH + r(5));
+    LY += r(14);
+  }
+  bounds.push({ id: "category", label: "Category & Index", x: CX, y: LY, w: LC, h: badgeH });
+  LY += badgeH + r(16);
+
+  // Rule
+  ctx.strokeStyle = colors.accent; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(CX, LY + 0.5); ctx.lineTo(CX + LC, LY + 0.5); ctx.stroke();
+  LY += r(22);
+
+  // Title
+  const titleY = LY;
+  ctx.font = font.serif(38, true); ctx.fillStyle = colors.text;
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  const tLines = wrap(ctx, data.title || "Untitled", LC);
+  const tLH = r(46 * config.fontScale);
+  tLines.forEach((l, i) => ctx.fillText(l, CX, LY + i * tLH));
+  const titleH = Math.max(tLines.length * tLH, r(20));
+  bounds.push({ id: "title", label: "Title", x: CX, y: titleY, w: LC, h: titleH });
+  LY += titleH + r(8);
+
+  // Subtitle
+  if (data.subtitle) {
+    const subY = LY;
+    ctx.font = `italic ${r(13 * config.fontScale)}px Georgia, 'Times New Roman', serif`;
+    ctx.fillStyle = colors.muted; ctx.textBaseline = "top";
+    ctx.fillText(data.subtitle, CX, LY);
+    bounds.push({ id: "subtitle", label: "Subtitle", x: CX, y: subY, w: LC, h: r(22) });
+    LY += r(24);
+  }
+
+  // Tags
+  if (data.tags?.length) {
+    LY += r(4);
+    const tagsY = LY;
+    ctx.font = font.label(8);
+    const tH = r(20), tPX = r(9), tGap = r(5), tR = r(10);
+    let tX = CX; ctx.textBaseline = "middle";
+    for (const tag of data.tags) {
+      const tw = ctx.measureText(tag).width + tPX * 2;
+      if (tX + tw > CX + LC) break;
+      rrect(ctx, tX, LY, tw, tH, tR);
+      ctx.fillStyle = colors.accent + "20"; ctx.fill();
+      ctx.strokeStyle = colors.accent + "88"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = colors.accent; ctx.textAlign = "left";
+      ctx.fillText(tag, tX + tPX, LY + tH / 2);
+      tX += tw + tGap;
+    }
+    ctx.textBaseline = "top";
+    bounds.push({ id: "tags", label: "Tags", x: CX, y: tagsY, w: LC, h: tH });
+    LY += tH + r(14);
+  }
+
+  // Description card
+  if (data.description) {
+    const descY = LY;
+    ctx.font = font.body(11.5);
+    const dLines = wrap(ctx, data.description, LC - r(22));
+    const dLH = r(18);
+    const cardPX = r(16), cardPY = r(14);
+    const cardH = dLines.length * dLH + cardPY * 2;
+    rrect(ctx, CX, LY, LC, cardH, r(6));
+    ctx.fillStyle = colors.card; ctx.fill();
+    ctx.strokeStyle = colors.accent + "55"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.save();
+    rrect(ctx, CX, LY, LC, cardH, r(6)); ctx.clip();
+    ctx.fillStyle = colors.accent;
+    ctx.fillRect(CX, LY, LC, r(3));
+    ctx.restore();
+    ctx.fillStyle = colors.text; ctx.textBaseline = "top"; ctx.textAlign = "left";
+    dLines.forEach((l, i) => ctx.fillText(l, CX + cardPX, LY + cardPY + i * dLH));
+    bounds.push({ id: "description", label: "Description", x: CX, y: descY, w: LC, h: cardH });
+    LY += cardH + r(14);
+  }
+
+  // Formula (left col, dashed border)
+  if (data.formula) {
+    const formulaY = LY;
+    const fPX = r(14), fPY = r(12);
+    const fH = fPY + r(12) + r(6) + r(20) + fPY;
+    rrect(ctx, CX, LY, LC, fH, r(6));
+    ctx.fillStyle = colors.subtle; ctx.fill();
+    ctx.setLineDash([r(4), r(3)]);
+    ctx.strokeStyle = colors.accent + "AA"; ctx.lineWidth = 1.5;
+    rrect(ctx, CX, LY, LC, fH, r(6)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = font.label(8); ctx.fillStyle = colors.accent;
+    ctx.textBaseline = "top"; ctx.textAlign = "left";
+    ctx.fillText("FORMULA", CX + fPX, LY + fPY);
+    ctx.font = font.serif(13); ctx.fillStyle = colors.text;
+    ctx.textBaseline = "top";
+    ctx.fillText(data.formula, CX + fPX, LY + fPY + r(12) + r(6));
+    bounds.push({ id: "formula", label: "Formula Box", x: CX, y: formulaY, w: LC, h: fH });
+  }
+
+  // ── Dashed vertical separator
+  ctx.strokeStyle = colors.accent + "40"; ctx.lineWidth = 1;
+  ctx.setLineDash([r(4), r(4)]);
+  const sepX = CX + LC + COL_GAP / 2;
+  ctx.beginPath();
+  ctx.moveTo(sepX + 0.5, PAD + GUT);
+  ctx.lineTo(sepX + 0.5, H - PAD - GUT);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // ── Right column: Sections
+  if (data.sections?.length) {
+    const secY = RY;
+    let secHSum = 0;
+    for (const sec of data.sections) {
+      const curY = RY + secHSum;
+      ctx.fillStyle = colors.accent;
+      ctx.beginPath(); ctx.arc(RCX + r(4), curY + r(5.5), r(3), 0, Math.PI * 2); ctx.fill();
+      ctx.font = font.label(9); ctx.fillStyle = colors.accent;
+      ctx.textBaseline = "top"; ctx.textAlign = "left";
+      ctx.fillText(sec.label.toUpperCase(), RCX + r(14), curY + r(0.5));
+      ctx.font = font.body(11.5); ctx.fillStyle = colors.text + "E8";
+      const sLines = wrap(ctx, sec.content, RC - r(10));
+      const sLH = r(18);
+      sLines.forEach((l, i) => ctx.fillText(l, RCX + r(10), curY + r(17) + i * sLH));
+      secHSum += r(17) + sLines.length * sLH + r(14);
+    }
+    bounds.push({ id: "sections", label: "Sections", x: RCX, y: secY, w: RC, h: secHSum });
+    RY += secHSum + r(8);
+  }
+
+  // Right: Metrics (orange dot accent)
+  if (data.metrics?.length) {
+    const metricsY = RY;
+    const mets = data.metrics.slice(0, 4);
+    const cols = Math.min(mets.length, 2);
+    const mGap = r(8), mH = r(62), mR = r(6);
+    const mW = (RC - mGap * (cols - 1)) / cols;
+    mets.forEach((m, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const mx = RCX + col * (mW + mGap), my = RY + row * (mH + mGap);
+      rrect(ctx, mx, my, mW, mH, mR);
+      ctx.fillStyle = colors.card; ctx.fill();
+      ctx.strokeStyle = colors.accent + "55"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = colors.accent;
+      ctx.beginPath(); ctx.arc(mx + r(12), my + r(12), r(2.5), 0, Math.PI * 2); ctx.fill();
+      ctx.font = font.label(8); ctx.fillStyle = colors.muted;
+      ctx.textBaseline = "top"; ctx.textAlign = "left";
+      ctx.fillText(m.label.toUpperCase(), mx + r(22), my + r(8));
+      ctx.font = font.serif(18, true); ctx.fillStyle = colors.text;
+      ctx.textBaseline = "bottom";
+      ctx.fillText(m.value, mx + r(11), my + mH - r(11));
+    });
+    const metricsH = Math.ceil(mets.length / cols) * (mH + mGap);
+    bounds.push({ id: "metrics", label: "Metrics Grid", x: RCX, y: metricsY, w: RC, h: metricsH });
+  }
+
+  // Footer (full width)
+  const FY = H - PAD - GUT;
+  ctx.strokeStyle = colors.accent + "40"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(CX, FY - r(16) + 0.5); ctx.lineTo(CXR, FY - r(16) + 0.5); ctx.stroke();
+  ctx.font = font.label(9); ctx.fillStyle = colors.muted;
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(data.footer || "STRATIX", CX, FY - r(7));
+  ctx.textAlign = "right"; ctx.fillStyle = colors.accent + "CC";
+  ctx.fillText("stratix.app", CXR, FY - r(7));
+  bounds.push({ id: "footer", label: "Footer Website", x: CX, y: FY - r(16), w: CW, h: r(28) });
+
+  return bounds;
+}
+
+// ─── Sample JSON modal ────────────────────────────────────────────────────────
+
+function SampleJsonModal({
+  mode,
+  onClose,
+  onApply,
+}: {
+  mode: "analysis" | "news" | "indicator";
+  onClose: () => void;
+  onApply: (json: string) => void;
+}) {
+  const sampleData = {
+    analysis: SAMPLE_ANALYSIS,
+    news: SAMPLE_NEWS,
+    indicator: SAMPLE,
+  };
+  const json = JSON.stringify(sampleData[mode], null, 2);
+  const [copied, setCopied] = useState(false);
+
+  function copy() {
+    navigator.clipboard.writeText(json);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="relative z-10 w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl border overflow-hidden"
+        style={{ background: "#0f0f0f", borderColor: "rgba(255, 255, 255, 0.08)" }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-3.5 border-b shrink-0"
+          style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
+        >
+          <div className="flex items-center gap-2.5">
+            <Code2 className="h-4 w-4 text-white/60" />
+            <span className="text-[13px] font-bold text-white tracking-wide uppercase">
+              Sample JSON Schema ({mode === "analysis" ? "Analysis" : mode === "news" ? "News Batch" : "Indicator"})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={copy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-white/[0.08] bg-white/5 hover:bg-white/10 cursor-pointer"
+            >
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center h-7 w-7 rounded-lg hover:bg-white/5 transition-all text-white/40 hover:text-white/80 cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* JSON content */}
+        <div className="overflow-y-auto flex-1 p-5">
+          <pre
+            className="text-[11.5px] leading-relaxed whitespace-pre text-[#ffffff]"
+            style={{ fontFamily: "ui-monospace, monospace" }}
+          >
+            <code>{json}</code>
+          </pre>
+        </div>
+
+        {/* Footer */}
+        <div
+          className="flex items-center justify-between px-5 py-3.5 bg-white/[0.02] border-t shrink-0"
+          style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
+        >
+          <span className="text-[11px] text-white/40">
+            Paste this into the JSON tab and modify the fields
+          </span>
+          <button
+            onClick={() => { onApply(json); onClose(); }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-white text-black hover:bg-white/90 active:scale-95 transition-all cursor-pointer"
+          >
+            Use Sample <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── News Generator Prompt Constants & Helpers ─────────────────────────────────
+import {
+  NEWS_SYSTEM_PROMPT,
+  NEWS_SYSTEM_PROMPT_V5,
+  EXAMPLE_REFERENCE_JSON,
+} from "./creatorPrompts";
+
+const SESSION_LABELS: Record<string, string> = {
+  asian: "Asian",
+  london: "London",
+  new_york: "New York",
+};
+const SESSION_ORDER = ["asian", "london", "new_york"] as const;
+
+const SYMBOL_META: Record<string, { label: string; assetClass: string; flag: string }> = {
+  XAUUSD:  { label: "XAU/USD",  assetClass: "Metals", flag: "🥇" },
+  XAGUSD:  { label: "XAG/USD",  assetClass: "Metals", flag: "🥈" },
+  BTCUSDT: { label: "BTC/USDT", assetClass: "Crypto", flag: "₿"  },
+  ETHUSD:  { label: "ETH/USD",  assetClass: "Crypto", flag: "Ξ"  },
+  GBPUSD:  { label: "GBP/USD",  assetClass: "Forex",  flag: "🇬🇧" },
+  EURUSD:  { label: "EUR/USD",  assetClass: "Forex",  flag: "🇪🇺" },
+  USDJPY:  { label: "USD/JPY",  assetClass: "Forex",  flag: "🇯🇵" },
+  AUDUSD:  { label: "AUD/USD",  assetClass: "Forex",  flag: "🇦🇺" },
+  NZDUSD:  { label: "NZD/USD",  assetClass: "Forex",  flag: "🇳🇿" },
+  USDCAD:  { label: "USD/CAD",  assetClass: "Forex",  flag: "🇨🇦" },
+  USDCHF:  { label: "USD/CHF",  assetClass: "Forex",  flag: "🇨🇭" },
+};
+const SYMBOL_DISPLAY_ORDER = [
+  "XAUUSD", "XAGUSD", "BTCUSDT", "ETHUSD",
+  "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF",
+];
+
+const TIME_RANGE_OPTIONS = [
+  { value: "3h",  label: "3h",     display: "Last 3 Hours",  hours: 3   },
+  { value: "6h",  label: "6h",     display: "Last 6 Hours",  hours: 6   },
+  { value: "12h", label: "12h",    display: "Last 12 Hours", hours: 12  },
+  { value: "18h", label: "18h",    display: "Last 18 Hours", hours: 18  },
+  { value: "24h", label: "24h",    display: "Last 24 Hours", hours: 24  },
+  { value: "2d",  label: "2 Days", display: "Last 2 Days",   hours: 48  },
+  { value: "3d",  label: "3 Days", display: "Last 3 Days",   hours: 72  },
+  { value: "7d",  label: "1 Week", display: "Last 7 Days",   hours: 168 },
+] as const;
+type TimeRange = typeof TIME_RANGE_OPTIONS[number]["value"];
+
+function formatToISTString(d: Date): string {
+  const istDate = new Date(d.getTime() + (330 * 60 * 1000));
+  const y = istDate.getUTCFullYear();
+  const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(istDate.getUTCDate()).padStart(2, "0");
+  const h = String(istDate.getUTCHours()).padStart(2, "0");
+  const min = String(istDate.getUTCMinutes()).padStart(2, "0");
+  const s = String(istDate.getUTCSeconds()).padStart(2, "0");
+  return `${y}-${m}-${day} ${h}:${min}:${s} IST`;
+}
+
+function formatCandlesForNewsPrompt(data: any, selectedSymbols: string[]): string {
+  if (!data) return "(candle data available nahi hai — general market knowledge use karo)";
+
+  const syms = selectedSymbols.map(s => s.toLowerCase());
+  const lines: string[] = ["=== REAL OHLCV CANDLE DATA (IST timestamps) ==="];
+
+  for (const sym of syms) {
+    const d = data[sym];
+    if (!d) continue;
+    lines.push(`\n${sym.toUpperCase()}:`);
+    if (d.h4?.length) {
+      lines.push("  H4 (last 7 din):");
+      for (const c of d.h4) {
+        const istDate = new Date((c.t * 1000) + (330 * 60 * 1000));
+        const y = istDate.getUTCFullYear();
+        const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(istDate.getUTCDate()).padStart(2, "0");
+        const h = String(istDate.getUTCHours()).padStart(2, "0");
+        const dt = `${y}-${m}-${day} ${h}:00 IST`;
+        lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
+      }
+    }
+    if (d.h1?.length) {
+      lines.push("  H1 (last 48 ghante):");
+      for (const c of d.h1) {
+        const istDate = new Date((c.t * 1000) + (330 * 60 * 1000));
+        const y = istDate.getUTCFullYear();
+        const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(istDate.getUTCDate()).padStart(2, "0");
+        const h = String(istDate.getUTCHours()).padStart(2, "0");
+        const min = String(istDate.getUTCMinutes()).padStart(2, "0");
+        const dt = `${y}-${m}-${day} ${h}:${min} IST`;
+        lines.push(`    ${dt}  O:${c.o}  H:${c.h}  L:${c.l}  C:${c.c}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+// ─── NewsItem[] format user message builders ──────────────────────────────────
+// These produce the JSON format directly accepted by the content-creator
+// news poster renderer: a flat NewsItem[] array.
+//
+// NewsItem fields:
+//   title, description, imageUrl, source, date,
+//   impact ("High"|"Medium"|"Low"), sentiment ("Bullish"|"Bearish"|"Neutral"),
+//   affectedAssets, keyTakeaway
+
+const NEWS_POSTER_SCHEMA_EXAMPLE = JSON.stringify([
+  {
+    title: "US Inflation Cools Down to 2.8% in May",
+    description: "**CPI** data cooled to **2.8%** vs *expected 3.0%*. Retail inflation is slowing faster than forecast, fuelling speculation of an early rate cut by the **Federal Reserve**.\n\n**Transmission:** *Softer inflation* → Treasury yields drop **-12bps** → **DXY** weakens → **XAUUSD** bid strengthens → safe-haven flows into Gold accelerate.\n\n**Cross-asset:** **US Equities** initially rallied *+0.8%* before reality check on growth outlook. *Risk-on sentiment* is fragile.",
+    imageUrl: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
+    source: "Bloomberg",
+    date: "June 27, 2026",
+    impact: "High",
+    sentiment: "Bearish",
+    affectedAssets: "USD, XAUUSD, US Equities",
+    keyTakeaway: "Treasury yields dropped immediately, weakening the DXY and providing a massive safety bid to Gold prices. Watch **$3,320** support — break below triggers acceleration.",
+  },
+  {
+    title: "OPEC+ Surprises With Emergency 500k bpd Cut",
+    description: "**OPEC+** announced an emergency supply cut of **500,000 bpd** effective immediately, catching markets off guard. *Analysts had expected no change* at this meeting.\n\n**Chain:** Supply cut → *WTI crude surges* **+$6.40/bbl** → Inflation expectations up → **USD** strengthens → **Commodity currencies** (CAD, NOK) outperform → Gold *caught between safe-haven demand and strong USD*.",
+    imageUrl: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800",
+    source: "Reuters",
+    date: "June 27, 2026",
+    impact: "High",
+    sentiment: "Bullish",
+    affectedAssets: "USDCAD, Oil, XAUUSD, XAGUSD",
+    keyTakeaway: "Energy sector strongly bid. USDCAD likely to reverse lower. Gold faces dual pressure — safe-haven bid vs stronger USD. Monitor **$85/bbl** resistance on WTI.",
+  },
+], null, 2);
+
+function buildNewsUserMessageV5(date: string, session: string, candles: any, timeRange: TimeRange = "24h", selectedSymbols: string[]): string {
+  const ts = new Date().toISOString();
+  const candleBlock = formatCandlesForNewsPrompt(candles, selectedSymbols);
+
+  const opt = TIME_RANGE_OPTIONS.find(o => o.value === timeRange) ?? TIME_RANGE_OPTIONS[4];
+  const hours = opt.hours;
+
+  const now = new Date();
+  const tsIST = formatToISTString(now);
+  const fromDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  const fromTsIST = formatToISTString(fromDate);
+
+  const timeHinglish =
+    timeRange === "3h"  ? "pichle 3 ghante" :
+    timeRange === "6h"  ? "pichle 6 ghante" :
+    timeRange === "12h" ? "pichle 12 ghante" :
+    timeRange === "18h" ? "pichle 18 ghante" :
+    timeRange === "24h" ? "pichle 24 ghante" :
+    timeRange === "2d"  ? "pichle 2 din" :
+    timeRange === "3d"  ? "pichle 3 din" :
+                          "pichle ek hafte";
+
+  const symbolList = selectedSymbols.join(", ");
+
+  return `================================================================
+CRITICAL INSTRUCTION — OUTPUT FORMAT
+================================================================
+Tera POORA response SIRF ek \`\`\`json ... \`\`\` code block hona chahiye.
+Koi bhi text — upar, neeche, ya beech mein — STRICTLY FORBIDDEN.
+Pehli line \`\`\`json, aakhri line \`\`\`, aur beech mein ONLY valid JSON ARRAY.
+================================================================
+
+Aaj ka IST date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
+Current IST time: ${tsIST}
+Generated: ${ts}
+
+⏰ NEWS TIME WINDOW: ${fromTsIST} SE LEKAR ${tsIST} TAK (${opt.display})
+STRICT RULE: Sirf is time window ke andar ki news cover karo. Older news strictly banned.
+
+${candleBlock}
+
+Upar diye gaye REAL H4 aur H1 candle data ko price context ke liye use karo.
+
+═══════════════════════════════════════════════════════
+TERA KAAM — TWITTER/X FEED STYLE NEWS POSTER BATCH
+(${timeHinglish} ki news — ${fromTsIST} ke baad ki)
+Selected symbols: ${symbolList}
+═══════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PRIMARY SOURCES — IN 3 TWITTER/X HANDLES KA FOCUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  @FirstSquawk      — breaking financial & market news alerts
+  @investingLive_   — live investing, markets & macro news feed
+  @ForexFactory     — forex calendar events, economic data releases
+
+Agar real-time search tools available hain — in handles ki recent posts search karo.
+Agar nahi — apni training knowledge se woh REAL events cover karo jo yeh handles report karte hain.
+
+⚠️ NO-FABRICATION RULE — ABSOLUTE:
+  ✗ Koi fake tweet mat banana
+  ✗ Koi event INVENT mat karna jo factually known nahi
+  ✓ Sirf REAL events jo tujhe actually pata hain
+  ✓ Agar specific event is window mein nahi hua — correlation analysis likh
+  ✓ Uncertain info ke liye: "⚠️ Market-Sensitive Rumor:" prefix use karo
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================
+OUTPUT: NEWSITEM[] ARRAY — POSTER GENERATOR FORMAT
+================================================================
+Ek valid JSON ARRAY return karo jisme har element ek NewsItem object ho.
+Minimum 4-8 items. Har item ek alag high-impact event ya symbol ya macro story cover kare.
+Selected symbols (${symbolList}) ke liye individual items banana — har symbol ka ek dedicated poster.
+
+HAR NEWSITEM MEIN YEH EXACT FIELDS MANDATORY HAIN:
+
+• "title"          : Short, impactful headline in Hinglish (max 10 words)
+• "description"    : 120-180 word Hinglish analysis — **Trigger → Mechanism → Market Impact → Ripple Effect** chain.
+                     Har important number aur event ko **bold** karo.
+                     Expected vs actual ko *italic* mein likhna.
+                     Critical alerts ke liye ***bold italic*** use karo.
+                     Paragraphs ke beech \\n\\n use karo.
+• "imageUrl"       : Ek highly relevant, REAL, working Unsplash image URL (https://images.unsplash.com/photo-...).
+                     Image is specific event/asset se visually match karni chahiye.
+                     MANDATORY — koi placeholder nahi, koi empty string nahi.
+• "source"         : "Bloomberg" | "Reuters" | "CNBC" | "@FirstSquawk" | "@investingLive_" | "@ForexFactory" | etc.
+• "date"           : "${new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}" (human-readable)
+• "impact"         : EXACTLY one of: "High" | "Medium" | "Low" (case-sensitive, no other values)
+• "sentiment"      : EXACTLY one of: "Bullish" | "Bearish" | "Neutral" (case-sensitive, no other values)
+• "affectedAssets" : Comma-separated relevant symbols from: ${symbolList}, USD, EUR, GBP, JPY, AUD, NZD, CAD, CHF, Oil, Gold, BTC, ETH, US Equities, Bonds
+• "keyTakeaway"    : 40-60 word concise summary — immediate trader bias, key technical levels to watch. No SL/TP/entry.
+
+OUTPUT SCHEMA EXAMPLE (follow this EXACT structure):
+${NEWS_POSTER_SCHEMA_EXAMPLE}
+
+ADDITIONAL RULES:
+• Markdown **bold**, *italic*, ***bold italic*** sirf "description" aur "keyTakeaway" fields mein use karo.
+• JSON strings mein actual newline characters NAHI — sirf \\n (escaped) use karo.
+• Koi "...", koi placeholder, koi empty string — ZERO tolerance.
+• Har field mein real, specific, factual Hinglish content.
+• "imageUrl" ka URL must be a real Unsplash photo that renders (starts with https://images.unsplash.com/photo-).
+
+================================================================
+ABSOLUTE FINAL RULE — NO EXCEPTIONS
+================================================================
+RESPONSE = \`\`\`json\n[ ... array of NewsItem objects ... ]\n\`\`\`
+NOTHING BEFORE THE FIRST BACKTICK.
+NOTHING AFTER THE LAST BACKTICK.
+NO INTRO. NO EXPLANATION. NO "Here is the JSON". NO "I hope this helps".
+JUST. THE. JSON. ARRAY. CODE. BLOCK.
+================================================================`;
+}
+
+function buildNewsUserMessage(date: string, session: string, candles: any, timeRange: TimeRange = "24h", selectedSymbols: string[]): string {
+  // V1 (full internet) uses the same NewsItem[] poster format — same function, different system prompt
+  return buildNewsUserMessageV5(date, session, candles, timeRange, selectedSymbols);
+}
+
+function CopyButton({ text, label = "Copy", disabled = false }: { text: string; label?: string; disabled?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      disabled={disabled}
+      onClick={() => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      className={cn(
+        "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer border",
+        disabled
+          ? "opacity-40 cursor-not-allowed bg-transparent border-white/[0.04] text-white/20"
+          : "bg-white/[0.05] border-white/[0.10] text-white/60 hover:text-white hover:bg-white/[0.10] active:scale-95"
+      )}
+    >
+      {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+// ─── Prompt version config ────────────────────────────────────────────────────
+const PROMPT_VERSIONS = [
+  { id: "v1", label: "V1 — Full Internet Search" },
+  { id: "v5", label: "V5 — Twitter Feeds Only" },
+] as const;
+type PromptVersion = typeof PROMPT_VERSIONS[number]["id"];
+
+function PromptModal({
+  defaultDate,
+  defaultSession,
+  onClose,
+}: {
+  defaultDate: string;
+  defaultSession: string;
+  onClose: () => void;
+}) {
+  const [candles,   setCandles]   = useState<any>(null);
+  const [fetching,  setFetching]  = useState(true);
+  const [fetchErr,  setFetchErr]  = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange>("24h");
+  const [promptVersion, setPromptVersion] = useState<PromptVersion>("v5");
+
+  const [modalDate, setModalDate]       = useState(defaultDate);
+  const [modalSession, setModalSession] = useState(defaultSession);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(SYMBOL_DISPLAY_ORDER);
+
+  useEffect(() => {
+    fetch("/api/candle-summary")
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d => { setCandles(d); setFetching(false); })
+      .catch(e => { setFetchErr(e.message); setFetching(false); });
+  }, []);
+
+  const originalText = "• ALWAYS populate all 11 keys in symbol_wise_news (XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF) — none of these 11 symbols can be omitted under any circumstances.";
+  const replacementText = selectedSymbols.length > 0
+    ? `• ALWAYS populate all selected keys in symbol_wise_news (${selectedSymbols.join(", ")}) — none of these selected symbols can be omitted under any circumstances.`
+    : "• ALWAYS populate all selected keys in symbol_wise_news — none of these selected symbols can be omitted under any circumstances.";
+
+  const isV5 = promptVersion === "v5";
+
+  const dynamicSystemPrompt = isV5
+    ? NEWS_SYSTEM_PROMPT_V5.replace(originalText, replacementText)
+    : NEWS_SYSTEM_PROMPT.replace(originalText, replacementText);
+
+  const userMsg = selectedSymbols.length > 0
+    ? (isV5
+        ? buildNewsUserMessageV5(modalDate, modalSession, candles, timeRange, selectedSymbols)
+        : buildNewsUserMessage(modalDate, modalSession, candles, timeRange, selectedSymbols))
+    : "(Please select at least one currency pair / symbol)";
+
+  const copyAllText = `=== SYSTEM PROMPT ===\n${dynamicSystemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${userMsg}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-[#111] border border-white/[0.10] shadow-2xl overflow-hidden text-white font-sans">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/[0.07] shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Bot className="h-4 w-4 text-white/50 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-white/80 font-sans">Stratix News Prompt Generator</p>
+              <p className="text-[11px] text-white/35 font-sans">
+                {fetching ? "Live candle data load ho rahi hai…" : fetchErr ? "Candle fetch failed — general knowledge" : `H1+H4 data embed hua · ${SESSION_LABELS[modalSession] || modalSession} · ${modalDate}`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest hidden sm:block">Prompt</span>
+              <select
+                value={promptVersion}
+                onChange={(e) => setPromptVersion(e.target.value as PromptVersion)}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-white/[0.05] border border-white/[0.10] text-white/70 focus:outline-none focus:border-white/[0.25] cursor-pointer appearance-none pr-6 relative"
+                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23ffffff44' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center" }}
+              >
+                {PROMPT_VERSIONS.map(v => (
+                  <option key={v.id} value={v.id} className="bg-[#1a1a1a] text-white">
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition cursor-pointer"><X className="h-4 w-4" /></button>
+          </div>
+        </div>
+
+        {/* Date, Session and News Window */}
+        <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] shrink-0 space-y-3">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">Session</span>
+              <div className="flex items-center gap-1 p-0.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                {SESSION_ORDER.map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setModalSession(s)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer",
+                      modalSession === s
+                        ? "bg-white/[0.10] text-white border border-white/[0.12]"
+                        : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
+                    )}
+                  >
+                    {SESSION_LABELS[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">Date</span>
+              <input
+                type="date"
+                value={modalDate}
+                onChange={(e) => setModalDate(e.target.value)}
+                className="px-2 py-1 rounded-lg text-[11px] font-medium bg-white/[0.03] border border-white/[0.08] text-white/70 focus:outline-none focus:border-white/[0.20]"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest shrink-0">News Window</span>
+              <div className="flex items-center gap-1">
+                {TIME_RANGE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setTimeRange(opt.value as TimeRange)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border cursor-pointer",
+                      timeRange === opt.value
+                        ? "bg-white/[0.12] text-white border-white/[0.18]"
+                        : "bg-white/[0.03] text-white/35 border-white/[0.06] hover:text-white/60 hover:bg-white/[0.07]",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Currency Pairs / Symbols Selectors */}
+        <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] shrink-0 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Currency Pairs / Symbols</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedSymbols(SYMBOL_DISPLAY_ORDER)}
+                className="text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 transition cursor-pointer"
+              >
+                Select All
+              </button>
+              <span className="text-white/10">|</span>
+              <button
+                onClick={() => setSelectedSymbols([])}
+                className="text-[10px] font-semibold text-red-400/80 hover:text-red-300 transition cursor-pointer"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {SYMBOL_DISPLAY_ORDER.map(sym => {
+              const isSelected = selectedSymbols.includes(sym);
+              const meta = SYMBOL_META[sym];
+              return (
+                <button
+                  key={sym}
+                  onClick={() => {
+                    if (isSelected) {
+                      setSelectedSymbols(prev => prev.filter(s => s !== sym));
+                    } else {
+                      setSelectedSymbols(prev => [...prev, sym]);
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium transition-all border cursor-pointer",
+                    isSelected
+                      ? "bg-white/[0.08] text-white border-white/[0.15]"
+                      : "bg-white/[0.02] text-white/30 border-white/[0.05] hover:text-white/50 hover:bg-white/[0.04]"
+                  )}
+                >
+                  <span>{meta?.flag}</span>
+                  <span>{meta?.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {fetching ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
+            <p className="text-[12px] text-white/30">Symbols ka candle data load ho raha hai…</p>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {isV5 && (
+              <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/[0.18]">
+                <span className="text-emerald-400 text-[13px] shrink-0 mt-0.5">𝕏</span>
+                <div>
+                  <p className="text-[11px] font-semibold text-emerald-400/80 mb-0.5">V5 — Twitter/X Feeds Only</p>
+                  <p className="text-[11px] text-white/35 leading-relaxed">
+                    AI sirf <span className="text-white/55 font-mono">@FirstSquawk</span>, <span className="text-white/55 font-mono">@investingLive_</span>, aur <span className="text-white/55 font-mono">@ForexFactory</span> se news fetch karega. Koi aur source nahi. Zero noise.
+                  </p>
+                </div>
+              </div>
+            )}
+            {fetchErr && (
+              <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/[0.07] border border-amber-500/20 text-[12px] text-amber-400/80">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                Candle data nahi mili ({fetchErr}). AI general market knowledge use karega.
+              </div>
+            )}
+
+            {candles && !fetchErr && (
+              <div className="grid grid-cols-3 gap-2">
+                {(["H4 (7d)", "H1 (48h)", "Symbols Selected"] as const).map((label, i) => {
+                  const val = i === 0
+                    ? Object.entries(candles)
+                        .filter(([sym]) => selectedSymbols.includes(sym.toUpperCase()))
+                        .reduce((s: number, [, d]: [string, any]) => s + (d.h4?.length ?? 0), 0)
+                    : i === 1
+                    ? Object.entries(candles)
+                        .filter(([sym]) => selectedSymbols.includes(sym.toUpperCase()))
+                        .reduce((s: number, [, d]: [string, any]) => s + (d.h1?.length ?? 0), 0)
+                    : selectedSymbols.length;
+                  return (
+                    <div key={label} className="rounded-xl bg-white/[0.03] border border-white/[0.07] px-3 py-2.5 text-center">
+                      <p className="text-[18px] font-bold text-white/70">{val}</p>
+                      <p className="text-[10px] text-white/25 uppercase tracking-widest">{label}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">1</span>
+                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">System Prompt</span>
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide",
+                    isV5
+                      ? "bg-emerald-500/[0.12] text-emerald-400/80 border border-emerald-500/[0.20]"
+                      : "bg-white/[0.06] text-white/30 border border-white/[0.08]"
+                  )}>
+                    {isV5 ? "V5 · Twitter Only" : "V1 · Full Internet"}
+                  </span>
+                </div>
+                <CopyButton text={dynamicSystemPrompt} disabled={selectedSymbols.length === 0} />
+              </div>
+              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-48">{dynamicSystemPrompt}</pre>
+            </div>
+
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">2</span>
+                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">
+                    {isV5 ? "User Message + Candle Data (Twitter Feeds)" : "User Message + Real Candle Data"}
+                  </span>
+                  <span className="text-[10px] text-white/20">{SESSION_LABELS[modalSession] || modalSession} · {modalDate}</span>
+                </div>
+                <CopyButton text={userMsg} disabled={selectedSymbols.length === 0} />
+              </div>
+              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64">{userMsg}</pre>
+            </div>
+
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.02]">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">3</span>
+                  <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">Reference JSON Example</span>
+                </div>
+                <CopyButton text={NEWS_POSTER_SCHEMA_EXAMPLE} />
+              </div>
+              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64">{NEWS_POSTER_SCHEMA_EXAMPLE}</pre>
+            </div>
+
+            <div className="rounded-xl bg-emerald-500/[0.05] border border-emerald-500/[0.15] px-4 py-3">
+              <p className="text-[11px] font-semibold text-emerald-400/70 uppercase tracking-widest mb-1">Step 4 — Save &amp; Create Posters</p>
+              <p className="text-[12px] text-white/40 leading-relaxed">
+                AI ka generated JSON copy karo → content creator ke <span className="text-white/60 font-medium">JSON Tab</span> mein paste karo → Force Re-render. Sabhi events aur symbols ke poster automatically display honge.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="px-5 py-3 border-t border-white/[0.07] shrink-0 flex items-center justify-between gap-3">
+          <CopyButton text={copyAllText} label="Copy All Blocks" disabled={selectedSymbols.length === 0} />
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] border border-white/[0.08] transition cursor-pointer">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── News Report Mapper ───────────────────────────────────────────────────────
+function mapNewsReportToItems(parsed: any): NewsItem[] {
+  const items: NewsItem[] = [];
+
+  // 1. Overall Macro summary
+  if (parsed.all_news_section) {
+    items.push({
+      title: parsed.all_news_section.headline || "Macro Market Summary",
+      source: "MACRO NEWS",
+      description: parsed.all_news_section.summary || "",
+      imageUrl: parsed.all_news_section.high_impact_events?.[0]?.imageUrl || "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
+      impact: "High",
+      sentiment: "Neutral",
+      affectedAssets: "Global Markets",
+      keyTakeaway: "Overall macro trend and market sentiment."
+    });
+
+    // 2. High Impact Events
+    if (Array.isArray(parsed.all_news_section.high_impact_events)) {
+      for (const ev of parsed.all_news_section.high_impact_events) {
+        items.push({
+          title: ev.event_name || "High Impact Event",
+          source: "HIGH IMPACT",
+          description: ev.impact_explanation || "",
+          imageUrl: ev.imageUrl || "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
+          impact: "High",
+          sentiment: "Neutral",
+          affectedAssets: ev.market_impact ? ev.market_impact.map((m: any) => `${m.symbol} (${m.effect})`).join(", ") : "",
+          keyTakeaway: ev.impact_explanation ? ev.impact_explanation.slice(0, 150) : ""
+        });
+      }
+    }
+  }
+
+  // 3. Symbol wise news
+  if (parsed.symbol_wise_news && typeof parsed.symbol_wise_news === "object") {
+    for (const [symbol, info] of Object.entries<any>(parsed.symbol_wise_news)) {
+      items.push({
+        title: symbol,
+        source: "MARKET NEWS",
+        description: info.detailed_breakdown || "",
+        imageUrl: info.imageUrl || "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
+        impact: "High",
+        sentiment: (info.sniper_note?.news_bias === "Bullish" || info.sniper_note?.news_bias === "Bearish" || info.sniper_note?.news_bias === "Neutral") ? info.sniper_note.news_bias : "Neutral",
+        affectedAssets: symbol,
+        keyTakeaway: info.trader_alert || ""
+      });
+    }
+  }
+
+  return items;
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export function ContentCreatorPage() {
+  const [creatorMode, setCreatorMode] = useState<"analysis" | "news" | "indicator">("analysis");
+  const [ratioId, setRatioId] = useState("square");
+
+  // Keep track of JSON states independently so switching modes doesn't lose modifications
+  const [analysisData, setAnalysisData] = useState<AnalysisData>(SAMPLE_ANALYSIS);
+  const [newsData, setNewsData] = useState<NewsItem[]>(SAMPLE_NEWS);
+  const [parsedData, setParsedData] = useState<PosterData>(SAMPLE);
+  const [activeNewsIndex, setActiveNewsIndex] = useState(0);
+
+  const [candlesData, setCandlesData] = useState<any>(null);
+  const [promptSession, setPromptSession] = useState<string>("London");
+  const [promptDate, setPromptDate] = useState<string>(() => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  });
+  const [promptCopied, setPromptCopied] = useState<boolean>(false);
+  const [showPromptModal, setShowPromptModal] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/candle-summary")
+      .then(r => { if (!r.ok) throw new Error("API failed"); return r.json(); })
+      .then(d => setCandlesData(d))
+      .catch(e => console.error("Candle summary load error:", e));
+  }, []);
+
+  const [jsonText, setJsonText] = useState(JSON.stringify(SAMPLE_ANALYSIS, null, 2));
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [showSample, setShowSample] = useState(false);
+  const [rendered, setRendered] = useState(false);
+
+  // Dynamic customization state
+  const [activeTab, setActiveTab] = useState<string>("content");
+  const [colors, setColors] = useState<PosterColors>({
+    bg:     "#0C0C0B",
+    accent: "#C96B3D",
+    text:   "#F0EBE3",
+    muted:  "#6A6058",
+    card:   "#181614",
+    subtle: "#121110",
+  });
+  
+  const [config, setConfig] = useState<PosterConfig>({
+    showGrid: true,
+    gridSize: 28,
+    gridOpacity: 0.022,
+    showBorder: true,
+    borderWidth: 1.5,
+    showCrosses: true,
+    crossSize: 10,
+    fontScale: 1.0,
+  });
+
+  const [elementBounds, setElementBounds] = useState<PosterElement[]>([]);
+  const [highlightedField, setHighlightedField] = useState<string | null>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  const ar = RATIOS.find((r) => r.id === ratioId)!;
+
+  // Compute CSS scale so canvas fits preview area
+  useEffect(() => {
+    if (!previewRef.current) return;
+    const obs = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      const s = Math.min(width / ar.w, (height - 0) / ar.h, 1);
+      setScale(Number(s.toFixed(4)));
+    });
+    obs.observe(previewRef.current);
+    return () => obs.disconnect();
+  }, [ar.w, ar.h]);
+
+  // Sync creatorMode -> jsonText
+  useEffect(() => {
+    if (creatorMode === "analysis") {
+      setJsonText(JSON.stringify(analysisData, null, 2));
+    } else if (creatorMode === "news") {
+      setJsonText(JSON.stringify(newsData, null, 2));
+    } else {
+      setJsonText(JSON.stringify(parsedData, null, 2));
+    }
+    setJsonError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creatorMode]);
+
+  // Sync jsonText -> parsedData
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(jsonText);
+      setJsonError(null);
+      if (creatorMode === "analysis") {
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          setAnalysisData(parsed);
+        }
+      } else if (creatorMode === "news") {
+        if (Array.isArray(parsed)) {
+          setNewsData(parsed);
+          if (activeNewsIndex >= parsed.length) {
+            setActiveNewsIndex(Math.max(0, parsed.length - 1));
+          }
+        }
+      } else {
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          setParsedData(parsed);
+        }
+      }
+    } catch (e: any) {
+      setJsonError(e.message);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jsonText, creatorMode]);
+
+  // Handler to update a field in active state & jsonText
+  const handleUpdateField = (key: string, val: any) => {
+    if (creatorMode === "analysis") {
+      const updated = { ...analysisData, [key]: val } as AnalysisData;
+      setAnalysisData(updated);
+      setJsonText(JSON.stringify(updated, null, 2));
+    } else if (creatorMode === "news") {
+      const updatedList = [...newsData];
+      if (updatedList[activeNewsIndex]) {
+        updatedList[activeNewsIndex] = { ...updatedList[activeNewsIndex], [key]: val };
+        setNewsData(updatedList);
+        setJsonText(JSON.stringify(updatedList, null, 2));
+      }
+    } else {
+      const updated = { ...parsedData, [key]: val } as PosterData;
+      setParsedData(updated);
+      setJsonText(JSON.stringify(updated, null, 2));
+    }
+  };
+
+  // Handler to click elements on canvas
+  const handleElementClick = (fieldId: string) => {
+    setActiveTab("content");
+    setHighlightedField(fieldId);
+    
+    setTimeout(() => {
+      const el = document.getElementById(`input-${fieldId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.focus();
+      }
+    }, 100);
+  };
+
+  // Clear highlighted field styling after 2 seconds
+  useEffect(() => {
+    if (highlightedField) {
+      const timer = setTimeout(() => {
+        setHighlightedField(null);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedField]);
+
+  // Metrics handlers
+  const handleUpdateMetric = (index: number, field: "label" | "value", val: string) => {
+    const nextMetrics = [...(parsedData.metrics || [])];
+    if (nextMetrics[index]) {
+      nextMetrics[index] = { ...nextMetrics[index], [field]: val };
+      const updated = { ...parsedData, metrics: nextMetrics };
+      setParsedData(updated);
+      if (creatorMode === "indicator") {
+        setJsonText(JSON.stringify(updated, null, 2));
+      }
+    }
+  };
+
+  const handleDeleteMetric = (index: number) => {
+    const nextMetrics = (parsedData.metrics || []).filter((_, i) => i !== index);
+    const updated = { ...parsedData, metrics: nextMetrics };
+    setParsedData(updated);
+    if (creatorMode === "indicator") {
+      setJsonText(JSON.stringify(updated, null, 2));
+    }
+  };
+
+  const handleAddMetric = () => {
+    const nextMetrics = [...(parsedData.metrics || []), { label: "NEW METRIC", value: "Value" }];
+    const updated = { ...parsedData, metrics: nextMetrics };
+    setParsedData(updated);
+    if (creatorMode === "indicator") {
+      setJsonText(JSON.stringify(updated, null, 2));
+    }
+  };
+
+  // Sections handlers
+  const handleUpdateSection = (index: number, field: "label" | "content", val: string) => {
+    const nextSections = [...(parsedData.sections || [])];
+    if (nextSections[index]) {
+      nextSections[index] = { ...nextSections[index], [field]: val };
+      const updated = { ...parsedData, sections: nextSections };
+      setParsedData(updated);
+      if (creatorMode === "indicator") {
+        setJsonText(JSON.stringify(updated, null, 2));
+      }
+    }
+  };
+
+  const handleDeleteSection = (index: number) => {
+    const nextSections = (parsedData.sections || []).filter((_, i) => i !== index);
+    const updated = { ...parsedData, sections: nextSections };
+    setParsedData(updated);
+    if (creatorMode === "indicator") {
+      setJsonText(JSON.stringify(updated, null, 2));
+    }
+  };
+
+  const handleAddSection = () => {
+    const nextSections = [...(parsedData.sections || []), { label: "NEW SECTION", content: "Section details..." }];
+    const updated = { ...parsedData, sections: nextSections };
+    setParsedData(updated);
+    if (creatorMode === "indicator") {
+      setJsonText(JSON.stringify(updated, null, 2));
+    }
+  };
+
+  // Tag handlers
+  const handleAddTag = (tagStr: string) => {
+    const trimmed = tagStr.trim();
+    if (!trimmed) return;
+    const nextTags = [...(parsedData.tags || []), trimmed];
+    const updated = { ...parsedData, tags: nextTags };
+    setParsedData(updated);
+    if (creatorMode === "indicator") {
+      setJsonText(JSON.stringify(updated, null, 2));
+    }
+  };
+
+  const handleDeleteTag = (index: number) => {
+    const nextTags = (parsedData.tags || []).filter((_, i) => i !== index);
+    const updated = { ...parsedData, tags: nextTags };
+    setParsedData(updated);
+    if (creatorMode === "indicator") {
+      setJsonText(JSON.stringify(updated, null, 2));
+    }
+  };
+
+  // Render poster to canvas
+  const render = useCallback(() => {
+    let activeData: any;
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (creatorMode === "news") {
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          activeData = parsed[activeNewsIndex] || parsed[0];
+        } else {
+          activeData = parsed;
+        }
+      } else {
+        activeData = parsed;
+      }
+      setJsonError(null);
+    } catch (e: any) {
+      setJsonError(e.message);
+      return;
+    }
+
+    if (!activeData) return;
+
+    if (activeData.imageUrl) {
+      const imgEl = new Image();
+      imgEl.crossOrigin = "anonymous";
+      imgEl.onload = () => {
+        if (canvasRef.current) {
+          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode);
+          setElementBounds(bounds);
+          setRendered(true);
+        }
+      };
+      imgEl.onerror = () => {
+        if (canvasRef.current) {
+          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode);
+          setElementBounds(bounds);
+          setRendered(true);
+        }
+      };
+      imgEl.src = activeData.imageUrl;
+    } else {
+      if (canvasRef.current) {
+        const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode);
+        setElementBounds(bounds);
+        setRendered(true);
+      }
+    }
+  }, [jsonText, ar, colors, config, creatorMode, activeNewsIndex]);
+
+  // Re-render when dependencies change
+  useEffect(() => {
+    render();
+  }, [render]);
+
+  function download() {
+    if (!canvasRef.current || !rendered) return;
+
+    let fileName = `stratix-poster-${ratioId}-${Date.now()}.png`;
+    if (creatorMode === "analysis") {
+      const symbol = (analysisData.instrument || "analysis").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      fileName = `stratix-analysis-${symbol}-${ratioId}-${Date.now()}.png`;
+    } else if (creatorMode === "news" && newsData[activeNewsIndex]) {
+      const titleSlug = (newsData[activeNewsIndex].title || "news").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 20);
+      fileName = `stratix-news-${activeNewsIndex + 1}-${titleSlug}-${ratioId}-${Date.now()}.png`;
+    }
+
+    const a = document.createElement("a");
+    a.href = canvasRef.current.toDataURL("image/png");
+    a.download = fileName;
+    a.click();
+  }
+
+  // Sequentially renders and downloads all news cards
+  const downloadAll = async () => {
+    if (creatorMode !== "news" || newsData.length === 0) return;
+    
+    for (let i = 0; i < newsData.length; i++) {
+      setActiveNewsIndex(i);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      
+      if (canvasRef.current) {
+        const a = document.createElement("a");
+        a.href = canvasRef.current.toDataURL("image/png");
+        const titleSlug = (newsData[i].title || "news")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .slice(0, 20);
+        a.download = `stratix-news-${i + 1}-${titleSlug}.png`;
+        a.click();
+      }
+    }
+  };
+
+  // Style helpers for text inputs
+  const inputStyle = {
+    background: "rgba(255, 255, 255, 0.03)",
+    border: "1px solid rgba(255, 255, 255, 0.08)",
+    color: "#ffffff",
+    outline: "none",
+    fontFamily: "var(--font-sans), sans-serif",
+  };
+
+  const getFieldClassName = (fieldId: string) => {
+    return `w-full rounded-xl px-3 py-2 text-[12px] outline-none transition-all duration-300 focus:border-white/20 focus:ring-1 focus:ring-white/10 ${
+      highlightedField === fieldId ? "ring-2 ring-white/30 scale-[1.02] border-white/40 bg-white/5 text-white font-bold" : ""
+    }`;
+  };
+
+  const TABS = [
+    { id: "content", label: "Content", icon: Edit3 },
+    { id: "colors", label: "Colors", icon: Palette },
+    { id: "layout", label: "Layout", icon: Sliders },
+    { id: "json", label: "JSON", icon: Code2 },
+    { id: "ai-prompt", label: "AI Prompt", icon: Bot },
+  ];
+
+  return (
+    <div className="flex h-full overflow-hidden text-white/80 font-sans selection:bg-white/10 selection:text-white">
+      {/* ── Left Panel ─────────────────────────────────────────────────────── */}
+      <div
+        className="flex flex-col w-[350px] shrink-0 border-r overflow-hidden glass-liquid"
+        style={{ borderColor: "rgba(255, 255, 255, 0.08)" }}
+      >
+        {/* Panel header */}
+        <div
+          className="flex items-center justify-between px-4 py-3 border-b shrink-0"
+          style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
+        >
+          <div className="flex items-center gap-2">
+            <Layers2 className="h-4 w-4 shrink-0 text-white/60" />
+            <span className="text-[12px] font-bold uppercase tracking-wider text-white/90">
+              Poster Customizer
+            </span>
+          </div>
+          <button
+            onClick={() => setShowSample(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-white/[0.08] bg-white/5 hover:bg-white/10 cursor-pointer text-white/70 hover:text-white"
+          >
+            <Code2 className="h-3 w-3" /> Sample JSON
+          </button>
+        </div>
+
+        {/* Creator Mode Switcher */}
+        <div className="px-4 py-2.5 border-b shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+          <label className="text-[9px] font-bold uppercase tracking-widest text-[#787870] block mb-1.5">
+            Creator Mode
+          </label>
+          <div className="flex bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg">
+            {(["analysis", "news", "indicator"] as const).map((m) => {
+              const active = creatorMode === m;
+              const labels = {
+                analysis: "Daily Analysis",
+                news: "News Batch",
+                indicator: "Indicator / Classic",
+              };
+              return (
+                <button
+                  key={m}
+                  onClick={() => setCreatorMode(m)}
+                  className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer text-[9.5px] font-bold uppercase tracking-wider text-center ${
+                    active
+                      ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                      : "text-[#787870] hover:text-white/60"
+                  }`}
+                >
+                  {labels[m]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Tab Selection */}
+        <div className="px-4 py-2 border-b shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+          <div className="flex bg-white/[0.03] border border-white/[0.06] p-0.5 rounded-lg">
+            {TABS.map((tab) => {
+              const active = activeTab === tab.id;
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all cursor-pointer text-[10px] font-bold uppercase tracking-wider ${
+                    active
+                      ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                      : "text-[#787870] hover:text-white/60"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Scrollable Configuration Panel */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          
+          {/* CONTENT TAB */}
+          {activeTab === "content" && (
+            <div className="space-y-3.5">
+              
+              {creatorMode === "analysis" && (
+                <>
+                  {/* Category & Date */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Category</label>
+                      <input
+                        id="input-category"
+                        type="text"
+                        className={getFieldClassName("category")}
+                        style={inputStyle}
+                        value={analysisData.category || ""}
+                        onChange={(e) => handleUpdateField("category", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Date</label>
+                      <input
+                        id="input-date"
+                        type="text"
+                        className={getFieldClassName("date")}
+                        style={inputStyle}
+                        value={analysisData.date || ""}
+                        onChange={(e) => handleUpdateField("date", e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Instrument, Timeframe & Session */}
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Instrument</label>
+                      <input
+                        id="input-instrument"
+                        type="text"
+                        placeholder="E.g. EURUSD"
+                        className={getFieldClassName("instrument")}
+                        style={inputStyle}
+                        value={analysisData.instrument || ""}
+                        onChange={(e) => handleUpdateField("instrument", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Timeframe</label>
+                      <input
+                        id="input-timeframe"
+                        type="text"
+                        placeholder="E.g. H4"
+                        className={getFieldClassName("timeframe")}
+                        style={inputStyle}
+                        value={analysisData.timeframe || ""}
+                        onChange={(e) => handleUpdateField("timeframe", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Session</label>
+                      <input
+                        id="input-session"
+                        type="text"
+                        placeholder="E.g. London"
+                        className={getFieldClassName("session")}
+                        style={inputStyle}
+                        value={analysisData.session || ""}
+                        onChange={(e) => handleUpdateField("session", e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Level Name */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Level Name</label>
+                    <input
+                      id="input-levelName"
+                      type="text"
+                      placeholder="E.g. Daily Demand Zone"
+                      className={getFieldClassName("levelName")}
+                      style={inputStyle}
+                      value={analysisData.levelName || ""}
+                      onChange={(e) => handleUpdateField("levelName", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Description / Explanation */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Explanation</label>
+                    <textarea
+                      id="input-description"
+                      className={getFieldClassName("description")}
+                      style={{ ...inputStyle, minHeight: "60px", resize: "vertical" }}
+                      placeholder="Explain the level and strategy..."
+                      value={analysisData.description || ""}
+                      onChange={(e) => handleUpdateField("description", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Action Plan (What to Do) */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Action Plan (What to Do)</label>
+                    <textarea
+                      id="input-whatToDo"
+                      className={getFieldClassName("whatToDo")}
+                      style={{ ...inputStyle, minHeight: "50px", resize: "vertical" }}
+                      placeholder="E.g. look for buy triggers on lower timeframe..."
+                      value={analysisData.whatToDo || ""}
+                      onChange={(e) => handleUpdateField("whatToDo", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Key Levels */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Key Levels</label>
+                    <input
+                      id="input-keyLevels"
+                      type="text"
+                      placeholder="E.g. Support: 2320.50, Resistance: 2355.00"
+                      className={getFieldClassName("keyLevels")}
+                      style={inputStyle}
+                      value={analysisData.keyLevels || ""}
+                      onChange={(e) => handleUpdateField("keyLevels", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Image URL */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Chart Image URL</label>
+                    <input
+                      id="input-imageUrl"
+                      type="text"
+                      placeholder="https://example.com/chart.png"
+                      className={getFieldClassName("imageUrl")}
+                      style={inputStyle}
+                      value={analysisData.imageUrl || ""}
+                      onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Footer Brand */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Footer Brand</label>
+                    <input
+                      id="input-footer"
+                      type="text"
+                      className={getFieldClassName("footer")}
+                      style={inputStyle}
+                      value={analysisData.footer || ""}
+                      onChange={(e) => handleUpdateField("footer", e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+
+              {creatorMode === "news" && (
+                <>
+                  {newsData.length > 0 && newsData[activeNewsIndex] ? (
+                    <div className="space-y-3.5">
+                      {/* Title / Headline */}
+                      <div>
+                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Headline</label>
+                        <input
+                          id="input-title"
+                          type="text"
+                          className={getFieldClassName("title")}
+                          style={inputStyle}
+                          value={newsData[activeNewsIndex].title || ""}
+                          onChange={(e) => handleUpdateField("title", e.target.value)}
+                        />
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Summary</label>
+                        <textarea
+                          id="input-description"
+                          className={getFieldClassName("description")}
+                          style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
+                          value={newsData[activeNewsIndex].description || ""}
+                          onChange={(e) => handleUpdateField("description", e.target.value)}
+                        />
+                      </div>
+
+                      {/* Impact & Sentiment Biases */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Impact Level</label>
+                          <select
+                            className={getFieldClassName("impact")}
+                            style={{ ...inputStyle, background: "#181614", color: "#F0EBE3" }}
+                            value={newsData[activeNewsIndex].impact || "Medium"}
+                            onChange={(e) => handleUpdateField("impact", e.target.value)}
+                          >
+                            <option value="High">High</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Low">Low</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Sentiment Bias</label>
+                          <select
+                            className={getFieldClassName("sentiment")}
+                            style={{ ...inputStyle, background: "#181614", color: "#F0EBE3" }}
+                            value={newsData[activeNewsIndex].sentiment || "Neutral"}
+                            onChange={(e) => handleUpdateField("sentiment", e.target.value)}
+                          >
+                            <option value="Bullish">Bullish</option>
+                            <option value="Bearish">Bearish</option>
+                            <option value="Neutral">Neutral</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Affected Assets */}
+                      <div>
+                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Affected Assets</label>
+                        <input
+                          id="input-affectedAssets"
+                          type="text"
+                          placeholder="E.g. USD, XAUUSD, Equities"
+                          className={getFieldClassName("affectedAssets")}
+                          style={inputStyle}
+                          value={newsData[activeNewsIndex].affectedAssets || ""}
+                          onChange={(e) => handleUpdateField("affectedAssets", e.target.value)}
+                        />
+                      </div>
+
+                      {/* Key Takeaway */}
+                      <div>
+                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Key Takeaway & Market Bias</label>
+                        <textarea
+                          id="input-keyTakeaway"
+                          className={getFieldClassName("keyTakeaway")}
+                          style={{ ...inputStyle, minHeight: "50px", resize: "vertical" }}
+                          placeholder="E.g. Yields collapsed, reinforcing Gold demand..."
+                          value={newsData[activeNewsIndex].keyTakeaway || ""}
+                          onChange={(e) => handleUpdateField("keyTakeaway", e.target.value)}
+                        />
+                      </div>
+
+                      {/* Image URL */}
+                      <div>
+                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">News Image URL</label>
+                        <input
+                          id="input-imageUrl"
+                          type="text"
+                          className={getFieldClassName("imageUrl")}
+                          style={inputStyle}
+                          value={newsData[activeNewsIndex].imageUrl || ""}
+                          onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
+                        />
+                      </div>
+
+                      {/* Source & Date */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Source</label>
+                          <input
+                            id="input-source"
+                            type="text"
+                            className={getFieldClassName("source")}
+                            style={inputStyle}
+                            value={newsData[activeNewsIndex].source || ""}
+                            onChange={(e) => handleUpdateField("source", e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Date</label>
+                          <input
+                            id="input-date"
+                            type="text"
+                            className={getFieldClassName("date")}
+                            style={inputStyle}
+                            value={newsData[activeNewsIndex].date || ""}
+                            onChange={(e) => handleUpdateField("date", e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Quick Item List */}
+                      <div className="border-t pt-3.5" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-2">
+                          News Items in Batch
+                        </label>
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                          {newsData.map((item, idx) => {
+                            const isCurrent = idx === activeNewsIndex;
+                            return (
+                              <button
+                                key={idx}
+                                onClick={() => setActiveNewsIndex(idx)}
+                                className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-[11px] transition-all border cursor-pointer ${
+                                  isCurrent
+                                    ? "bg-white/[0.06] border-white/20 text-white font-bold"
+                                    : "bg-white/[0.01] border-white/[0.04] text-white/50 hover:bg-white/[0.03] hover:text-white/80"
+                                }`}
+                              >
+                                <span className="truncate flex-1 pr-2">{item.title || `News #${idx + 1}`}</span>
+                                <span className="text-[8.5px] uppercase tracking-wider opacity-60 shrink-0">
+                                  {item.source || "NEWS"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-white/40 text-xs">
+                      No news items found. Paste news JSON in the JSON tab.
+                    </div>
+                  )}
+                </>
+              )}
+
+              {creatorMode === "indicator" && (
+                <>
+                  {/* Category & Index */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Category</label>
+                      <input
+                        id="input-category"
+                        type="text"
+                        className={getFieldClassName("category")}
+                        style={inputStyle}
+                        value={parsedData.category || ""}
+                        onChange={(e) => handleUpdateField("category", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Index</label>
+                      <input
+                        id="input-index"
+                        type="text"
+                        className={getFieldClassName("index")}
+                        style={inputStyle}
+                        value={parsedData.index || ""}
+                        onChange={(e) => handleUpdateField("index", e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Title & Subtitle */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Title</label>
+                    <input
+                      id="input-title"
+                      type="text"
+                      className={getFieldClassName("title")}
+                      style={inputStyle}
+                      value={parsedData.title || ""}
+                      onChange={(e) => handleUpdateField("title", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Subtitle</label>
+                    <input
+                      id="input-subtitle"
+                      type="text"
+                      className={getFieldClassName("subtitle")}
+                      style={inputStyle}
+                      value={parsedData.subtitle || ""}
+                      onChange={(e) => handleUpdateField("subtitle", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Description</label>
+                    <textarea
+                      id="input-description"
+                      className={getFieldClassName("description")}
+                      style={{ ...inputStyle, minHeight: "58px", resize: "vertical" }}
+                      value={parsedData.description || ""}
+                      onChange={(e) => handleUpdateField("description", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Tags */}
+                  <div id="input-tags">
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Tags</label>
+                    <div className="flex flex-wrap gap-1 mb-1.5">
+                      {(parsedData.tags || []).map((tag, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-semibold uppercase tracking-wider border border-white/[0.08] bg-white/[0.04] text-white/70"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTag(i)}
+                            className="hover:text-red-400 font-normal ml-0.5 cursor-pointer text-[10px]"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Press enter to add tag..."
+                        className="flex-1 rounded-xl px-3 py-1.5 text-[12px] outline-none"
+                        style={inputStyle}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddTag(e.currentTarget.value);
+                            e.currentTarget.value = "";
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          const inp = e.currentTarget.previousSibling as HTMLInputElement;
+                          handleAddTag(inp.value);
+                          inp.value = "";
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold transition-all border border-white/10 hover:bg-white/5 cursor-pointer text-white/60 hover:text-white"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Formula */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Formula</label>
+                    <input
+                      id="input-formula"
+                      type="text"
+                      className={getFieldClassName("formula")}
+                      style={inputStyle}
+                      value={parsedData.formula || ""}
+                      onChange={(e) => handleUpdateField("formula", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Image URL */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Image URL</label>
+                    <input
+                      id="input-imageUrl"
+                      type="text"
+                      placeholder="https://example.com/image.jpg"
+                      className={getFieldClassName("imageUrl")}
+                      style={inputStyle}
+                      value={parsedData.imageUrl || ""}
+                      onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Footer & Date */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Footer</label>
+                      <input
+                        id="input-footer"
+                        type="text"
+                        className={getFieldClassName("footer")}
+                        style={inputStyle}
+                        value={parsedData.footer || ""}
+                        onChange={(e) => handleUpdateField("footer", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Date</label>
+                      <input
+                        id="input-date"
+                        type="text"
+                        className={getFieldClassName("date")}
+                        style={inputStyle}
+                        value={parsedData.date || ""}
+                        onChange={(e) => handleUpdateField("date", e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Metrics */}
+                  <div className="border-t pt-3" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }} id="input-metrics">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider">Metrics (Max 4)</label>
+                      {(parsedData.metrics || []).length < 4 && (
+                        <button
+                          type="button"
+                          onClick={handleAddMetric}
+                          className="text-[10px] font-bold flex items-center gap-1 text-white/50 hover:text-white cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Add Metric
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {(parsedData.metrics || []).map((met, i) => (
+                        <div key={i} className="flex gap-2 items-center bg-[#161716]/40 p-2.5 rounded-xl border border-white/5">
+                          <div className="flex-1 space-y-1.5">
+                            <input
+                              type="text"
+                              placeholder="Label"
+                              className="w-full bg-transparent text-[10px] border-b border-white/10 pb-0.5 text-white/80 outline-none uppercase font-semibold"
+                              value={met.label || ""}
+                              onChange={(e) => handleUpdateMetric(i, "label", e.target.value)}
+                            />
+                            <input
+                              type="text"
+                              placeholder="Value"
+                              className="w-full bg-transparent text-[12px] py-0.5 text-white outline-none"
+                              value={met.value || ""}
+                              onChange={(e) => handleUpdateMetric(i, "value", e.target.value)}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMetric(i)}
+                            className="text-red-400 hover:text-red-300 opacity-60 hover:opacity-100 transition-all p-1 cursor-pointer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Sections */}
+                  <div className="border-t pt-3" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }} id="input-sections">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider">Sections</label>
+                      <button
+                        type="button"
+                        onClick={handleAddSection}
+                        className="text-[10px] font-bold flex items-center gap-1 text-white/50 hover:text-white cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add Section
+                      </button>
+                    </div>
+                    <div className="space-y-2.5">
+                      {(parsedData.sections || []).map((sec, i) => (
+                        <div key={i} className="bg-[#161716]/40 p-3 rounded-xl border border-white/5 relative group">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSection(i)}
+                            className="absolute top-2 right-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              placeholder="Section Label"
+                              className="w-full bg-transparent text-[10px] border-b border-white/10 pb-0.5 text-white/80 outline-none uppercase font-semibold pr-6"
+                              value={sec.label || ""}
+                              onChange={(e) => handleUpdateSection(i, "label", e.target.value)}
+                            />
+                            <textarea
+                              placeholder="Content"
+                              rows={2}
+                              className="w-full bg-transparent text-[11px] text-white/70 outline-none resize-y leading-relaxed"
+                              value={sec.content || ""}
+                              onChange={(e) => handleUpdateSection(i, "content", e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* COLORS & THEMES TAB */}
+          {activeTab === "colors" && (
+            <div className="space-y-4">
+              <div>
+                <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
+                  Color Presets
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {COLOR_PRESETS.map((preset) => {
+                    const isActive = colors.bg === preset.bg && colors.accent === preset.accent;
+                    return (
+                      <button
+                        key={preset.name}
+                        onClick={() => setColors(preset)}
+                        className="flex flex-col items-start p-2 rounded-xl transition-all border text-left cursor-pointer"
+                        style={{
+                          background: isActive ? "rgba(255, 255, 255, 0.06)" : "rgba(255, 255, 255, 0.02)",
+                          borderColor: isActive ? "rgba(255, 255, 255, 0.2)" : "rgba(255, 255, 255, 0.06)",
+                        }}
+                      >
+                        <span className="text-[10px] font-bold text-white mb-1.5">
+                          {preset.name}
+                        </span>
+                        <div className="flex gap-1">
+                          <span className="h-3 w-3 rounded border border-white/10" style={{ background: preset.bg }} title="Background" />
+                          <span className="h-3 w-3 rounded border border-white/10" style={{ background: preset.accent }} title="Accent" />
+                          <span className="h-3 w-3 rounded border border-white/10" style={{ background: preset.text }} title="Text" />
+                          <span className="h-3 w-3 rounded border border-white/10" style={{ background: preset.card }} title="Card BG" />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="border-t pt-3" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+                <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2.5">
+                  Custom Theme Colors
+                </p>
+                
+                <div className="space-y-2">
+                  {[
+                    { key: "bg", label: "Background", desc: "Main poster backdrop" },
+                    { key: "accent", label: "Accent Color", desc: "Borders, badges, decorations" },
+                    { key: "text", label: "Primary Text", desc: "Title & main content elements" },
+                    { key: "muted", label: "Muted Text", desc: "Subtitles, footnotes, labels" },
+                    { key: "card", label: "Card Color", desc: "Description card background" },
+                    { key: "subtle", label: "Subtle Color", desc: "Formula panel background" },
+                  ].map((colorItem) => (
+                    <div key={colorItem.key} className="flex items-center justify-between bg-[#161716]/40 p-2.5 rounded-xl border border-white/5">
+                      <div>
+                        <span className="text-[11px] font-semibold text-white block">
+                          {colorItem.label}
+                        </span>
+                        <span className="text-[8.5px] text-[#787870] block">
+                          {colorItem.desc}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={colors[colorItem.key as keyof PosterColors]}
+                          onChange={(e) => setColors(prev => ({ ...prev, [colorItem.key]: e.target.value }))}
+                          className="w-16 bg-transparent border-b border-[#2A2B2A] text-[10px] text-right font-mono outline-none text-white"
+                        />
+                        <div className="relative h-6 w-6 rounded border border-white/10 overflow-hidden cursor-pointer">
+                          <input
+                            type="color"
+                            value={colors[colorItem.key as keyof PosterColors]}
+                            onChange={(e) => setColors(prev => ({ ...prev, [colorItem.key]: e.target.value }))}
+                            className="absolute inset-0 opacity-0 cursor-pointer h-full w-full"
+                          />
+                          <div className="absolute inset-0" style={{ background: colors[colorItem.key as keyof PosterColors] }} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* LAYOUT TAB */}
+          {activeTab === "layout" && (
+            <div className="space-y-4">
+              {/* Aspect ratio selector */}
+              <div>
+                <p
+                  className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2"
+                >
+                  Aspect Ratio
+                </p>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {RATIOS.map((ratio) => {
+                    const active = ratio.id === ratioId;
+                    return (
+                      <button
+                        key={ratio.id}
+                        onClick={() => setRatioId(ratio.id)}
+                        className={`flex flex-col items-center justify-center py-2.5 rounded-xl transition-all cursor-pointer border ${
+                          active
+                            ? "bg-white/[0.08] text-white border-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                            : "bg-white/[0.02] border-white/[0.05] text-[#787870] hover:border-white/[0.12] hover:text-white"
+                        }`}
+                      >
+                        <span className="text-[10px] font-bold">{ratio.label}</span>
+                        <span className="text-[7.5px] opacity-60 mt-0.5">{ratio.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p
+                  className="text-[9px] mt-1.5 text-[#787870]"
+                >
+                  Canvas size: {ar.w} × {ar.h}px
+                </p>
+              </div>
+
+              {/* Grid Options */}
+              <div className="border-t pt-3" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+                <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
+                  Grid Options
+                </p>
+                <div className="bg-[#161716]/40 p-3 rounded-xl border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-white">Show Grid</span>
+                    <button
+                      onClick={() => setConfig(prev => ({ ...prev, showGrid: !prev.showGrid }))}
+                      className="w-8 h-4 rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer"
+                      style={{ background: config.showGrid ? "rgba(255, 255, 255, 0.25)" : "rgba(255, 255, 255, 0.08)" }}
+                    >
+                      <div
+                        className="w-3 h-3 bg-white rounded-full transition-transform duration-200"
+                        style={{ transform: config.showGrid ? "translateX(16px)" : "translateX(0px)" }}
+                      />
+                    </button>
+                  </div>
+
+                  {config.showGrid && (
+                    <>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[9px] font-mono text-[#787870]">
+                          <span>Grid Spacing</span>
+                          <span>{config.gridSize}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="14"
+                          max="60"
+                          step="2"
+                          value={config.gridSize}
+                          onChange={(e) => setConfig(prev => ({ ...prev, gridSize: parseInt(e.target.value) }))}
+                          className="w-full cursor-pointer"
+                          style={{ accentColor: "#ffffff" }}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[9px] font-mono text-[#787870]">
+                          <span>Grid Opacity</span>
+                          <span>{Math.round(config.gridOpacity * 1000) / 10}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.005"
+                          max="0.08"
+                          step="0.005"
+                          value={config.gridOpacity}
+                          onChange={(e) => setConfig(prev => ({ ...prev, gridOpacity: parseFloat(e.target.value) }))}
+                          className="w-full cursor-pointer"
+                          style={{ accentColor: "#ffffff" }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Borders & Corners */}
+              <div className="border-t pt-3" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+                <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
+                  Borders & Corner Crosses
+                </p>
+                <div className="bg-[#161716]/40 p-3 rounded-xl border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-white">Outer Border</span>
+                    <button
+                      onClick={() => setConfig(prev => ({ ...prev, showBorder: !prev.showBorder }))}
+                      className="w-8 h-4 rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer"
+                      style={{ background: config.showBorder ? "rgba(255, 255, 255, 0.25)" : "rgba(255, 255, 255, 0.08)" }}
+                    >
+                      <div
+                        className="w-3 h-3 bg-white rounded-full transition-transform duration-200"
+                        style={{ transform: config.showBorder ? "translateX(16px)" : "translateX(0px)" }}
+                      />
+                    </button>
+                  </div>
+
+                  {config.showBorder && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[9px] font-mono text-[#787870]">
+                        <span>Border Width</span>
+                        <span>{config.borderWidth.toFixed(1)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="4.0"
+                        step="0.5"
+                        value={config.borderWidth}
+                        onChange={(e) => setConfig(prev => ({ ...prev, borderWidth: parseFloat(e.target.value) }))}
+                        className="w-full cursor-pointer"
+                        style={{ accentColor: "#ffffff" }}
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between border-t border-[#2A2B2A] pt-2">
+                    <span className="text-[11px] font-bold text-white">Corner Crosshairs</span>
+                    <button
+                      onClick={() => setConfig(prev => ({ ...prev, showCrosses: !prev.showCrosses }))}
+                      className="w-8 h-4 rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer"
+                      style={{ background: config.showCrosses ? "rgba(255, 255, 255, 0.25)" : "rgba(255, 255, 255, 0.08)" }}
+                    >
+                      <div
+                        className="w-3 h-3 bg-white rounded-full transition-transform duration-200"
+                        style={{ transform: config.showCrosses ? "translateX(16px)" : "translateX(0px)" }}
+                      />
+                    </button>
+                  </div>
+
+                  {config.showCrosses && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[9px] font-mono text-[#787870]">
+                        <span>Crosshair Size</span>
+                        <span>{config.crossSize}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="5"
+                        max="25"
+                        step="1"
+                        value={config.crossSize}
+                        onChange={(e) => setConfig(prev => ({ ...prev, crossSize: parseInt(e.target.value) }))}
+                        className="w-full cursor-pointer"
+                        style={{ accentColor: "#ffffff" }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Typography Scale */}
+              <div className="border-t pt-3" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+                <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
+                  Typography Options
+                </p>
+                <div className="bg-[#161716]/40 p-3 rounded-xl border border-white/5">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px] font-mono text-[#787870]">
+                      <span>Font Scaling</span>
+                      <span>{Math.round(config.fontScale * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.75"
+                      max="1.3"
+                      step="0.05"
+                      value={config.fontScale}
+                      onChange={(e) => setConfig(prev => ({ ...prev, fontScale: parseFloat(e.target.value) }))}
+                      className="w-full cursor-pointer"
+                      style={{ accentColor: "#ffffff" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* RAW JSON TAB */}
+          {activeTab === "json" && (
+            <div className="flex flex-col h-full min-h-0 space-y-3.5">
+              <div className="flex items-center justify-between shrink-0">
+                <p
+                  className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider"
+                >
+                  Raw JSON Data
+                </p>
+                {jsonError && (
+                  <div className="flex items-center gap-1 text-red-500">
+                    <AlertCircle className="h-3 w-3" />
+                    <span className="text-[9px]">
+                      Invalid JSON
+                    </span>
+                  </div>
+                )}
+              </div>
+              <textarea
+                value={jsonText}
+                onChange={(e) => setJsonText(e.target.value)}
+                spellCheck={false}
+                className="w-full min-h-[350px] flex-1 resize-none rounded-xl p-3 text-[11px] leading-relaxed outline-none transition-all"
+                style={{
+                  background: "rgba(255, 255, 255, 0.03)",
+                  border: `1px solid ${jsonError ? "rgba(239, 68, 68, 0.4)" : "rgba(255, 255, 255, 0.08)"}`,
+                  color: "#ffffff",
+                  fontFamily: "var(--font-mono), monospace",
+                  caretColor: "#ffffff",
+                }}
+              />
+            </div>
+          )}
+
+          {/* AI PROMPT TAB */}
+          {activeTab === "ai-prompt" && (
+            <div className="flex flex-col gap-4">
+              {/* Banner info */}
+              <div className="p-4 bg-white/[0.02] border border-white/[0.06] rounded-2xl space-y-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-white/50" />
+                  <span className="text-[11px] font-bold text-white uppercase tracking-wider">CHoCH QLM Hinglish News Prompt</span>
+                </div>
+                <p className="text-[11px] text-white/40 leading-relaxed">
+                  Opens the full three-section AI prompt generator — System Prompt, User Message with live H1+H4 candle data, and Reference JSON schema. Select session, date, currency pairs and copy each block individually or all at once.
+                </p>
+                <div className="flex flex-wrap gap-2 text-[10px] text-white/30">
+                  <span className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06]">📊 Live H1+H4 OHLCV data</span>
+                  <span className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06]">🌐 V1 — Full Internet</span>
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/[0.08] border border-emerald-500/[0.15] text-emerald-400/60">𝕏 V5 — Twitter Feeds</span>
+                </div>
+              </div>
+
+              {/* Open modal button */}
+              <button
+                onClick={() => setShowPromptModal(true)}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-[13px] font-bold transition-all active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 shadow-[0_4px_12px_rgba(255,255,255,0.12)] border border-transparent"
+              >
+                <Bot className="h-4 w-4" />
+                Open Prompt Generator
+              </button>
+
+              {/* Tip */}
+              <div className="rounded-xl bg-emerald-500/[0.05] border border-emerald-500/[0.12] px-4 py-3">
+                <p className="text-[10px] font-semibold text-emerald-400/60 uppercase tracking-widest mb-1">How to use</p>
+                <ol className="text-[11px] text-white/35 leading-relaxed space-y-1">
+                  <li>1. Open prompt generator and select session, date &amp; symbols</li>
+                  <li>2. Copy all 3 blocks into your AI (ChatGPT / Gemini)</li>
+                  <li>3. Paste the generated JSON into the <span className="text-white/55 font-medium">JSON Tab</span></li>
+                  <li>4. Hit Force Re-render — posters appear instantly</li>
+                </ol>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Generate button (Left panel footer) */}
+        <div className="px-4 pb-4 pt-2 border-t shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+          <button
+            onClick={render}
+            className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 shadow-[0_4px_12px_rgba(255,255,255,0.1)] border border-transparent"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            FORCE RE-RENDER
+          </button>
+        </div>
+      </div>
+
+      {/* ── Right Panel: Preview ──────────────────────────────────────────── */}
+      <div
+        className="flex-1 flex flex-col overflow-hidden bg-background relative"
+      >
+        {/* Apple liquid glass backdrop glow circles */}
+        <div 
+          className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-[128px] pointer-events-none" 
+          style={{ backgroundColor: colors.accent, opacity: 0.035 }}
+        />
+        <div 
+          className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-[128px] pointer-events-none" 
+          style={{ backgroundColor: colors.accent, opacity: 0.035 }}
+        />
+
+        {/* Preview toolbar */}
+        <div
+          className="flex items-center justify-between px-5 py-3 border-b shrink-0 z-10"
+          style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
+        >
+          <div className="flex items-center gap-2">
+            <ImagePlus className="h-4 w-4 shrink-0 text-white/50" />
+            <span
+              className="text-[12px] font-bold uppercase tracking-wider text-white"
+            >
+              Interactive Preview
+            </span>
+            <span
+              className="text-[9px] px-2 py-0.5 rounded-md border font-semibold uppercase tracking-wider"
+              style={{
+                background: "rgba(255, 255, 255, 0.04)",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                color: "#d1d5db",
+              }}
+            >
+              {Math.round(scale * 100)}%
+            </span>
+          </div>
+          {creatorMode === "news" ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={download}
+                disabled={!rendered || newsData.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer border border-white/10 bg-white/5 hover:bg-white/10 text-white"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download Current
+              </button>
+              <button
+                onClick={downloadAll}
+                disabled={!rendered || newsData.length === 0}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 border border-transparent shadow-[0_2px_8px_rgba(255,255,255,0.1)]"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Download All Batch
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={download}
+              disabled={!rendered}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 border border-transparent shadow-[0_2px_8px_rgba(255,255,255,0.1)]"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download PNG
+            </button>
+          )}
+        </div>
+
+        {/* News pagination header (Only in News Batch mode) */}
+        {creatorMode === "news" && newsData.length > 0 && (
+          <div
+            className="flex items-center justify-between px-5 py-2.5 border-b shrink-0 bg-white/[0.01] z-10"
+            style={{ borderColor: "rgba(255, 255, 255, 0.04)" }}
+          >
+            <div className="text-[11px] text-[#787870] font-bold uppercase tracking-wider">
+              PREVIEWING POSTER <span className="text-white font-bold">{activeNewsIndex + 1}</span> OF <span className="text-white font-bold">{newsData.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={activeNewsIndex === 0}
+                onClick={() => setActiveNewsIndex(prev => Math.max(0, prev - 1))}
+                className="px-2.5 py-1 py-1 rounded-lg border border-white/[0.08] hover:bg-white/5 transition-all text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 cursor-pointer text-white"
+              >
+                Previous
+              </button>
+              <button
+                disabled={activeNewsIndex === newsData.length - 1}
+                onClick={() => setActiveNewsIndex(prev => Math.min(newsData.length - 1, prev + 1))}
+                className="px-2.5 py-1 py-1 rounded-lg border border-white/[0.08] hover:bg-white/5 transition-all text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 cursor-pointer text-white"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Canvas preview area with clickable element overlay */}
+        <div
+          ref={previewRef}
+          className="flex-1 flex items-center justify-center overflow-hidden p-6 select-none z-10"
+        >
+          <div
+            style={{
+              width: ar.w * scale,
+              height: ar.h * scale,
+              flexShrink: 0,
+              position: "relative",
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              style={{
+                width: ar.w,
+                height: ar.h,
+                transformOrigin: "top left",
+                transform: `scale(${scale})`,
+                display: "block",
+                borderRadius: 2,
+                boxShadow: `0 0 0 1px ${colors.accent}40, 0 24px 64px rgba(0,0,0,0.6)`,
+              }}
+            />
+            {/* Interactive Element Boundaries Overlay */}
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: ar.w * scale,
+                height: ar.h * scale,
+                pointerEvents: "none",
+              }}
+            >
+              {elementBounds.map((box, i) => (
+                <div
+                  key={`${box.id}-${i}-${box.x}-${box.y}`}
+                  onClick={() => handleElementClick(box.id)}
+                  className="absolute pointer-events-auto border border-transparent border-dashed cursor-pointer group transition-all duration-200 rounded"
+                  style={{
+                    left: box.x * scale,
+                    top: box.y * scale,
+                    width: box.w * scale,
+                    height: box.h * scale,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = colors.accent;
+                    e.currentTarget.style.backgroundColor = `${colors.accent}15`;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "transparent";
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  {/* Floating badge tooltip on hover */}
+                  <div
+                    className="absolute opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none px-2 py-0.5 rounded text-[8.5px] font-bold tracking-wider uppercase z-20 whitespace-nowrap"
+                    style={{
+                      top: "-20px",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "rgba(255, 255, 255, 0.9)",
+                      color: "#000000",
+                      fontFamily: "var(--font-sans), sans-serif",
+                      boxShadow: "0 4px 10px rgba(0,0,0,0.3)",
+                    }}
+                  >
+                    Edit {box.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom hint */}
+        <div
+          className="flex items-center justify-center gap-1.5 py-2.5 border-t shrink-0 z-10"
+          style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
+        >
+          <span
+            className="text-[9px] uppercase tracking-[0.15em] text-[#787870]"
+          >
+            {creatorMode === "news" 
+              ? "Click Next/Previous or select items in the sidebar to cycle through the news batch"
+              : "Click any element on the poster to customize it in the sidebar"
+            }
+          </span>
+        </div>
+      </div>
+
+      {/* Sample JSON modal */}
+      {showSample && (
+        <SampleJsonModal
+          mode={creatorMode}
+          onClose={() => setShowSample(false)}
+          onApply={(json) => { setJsonText(json); setJsonError(null); }}
+        />
+      )}
+
+      {/* AI News Prompt modal */}
+      {showPromptModal && (
+        <PromptModal
+          defaultDate={promptDate}
+          defaultSession={promptSession}
+          onClose={() => setShowPromptModal(false)}
+        />
+      )}
+    </div>
+  );
+}

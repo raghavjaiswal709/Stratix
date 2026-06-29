@@ -24,18 +24,20 @@ async function ensureNonUniqueIndex(): Promise<void> {
 }
 
 export interface NewsEntry {
-  date:     string;
-  session:  string;
-  source:   "db" | "file";
-  count?:   number;     // number of saved versions
-  latestAt?: string;    // ISO timestamp of most-recent version
-  latestBy?: string;    // email of most-recent generator
+  date:       string;
+  session:    string;
+  source:     "db" | "file";
+  count?:     number;
+  latestAt?:  string;
+  latestBy?:  string;
+  reportType?: "ai" | "manual";
 }
 
 export interface NewsVersion {
   _id:         string;
   generatedAt: string;  // ISO
   generatedBy: string;
+  reportType:  "ai" | "manual";
 }
 
 const SESSION_ORDER = ["asian", "london", "new_york"];
@@ -76,7 +78,7 @@ export async function GET(req: NextRequest) {
 
   // ── Version history list for a date+session (metadata, no data payload) ─
   if (date && sessionParam && historyMode) {
-    type RawVersion = { _id: unknown; generatedBy?: string; generatedAt?: Date; createdAt?: Date };
+    type RawVersion = { _id: unknown; generatedBy?: string; generatedAt?: Date; createdAt?: Date; reportType?: string };
     const docs = await NewsReportModel
       .find({ date, session: sessionParam }, { data: 0 })
       .sort({ generatedAt: -1 })
@@ -86,6 +88,7 @@ export async function GET(req: NextRequest) {
       _id:         String(d._id),
       generatedBy: d.generatedBy ?? "unknown",
       generatedAt: (d.generatedAt ?? d.createdAt)?.toISOString() ?? new Date().toISOString(),
+      reportType:  (d.reportType === "ai" ? "ai" : "manual") as "ai" | "manual",
     }));
     return NextResponse.json(versions);
   }
@@ -122,25 +125,27 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Index list: unique date+session combos with count + latest metadata ─
-  type AggResult = { date: string; session: string; latestAt?: Date; latestBy?: string; count: number };
+  type AggResult = { date: string; session: string; latestAt?: Date; latestBy?: string; latestType?: string; count: number };
   const dbEntries = await NewsReportModel.aggregate<AggResult>([
     { $sort: { generatedAt: -1 } },
     {
       $group: {
-        _id:      { date: "$date", session: "$session" },
-        latestAt: { $first: "$generatedAt" },
-        latestBy: { $first: "$generatedBy" },
-        count:    { $sum: 1 },
+        _id:        { date: "$date", session: "$session" },
+        latestAt:   { $first: "$generatedAt" },
+        latestBy:   { $first: "$generatedBy" },
+        latestType: { $first: "$reportType" },
+        count:      { $sum: 1 },
       },
     },
     {
       $project: {
-        _id:      0,
-        date:     "$_id.date",
-        session:  "$_id.session",
-        latestAt: 1,
-        latestBy: 1,
-        count:    1,
+        _id:        0,
+        date:       "$_id.date",
+        session:    "$_id.session",
+        latestAt:   1,
+        latestBy:   1,
+        latestType: 1,
+        count:      1,
       },
     },
   ]);
@@ -161,12 +166,13 @@ export async function GET(req: NextRequest) {
 
   const all: NewsEntry[] = [
     ...dbEntries.map((e) => ({
-      date:     e.date,
-      session:  e.session,
-      source:   "db" as const,
-      count:    e.count,
-      latestAt: e.latestAt?.toISOString(),
-      latestBy: e.latestBy,
+      date:       e.date,
+      session:    e.session,
+      source:     "db" as const,
+      count:      e.count,
+      latestAt:   e.latestAt?.toISOString(),
+      latestBy:   e.latestBy,
+      reportType: (e.latestType === "ai" ? "ai" : "manual") as "ai" | "manual",
     })),
     ...fileEntries
       .filter((e) => !dbSet.has(`${e.date}||${e.session}`))
@@ -186,14 +192,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { date?: string; session?: string; data?: unknown };
+  let body: { date?: string; session?: string; data?: unknown; reportType?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { date, session: sessionParam, data } = body;
+  const { date, session: sessionParam, data, reportType } = body;
   if (!date || !sessionParam || data === undefined) {
     return NextResponse.json(
       { error: "date, session, and data are required" },
@@ -218,6 +224,7 @@ export async function POST(req: NextRequest) {
     data,
     generatedBy: userSession.user?.email ?? "unknown",
     generatedAt: new Date(),
+    reportType:  reportType === "ai" ? "ai" : "manual",
   }).save();
 
   return NextResponse.json({ ok: true, _id: String(doc._id) });

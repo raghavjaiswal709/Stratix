@@ -116,6 +116,31 @@ export async function PUT(
     { new: true }
   );
 
+  // Propagate journal changes to child trades if this is a parent trade
+  if (trade && trade.mergedTradeIds && trade.mergedTradeIds.length > 0) {
+    const journalFields = [
+      "journaled", "executionChecklist", "screenshots", "preTradeAnalysis",
+      "postTradeReview", "riskRatio", "rewardRatio", "emotions",
+      "lessonsLearned", "tags", "rating"
+    ];
+    const journalUpdate: Record<string, unknown> = {};
+    let hasJournalUpdate = false;
+
+    for (const field of journalFields) {
+      if (body[field] !== undefined) {
+        journalUpdate[field] = body[field];
+        hasJournalUpdate = true;
+      }
+    }
+
+    if (hasJournalUpdate) {
+      await TradeEntryModel.updateMany(
+        { _id: { $in: trade.mergedTradeIds }, userId: session.user.id },
+        { $set: journalUpdate }
+      );
+    }
+  }
+
   return NextResponse.json(trade);
 }
 
