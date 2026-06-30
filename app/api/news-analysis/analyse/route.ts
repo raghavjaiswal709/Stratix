@@ -87,6 +87,20 @@ const ANALYSE_X_HANDLES = [
   "WSJmarkets", "ReutersMarkets", "financialtimes", "business", "WSJ",
 ];
 
+const ANALYSE_X_USER_IDS: Record<string, string> = {
+  FirstSquawk:    "3295423333",
+  KobeissiLetter: "3316376038",
+  unusual_whales: "1200616796295847936",
+  WatcherGuru:    "1387497871751196672",
+  zerohedge:      "18856867",
+  markets:        "69620713",
+  WSJmarkets:     "28164923",
+  ReutersMarkets: "335907491",
+  financialtimes: "4898091",
+  business:       "34713362",
+  WSJ:            "3108351",
+};
+
 const ANALYSE_NITTER_INSTANCES = [
   "https://nitter.perennialte.ch",
   "https://nitter.rawit.eu",
@@ -129,38 +143,40 @@ async function fetchXForAnalysis(): Promise<RawItem[]> {
     );
     return results.flatMap(r => r.status === "fulfilled" ? r.value : []);
   }
-  try {
-    const query = `(${ANALYSE_X_HANDLES.map(h => `from:${h}`).join(" OR ")}) lang:en -is:retweet`;
-    const params = new URLSearchParams({
-      query,
-      max_results: "100",
-      "tweet.fields": "created_at,author_id",
-      expansions: "author_id",
-      "user.fields": "username",
-    });
-    const r = await fetch(`https://api.twitter.com/2/tweets/search/recent?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) return [];
-    const json = await r.json() as {
-      data?: { id: string; text: string; created_at: string; author_id: string }[];
-      includes?: { users?: { id: string; username: string }[] };
-    };
-    const userMap: Record<string, string> = {};
-    for (const u of json.includes?.users ?? []) userMap[u.id] = u.username;
-    return (json.data ?? [])
-      .filter(t => t.text.replace(/https?:\/\/\S+/g, "").trim().length > 15)
-      .map(t => ({
-        title: t.text.replace(/https?:\/\/\S+/g, "").trim(),
-        link: `https://x.com/${userMap[t.author_id] ?? "i"}/status/${t.id}`,
-        pubDate: t.created_at,
-        source: `X/@${userMap[t.author_id] ?? "twitter"}`,
-        category: "X",
-        description: "",
-        fullContent: "",
-      }));
-  } catch { return []; }
+  // Use GET /2/users/:id/tweets — available on FREE tier (no $100/month plan needed)
+  const results = await Promise.allSettled(
+    ANALYSE_X_HANDLES.map(async (handle) => {
+      const userId = ANALYSE_X_USER_IDS[handle];
+      if (!userId) return [] as RawItem[];
+      try {
+        const params = new URLSearchParams({
+          max_results: "20",
+          "tweet.fields": "created_at",
+          exclude: "retweets,replies",
+        });
+        const r = await fetch(`https://api.twitter.com/2/users/${userId}/tweets?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return [] as RawItem[];
+        const json = await r.json() as {
+          data?: { id: string; text: string; created_at: string }[];
+        };
+        return (json.data ?? [])
+          .map(t => ({
+            title: t.text.replace(/https?:\/\/\S+/g, "").trim(),
+            link: `https://x.com/${handle}/status/${t.id}`,
+            pubDate: t.created_at,
+            source: `X/@${handle}`,
+            category: "X",
+            description: "",
+            fullContent: "",
+          }))
+          .filter(item => item.title.length > 15);
+      } catch { return [] as RawItem[]; }
+    })
+  );
+  return results.flatMap(r => r.status === "fulfilled" ? r.value : []);
 }
 
 // ─── Market relevance filter ──────────────────────────────────────────────────
