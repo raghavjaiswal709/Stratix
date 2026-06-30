@@ -95,37 +95,21 @@ const FEEDS: { url: string; name: string; category: string }[] = [
   { url: "https://www.fxempire.com/api/v1/en/article/feed",               name: "FXEmpire",         category: "Forex & Commodities"   }, // 20
   // ── NEW: Additional Forex ─────────────────────────────────────────────────
   { url: "https://www.forexcrunch.com/feed/",                             name: "ForexCrunch",      category: "Forex Analysis"        }, // 21
-  { url: "https://www.fxnewstoday.com/feed",                              name: "FXNews Today",     category: "Forex"                 }, // 28 (listed 21 slot)
+  { url: "https://www.fxnewstoday.com/feed",                              name: "FXNews Today",     category: "Forex"                 }, // 22
   // ── NEW: Macro / Broad Market ─────────────────────────────────────────────
-  { url: "https://finance.yahoo.com/rss/topfinstories",                   name: "Yahoo Finance",    category: "Market News"           }, // 22
-  { url: "https://feeds.reuters.com/reuters/businessNews",                name: "Reuters",          category: "Market News"           }, // 23
-  { url: "https://feeds.reuters.com/reuters/financials",                  name: "Reuters",          category: "Financial News"        }, // 24
-  { url: "https://www.financemagnates.com/feed/",                         name: "Finance Magnates", category: "Forex Industry"        }, // 25
+  { url: "https://finance.yahoo.com/rss/topfinstories",                   name: "Yahoo Finance",    category: "Market News"           }, // 23
+  { url: "https://feeds.reuters.com/reuters/businessNews",                name: "Reuters",          category: "Market News"           }, // 24
+  { url: "https://feeds.reuters.com/reuters/financials",                  name: "Reuters",          category: "Financial News"        }, // 25
+  { url: "https://www.financemagnates.com/feed/",                         name: "Finance Magnates", category: "Forex Industry"        }, // 26
+  { url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                name: "WSJ Markets",      category: "Market News"           }, // 27  ← Wall Street Journal
+  { url: "https://www.benzinga.com/news/feed",                            name: "Benzinga",         category: "Market News"           }, // 28  ← fast breaking news
+  { url: "https://seekingalpha.com/market_currents.xml",                  name: "Seeking Alpha",    category: "Market News"           }, // 29  ← market currents/alerts
   // ── NEW: Crypto ───────────────────────────────────────────────────────────
-  { url: "https://bitcoinmagazine.com/feed",                              name: "Bitcoin Magazine", category: "Crypto"                }, // 26
-  { url: "https://cryptopotato.com/feed/",                                name: "CryptoPotato",     category: "Crypto"                }, // 27
-];
-
-// ─── X (Twitter) via nitter — fallback instance chain ─────────────────────────
-
-const NITTER_INSTANCES = [
-  "nitter.privacydev.net",
-  "xcancel.com",
-  "nitter.poast.org",
-  "nitter.1d4.us",
-];
-
-const X_ACCOUNTS = [
-  { handle: "FirstSquawk",    category: "Breaking Market News"   },
-  { handle: "investingLive_", category: "Live Market News"       },
-  { handle: "ForexFactory",   category: "Forex Calendar & Data"  },
-  { handle: "markets",        category: "Bloomberg Markets"      },
-  { handle: "WatcherGuru",    category: "Market & Crypto Alerts" },
-  { handle: "KobeissiLetter", category: "Macro Analysis"         },
-  { handle: "MacroAlerts",    category: "Macro Economic Alerts"  },
-  { handle: "unusual_whales", category: "Market Sentiment"       },
-  { handle: "zerohedge",      category: "Market Commentary"      },
-  { handle: "Reuters",        category: "Breaking News"          },
+  { url: "https://bitcoinmagazine.com/feed",                              name: "Bitcoin Magazine", category: "Crypto"                }, // 30
+  { url: "https://cryptopotato.com/feed/",                                name: "CryptoPotato",     category: "Crypto"                }, // 31
+  { url: "https://www.newsbtc.com/feed/",                                 name: "NewsBTC",          category: "Crypto"                }, // 32
+  { url: "https://cryptonews.com/news/feed/",                             name: "CryptoNews",       category: "Crypto"                }, // 33
+  { url: "https://watcherguru.com/feed/",                                 name: "WatcherGuru",      category: "Crypto"                }, // 34  ← crypto/market alerts
 ];
 
 // ─── Instrument keyword filters ───────────────────────────────────────────────
@@ -141,7 +125,7 @@ const SYMBOL_CONFIG: Record<
 > = {
   // ── ALL ── special: no keyword filter, all feeds ───────────────────────────
   ALL: {
-    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20],
+    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34],
     secondaryFeeds: [],
     keywords: [], // empty = include everything
     googleQuery: "",
@@ -370,28 +354,6 @@ async function fetchFeed(
   }
 }
 
-// Tries nitter instances until one responds; returns up to 12 items per handle.
-async function fetchXFeed(account: { handle: string; category: string }): Promise<RawItem[]> {
-  for (const instance of NITTER_INSTANCES) {
-    try {
-      const url = `https://${instance}/${account.handle}/rss`;
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          Accept: "application/rss+xml, application/xml, text/xml, */*",
-          "Cache-Control": "no-cache",
-        },
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!res.ok) continue;
-      const xml = await res.text();
-      if (!xml.includes("<item>")) continue;
-      const items = parseRSS(xml, `X/@${account.handle}`);
-      if (items.length > 0) return items.slice(0, 12);
-    } catch { /* try next instance */ }
-  }
-  return [];
-}
 
 // ─── Google News fallback ──────────────────────────────────────────────────────
 
@@ -428,29 +390,60 @@ function matchesKeywords(title: string, keywords: string[]): boolean {
 }
 
 // ─── Market relevance filter (for ALL mode) ───────────────────────────────────
-// Filters out retail stock-picking advice, dividend tips, individual company
-// analysis that pollutes macro/forex/commodities/crypto market news feeds.
+// Two-part filter:
+//  1. Hard blocklist — patterns that are definitively NOT trading-relevant news
+//  2. Positive match — word-boundary regex for short words (prevents "frustrated"
+//     matching "rate", "bond" matching "abandoned", "war" matching "forward", etc.)
+//     plus includes() for longer unambiguous phrases.
 
-const MARKET_RELEVANCE_KEYWORDS = [
-  "fed", "fomc", "federal reserve", "ecb", "boj", "boe", "central bank",
-  "rate", "inflation", "cpi", "ppi", "gdp", "pmi", "nfp", "payroll",
-  "gold", "silver", "xau", "xag", "bullion", "precious",
-  "bitcoin", "ethereum", "btc", "eth", "crypto", "blockchain",
-  "oil", "crude", "opec", "brent", "wti", "energy", "natural gas",
-  "dollar", "usd", "dxy", "yen", "euro", "pound", "franc", "yuan", "currency", "forex",
-  "eurusd", "gbpusd", "usdjpy", "audusd", "nzdusd", "usdcad", "usdchf",
-  "war", "conflict", "geopolit", "sanction", "military", "iran", "russia",
-  "ukraine", "china", "taiwan", "middle east", "attack", "strike",
-  "tariff", "trade war", "export ban",
-  "yield", "treasury", "bond", "market crash", "risk-off", "safe haven",
-  "powell", "lagarde", "ueda", "hawkish", "dovish", "monetary policy",
-  "bank failure", "debt", "default", "recession", "recession",
-  "commodity", "copper", "iron ore", "wheat", "corn",
+const NOISE_BLOCKLIST = [
+  /\bfrustrat\w*/,          // "frustrated", "frustrating" (triggers "rate" substring)
+  /\bhom(e|es)\s+buyer/,   // "home buyer", "homes buyer" (retail housing advice)
+  /\bhomebuy\w+/,           // "homebuyer"
+  /\bhomes?\s+(remain|unsold|for\s+sale)\b/, // "homes remain unsold"
+  /\btips?\s+for\b/,        // "tips for buying"
+  /\bhow\s+to\s+(buy|save|invest|afford)\b/,
+  /\bhoroscope\b/,
+  /\brecipe\b/,
+  /\bcelebrity\b/,
+  /\bwedding\b/,
+  /\bpregnant\b/,
+  /\bdivorce\b/,
+  /\blifestyle\b/,
+  /\bfashion\b/,
+  /\bvaccine\b(?!.*\b(economy|market|gdp)\b)/, // vaccine news unless economic context
+];
+
+// Short words that must use word-boundary check (avoids false-positive substrings)
+const BOUNDARY_KW_RE = /\b(fed|fomc|ecb|boj|boe|rba|rbnz|snb|pboc|g7|g20|cpi|ppi|pmi|gdp|nfp|ism|lng|wti|dxy|usd|eur|gbp|jpy|cad|aud|nzd|chf|xau|xag|btc|eth|oil|gas|gold|corn|bond|yuan|yen|war|nato)\b/i;
+
+// Longer phrases — safe to use substring matching
+const PHRASE_KEYWORDS = [
+  "federal reserve", "central bank", "interest rate", "rate cut", "rate hike",
+  "monetary policy", "hawkish", "dovish", "quantitative", "powell", "lagarde",
+  "ueda", "bailey", "inflation", "deflation", "stagflation",
+  "consumer price", "producer price", "housing starts", "housing permits",
+  "durable goods", "retail sales", "trade deficit", "current account",
+  "nonfarm payroll", "payroll", "employment", "unemployment", "labor market",
+  "consumer confidence", "business confidence", "economic growth", "gross domestic",
+  "bullion", "precious metal", "crude oil", "natural gas", "brent", "opec",
+  "bitcoin", "ethereum", "crypto", "blockchain", "defi", "stablecoin", "altcoin",
+  "dollar", "franc", "pound", "sterling", "renminbi", "forex", "currency",
+  "exchange rate", "treasury", "yield curve", "bond yield", "credit rating",
+  "market crash", "selloff", "sell-off", "safe haven", "risk-off", "risk on",
+  "geopolit", "sanction", "tariff", "trade war", "export ban",
+  "conflict", "military", "nuclear", "missile",
+  "iran", "russia", "ukraine", "taiwan", "israel", "middle east",
+  "s&p", "nasdaq", "dow jones", "nikkei", "ftse", "dax",
+  "bank failure", "debt ceiling", "default", "recession",
+  "commodity", "copper", "iron ore", "wheat",
 ];
 
 function isMarketRelevantForAll(title: string): boolean {
   const lower = title.toLowerCase();
-  return MARKET_RELEVANCE_KEYWORDS.some(kw => lower.includes(kw));
+  if (NOISE_BLOCKLIST.some(p => p.test(lower))) return false;
+  if (BOUNDARY_KW_RE.test(title)) return true;
+  return PHRASE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
 // ─── Deduplication ────────────────────────────────────────────────────────────
@@ -463,6 +456,104 @@ function deduplicateItems<T extends RawItem>(items: T[]): T[] {
     seen.add(key);
     return true;
   });
+}
+
+// ─── Context-aware market impact generator ────────────────────────────────────
+
+function generateMarketImpact(title: string, sentiment: "Bullish" | "Bearish" | "Neutral"): string {
+  const t = title.toLowerCase();
+  const B = sentiment === "Bullish";
+  const S = sentiment === "Bearish";
+
+  // Fed / FOMC / US rates
+  if (/\b(fed|fomc|federal reserve|powell|rate cut|rate hike|dot plot|basis point)\b/.test(t)) {
+    if (S) return "Hawkish Fed → USD ↑, Gold ↓, 10yr yield ↑. EURUSD ↓, USDJPY ↑. Rate cuts priced out.";
+    if (B) return "Dovish Fed → USD softens, Gold ↑, rate cut bets rise. EURUSD ↑, risk assets bid.";
+    return "Fed signal → DXY + Treasury yield repricing. Watch Gold (inverse DXY), USDJPY (yield spread), EURUSD.";
+  }
+  // ECB / Euro
+  if (/\b(ecb|lagarde|eurozone|euro area|euro zone)\b/.test(t)) {
+    if (B) return "EUR ↑ → EURUSD ↑. ECB hawkish premium vs Fed widens. EURGBP, EURJPY follow.";
+    if (S) return "EUR ↓ → EURUSD selling. ECB dovish widens rate gap vs Fed. EURGBP, EURJPY drag.";
+    return "ECB → EURUSD and EUR crosses primary. ECB/Fed rate differential determines direction.";
+  }
+  // BoJ / JPY
+  if (/\b(boj|bank of japan|ueda|yen)\b/.test(t) || /\bjpy\b/i.test(title)) {
+    if (B) return "JPY ↑ → USDJPY ↓. Yen carry unwind risk: AUD, NZD, equities may sell off globally.";
+    if (S) return "JPY ↓ → USDJPY ↑. Carry trades active. BoJ intervention risk builds above 152–155.";
+    return "BoJ/JPY → USDJPY primary (US–Japan yield spread driver). Carry trade implications for risk assets.";
+  }
+  // BoE / GBP
+  if (/\b(boe|bank of england|bailey|sterling)\b/.test(t) || /\bgbp\b/i.test(title)) {
+    if (B) return "GBP ↑ → GBPUSD ↑. BoE hawkish vs Fed. EURGBP may drop on GBP outperformance.";
+    if (S) return "GBP ↓ → GBPUSD ↓. BoE cut expectations rise, rate gap vs Fed widens against GBP.";
+    return "GBP/BoE → GBPUSD primary. UK–US yield differential and risk appetite determine direction.";
+  }
+  // RBA / AUD
+  if (/\b(rba|reserve bank of australia|aussie)\b/.test(t) || /\baud\b/i.test(title)) {
+    if (B) return "AUD ↑ → AUDUSD ↑. RBA hawkish or China growth positive. Risk-on signal for commodity FX.";
+    if (S) return "AUD ↓ → AUDUSD ↓. RBA dovish or China slowdown fears. Commodity FX under pressure.";
+    return "AUD/RBA → AUDUSD primary. China PMI and iron ore prices are secondary drivers.";
+  }
+  // CPI / Inflation
+  if (/\b(cpi|inflation|consumer price|ppi|producer price|deflation|stagflation)\b/.test(t)) {
+    if (S) return "Hot inflation → rate hike fears ↑. USD ↑, Gold ↓, bonds sell. EURUSD ↓, USDJPY ↑. Stagflation risk.";
+    if (B) return "Cooling inflation → rate cut path opens. Gold ↑, USD softens. EURUSD ↑. Risk-on equities.";
+    return "CPI/inflation → rate path repricing. Gold (real yields), DXY, bonds all react. Key macro driver.";
+  }
+  // NFP / Jobs
+  if (/\b(nfp|payroll|nonfarm|employment|unemployment|jobs? (report|data|market)|labor market)\b/.test(t)) {
+    if (B) return "Strong jobs → Fed stays higher longer. USD ↑, Gold ↓, USDJPY ↑. Rate cut timeline pushed out.";
+    if (S) return "Weak jobs → recession risk ↑. Gold ↑, USD ↓, rate cuts expected sooner. Safe havens bid.";
+    return "NFP/jobs → Fed rate path + USD outlook. Gold (inverse USD), USDJPY (yield spread) key movers.";
+  }
+  // GDP / PMI / Growth
+  if (/\b(gdp|pmi|ism|retail sales|economic growth|recession|contraction|gross domestic)\b/.test(t)) {
+    if (B) return "Strong growth → risk-on. AUD/NZD ↑, equities ↑. USD mixed. Gold softens unless geopolitical.";
+    if (S) return "Weak growth → recession risk ↑. Gold ↑, JPY ↑, CHF ↑. AUD/NZD/EM currencies under pressure.";
+    return "Growth/PMI → global risk sentiment. Commodity currencies (AUD, CAD, NZD) most sensitive to data.";
+  }
+  // Gold / Bullion
+  if (/\b(gold|xau|bullion|precious metal|gold price)\b/.test(t)) {
+    if (B) return "Gold ↑ — safe-haven demand / USD weakness / real yield drop. Silver often follows with leverage.";
+    if (S) return "Gold ↓ — USD strength / rising real yields / risk-on sentiment reduces haven demand.";
+    return "Gold signal → watch DXY + 10yr TIPS yield (strongest inverse correlations). ETF flows confirm direction.";
+  }
+  // Silver
+  if (/\b(silver|xag)\b/.test(t)) {
+    if (B) return "Silver ↑ — follows Gold + industrial demand (solar/EV). China PMI secondary driver. More volatile than Gold.";
+    if (S) return "Silver ↓ — dual pressure: Gold weakness + industrial slowdown fears. Amplified Gold moves.";
+    return "Silver → Gold (monetary) + industrial cycle (PMI, China). Moves amplified vs Gold.";
+  }
+  // Oil / Energy
+  if (/\b(crude|brent|opec|petroleum|natural gas)\b/.test(t) || /\bwti\b/i.test(title) || /\boil\b/.test(t)) {
+    if (B) return "Oil ↑ → USDCAD ↓ (CAD strengthens). Inflation expectations ↑. Energy sector tailwind.";
+    if (S) return "Oil ↓ → USDCAD ↑ (CAD weakens). Deflationary pressure. Commodity FX (AUD, CAD) vulnerable.";
+    return "Oil/energy → USDCAD primary (inverse). Secondary: inflation path, AUD, global risk sentiment.";
+  }
+  // Crypto
+  if (/\b(bitcoin|ethereum|crypto|cryptocurrency|blockchain|defi|stablecoin)\b/.test(t)) {
+    if (B) return "Crypto ↑ — BTC leads, ETH follows. Institutional/ETF catalyst = risk-on. Nasdaq correlation 0.7+.";
+    if (S) return "Crypto ↓ — regulatory/macro headwind. Risk-off signal. Watch Nasdaq for equity correlation.";
+    return "Crypto signal → BTC/ETH primary. Risk sentiment proxy. ETF flows + regulatory environment key.";
+  }
+  // Geopolitical
+  if (/\b(war|conflict|sanction|military|geopolit|middle east|ukraine|russia|iran|israel|attack|nuclear|missile)\b/.test(t)) {
+    if (S) return "Geopolitical risk ↑ → safe havens: Gold ↑, JPY ↑, CHF ↑. Risk-off: AUD/NZD/BTC/equities ↓.";
+    if (B) return "Geopolitical de-escalation → Gold ↓ (haven unwind). Risk appetite returns: AUD/NZD/equities ↑.";
+    return "Geopolitical event → safe haven demand (Gold, JPY, CHF) vs risk assets. Escalation = most impactful.";
+  }
+  // China / Trade
+  if (/\b(tariff|trade war|trade deal|export ban|supply chain)\b/.test(t)) {
+    if (S) return "Trade tension ↑ → AUD/NZD ↓ (China proxies). Gold ↑, risk-off. Iron ore, copper fall.";
+    if (B) return "Trade deal/relief → AUD/NZD ↑ (China growth proxies). Commodity FX benefits. Risk-on.";
+    return "Trade/tariff news → AUD primary (China proxy), then NZD, commodity prices. Global risk driver.";
+  }
+
+  // Generic fallbacks
+  if (B) return "Risk-on signal → USD typically softens, risk assets bid. Monitor correlated pairs for follow-through.";
+  if (S) return "Risk-off signal → safe havens (Gold, JPY, CHF) bid. AUD/NZD/crypto under selling pressure.";
+  return "Market development → watch DXY, 10yr yield, Gold for cross-asset direction confirmation.";
 }
 
 // ─── Sentiment analysis ────────────────────────────────────────────────────────
@@ -479,10 +570,10 @@ function analyzeSentiment(title: string): {
     "gained", "rise", "rises", "rose", "jump", "jumps", "jumped", "soar",
     "soars", "soared", "climb", "climbs", "climbed", "advance", "advances",
     "recovery", "recovers", "rebound", "rebounds", "breakout", "bullish",
-    "strong", "optimistic", "higher", "upward", "buying", "buying interest",
+    "strong", "optimistic", "higher", "upward", "buying interest",
     "stimulus", "easing", "rate cut", "rate cuts", "dovish", "support",
-    "demand", "record high", "all-time high", "positive", "outperform",
-    "growth", "expansion", "safe haven demand", "inflows", "peak", "accord",
+    "demand", "record high", "all-time high", "outperform",
+    "expansion", "safe haven demand", "inflows", "accord",
     "deal", "agreement", "ceasefire", "resolution", "stabilize", "boost",
     "accelerate", "exceed", "beat", "above expectation", "above forecast",
   ];
@@ -493,13 +584,13 @@ function analyzeSentiment(title: string): {
     "slips", "slipped", "decline", "declines", "declined", "crash", "crashes",
     "crashed", "sell-off", "selloff", "weakness", "weak", "lower", "downward",
     "selling", "bearish", "recession", "slowdown", "contraction", "default",
-    "crisis", "debt", "deficit", "inflation", "rate hike", "rate hikes",
+    "crisis", "deficit", "rate hike", "rate hikes",
     "hawkish", "tightening", "sanction", "sanctions", "trade war", "tariff",
     "tariffs", "conflict", "escalation", "escalate", "tension", "tensions",
     "shutdown", "geopolitical risk", "risk-off", "risk off", "outflows",
-    "pressure", "negative", "warning", "concern", "fears", "downturn",
-    "correction", "breakdown", "resistance", "miss", "below expectation",
-    "below forecast", "disappoints", "cut", "layoff", "bankruptcy",
+    "pressure", "warning", "concern", "fears", "downturn",
+    "correction", "breakdown", "miss", "below expectation",
+    "below forecast", "disappoints", "layoff", "bankruptcy",
   ];
 
   let posScore = 0;
@@ -516,19 +607,10 @@ function analyzeSentiment(title: string): {
   const score = total > 0 ? (posScore - negScore) / total : 0;
 
   let label: "Bullish" | "Bearish" | "Neutral" = "Neutral";
-  let impact =
-    "Neutral market stance. Price consolidation or range-bound movement likely in the near term.";
+  if (score > 0.1) label = "Bullish";
+  else if (score < -0.1) label = "Bearish";
 
-  if (score > 0.1) {
-    label = "Bullish";
-    impact =
-      "Positive market signal. Indicates upward momentum or macro/geopolitical conditions that support buying pressure.";
-  } else if (score < -0.1) {
-    label = "Bearish";
-    impact =
-      "Negative market signal. Suggests downward pressure, risk-off sentiment, or macro headwinds driving selling interest.";
-  }
-
+  const impact = generateMarketImpact(title, label);
   return { score, label, impact };
 }
 
@@ -584,7 +666,13 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("producer price") ||
     t.includes("ppi") ||
     t.includes("ism") ||
-    t.includes("housing")
+    t.includes("housing starts") ||
+    t.includes("housing permits") ||
+    t.includes("durable goods") ||
+    t.includes("trade deficit") ||
+    t.includes("current account") ||
+    t.includes("consumer confidence") ||
+    t.includes("nonfarm")
   )
     return "Economic Data";
   if (
@@ -633,23 +721,14 @@ export async function GET(req: NextRequest) {
   let googleItems: RawItem[] = [];
 
   if (isAll) {
-    // Fetch all RSS feeds + X/Twitter (via nitter) in parallel
+    // Fetch all 35 RSS feeds in parallel
     feedsToFetch = FEEDS;
-    const [rssResults, xResults] = await Promise.all([
-      Promise.allSettled(FEEDS.map((f) => fetchFeed(f))),
-      Promise.allSettled(X_ACCOUNTS.map((a) => fetchXFeed(a))),
-    ]);
+    const rssResults = await Promise.allSettled(FEEDS.map((f) => fetchFeed(f)));
 
     const allRaw: (RawItem & { feedIdx: number })[] = [];
     rssResults.forEach((res, i) => {
       if (res.status === "fulfilled") {
         res.value.forEach((item) => allRaw.push({ ...item, feedIdx: i }));
-      }
-    });
-    // X posts get feedIdx = -2 (distinct from Google News = -1)
-    xResults.forEach((res) => {
-      if (res.status === "fulfilled") {
-        res.value.forEach((item) => allRaw.push({ ...item, feedIdx: -2 }));
       }
     });
 
@@ -664,8 +743,8 @@ export async function GET(req: NextRequest) {
       return tb - ta;
     });
 
-    const articles: NewsArticle[] = marketFiltered.slice(0, 120).map((item) => {
-      const feedDef = item.feedIdx >= 0 ? FEEDS[item.feedIdx] : { category: item.feedIdx === -2 ? "Breaking News" : "News" };
+    const articles: NewsArticle[] = marketFiltered.slice(0, 150).map((item) => {
+      const feedDef = item.feedIdx >= 0 ? FEEDS[item.feedIdx] : { category: "News" };
       const category = inferCategory(item.title, feedDef.category || "News");
       const { score, label, impact } = analyzeSentiment(item.title);
       return {
@@ -691,10 +770,9 @@ export async function GET(req: NextRequest) {
   );
   feedsToFetch = feedIndices.map((i) => FEEDS[i]).filter(Boolean);
 
-  // Fetch RSS feeds + Google News + X/Twitter in parallel
-  const [gnItems, xSettled, ...feedResults] = await Promise.allSettled([
+  // Fetch RSS feeds + Google News in parallel
+  const [gnItems, ...feedResults] = await Promise.allSettled([
     fetchGoogleNews(config.googleQuery),
-    Promise.all(X_ACCOUNTS.map((a) => fetchXFeed(a))),
     ...feedsToFetch.map((feed) => fetchFeed(feed)),
   ]);
 
@@ -711,15 +789,6 @@ export async function GET(req: NextRequest) {
   });
   googleItems.forEach((item) => allRaw.push({ ...item, feedIdx: -1 }));
 
-  // Merge X posts (all handles) — keyword filter handles relevance below
-  if (xSettled.status === "fulfilled") {
-    for (const batch of xSettled.value) {
-      for (const item of batch) {
-        allRaw.push({ ...item, feedIdx: -2 });
-      }
-    }
-  }
-
   // Keyword filter
   const filtered = allRaw.filter((item) => {
     return matchesKeywords(item.title, config.keywords);
@@ -734,9 +803,7 @@ export async function GET(req: NextRequest) {
   });
 
   const articles: NewsArticle[] = deduped.slice(0, 80).map((item) => {
-    const feedDef = item.feedIdx >= 0
-      ? FEEDS[item.feedIdx]
-      : { category: item.feedIdx === -2 ? "Breaking News" : "News" };
+    const feedDef = item.feedIdx >= 0 ? FEEDS[item.feedIdx] : { category: "News" };
     const category = inferCategory(item.title, feedDef.category || "News");
     const { score, label, impact } = analyzeSentiment(item.title);
     return {

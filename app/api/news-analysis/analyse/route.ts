@@ -59,75 +59,66 @@ const FEEDS = [
   { url: "https://www.theblock.co/rss",                                    name: "The Block",       category: "Crypto" },
   { url: "https://bitcoinmagazine.com/feed",                               name: "Bitcoin Magazine",category: "Crypto" },
   { url: "https://cryptopotato.com/feed/",                                 name: "CryptoPotato",    category: "Crypto" },
-];
-
-// ─── X (Twitter) via nitter — multiple fallback instances ────────────────────
-// nitter is an open-source X frontend; we try instances until one responds.
-
-const NITTER_INSTANCES = [
-  "nitter.privacydev.net",
-  "xcancel.com",
-  "nitter.poast.org",
-  "nitter.1d4.us",
-];
-
-const X_ACCOUNTS = [
-  { handle: "FirstSquawk",    category: "Breaking Market News"    },
-  { handle: "investingLive_", category: "Live Market News"        },
-  { handle: "ForexFactory",   category: "Forex Calendar & Data"   },
-  { handle: "markets",        category: "Bloomberg Markets"       },
-  { handle: "WatcherGuru",    category: "Market & Crypto Alerts"  },
-  { handle: "KobeissiLetter", category: "Macro Analysis"          },
-  { handle: "MacroAlerts",    category: "Macro Economic Alerts"   },
-  { handle: "unusual_whales", category: "Market Sentiment"        },
-  { handle: "zerohedge",      category: "Market Commentary"       },
-  { handle: "Reuters",        category: "Breaking News"           },
+  { url: "https://www.newsbtc.com/feed/",                                  name: "NewsBTC",         category: "Crypto" },
+  { url: "https://cryptonews.com/news/feed/",                              name: "CryptoNews",      category: "Crypto" },
+  { url: "https://watcherguru.com/feed/",                                  name: "WatcherGuru",     category: "Crypto" },
+  // ── Breaking / Fast Market News ──────────────────────────────────────────────
+  { url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                 name: "WSJ Markets",     category: "Market News" },
+  { url: "https://www.benzinga.com/news/feed",                             name: "Benzinga",        category: "Market News" },
+  { url: "https://seekingalpha.com/market_currents.xml",                   name: "Seeking Alpha",   category: "Market News" },
 ];
 
 // ─── Market relevance filter ──────────────────────────────────────────────────
-// Keeps ONLY articles that are relevant to forex/metals/crypto/macro markets.
-// This eliminates retail stock-picking advice, dividend tips, individual company
-// articles, etc. that pollute the pool and degrade AI analysis quality.
+// Two-part filter (same logic as news/route.ts):
+//  1. Hard blocklist for definitively-not-trading news
+//  2. Word-boundary regex for short keywords + phrase includes() for longer ones
+// This prevents "frustrated" matching "rate", "bond" matching "abandoned", etc.
 
-const MARKET_KEYWORDS = [
-  // Central banks & monetary policy
-  "fed", "fomc", "federal reserve", "ecb", "european central bank", "boj",
-  "boe", "bank of england", "bank of japan", "rba", "rbnz", "snb", "pboc",
-  "central bank", "rate cut", "rate hike", "interest rate", "monetary",
-  "hawkish", "dovish", "quantitative", "powell", "lagarde", "ueda", "bailey",
-  // Macro economic data
-  "inflation", "cpi", "ppi", "deflation", "gdp", "growth", "recession",
-  "pmi", "ism", "nfp", "payroll", "jobs", "employment", "unemployment",
-  "retail sales", "consumer confidence", "trade deficit", "current account",
-  "housing starts", "durable goods",
-  // Forex & currencies
-  "forex", "currency", "dollar", "usd", "dxy", "yen", "euro", "pound",
-  "franc", "yuan", "renminbi", "fx", "exchange rate", "eurusd", "gbpusd",
-  "usdjpy", "audusd", "nzdusd", "usdcad", "usdchf",
-  // Gold & Silver
-  "gold", "silver", "xau", "xag", "bullion", "precious metal", "platinum",
-  "gold price", "silver price", "gold forecast",
-  // Crypto macro
-  "bitcoin", "ethereum", "btc", "eth", "crypto", "cryptocurrency",
-  "blockchain", "etf", "defi", "stablecoin", "altcoin",
-  // Energy & commodities
-  "oil", "crude", "wti", "brent", "opec", "energy", "natural gas", "lng",
-  "copper", "iron ore", "wheat", "commodity", "corn", "soy",
-  // Geopolitical & risk events
-  "war", "conflict", "geopolit", "sanction", "military", "attack", "strike",
-  "iran", "russia", "ukraine", "china", "taiwan", "middle east", "israel",
-  "north korea", "nato", "nuclear", "coup", "election",
-  "tariff", "trade war", "export ban", "supply chain",
-  // Markets & finance
-  "yield", "treasury", "bond", "market crash", "selloff", "rally",
-  "risk-off", "risk off", "safe haven", "volatility",
+const ANALYSE_NOISE_BLOCKLIST = [
+  /\bfrustrat\w*/,
+  /\bhom(e|es)\s+buyer/,
+  /\bhomebuy\w+/,
+  /\bhomes?\s+(remain|unsold|for\s+sale)\b/,
+  /\btips?\s+for\b/,
+  /\bhow\s+to\s+(buy|save|invest|afford)\b/,
+  /\bhoroscope\b/,
+  /\brecipe\b/,
+  /\bcelebrity\b/,
+  /\bwedding\b/,
+  /\bpregnant\b/,
+  /\blifestyle\b/,
+  /\bfashion\b/,
+];
+
+const ANALYSE_BOUNDARY_RE = /\b(fed|fomc|ecb|boj|boe|rba|rbnz|snb|pboc|g7|g20|cpi|ppi|pmi|gdp|nfp|ism|lng|wti|dxy|usd|eur|gbp|jpy|cad|aud|nzd|chf|xau|xag|btc|eth|oil|gas|gold|corn|bond|yuan|yen|war|nato|etf)\b/i;
+
+const ANALYSE_PHRASE_KEYWORDS = [
+  "federal reserve", "central bank", "interest rate", "rate cut", "rate hike",
+  "monetary policy", "hawkish", "dovish", "quantitative", "powell", "lagarde",
+  "ueda", "bailey", "inflation", "deflation", "stagflation",
+  "consumer price", "producer price", "housing starts", "housing permits",
+  "durable goods", "retail sales", "trade deficit", "current account",
+  "nonfarm payroll", "payroll", "employment", "unemployment", "labor market",
+  "consumer confidence", "economic growth", "gross domestic",
+  "bullion", "precious metal", "crude oil", "natural gas", "brent", "opec",
+  "bitcoin", "ethereum", "crypto", "blockchain", "defi", "stablecoin",
+  "dollar", "franc", "pound", "sterling", "renminbi", "forex", "currency",
+  "exchange rate", "treasury", "yield curve", "bond yield", "credit rating",
+  "market crash", "selloff", "sell-off", "safe haven", "risk-off", "risk on",
+  "geopolit", "sanction", "tariff", "trade war", "export ban",
+  "conflict", "military", "nuclear", "missile",
+  "iran", "russia", "ukraine", "taiwan", "israel", "middle east",
+  "north korea", "nato",
   "s&p", "nasdaq", "dow jones", "nikkei", "ftse", "dax",
-  "bank failure", "debt ceiling", "default", "credit rating",
+  "bank failure", "debt ceiling", "default", "recession",
+  "commodity", "copper", "iron ore", "wheat", "platinum",
 ];
 
 function isMarketRelevant(title: string): boolean {
   const lower = title.toLowerCase();
-  return MARKET_KEYWORDS.some(kw => lower.includes(kw));
+  if (ANALYSE_NOISE_BLOCKLIST.some(p => p.test(lower))) return false;
+  if (ANALYSE_BOUNDARY_RE.test(title)) return true;
+  return ANALYSE_PHRASE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
 const SYMBOL_CONFIG: Record<
@@ -235,10 +226,10 @@ function matchesKeywords(title: string, keywords: string[]): boolean {
 // ─── Volume targets per time range ────────────────────────────────────────────
 
 const ARTICLE_TARGETS: Record<string, number> = {
-  "2h": 15,
-  "5h": 20,
-  "12h": 25,
-  "24h": 30,
+  "2h": 25,
+  "5h": 40,
+  "12h": 55,
+  "24h": 70,
 };
 
 const TIME_RANGE_LABELS: Record<string, string> = {
@@ -381,28 +372,6 @@ async function fetchFeed(feed: { url: string; name: string; category: string }):
   }
 }
 
-// Tries each nitter instance until one works; returns up to 12 tweets per account.
-async function fetchXFeed(account: { handle: string; category: string }): Promise<RawItem[]> {
-  for (const instance of NITTER_INSTANCES) {
-    try {
-      const url = `https://${instance}/${account.handle}/rss`;
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          Accept: "application/rss+xml, application/xml, text/xml, */*",
-          "Cache-Control": "no-cache",
-        },
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!res.ok) continue;
-      const xml = await res.text();
-      if (!xml.includes("<item>")) continue;
-      const items = parseRSS(xml, `X/@${account.handle}`, account.category);
-      if (items.length > 0) return items.slice(0, 12);
-    } catch { /* try next instance */ }
-  }
-  return [];
-}
 
 function formatToIST(d: Date): string {
   const ist = new Date(d.getTime() + 330 * 60 * 1000);
@@ -756,13 +725,9 @@ export async function POST(req: NextRequest) {
   const selectedLinks = body.selectedLinks ?? null;
 
   // ── Fetch RSS feeds + X/Twitter (via nitter) in parallel ────────────────────
-  const [feedResults, xResults] = await Promise.all([
-    Promise.allSettled(FEEDS.map(f => fetchFeed(f))),
-    Promise.allSettled(X_ACCOUNTS.map(a => fetchXFeed(a))),
-  ]);
+  const feedResults = await Promise.allSettled(FEEDS.map(f => fetchFeed(f)));
   const allItems: RawItem[] = [];
   feedResults.forEach(res => { if (res.status === "fulfilled") allItems.push(...res.value); });
-  xResults.forEach(res    => { if (res.status === "fulfilled") allItems.push(...res.value); });
 
   // ── Deduplicate ──────────────────────────────────────────────────────────────
   const seen = new Set<string>();
