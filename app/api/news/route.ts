@@ -382,9 +382,20 @@ const X_HANDLES = [
   "unusual_whales",   // Options flow + market alerts
   "WatcherGuru",      // Crypto/macro alerts
   "ForexFactory",     // FX + economic calendar alerts
-  "MacroAlerts",      // Macro signals
   "zerohedge",        // Macro / geopolitical
   "markets",          // Bloomberg Markets Live
+  "WSJmarkets",       // WSJ Markets desk
+  "ReutersMarkets",   // Reuters Markets
+  "financialtimes",   // Financial Times
+  "business",         // Bloomberg Business
+  "WSJ",              // Wall Street Journal
+];
+
+// Nitter instances ordered by reliability — first one that returns 200 wins per handle
+const NITTER_INSTANCES = [
+  "https://nitter.perennialte.ch",
+  "https://nitter.rawit.eu",
+  "https://nitter.12bit.vn",
 ];
 
 async function fetchXViaAPI(): Promise<RawItem[]> {
@@ -421,19 +432,22 @@ async function fetchXViaAPI(): Promise<RawItem[]> {
   } catch { return []; }
 }
 
-async function fetchXViaRSSHub(): Promise<RawItem[]> {
+async function fetchXViaNitter(): Promise<RawItem[]> {
   const results = await Promise.allSettled(
     X_HANDLES.map(async (handle) => {
-      try {
-        const r = await fetch(`https://rsshub.app/twitter/user/${handle}`, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketBot/1.0)" },
-          signal: AbortSignal.timeout(3000),
-        });
-        if (!r.ok) return [] as RawItem[];
-        const xml = await r.text();
-        if (!xml.includes("<item>")) return [] as RawItem[];
-        return parseRSS(xml, `X/@${handle}`).slice(0, 12);
-      } catch { return [] as RawItem[]; }
+      for (const instance of NITTER_INSTANCES) {
+        try {
+          const r = await fetch(`${instance}/${handle}/rss`, {
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; RSS reader)", Accept: "application/rss+xml" },
+            signal: AbortSignal.timeout(6000),
+          });
+          if (!r.ok) continue;
+          const xml = await r.text();
+          if (!xml.includes("<item>")) continue;
+          return parseRSS(xml, `X/@${handle}`).slice(0, 15);
+        } catch { continue; }
+      }
+      return [] as RawItem[];
     })
   );
   const items: RawItem[] = [];
@@ -444,10 +458,10 @@ async function fetchXViaRSSHub(): Promise<RawItem[]> {
 }
 
 async function fetchXContent(): Promise<RawItem[]> {
-  // Try official API first; fall back to rsshub
+  // Try official Twitter API first; fall back to Nitter instances
   const apiItems = await fetchXViaAPI();
   if (apiItems.length > 0) return apiItems;
-  return fetchXViaRSSHub();
+  return fetchXViaNitter();
 }
 
 // ─── Google News fallback ──────────────────────────────────────────────────────
