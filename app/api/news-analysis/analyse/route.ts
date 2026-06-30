@@ -83,38 +83,48 @@ const FEEDS = [
 
 const ANALYSE_X_HANDLES = [
   "FirstSquawk", "KobeissiLetter", "unusual_whales",
-  "WatcherGuru", "MacroAlerts", "zerohedge", "markets",
+  "WatcherGuru", "zerohedge", "markets",
+  "WSJmarkets", "ReutersMarkets", "financialtimes", "business", "WSJ",
+];
+
+const ANALYSE_NITTER_INSTANCES = [
+  "https://nitter.perennialte.ch",
+  "https://nitter.rawit.eu",
+  "https://nitter.12bit.vn",
 ];
 
 async function fetchXForAnalysis(): Promise<RawItem[]> {
   const token = process.env.TWITTER_BEARER_TOKEN;
   if (!token) {
-    // Fallback: try rsshub.app with short timeout
+    // Fallback: try Nitter instances with per-handle fallback chain
     const results = await Promise.allSettled(
       ANALYSE_X_HANDLES.map(async (handle) => {
-        try {
-          const r = await fetch(`https://rsshub.app/twitter/user/${handle}`, {
-            headers: { "User-Agent": "Mozilla/5.0" },
-            signal: AbortSignal.timeout(3000),
-          });
-          if (!r.ok) return [] as RawItem[];
-          const xml = await r.text();
-          if (!xml.includes("<item>")) return [] as RawItem[];
-          // Inline RSS parse for tweets
-          const items: RawItem[] = [];
-          const rx = /<item>([\s\S]*?)<\/item>/g;
-          let m;
-          while ((m = rx.exec(xml)) !== null) {
-            const b = m[1];
-            const tM = /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(b) || /<title>([^<]*)<\/title>/.exec(b);
-            const lM = /<link>([^<]+)<\/link>/.exec(b) || /<guid[^>]*>([^<]+)<\/guid>/.exec(b);
-            const dM = /<pubDate>([^<]+)<\/pubDate>/.exec(b);
-            if (tM && lM && tM[1].trim().length > 10) {
-              items.push({ title: tM[1].trim(), link: lM[1].trim(), pubDate: dM?.[1]?.trim() ?? "", source: `X/@${handle}`, category: "X", description: "", fullContent: "" });
+        for (const instance of ANALYSE_NITTER_INSTANCES) {
+          try {
+            const r = await fetch(`${instance}/${handle}/rss`, {
+              headers: { "User-Agent": "Mozilla/5.0 (compatible; RSS reader)", Accept: "application/rss+xml" },
+              signal: AbortSignal.timeout(6000),
+            });
+            if (!r.ok) continue;
+            const xml = await r.text();
+            if (!xml.includes("<item>")) continue;
+            // Inline RSS parse for tweets
+            const items: RawItem[] = [];
+            const rx = /<item>([\s\S]*?)<\/item>/g;
+            let m;
+            while ((m = rx.exec(xml)) !== null) {
+              const b = m[1];
+              const tM = /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(b) || /<title>([^<]*)<\/title>/.exec(b);
+              const lM = /<link>([^<]+)<\/link>/.exec(b) || /<guid[^>]*>([^<]+)<\/guid>/.exec(b);
+              const dM = /<pubDate>([^<]+)<\/pubDate>/.exec(b);
+              if (tM && lM && tM[1].trim().length > 10) {
+                items.push({ title: tM[1].trim(), link: lM[1].trim(), pubDate: dM?.[1]?.trim() ?? "", source: `X/@${handle}`, category: "X", description: "", fullContent: "" });
+              }
             }
-          }
-          return items.slice(0, 10);
-        } catch { return [] as RawItem[]; }
+            return items.slice(0, 15);
+          } catch { continue; }
+        }
+        return [] as RawItem[];
       })
     );
     return results.flatMap(r => r.status === "fulfilled" ? r.value : []);
