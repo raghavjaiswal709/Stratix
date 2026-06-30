@@ -48,13 +48,30 @@ interface RawItem {
 //  19  AP Business           Market News
 //  20  FXEmpire              Forex & Commodities
 //  21  ForexCrunch           Forex Analysis
-//  22  Yahoo Finance         Market News
-//  23  Reuters Business      Market News
-//  24  Reuters Financials    Financial News
-//  25  Finance Magnates      Forex Industry
-//  26  Bitcoin Magazine      Crypto
-//  27  CryptoPotato          Crypto
-//  28  FXNews Today          Forex
+//  22  FXNews Today          Forex
+//  23  Yahoo Finance         Market News
+//  24  Reuters Business      Market News
+//  25  Reuters Financials    Financial News
+//  26  Finance Magnates      Forex Industry
+//  27  WSJ Markets           Market News
+//  28  Benzinga              Market News
+//  29  Seeking Alpha         Market News
+//  30  Bitcoin Magazine      Crypto
+//  31  CryptoPotato          Crypto
+//  32  NewsBTC               Crypto
+//  33  CryptoNews            Crypto
+//  34  WatcherGuru           Crypto
+//  35  Bloomberg Markets     Market News   ← wire-speed breaking
+//  36  TradingEconomics      Economic Data ← real-time data releases
+//  37  OilPrice.com          Commodities   ← energy specialist
+//  38  Mining.com            Commodities   ← metals/mining
+//  39  Crypto Briefing       Crypto
+//  40  Blockworks            Crypto        ← institutional crypto
+//  41  The Defiant           Crypto        ← DeFi specialist
+//  42  Pound Sterling Live   Forex         ← GBP specialist
+//  43  Myfxbook              Forex         ← FX data provider
+//  44  FX Leaders            Forex         ← signals & analysis
+//  45  Calculated Risk       Economic Data ← macro economics blog
 
 const FEEDS: { url: string; name: string; category: string }[] = [
   // ── Forex & Macro ──────────────────────────────────────────────────────────
@@ -64,52 +81,51 @@ const FEEDS: { url: string; name: string; category: string }[] = [
   { url: "https://www.investing.com/rss/news_14.rss",                     name: "Investing.com",    category: "Economy"               }, // 3
   { url: "https://www.investing.com/rss/news_95.rss",                     name: "Investing.com",    category: "Economic Indicators"   }, // 4
   { url: "https://www.investing.com/rss/news_25.rss",                     name: "Investing.com",    category: "Market News"           }, // 5
-  // ── Crypto ────────────────────────────────────────────────────────────────
   { url: "https://www.investing.com/rss/news_301.rss",                    name: "Investing.com",    category: "Crypto"                }, // 6
-  // ── Broad Market ──────────────────────────────────────────────────────────
   { url: "https://www.marketwatch.com/rss/topstories",                    name: "MarketWatch",      category: "Market News"           }, // 7
-  // ── Crypto specialist ─────────────────────────────────────────────────────
   { url: "https://www.coindesk.com/arc/outboundfeeds/rss/",               name: "CoinDesk",         category: "Crypto"                }, // 8
-  // ── Gold / Silver specialist ──────────────────────────────────────────────
   { url: "https://www.kitco.com/news_rss/kitco_news_home.rss",            name: "Kitco",            category: "Commodities"           }, // 9
-  // ── Crypto specialist ─────────────────────────────────────────────────────
   { url: "https://cointelegraph.com/rss",                                 name: "CoinTelegraph",    category: "Crypto"                }, // 10
-  // ── Forex analysis ────────────────────────────────────────────────────────
   { url: "https://www.dailyfx.com/feeds/all-news",                        name: "DailyFX",          category: "Forex & Commodities"   }, // 11
-  // ── Broad market / macro ──────────────────────────────────────────────────
   { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",          name: "CNBC",             category: "Market News"           }, // 12
   { url: "https://feeds.feedburner.com/zerohedge/feed",                   name: "ZeroHedge",        category: "Market News"           }, // 13
-  // ── Gold / Silver specialist ──────────────────────────────────────────────
   { url: "https://www.bullionvault.com/gold-news/rss/gold-news.xml",      name: "BullionVault",     category: "Commodities"           }, // 14
-  // ── Crypto specialist ─────────────────────────────────────────────────────
   { url: "https://decrypt.co/feed",                                       name: "Decrypt",          category: "Crypto"                }, // 15
-  // ── Commodities ───────────────────────────────────────────────────────────
   { url: "https://www.investing.com/rss/news_4.rss",                      name: "Investing.com",    category: "Commodities"           }, // 16
-  // ── Crypto specialist ─────────────────────────────────────────────────────
   { url: "https://www.theblock.co/rss",                                   name: "The Block",        category: "Crypto"                }, // 17
-  // ── Forex analysis ────────────────────────────────────────────────────────
   { url: "https://actionforex.com/feed/",                                 name: "ActionForex",      category: "Forex & Commodities"   }, // 18
-  // ── AP Business ───────────────────────────────────────────────────────────
   { url: "https://feeds.feedburner.com/AP/business",                      name: "AP Business",      category: "Market News"           }, // 19
-  // ── Forex / Commodities analysis ──────────────────────────────────────────
   { url: "https://www.fxempire.com/api/v1/en/article/feed",               name: "FXEmpire",         category: "Forex & Commodities"   }, // 20
-  // ── NEW: Additional Forex ─────────────────────────────────────────────────
   { url: "https://www.forexcrunch.com/feed/",                             name: "ForexCrunch",      category: "Forex Analysis"        }, // 21
   { url: "https://www.fxnewstoday.com/feed",                              name: "FXNews Today",     category: "Forex"                 }, // 22
-  // ── NEW: Macro / Broad Market ─────────────────────────────────────────────
   { url: "https://finance.yahoo.com/rss/topfinstories",                   name: "Yahoo Finance",    category: "Market News"           }, // 23
   { url: "https://feeds.reuters.com/reuters/businessNews",                name: "Reuters",          category: "Market News"           }, // 24
   { url: "https://feeds.reuters.com/reuters/financials",                  name: "Reuters",          category: "Financial News"        }, // 25
   { url: "https://www.financemagnates.com/feed/",                         name: "Finance Magnates", category: "Forex Industry"        }, // 26
-  { url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                name: "WSJ Markets",      category: "Market News"           }, // 27  ← Wall Street Journal
-  { url: "https://www.benzinga.com/news/feed",                            name: "Benzinga",         category: "Market News"           }, // 28  ← fast breaking news
-  { url: "https://seekingalpha.com/market_currents.xml",                  name: "Seeking Alpha",    category: "Market News"           }, // 29  ← market currents/alerts
-  // ── NEW: Crypto ───────────────────────────────────────────────────────────
+  { url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                name: "WSJ Markets",      category: "Market News"           }, // 27
+  { url: "https://www.benzinga.com/news/feed",                            name: "Benzinga",         category: "Market News"           }, // 28
+  { url: "https://seekingalpha.com/market_currents.xml",                  name: "Seeking Alpha",    category: "Market News"           }, // 29
   { url: "https://bitcoinmagazine.com/feed",                              name: "Bitcoin Magazine", category: "Crypto"                }, // 30
   { url: "https://cryptopotato.com/feed/",                                name: "CryptoPotato",     category: "Crypto"                }, // 31
   { url: "https://www.newsbtc.com/feed/",                                 name: "NewsBTC",          category: "Crypto"                }, // 32
   { url: "https://cryptonews.com/news/feed/",                             name: "CryptoNews",       category: "Crypto"                }, // 33
-  { url: "https://watcherguru.com/feed/",                                 name: "WatcherGuru",      category: "Crypto"                }, // 34  ← crypto/market alerts
+  { url: "https://watcherguru.com/feed/",                                 name: "WatcherGuru",      category: "Crypto"                }, // 34
+  // ── Tier-1 breaking news ──────────────────────────────────────────────────
+  { url: "https://feeds.bloomberg.com/markets/news.rss",                  name: "Bloomberg",        category: "Market News"           }, // 35
+  { url: "https://tradingeconomics.com/rss/news.aspx",                    name: "TradingEconomics", category: "Economic Data"         }, // 36
+  // ── Commodities deep-coverage ─────────────────────────────────────────────
+  { url: "https://oilprice.com/rss/main",                                 name: "OilPrice",         category: "Commodities"           }, // 37
+  { url: "https://www.mining.com/feed/",                                  name: "Mining.com",       category: "Commodities"           }, // 38
+  // ── Institutional crypto ─────────────────────────────────────────────────
+  { url: "https://cryptobriefing.com/feed/",                              name: "CryptoBriefing",   category: "Crypto"                }, // 39
+  { url: "https://blockworks.co/feed",                                    name: "Blockworks",       category: "Crypto"                }, // 40
+  { url: "https://thedefiant.io/feed",                                    name: "The Defiant",      category: "Crypto"                }, // 41
+  // ── FX specialist ─────────────────────────────────────────────────────────
+  { url: "https://www.poundsterlinglive.com/feed",                        name: "Pound Sterling",   category: "Forex & Commodities"   }, // 42
+  { url: "https://www.myfxbook.com/rss/forex-news.xml",                   name: "Myfxbook",         category: "Forex & Commodities"   }, // 43
+  { url: "https://www.fxleaders.com/news/feed/",                          name: "FX Leaders",       category: "Forex & Commodities"   }, // 44
+  // ── Deep macro ────────────────────────────────────────────────────────────
+  { url: "https://www.calculatedriskblog.com/feeds/posts/default?alt=rss",name: "Calculated Risk",  category: "Economic Data"         }, // 45
 ];
 
 // ─── Instrument keyword filters ───────────────────────────────────────────────
@@ -125,7 +141,7 @@ const SYMBOL_CONFIG: Record<
 > = {
   // ── ALL ── special: no keyword filter, all feeds ───────────────────────────
   ALL: {
-    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34],
+    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45],
     secondaryFeeds: [],
     keywords: [], // empty = include everything
     googleQuery: "",
@@ -355,6 +371,85 @@ async function fetchFeed(
 }
 
 
+// ─── X / Twitter integration ──────────────────────────────────────────────────
+// Strategy 1: Twitter API v2 via Bearer token (set TWITTER_BEARER_TOKEN in env)
+// Strategy 2: RSSHub public instance fallback (3 s timeout, graceful fail)
+// Both tag items source="X/@handle" so the UI shows the X badge.
+
+const X_HANDLES = [
+  "FirstSquawk",      // Capital AG — fastest breaking macro/rates alerts
+  "KobeissiLetter",   // Institutional macro commentary
+  "unusual_whales",   // Options flow + market alerts
+  "WatcherGuru",      // Crypto/macro alerts
+  "ForexFactory",     // FX + economic calendar alerts
+  "MacroAlerts",      // Macro signals
+  "zerohedge",        // Macro / geopolitical
+  "markets",          // Bloomberg Markets Live
+];
+
+async function fetchXViaAPI(): Promise<RawItem[]> {
+  const token = process.env.TWITTER_BEARER_TOKEN;
+  if (!token) return [];
+  try {
+    const query = `(${X_HANDLES.map(h => `from:${h}`).join(" OR ")}) lang:en -is:retweet`;
+    const params = new URLSearchParams({
+      query,
+      max_results: "100",
+      "tweet.fields": "created_at,author_id",
+      expansions: "author_id",
+      "user.fields": "username",
+    });
+    const r = await fetch(`https://api.twitter.com/2/tweets/search/recent?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return [];
+    const json = await r.json() as {
+      data?: { id: string; text: string; created_at: string; author_id: string }[];
+      includes?: { users?: { id: string; username: string }[] };
+    };
+    const userMap: Record<string, string> = {};
+    for (const u of json.includes?.users ?? []) userMap[u.id] = u.username;
+    return (json.data ?? [])
+      .map(t => ({
+        title: t.text.replace(/https?:\/\/\S+/g, "").trim(),
+        link: `https://x.com/${userMap[t.author_id] ?? "i"}/status/${t.id}`,
+        pubDate: t.created_at,
+        source: `X/@${userMap[t.author_id] ?? "twitter"}`,
+      }))
+      .filter(item => item.title.length > 15);
+  } catch { return []; }
+}
+
+async function fetchXViaRSSHub(): Promise<RawItem[]> {
+  const results = await Promise.allSettled(
+    X_HANDLES.map(async (handle) => {
+      try {
+        const r = await fetch(`https://rsshub.app/twitter/user/${handle}`, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketBot/1.0)" },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!r.ok) return [] as RawItem[];
+        const xml = await r.text();
+        if (!xml.includes("<item>")) return [] as RawItem[];
+        return parseRSS(xml, `X/@${handle}`).slice(0, 12);
+      } catch { return [] as RawItem[]; }
+    })
+  );
+  const items: RawItem[] = [];
+  for (const res of results) {
+    if (res.status === "fulfilled") items.push(...res.value);
+  }
+  return items;
+}
+
+async function fetchXContent(): Promise<RawItem[]> {
+  // Try official API first; fall back to rsshub
+  const apiItems = await fetchXViaAPI();
+  if (apiItems.length > 0) return apiItems;
+  return fetchXViaRSSHub();
+}
+
 // ─── Google News fallback ──────────────────────────────────────────────────────
 
 async function fetchGoogleNews(query: string): Promise<RawItem[]> {
@@ -390,19 +485,30 @@ function matchesKeywords(title: string, keywords: string[]): boolean {
 }
 
 // ─── Market relevance filter (for ALL mode) ───────────────────────────────────
-// Two-part filter:
-//  1. Hard blocklist — patterns that are definitively NOT trading-relevant news
-//  2. Positive match — word-boundary regex for short words (prevents "frustrated"
-//     matching "rate", "bond" matching "abandoned", "war" matching "forward", etc.)
-//     plus includes() for longer unambiguous phrases.
+// Three-layer filter:
+//  1. Hard blocklist — definitively-not-trading-news patterns
+//  2. Category sub-filter — crypto feeds must have crypto/macro content (blocks
+//     "House Buyers Frustrated" from WatcherGuru etc.)
+//  3. Positive match — word-boundary regex for short words + phrase includes()
 
 const NOISE_BLOCKLIST = [
-  /\bfrustrat\w*/,          // "frustrated", "frustrating" (triggers "rate" substring)
-  /\bhom(e|es)\s+buyer/,   // "home buyer", "homes buyer" (retail housing advice)
-  /\bhomebuy\w+/,           // "homebuyer"
-  /\bhomes?\s+(remain|unsold|for\s+sale)\b/, // "homes remain unsold"
-  /\btips?\s+for\b/,        // "tips for buying"
-  /\bhow\s+to\s+(buy|save|invest|afford)\b/,
+  // Substring false-positives fixed by boundary check (see BOUNDARY_KW_RE)
+  /\bfrustrat\w*/,                       // "frustrated" was matching "rate"
+  /\bhom(e|es)\s+buyer/,                // "home buyer", "homes buyers"
+  /\bhomebuy\w+/,                        // "homebuyer"
+  /\bhomes?\s+(remain|unsold|for\s+sale)\b/,
+  /\b\d+\s+in\s+\d+\s+homes?\b/,       // "3 in 5 homes"
+  /\btips?\s+for\b/,                     // "tips for buying"
+  /\bhow\s+to\s+(buy|save|invest|afford|get\s+rich)\b/,
+  /\bshould\s+you\s+(buy|sell|invest|own)\b/,
+  /\bbest\s+(stocks?|cryptos?|coins?|funds?|etfs?)\s+(to|for)\b/,
+  /\b\d+\s+(stocks?|cryptos?|coins?)\s+to\s+(buy|sell|watch|own|avoid)\b/,
+  /\bpassive\s+income\b/,
+  /\bdividend\s+(pick|king|aristocrat|growth)\b/,
+  /\bundervalued\s+stocks?\b/,
+  /\bretirement\s+(pick|fund|tip|saving)\b/,
+  /\bpersonal\s+finance\b/,
+  /\binvesting\s+for\s+beginner/,
   /\bhoroscope\b/,
   /\brecipe\b/,
   /\bcelebrity\b/,
@@ -411,37 +517,57 @@ const NOISE_BLOCKLIST = [
   /\bdivorce\b/,
   /\blifestyle\b/,
   /\bfashion\b/,
-  /\bvaccine\b(?!.*\b(economy|market|gdp)\b)/, // vaccine news unless economic context
+  /\bweather\s+(forecast|update|warning)\b/,
+  /\bsports?\s+(bet|score|result)\b/,
 ];
 
-// Short words that must use word-boundary check (avoids false-positive substrings)
-const BOUNDARY_KW_RE = /\b(fed|fomc|ecb|boj|boe|rba|rbnz|snb|pboc|g7|g20|cpi|ppi|pmi|gdp|nfp|ism|lng|wti|dxy|usd|eur|gbp|jpy|cad|aud|nzd|chf|xau|xag|btc|eth|oil|gas|gold|corn|bond|yuan|yen|war|nato)\b/i;
+// Short single words that require word-boundary (avoids "rate" in "frustrated",
+// "bond" in "abandoned", "war" in "forward", "gas" in "gasoline" etc.)
+const BOUNDARY_KW_RE = /\b(fed|fomc|ecb|boj|boe|rba|rbnz|snb|pboc|g7|g20|cpi|ppi|pmi|gdp|nfp|ism|lng|wti|dxy|usd|eur|gbp|jpy|cad|aud|nzd|chf|xau|xag|btc|eth|oil|gold|corn|bond|yuan|yen|war|nato|sec|etf)\b/i;
 
-// Longer phrases — safe to use substring matching
+// Multi-word phrases — safe for substring matching
 const PHRASE_KEYWORDS = [
   "federal reserve", "central bank", "interest rate", "rate cut", "rate hike",
-  "monetary policy", "hawkish", "dovish", "quantitative", "powell", "lagarde",
-  "ueda", "bailey", "inflation", "deflation", "stagflation",
+  "basis point", "monetary policy", "hawkish", "dovish", "quantitative",
+  "powell", "lagarde", "ueda", "bailey", "waller", "jefferson",
+  "inflation", "deflation", "stagflation", "disinflation",
   "consumer price", "producer price", "housing starts", "housing permits",
   "durable goods", "retail sales", "trade deficit", "current account",
   "nonfarm payroll", "payroll", "employment", "unemployment", "labor market",
-  "consumer confidence", "business confidence", "economic growth", "gross domestic",
+  "consumer confidence", "economic growth", "gross domestic",
   "bullion", "precious metal", "crude oil", "natural gas", "brent", "opec",
   "bitcoin", "ethereum", "crypto", "blockchain", "defi", "stablecoin", "altcoin",
-  "dollar", "franc", "pound", "sterling", "renminbi", "forex", "currency",
+  "token", "nft", "web3", "halving",
+  "dollar index", "franc", "pound sterling", "renminbi", "forex", "currency",
   "exchange rate", "treasury", "yield curve", "bond yield", "credit rating",
   "market crash", "selloff", "sell-off", "safe haven", "risk-off", "risk on",
-  "geopolit", "sanction", "tariff", "trade war", "export ban",
-  "conflict", "military", "nuclear", "missile",
-  "iran", "russia", "ukraine", "taiwan", "israel", "middle east",
-  "s&p", "nasdaq", "dow jones", "nikkei", "ftse", "dax",
+  "geopolit", "sanction", "tariff", "trade war", "export ban", "supply chain",
+  "conflict", "military", "nuclear", "missile", "airstrike",
+  "iran", "russia", "ukraine", "taiwan", "israel", "middle east", "north korea",
+  "s&p 500", "nasdaq", "dow jones", "nikkei", "ftse", "dax", "hang seng",
   "bank failure", "debt ceiling", "default", "recession",
-  "commodity", "copper", "iron ore", "wheat",
+  "commodity", "copper", "iron ore", "wheat", "corn", "soybean",
+  "fiscal policy", "stimulus", "quantitative easing", "tapering",
+  "flash crash", "circuit breaker", "market halt",
 ];
 
-function isMarketRelevantForAll(title: string): boolean {
+// Category-specific crypto sub-filter:
+// Crypto feeds must post about crypto OR macro that moves crypto — not consumer news.
+const CRYPTO_CONTENT_RE = /\b(bitcoin|btc|ethereum|eth|crypto|blockchain|defi|nft|token|coin|web3|altcoin|stablecoin|solana|xrp|ripple|cardano|polkadot|chainlink|avalanche|bnb|usdt|usdc|layer|protocol|dao|dex|cex|exchange|wallet|mining|hash|halving|mempool)\b/i;
+const CRYPTO_MACRO_RE = /\b(fed|fomc|cpi|inflation|recession|sec|regulation|etf|rate|gdp|treasury|dollar|dxy|risk|rally|crash|selloff|market)\b/i;
+
+function isMarketRelevantForAll(title: string, feedCategory = ""): boolean {
   const lower = title.toLowerCase();
+
+  // Layer 1: hard blocklist
   if (NOISE_BLOCKLIST.some(p => p.test(lower))) return false;
+
+  // Layer 2: category sub-filter — crypto feeds must have crypto/macro content
+  if (feedCategory === "Crypto") {
+    if (!CRYPTO_CONTENT_RE.test(title) && !CRYPTO_MACRO_RE.test(title)) return false;
+  }
+
+  // Layer 3: positive match
   if (BOUNDARY_KW_RE.test(title)) return true;
   return PHRASE_KEYWORDS.some(kw => lower.includes(kw));
 }
@@ -629,7 +755,11 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("middle east") ||
     t.includes("iran") ||
     t.includes("russia") ||
-    t.includes("china") && (t.includes("tension") || t.includes("taiwan"))
+    (t.includes("china") && (t.includes("tension") || t.includes("taiwan"))) ||
+    t.includes("north korea") ||
+    t.includes("nuclear") ||
+    t.includes("airstrike") ||
+    t.includes("missile")
   )
     return "Geopolitical";
   if (
@@ -640,26 +770,32 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("rba") ||
     t.includes("rbnz") ||
     t.includes("snb") ||
+    t.includes("pboc") ||
     t.includes("central bank") ||
     t.includes("rate hike") ||
     t.includes("rate cut") ||
+    t.includes("basis point") ||
     t.includes("interest rate") ||
     t.includes("monetary policy") ||
     t.includes("quantitative") ||
     t.includes("fomc") ||
     t.includes("powell") ||
-    t.includes("lagarde")
+    t.includes("lagarde") ||
+    t.includes("ueda") ||
+    t.includes("bailey") ||
+    t.includes("waller")
   )
     return "Central Bank";
   if (
     t.includes("cpi") ||
     t.includes("inflation") ||
+    t.includes("deflation") ||
     t.includes("nfp") ||
     t.includes("payroll") ||
     t.includes("gdp") ||
     t.includes("pmi") ||
     t.includes("employment") ||
-    t.includes("jobs") ||
+    t.includes("jobs report") ||
     t.includes("economic data") ||
     t.includes("retail sales") ||
     t.includes("consumer price") ||
@@ -685,7 +821,11 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("altcoin") ||
     t.includes("token") ||
     t.includes("stablecoin") ||
-    t.includes("web3")
+    t.includes("web3") ||
+    t.includes("halving") ||
+    t.includes("solana") ||
+    t.includes("xrp") ||
+    t.includes("ripple")
   )
     return "Crypto";
   if (
@@ -701,9 +841,14 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("natural gas") ||
     t.includes("lng") ||
     t.includes("wheat") ||
-    t.includes("energy")
+    t.includes("energy") ||
+    t.includes("brent") ||
+    t.includes("platinum") ||
+    t.includes("palladium")
   )
     return "Commodities";
+  // X sources and other unknowns fall back to Market News, not raw "X" string
+  if (feedCategory === "X" || !feedCategory) return "Market News";
   return feedCategory;
 }
 
@@ -721,21 +866,33 @@ export async function GET(req: NextRequest) {
   let googleItems: RawItem[] = [];
 
   if (isAll) {
-    // Fetch all 35 RSS feeds in parallel
     feedsToFetch = FEEDS;
-    const rssResults = await Promise.allSettled(FEEDS.map((f) => fetchFeed(f)));
 
-    const allRaw: (RawItem & { feedIdx: number })[] = [];
+    // Fetch all RSS feeds + X/Twitter in parallel
+    const [rssResults, xItems] = await Promise.all([
+      Promise.allSettled(FEEDS.map((f) => fetchFeed(f))),
+      fetchXContent(),
+    ]);
+
+    const allRaw: (RawItem & { feedIdx: number; feedCategory: string })[] = [];
     rssResults.forEach((res, i) => {
       if (res.status === "fulfilled") {
-        res.value.forEach((item) => allRaw.push({ ...item, feedIdx: i }));
+        res.value.forEach((item) =>
+          allRaw.push({ ...item, feedIdx: i, feedCategory: FEEDS[i].category })
+        );
       }
     });
+    // X items: apply same market filter inline (tweet content is compact)
+    xItems.forEach((item) =>
+      allRaw.push({ ...item, feedIdx: -1, feedCategory: "X" })
+    );
 
     const deduped = deduplicateItems(allRaw);
 
-    // Apply market-relevance filter: remove retail stock-picking, dividend tips, etc.
-    const marketFiltered = deduped.filter(item => isMarketRelevantForAll(item.title));
+    // Three-layer relevance filter (also enforces crypto category sub-filter)
+    const marketFiltered = deduped.filter(item =>
+      isMarketRelevantForAll(item.title, item.feedCategory)
+    );
 
     marketFiltered.sort((a, b) => {
       const ta = a.pubDate ? new Date(a.pubDate).getTime() : 0;
@@ -744,8 +901,7 @@ export async function GET(req: NextRequest) {
     });
 
     const articles: NewsArticle[] = marketFiltered.slice(0, 150).map((item) => {
-      const feedDef = item.feedIdx >= 0 ? FEEDS[item.feedIdx] : { category: "News" };
-      const category = inferCategory(item.title, feedDef.category || "News");
+      const category = inferCategory(item.title, item.feedCategory || "Market News");
       const { score, label, impact } = analyzeSentiment(item.title);
       return {
         title: item.title,

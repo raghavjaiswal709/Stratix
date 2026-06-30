@@ -364,7 +364,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
               </h2>
               <p className="text-xs text-white/35 leading-none">
                 {activeSymbol === "ALL"
-                  ? "All feeds · FXStreet · ForexLive · Kitco · CoinTelegraph · DailyFX · CNBC · ZeroHedge · BullionVault · CoinDesk · Decrypt · TheBlock + more"
+                  ? "46 RSS + X/Twitter · Bloomberg · Reuters · WSJ · FXStreet · ForexLive · Kitco · CoinDesk · Blockworks · OilPrice · TradingEconomics + more"
                   : <>Multi-source live coverage for{" "}
                       <span className="text-white/55 font-medium">
                         {ASSET_NAMES[activeSymbol] || activeSymbol}
@@ -405,14 +405,24 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
         {/* Source chips */}
         {uniqueSources.length > 0 && !loading && (
           <div className="flex flex-wrap gap-1">
-            {uniqueSources.map((src) => (
-              <span
-                key={src}
-                className="rounded-full border border-white/[0.06] bg-white/[0.02] px-2 py-0.5 text-[9px] font-medium text-white/25 uppercase tracking-wide"
-              >
-                {src}
-              </span>
-            ))}
+            {uniqueSources.map((src) =>
+              src.startsWith("X/") ? (
+                <span
+                  key={src}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] px-2 py-0.5 text-[9px] font-bold text-white/70 uppercase tracking-wide"
+                >
+                  <span className="text-[7px] font-black bg-white text-black rounded px-0.5">𝕏</span>
+                  {src.replace("X/", "")}
+                </span>
+              ) : (
+                <span
+                  key={src}
+                  className="rounded-full border border-white/[0.06] bg-white/[0.02] px-2 py-0.5 text-[9px] font-medium text-white/25 uppercase tracking-wide"
+                >
+                  {src}
+                </span>
+              )
+            )}
           </div>
         )}
       </div>
@@ -697,9 +707,18 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                       <span className="text-[9px] text-white/15 font-mono shrink-0">
                         #{absIdx}
                       </span>
-                      <span className="text-[11px] font-semibold text-white/55 truncate max-w-[90px]">
-                        {item.source}
-                      </span>
+                      {item.source.startsWith("X/") ? (
+                        <span className="inline-flex items-center gap-1 shrink-0">
+                          <span className="flex items-center justify-center rounded px-1 py-0.5 text-[8px] font-black bg-white/90 text-black leading-none">𝕏</span>
+                          <span className="text-[10px] font-semibold text-white/60 truncate max-w-[80px]">
+                            {item.source.replace("X/", "")}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-semibold text-white/55 truncate max-w-[90px]">
+                          {item.source}
+                        </span>
+                      )}
                       <span className="text-white/15">·</span>
                       <div className="flex items-center gap-0.5 shrink-0 text-white/30">
                         <Clock className="h-2.5 w-2.5" />

@@ -34,14 +34,18 @@ const FEEDS = [
   { url: "https://www.fxempire.com/api/v1/en/article/feed",                name: "FXEmpire",        category: "Forex & Commodities" },
   { url: "https://www.forexcrunch.com/feed/",                              name: "ForexCrunch",     category: "Forex Analysis" },
   { url: "https://www.fxnewstoday.com/feed",                               name: "FXNews Today",    category: "Forex" },
-  // ── Investing.com (multiple category feeds) ──────────────────────────────────
+  { url: "https://www.poundsterlinglive.com/feed",                         name: "Pound Sterling",  category: "Forex & Commodities" },
+  { url: "https://www.myfxbook.com/rss/forex-news.xml",                    name: "Myfxbook",        category: "Forex & Commodities" },
+  { url: "https://www.fxleaders.com/news/feed/",                           name: "FX Leaders",      category: "Forex & Commodities" },
+  // ── Investing.com ────────────────────────────────────────────────────────────
   { url: "https://www.investing.com/rss/news_1.rss",                       name: "Investing.com",   category: "Forex News" },
   { url: "https://www.investing.com/rss/news_14.rss",                      name: "Investing.com",   category: "Economy" },
   { url: "https://www.investing.com/rss/news_95.rss",                      name: "Investing.com",   category: "Economic Indicators" },
   { url: "https://www.investing.com/rss/news_25.rss",                      name: "Investing.com",   category: "Market News" },
   { url: "https://www.investing.com/rss/news_301.rss",                     name: "Investing.com",   category: "Crypto" },
   { url: "https://www.investing.com/rss/news_4.rss",                       name: "Investing.com",   category: "Commodities" },
-  // ── Macro & Market News ──────────────────────────────────────────────────────
+  // ── Tier-1 breaking news ─────────────────────────────────────────────────────
+  { url: "https://feeds.bloomberg.com/markets/news.rss",                   name: "Bloomberg",       category: "Market News" },
   { url: "https://www.marketwatch.com/rss/topstories",                     name: "MarketWatch",     category: "Market News" },
   { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",           name: "CNBC",            category: "Market News" },
   { url: "https://feeds.feedburner.com/zerohedge/feed",                    name: "ZeroHedge",       category: "Market News" },
@@ -49,9 +53,17 @@ const FEEDS = [
   { url: "https://feeds.reuters.com/reuters/businessNews",                 name: "Reuters",         category: "Market News" },
   { url: "https://feeds.reuters.com/reuters/financials",                   name: "Reuters",         category: "Financial News" },
   { url: "https://www.financemagnates.com/feed/",                          name: "Finance Magnates",category: "Forex Industry" },
+  { url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                 name: "WSJ Markets",     category: "Market News" },
+  { url: "https://www.benzinga.com/news/feed",                             name: "Benzinga",        category: "Market News" },
+  { url: "https://seekingalpha.com/market_currents.xml",                   name: "Seeking Alpha",   category: "Market News" },
+  // ── Economic data ────────────────────────────────────────────────────────────
+  { url: "https://tradingeconomics.com/rss/news.aspx",                     name: "TradingEconomics",category: "Economic Data" },
+  { url: "https://www.calculatedriskblog.com/feeds/posts/default?alt=rss", name: "Calculated Risk", category: "Economic Data" },
   // ── Commodities & Gold ───────────────────────────────────────────────────────
   { url: "https://www.kitco.com/news_rss/kitco_news_home.rss",             name: "Kitco",           category: "Commodities" },
   { url: "https://www.bullionvault.com/gold-news/rss/gold-news.xml",       name: "BullionVault",    category: "Commodities" },
+  { url: "https://oilprice.com/rss/main",                                  name: "OilPrice",        category: "Commodities" },
+  { url: "https://www.mining.com/feed/",                                   name: "Mining.com",      category: "Commodities" },
   // ── Crypto ───────────────────────────────────────────────────────────────────
   { url: "https://www.coindesk.com/arc/outboundfeeds/rss/",                name: "CoinDesk",        category: "Crypto" },
   { url: "https://cointelegraph.com/rss",                                  name: "CoinTelegraph",   category: "Crypto" },
@@ -62,11 +74,84 @@ const FEEDS = [
   { url: "https://www.newsbtc.com/feed/",                                  name: "NewsBTC",         category: "Crypto" },
   { url: "https://cryptonews.com/news/feed/",                              name: "CryptoNews",      category: "Crypto" },
   { url: "https://watcherguru.com/feed/",                                  name: "WatcherGuru",     category: "Crypto" },
-  // ── Breaking / Fast Market News ──────────────────────────────────────────────
-  { url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                 name: "WSJ Markets",     category: "Market News" },
-  { url: "https://www.benzinga.com/news/feed",                             name: "Benzinga",        category: "Market News" },
-  { url: "https://seekingalpha.com/market_currents.xml",                   name: "Seeking Alpha",   category: "Market News" },
+  { url: "https://cryptobriefing.com/feed/",                               name: "CryptoBriefing",  category: "Crypto" },
+  { url: "https://blockworks.co/feed",                                     name: "Blockworks",      category: "Crypto" },
+  { url: "https://thedefiant.io/feed",                                     name: "The Defiant",     category: "Crypto" },
 ];
+
+// ─── X/Twitter integration for AI analysis ───────────────────────────────────
+
+const ANALYSE_X_HANDLES = [
+  "FirstSquawk", "KobeissiLetter", "unusual_whales",
+  "WatcherGuru", "MacroAlerts", "zerohedge", "markets",
+];
+
+async function fetchXForAnalysis(): Promise<RawItem[]> {
+  const token = process.env.TWITTER_BEARER_TOKEN;
+  if (!token) {
+    // Fallback: try rsshub.app with short timeout
+    const results = await Promise.allSettled(
+      ANALYSE_X_HANDLES.map(async (handle) => {
+        try {
+          const r = await fetch(`https://rsshub.app/twitter/user/${handle}`, {
+            headers: { "User-Agent": "Mozilla/5.0" },
+            signal: AbortSignal.timeout(3000),
+          });
+          if (!r.ok) return [] as RawItem[];
+          const xml = await r.text();
+          if (!xml.includes("<item>")) return [] as RawItem[];
+          // Inline RSS parse for tweets
+          const items: RawItem[] = [];
+          const rx = /<item>([\s\S]*?)<\/item>/g;
+          let m;
+          while ((m = rx.exec(xml)) !== null) {
+            const b = m[1];
+            const tM = /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(b) || /<title>([^<]*)<\/title>/.exec(b);
+            const lM = /<link>([^<]+)<\/link>/.exec(b) || /<guid[^>]*>([^<]+)<\/guid>/.exec(b);
+            const dM = /<pubDate>([^<]+)<\/pubDate>/.exec(b);
+            if (tM && lM && tM[1].trim().length > 10) {
+              items.push({ title: tM[1].trim(), link: lM[1].trim(), pubDate: dM?.[1]?.trim() ?? "", source: `X/@${handle}`, category: "X", description: "", fullContent: "" });
+            }
+          }
+          return items.slice(0, 10);
+        } catch { return [] as RawItem[]; }
+      })
+    );
+    return results.flatMap(r => r.status === "fulfilled" ? r.value : []);
+  }
+  try {
+    const query = `(${ANALYSE_X_HANDLES.map(h => `from:${h}`).join(" OR ")}) lang:en -is:retweet`;
+    const params = new URLSearchParams({
+      query,
+      max_results: "100",
+      "tweet.fields": "created_at,author_id",
+      expansions: "author_id",
+      "user.fields": "username",
+    });
+    const r = await fetch(`https://api.twitter.com/2/tweets/search/recent?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return [];
+    const json = await r.json() as {
+      data?: { id: string; text: string; created_at: string; author_id: string }[];
+      includes?: { users?: { id: string; username: string }[] };
+    };
+    const userMap: Record<string, string> = {};
+    for (const u of json.includes?.users ?? []) userMap[u.id] = u.username;
+    return (json.data ?? [])
+      .filter(t => t.text.replace(/https?:\/\/\S+/g, "").trim().length > 15)
+      .map(t => ({
+        title: t.text.replace(/https?:\/\/\S+/g, "").trim(),
+        link: `https://x.com/${userMap[t.author_id] ?? "i"}/status/${t.id}`,
+        pubDate: t.created_at,
+        source: `X/@${userMap[t.author_id] ?? "twitter"}`,
+        category: "X",
+        description: "",
+        fullContent: "",
+      }));
+  } catch { return []; }
+}
 
 // ─── Market relevance filter ──────────────────────────────────────────────────
 // Two-part filter (same logic as news/route.ts):
@@ -724,10 +809,14 @@ export async function POST(req: NextRequest) {
   const instrument = body.instrument ?? "ALL";
   const selectedLinks = body.selectedLinks ?? null;
 
-  // ── Fetch RSS feeds + X/Twitter (via nitter) in parallel ────────────────────
-  const feedResults = await Promise.allSettled(FEEDS.map(f => fetchFeed(f)));
+  // ── Fetch RSS feeds + X/Twitter in parallel ─────────────────────────────────
+  const [feedResults, xItems] = await Promise.all([
+    Promise.allSettled(FEEDS.map(f => fetchFeed(f))),
+    fetchXForAnalysis(),
+  ]);
   const allItems: RawItem[] = [];
   feedResults.forEach(res => { if (res.status === "fulfilled") allItems.push(...res.value); });
+  allItems.push(...xItems);
 
   // ── Deduplicate ──────────────────────────────────────────────────────────────
   const seen = new Set<string>();
