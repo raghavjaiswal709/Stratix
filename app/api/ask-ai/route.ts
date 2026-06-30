@@ -81,29 +81,63 @@ const INSTRUMENT_LABEL: Record<string, string> = {
   USDCAD: "USD/CAD", USDCHF: "USD/CHF",
 };
 
-// ─── ALL news feeds (full list matching analyse route) ────────────────────────
+// ─── ALL news feeds ───────────────────────────────────────────────────────────
 
 const FEEDS = [
-  { url: "https://www.fxstreet.com/rss/news",                              name: "FXStreet"      },
-  { url: "https://www.forexlive.com/feed/news",                            name: "ForexLive"     },
-  { url: "https://www.investing.com/rss/news_1.rss",                       name: "Investing.com" },
-  { url: "https://www.investing.com/rss/news_14.rss",                      name: "Investing.com" },
-  { url: "https://www.investing.com/rss/news_95.rss",                      name: "Investing.com" },
-  { url: "https://www.investing.com/rss/news_25.rss",                      name: "Investing.com" },
-  { url: "https://www.investing.com/rss/news_301.rss",                     name: "Investing.com" },
-  { url: "https://www.investing.com/rss/news_4.rss",                       name: "Investing.com" },
-  { url: "https://www.marketwatch.com/rss/topstories",                     name: "MarketWatch"   },
-  { url: "https://www.coindesk.com/arc/outboundfeeds/rss/",                name: "CoinDesk"      },
-  { url: "https://www.kitco.com/news_rss/kitco_news_home.rss",             name: "Kitco"         },
-  { url: "https://cointelegraph.com/rss",                                  name: "CoinTelegraph" },
-  { url: "https://www.dailyfx.com/feeds/all-news",                         name: "DailyFX"       },
-  { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",           name: "CNBC"          },
-  { url: "https://feeds.feedburner.com/zerohedge/feed",                    name: "ZeroHedge"     },
-  { url: "https://www.bullionvault.com/gold-news/rss/gold-news.xml",       name: "BullionVault"  },
-  { url: "https://decrypt.co/feed",                                        name: "Decrypt"       },
-  { url: "https://www.theblock.co/rss",                                    name: "The Block"     },
-  { url: "https://actionforex.com/feed/",                                  name: "ActionForex"   },
-  { url: "https://www.fxempire.com/api/v1/en/article/feed",                name: "FXEmpire"      },
+  // Core Forex & Commodities
+  { url: "https://www.fxstreet.com/rss/news",                              name: "FXStreet"         },
+  { url: "https://www.forexlive.com/feed/news",                            name: "ForexLive"        },
+  { url: "https://www.dailyfx.com/feeds/all-news",                         name: "DailyFX"          },
+  { url: "https://actionforex.com/feed/",                                  name: "ActionForex"      },
+  { url: "https://www.fxempire.com/api/v1/en/article/feed",                name: "FXEmpire"         },
+  { url: "https://www.forexcrunch.com/feed/",                              name: "ForexCrunch"      },
+  { url: "https://www.fxnewstoday.com/feed",                               name: "FXNews Today"     },
+  // Investing.com
+  { url: "https://www.investing.com/rss/news_1.rss",                       name: "Investing.com"    },
+  { url: "https://www.investing.com/rss/news_14.rss",                      name: "Investing.com"    },
+  { url: "https://www.investing.com/rss/news_95.rss",                      name: "Investing.com"    },
+  { url: "https://www.investing.com/rss/news_25.rss",                      name: "Investing.com"    },
+  { url: "https://www.investing.com/rss/news_301.rss",                     name: "Investing.com"    },
+  { url: "https://www.investing.com/rss/news_4.rss",                       name: "Investing.com"    },
+  // Macro & Market News
+  { url: "https://www.marketwatch.com/rss/topstories",                     name: "MarketWatch"      },
+  { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",           name: "CNBC"             },
+  { url: "https://feeds.feedburner.com/zerohedge/feed",                    name: "ZeroHedge"        },
+  { url: "https://finance.yahoo.com/rss/topfinstories",                    name: "Yahoo Finance"    },
+  { url: "https://feeds.reuters.com/reuters/businessNews",                 name: "Reuters"          },
+  { url: "https://feeds.reuters.com/reuters/financials",                   name: "Reuters"          },
+  { url: "https://www.financemagnates.com/feed/",                          name: "Finance Magnates" },
+  // Commodities & Gold
+  { url: "https://www.kitco.com/news_rss/kitco_news_home.rss",             name: "Kitco"            },
+  { url: "https://www.bullionvault.com/gold-news/rss/gold-news.xml",       name: "BullionVault"     },
+  // Crypto
+  { url: "https://www.coindesk.com/arc/outboundfeeds/rss/",                name: "CoinDesk"         },
+  { url: "https://cointelegraph.com/rss",                                  name: "CoinTelegraph"    },
+  { url: "https://decrypt.co/feed",                                        name: "Decrypt"          },
+  { url: "https://www.theblock.co/rss",                                    name: "The Block"        },
+  { url: "https://bitcoinmagazine.com/feed",                               name: "Bitcoin Magazine" },
+  { url: "https://cryptopotato.com/feed/",                                 name: "CryptoPotato"     },
+];
+
+// ─── X (Twitter) via nitter ──────────────────────────────────────────────────
+
+const NITTER_INSTANCES = [
+  "nitter.privacydev.net",
+  "xcancel.com",
+  "nitter.poast.org",
+  "nitter.1d4.us",
+];
+
+const X_ACCOUNTS = [
+  { handle: "FirstSquawk",    name: "X/@FirstSquawk"    },
+  { handle: "investingLive_", name: "X/@investingLive_" },
+  { handle: "ForexFactory",   name: "X/@ForexFactory"   },
+  { handle: "markets",        name: "X/@markets"        },
+  { handle: "WatcherGuru",    name: "X/@WatcherGuru"    },
+  { handle: "KobeissiLetter", name: "X/@KobeissiLetter" },
+  { handle: "MacroAlerts",    name: "X/@MacroAlerts"    },
+  { handle: "unusual_whales", name: "X/@unusual_whales" },
+  { handle: "Reuters",        name: "X/@Reuters"        },
 ];
 
 // ─── RSS parsing helpers ──────────────────────────────────────────────────────
@@ -155,6 +189,24 @@ async function fetchFeed(url: string, name: string): Promise<NewsItem[]> {
     if (!xml.includes("<item>")) return [];
     return parseRSS(xml, name);
   } catch { return []; }
+}
+
+async function fetchXFeed(account: { handle: string; name: string }): Promise<NewsItem[]> {
+  for (const instance of NITTER_INSTANCES) {
+    try {
+      const url = `https://${instance}/${account.handle}/rss`;
+      const r = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", Accept: "application/rss+xml,application/xml,text/xml,*/*" },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!r.ok) continue;
+      const xml = await r.text();
+      if (!xml.includes("<item>")) continue;
+      const items = parseRSS(xml, account.name);
+      if (items.length > 0) return items.slice(0, 12);
+    } catch { /* try next instance */ }
+  }
+  return [];
 }
 
 // Checks if article matches instrument: primary OR macro keywords
@@ -298,9 +350,10 @@ ${body || "(No content available — see headline)"}`;
 ║                                                                  ║
 ║  YOU MUST ONLY:                                                  ║
 ║  ✓ Use the 1-minute candle data provided below                   ║
-║  ✓ Use the news articles provided below — ALL of them            ║
+║  ✓ Use the news + X/Twitter posts provided below — ALL of them   ║
 ║  ✓ Base ALL analysis on the fundamentals in the provided news    ║
 ║  ✓ Cite EXACT price levels from the candle data                  ║
+║  ✓ Explain the TRANSMISSION CHAIN: how news → market price move  ║
 ║  ✓ If a user asks about something not in this data, say so       ║
 ║                                                                  ║
 ║  THIS RULE IS ABSOLUTE. NO EXCEPTIONS. NO EXTERNAL SOURCES.      ║
@@ -309,16 +362,24 @@ ${body || "(No content available — see headline)"}`;
 You are a market intelligence assistant for ${label}.
 Current IST time: ${now}
 
+TRANSMISSION CHAIN FORMAT (use in ALL explanations):
+[News Event + actual numbers] → [What signal it sends to markets] → [Primary asset impact + pip/$/% move] → [Secondary cross-asset ripple] → [What to watch next]
+
+Example: "US CPI 3.5% (beats 3.2%) → Fed cut hopes pushed to Dec → DXY surged +0.7% → Gold dumped -$35/oz from $3,245 to $3,210 → USDJPY +80 pips to 152.00 → Risk-off hit BTC -2.3%"
+
 ══════════════════════════════════════════════════════════════════
-SECTION 1 — PRICE DATA (SOURCE: INTERNAL CANDLE DATABASE)
+SECTION 1 — PRICE DATA (SOURCE: INTERNAL 1-MIN CANDLE DATABASE)
 ══════════════════════════════════════════════════════════════════
 ${candleBlock}
 
 ══════════════════════════════════════════════════════════════════
-SECTION 2 — NEWS & FUNDAMENTAL DATA (${articles.length} articles)
-  SOURCE: RSS feeds — FXStreet, ForexLive, Investing.com, DailyFX,
-          MarketWatch, CNBC, ZeroHedge, Kitco, BullionVault, etc.
-  ALL articles below are the complete available data set.
+SECTION 2 — NEWS & FUNDAMENTAL DATA (${articles.length} items)
+  SOURCES: RSS (FXStreet, ForexLive, Reuters, DailyFX, MarketWatch,
+           CNBC, Kitco, BullionVault, CoinDesk, ZeroHedge, etc.)
+         + X/TWITTER (@FirstSquawk, @investingLive_, @ForexFactory,
+           @markets, @WatcherGuru, @KobeissiLetter, @MacroAlerts,
+           @unusual_whales, @Reuters)
+  X posts are marked "X/@handle" in source — treat as BREAKING ALERTS (highest priority)
 ══════════════════════════════════════════════════════════════════
 ${newsBlock}
 
@@ -330,14 +391,15 @@ ${userQuery}
 ══════════════════════════════════════════════════════════════════
 RESPONSE RULES (STRICTLY FOLLOW):
 ══════════════════════════════════════════════════════════════════
-1. Answer ONLY based on Section 1 (candles) and Section 2 (news) above
-2. Quote EXACT price levels from the candle data (e.g. "currently at 3982.74")
-3. Reference SPECIFIC articles by their headline when citing news
-4. Use trader-friendly language: clear English with simple Hinglish mix
-5. Structure your response: Price Situation → News Drivers → Answer
-6. If the news doesn't contain relevant information, say "Based on available data..."
-7. DO NOT invent scenarios, patterns, or catalysts not in the provided data
-8. DO NOT use phrases like "historically", "typically", or "usually" based on general knowledge
+1. Answer ONLY based on Section 1 (candles) and Section 2 (news + X posts) above
+2. Quote EXACT price levels from candle data (e.g. "currently at 3982.74, high 3991.20")
+3. Reference SPECIFIC article/tweet by source when citing news
+4. Use trader language: clear Hinglish mix, sharp and specific
+5. TRANSMISSION CHAIN: For every news driver you mention, explain the full chain → how it flows to price
+6. Structure: Current Price Situation → Key News Drivers (with transmission chains) → Direct Answer to Question
+7. Quantify impact: "this could push Gold -$30-50/oz" or "EURUSD likely -40-60 pips" — don't be vague
+8. If data doesn't support a claim, say "Based on available data..." and stick to what's provided
+9. X posts from @FirstSquawk/@investingLive_ are breaking alerts — treat with HIGHEST urgency
 ══════════════════════════════════════════════════════════════════`;
 }
 
@@ -362,16 +424,17 @@ export async function POST(req: NextRequest) {
   const origin = new URL(req.url).origin;
   const cookie = req.headers.get("cookie") ?? "";
 
-  // Fetch ALL feeds + candles in parallel
-  const [candles, allFeedResults] = await Promise.all([
+  // Fetch candles + RSS feeds + X/Twitter (via nitter) all in parallel
+  const [candles, allFeedResults, xResults] = await Promise.all([
     fetch1mCandles(symbol, origin, cookie, 120),
     Promise.all(FEEDS.map(f => fetchFeed(f.url, f.name))),
+    Promise.all(X_ACCOUNTS.map(a => fetchXFeed(a))),
   ]);
 
   // Flatten + deduplicate by URL
   const seenUrls = new Set<string>();
   const allItems: NewsItem[] = [];
-  for (const batch of allFeedResults) {
+  for (const batch of [...allFeedResults, ...xResults]) {
     for (const item of batch) {
       if (!seenUrls.has(item.link)) {
         seenUrls.add(item.link);
@@ -424,10 +487,10 @@ export async function POST(req: NextRequest) {
   ];
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o",          // standard model — NO web search, prompt-grounded only
+    model: "gpt-4o",          // NO web search — prompt-grounded only
     messages,
-    max_tokens: 1800,
-    temperature: 0.3,         // low temperature = factual, not creative
+    max_tokens: 2400,
+    temperature: 0.3,
   });
 
   const response = completion.choices[0]?.message?.content ?? "No response generated.";
