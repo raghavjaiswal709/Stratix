@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 export const maxDuration = 30;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -439,11 +439,12 @@ async function fetchXViaNitter(): Promise<RawItem[]> {
         try {
           const r = await fetch(`${instance}/${handle}/rss`, {
             headers: { "User-Agent": "Mozilla/5.0 (compatible; RSS reader)", Accept: "application/rss+xml" },
-            signal: AbortSignal.timeout(6000),
+            signal: AbortSignal.timeout(8000),
           });
           if (!r.ok) continue;
           const xml = await r.text();
-          if (!xml.includes("<item>")) continue;
+          // Reject bot-check / captcha pages
+          if (!xml.includes("<item>") || xml.includes("not a bot")) continue;
           return parseRSS(xml, `X/@${handle}`).slice(0, 15);
         } catch { continue; }
       }
