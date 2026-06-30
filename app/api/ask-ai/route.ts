@@ -117,27 +117,13 @@ const FEEDS = [
   { url: "https://www.theblock.co/rss",                                    name: "The Block"        },
   { url: "https://bitcoinmagazine.com/feed",                               name: "Bitcoin Magazine" },
   { url: "https://cryptopotato.com/feed/",                                 name: "CryptoPotato"     },
-];
-
-// ─── X (Twitter) via nitter ──────────────────────────────────────────────────
-
-const NITTER_INSTANCES = [
-  "nitter.privacydev.net",
-  "xcancel.com",
-  "nitter.poast.org",
-  "nitter.1d4.us",
-];
-
-const X_ACCOUNTS = [
-  { handle: "FirstSquawk",    name: "X/@FirstSquawk"    },
-  { handle: "investingLive_", name: "X/@investingLive_" },
-  { handle: "ForexFactory",   name: "X/@ForexFactory"   },
-  { handle: "markets",        name: "X/@markets"        },
-  { handle: "WatcherGuru",    name: "X/@WatcherGuru"    },
-  { handle: "KobeissiLetter", name: "X/@KobeissiLetter" },
-  { handle: "MacroAlerts",    name: "X/@MacroAlerts"    },
-  { handle: "unusual_whales", name: "X/@unusual_whales" },
-  { handle: "Reuters",        name: "X/@Reuters"        },
+  { url: "https://www.newsbtc.com/feed/",                                  name: "NewsBTC"          },
+  { url: "https://cryptonews.com/news/feed/",                              name: "CryptoNews"       },
+  { url: "https://watcherguru.com/feed/",                                  name: "WatcherGuru"      },
+  // Breaking / fast market news
+  { url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",                 name: "WSJ Markets"      },
+  { url: "https://www.benzinga.com/news/feed",                             name: "Benzinga"         },
+  { url: "https://seekingalpha.com/market_currents.xml",                   name: "Seeking Alpha"    },
 ];
 
 // ─── RSS parsing helpers ──────────────────────────────────────────────────────
@@ -189,24 +175,6 @@ async function fetchFeed(url: string, name: string): Promise<NewsItem[]> {
     if (!xml.includes("<item>")) return [];
     return parseRSS(xml, name);
   } catch { return []; }
-}
-
-async function fetchXFeed(account: { handle: string; name: string }): Promise<NewsItem[]> {
-  for (const instance of NITTER_INSTANCES) {
-    try {
-      const url = `https://${instance}/${account.handle}/rss`;
-      const r = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", Accept: "application/rss+xml,application/xml,text/xml,*/*" },
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!r.ok) continue;
-      const xml = await r.text();
-      if (!xml.includes("<item>")) continue;
-      const items = parseRSS(xml, account.name);
-      if (items.length > 0) return items.slice(0, 12);
-    } catch { /* try next instance */ }
-  }
-  return [];
 }
 
 // Checks if article matches instrument: primary OR macro keywords
@@ -424,17 +392,16 @@ export async function POST(req: NextRequest) {
   const origin = new URL(req.url).origin;
   const cookie = req.headers.get("cookie") ?? "";
 
-  // Fetch candles + RSS feeds + X/Twitter (via nitter) all in parallel
-  const [candles, allFeedResults, xResults] = await Promise.all([
+  // Fetch candles + RSS feeds in parallel
+  const [candles, allFeedResults] = await Promise.all([
     fetch1mCandles(symbol, origin, cookie, 120),
     Promise.all(FEEDS.map(f => fetchFeed(f.url, f.name))),
-    Promise.all(X_ACCOUNTS.map(a => fetchXFeed(a))),
   ]);
 
   // Flatten + deduplicate by URL
   const seenUrls = new Set<string>();
   const allItems: NewsItem[] = [];
-  for (const batch of [...allFeedResults, ...xResults]) {
+  for (const batch of allFeedResults) {
     for (const item of batch) {
       if (!seenUrls.has(item.link)) {
         seenUrls.add(item.link);
