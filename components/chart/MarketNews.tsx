@@ -40,6 +40,9 @@ interface NewsArticle {
   sentimentScore: number;
   marketImpact: string;
   category: string;
+  impactScore: number;
+  isPrimarySource?: boolean;
+  isCalendarEvent?: boolean;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -218,7 +221,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
   // Filters
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [sentimentFilter, setSentimentFilter] = useState("All");
-  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "bullish" | "bearish">("newest");
+  const [sortBy, setSortBy] = useState<"impact" | "newest" | "oldest" | "bullish" | "bearish">("impact");
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -319,6 +322,8 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
+      if (sortBy === "impact")
+        return (b.impactScore ?? 0) - (a.impactScore ?? 0);
       if (sortBy === "oldest")
         return (
           new Date(a.pubDate || 0).getTime() -
@@ -560,7 +565,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                   value={sortBy}
                   onChange={(e) =>
                     setSortBy(
-                      e.target.value as "newest" | "oldest" | "bullish" | "bearish"
+                      e.target.value as "impact" | "newest" | "oldest" | "bullish" | "bearish"
                     )
                   }
                   className="appearance-none pl-2.5 pr-6 py-1 rounded-lg text-[10px] font-medium bg-white/[0.04] border border-white/[0.08] text-white/55 focus:outline-none focus:border-white/[0.18] cursor-pointer"
@@ -570,6 +575,9 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                     backgroundPosition: "right 6px center",
                   }}
                 >
+                  <option value="impact" className="bg-[#1a1a1a]">
+                    Highest Impact
+                  </option>
                   <option value="newest" className="bg-[#1a1a1a]">
                     Newest First
                   </option>
@@ -757,13 +765,30 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                         </span>
                       </div>
                     </div>
-                    <span
-                      className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide shrink-0 ${sentimentClass}`}
-                    >
-                      {sentimentIcon}
-                      {item.sentiment}
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {item.impactScore >= 60 && (
+                        <span className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-400" title="High market-moving potential">
+                          <Flame className="h-2.5 w-2.5" />
+                          {item.impactScore}
+                        </span>
+                      )}
+                      <span
+                        className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide shrink-0 ${sentimentClass}`}
+                      >
+                        {sentimentIcon}
+                        {item.sentiment}
+                      </span>
+                    </div>
                   </div>
+
+                  {/* Primary-source / calendar tag */}
+                  {(item.isPrimarySource || item.isCalendarEvent) && (
+                    <div className="mb-2">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] px-2 py-0.5 text-[9px] font-bold text-white/60 uppercase tracking-wider">
+                        {item.isCalendarEvent ? "Economic Calendar" : "Official Source"}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Category badge */}
                   {normalizeCategory(item.category) !== "Market News" && (
