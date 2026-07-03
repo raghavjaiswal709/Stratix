@@ -3,11 +3,11 @@ import {
   scoreArticle,
   applyCorroborationBoost,
   isHardNoise,
-  DEFAULT_IMPACT_THRESHOLD,
   TIER1_WIRE_NAMES,
 } from "@/lib/news/scoring";
 import { CENTRAL_BANK_FEEDS, isCentralBankNoise } from "@/lib/news/central-banks";
 import { fetchEconomicCalendar, calendarEventsToArticles, CURRENCY_TO_SYMBOLS } from "@/lib/news/calendar";
+import { fetchTelegramContentSince } from "@/lib/news/telegram";
 import type { ScoredItem, NewsArticle as SharedNewsArticle } from "@/lib/news/types";
 
 export const runtime = "edge";
@@ -74,6 +74,16 @@ interface RawItem {
 //  44  FX Leaders            Forex         ← signals & analysis
 //  45  Calculated Risk       Economic Data ← macro economics blog
 //  46  DC/Dukascopy          Market News   ← broker venue notices (closures, holidays)
+//  47  Business Insider      Market News
+//  48  AMBCrypto             Crypto
+//  49  Bitcoinist            Crypto
+//  50  Coinpedia             Crypto
+//  51  NASDAQ Commodities    Commodities
+//  52  U.Today               Crypto        ← very high volume
+//  53  SilverSeek            Commodities   ← silver specialist
+//  54  CryptoSlate           Crypto
+//  55  BeInCrypto            Crypto
+//  56  TheStreet             Market News
 
 const FEEDS: { url: string; name: string; category: string }[] = [
   // ── Forex & Macro ──────────────────────────────────────────────────────────
@@ -130,6 +140,17 @@ const FEEDS: { url: string; name: string; category: string }[] = [
   { url: "https://www.calculatedriskblog.com/feeds/posts/default?alt=rss",name: "Calculated Risk",  category: "Economic Data"         }, // 45
   // ── Broker/venue notices ──────────────────────────────────────────────────
   { url: "https://www.dukascopy.com/plugins/newsTicker/rss.php",        name: "DC/Dukascopy",     category: "Market News"           }, // 46
+  // ── Additional breadth ───────────────────────────────────────────────────
+  { url: "https://markets.businessinsider.com/rss/news",                  name: "Business Insider", category: "Market News"           }, // 47
+  { url: "https://ambcrypto.com/feed/",                                   name: "AMBCrypto",       category: "Crypto"                }, // 48
+  { url: "https://bitcoinist.com/feed/",                                  name: "Bitcoinist",      category: "Crypto"                }, // 49
+  { url: "https://coinpedia.org/feed/",                                   name: "Coinpedia",       category: "Crypto"                }, // 50
+  { url: "https://www.nasdaq.com/feed/rssoutbound?category=Commodities",  name: "NASDAQ",          category: "Commodities"           }, // 51
+  { url: "https://u.today/rss",                                           name: "U.Today",         category: "Crypto"                }, // 52
+  { url: "https://www.silverseek.com/rss.xml",                            name: "SilverSeek",      category: "Commodities"           }, // 53
+  { url: "https://cryptoslate.com/feed/",                                 name: "CryptoSlate",     category: "Crypto"                }, // 54
+  { url: "https://beincrypto.com/feed/",                                  name: "BeInCrypto",      category: "Crypto"                }, // 55
+  { url: "https://www.thestreet.com/.rss/full/",                          name: "TheStreet",       category: "Market News"           }, // 56
 ];
 
 // ─── Instrument keyword filters ───────────────────────────────────────────────
@@ -144,20 +165,20 @@ const SYMBOL_CONFIG: Record<
   }
 > = {
   ALL: {
-    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46],
+    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56],
     secondaryFeeds: [],
     keywords: [], // empty = include everything
     googleQuery: "",
   },
   XAUUSD: {
     primaryFeeds: [0, 1, 9, 14, 16],
-    secondaryFeeds: [3, 4, 5, 7, 11, 12, 13, 18],
+    secondaryFeeds: [3, 4, 5, 7, 11, 12, 13, 18, 51, 53],
     keywords: ["gold", "xau", "xauusd", "bullion", "yellow metal"],
     googleQuery: '"gold price" OR "XAU/USD" OR "XAUUSD" OR "bullion" OR "yellow metal"',
   },
   XAGUSD: {
     primaryFeeds: [0, 1, 9, 14, 16],
-    secondaryFeeds: [3, 4, 5, 7, 11, 13],
+    secondaryFeeds: [3, 4, 5, 7, 11, 13, 51, 53],
     keywords: ["silver", "xag", "xagusd"],
     googleQuery: '"silver price" OR "XAG/USD" OR "XAGUSD" OR "silver spot"',
   },
@@ -205,19 +226,19 @@ const SYMBOL_CONFIG: Record<
   },
   BTCUSD: {
     primaryFeeds: [6, 8, 10, 15, 17],
-    secondaryFeeds: [0, 5, 7, 12, 13],
+    secondaryFeeds: [0, 5, 7, 12, 13, 48, 49, 50, 52, 54, 55],
     keywords: ["bitcoin", "btc", "btcusd", "btcusdt"],
     googleQuery: '"Bitcoin" OR "BTCUSD" OR "BTC/USD" OR "Bitcoin price"',
   },
   ETHUSD: {
     primaryFeeds: [6, 8, 10, 15, 17],
-    secondaryFeeds: [0, 5, 7, 12],
+    secondaryFeeds: [0, 5, 7, 12, 48, 49, 50, 52, 54, 55],
     keywords: ["ethereum", "eth", "ethusd", "eth/usd"],
     googleQuery: '"Ethereum" OR "ETHUSD" OR "ETH/USD" OR "Ethereum price"',
   },
   BTCUSDT: {
     primaryFeeds: [6, 8, 10, 15, 17],
-    secondaryFeeds: [0, 5, 7, 12, 13],
+    secondaryFeeds: [0, 5, 7, 12, 13, 48, 49, 50, 52, 54, 55],
     keywords: ["bitcoin", "btc", "btcusd", "btcusdt"],
     googleQuery: '"Bitcoin" OR "BTCUSDT" OR "BTC/USDT" OR "Bitcoin price"',
   },
@@ -256,7 +277,9 @@ function parseRSS(xml: string, sourceName: string): RawItem[] {
       /<link>([^<]+)<\/link>/.exec(block) ||
       /<guid[^>]*isPermaLink="true"[^>]*>([^<]+)<\/guid>/.exec(block) ||
       /<guid[^>]*>([^<]+)<\/guid>/.exec(block);
-    const pubDateMatch = /<pubDate>([^<]+)<\/pubDate>/.exec(block);
+    const pubDateMatch =
+      /<pubDate><!\[CDATA\[([\s\S]*?)\]\]><\/pubDate>/.exec(block) ||
+      /<pubDate>([^<]+)<\/pubDate>/.exec(block);
 
     const sourceTagMatch = /<source[^>]*>([^<]*)<\/source>/.exec(block);
     const source = sourceTagMatch
@@ -323,155 +346,6 @@ async function fetchCentralBankFeeds(): Promise<(RawItem & { feedName: string })
     })
   );
   return results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-}
-
-// ─── X / Twitter integration ──────────────────────────────────────────────────
-// Strategy 1: Twitter API v2 via Bearer token (set TWITTER_BEARER_TOKEN in env)
-// Strategy 2: RSSHub public instance fallback (3 s timeout, graceful fail)
-// Both tag items source="X/@handle" so the UI shows the X badge.
-
-const X_HANDLES = [
-  "FirstSquawk",      // Capital AG — fastest breaking macro/rates alerts
-  "KobeissiLetter",   // Institutional macro commentary
-  "unusual_whales",   // Options flow + market alerts
-  "WatcherGuru",      // Crypto/macro alerts
-  "ForexFactory",     // FX + economic calendar alerts
-  "zerohedge",        // Macro / geopolitical
-  "markets",          // Bloomberg Markets Live
-  "WSJmarkets",       // WSJ Markets desk
-  "ReutersMarkets",   // Reuters Markets
-  "financialtimes",   // Financial Times
-  "business",         // Bloomberg Business
-  "WSJ",              // Wall Street Journal
-];
-
-// Hardcoded user IDs — stable identifiers that don't change when handles do
-const X_USER_IDS: Record<string, string> = {
-  FirstSquawk:    "3295423333",
-  KobeissiLetter: "3316376038",
-  unusual_whales: "1200616796295847936",
-  WatcherGuru:    "1387497871751196672",
-  ForexFactory:   "22446445",
-  zerohedge:      "18856867",
-  markets:        "69620713",
-  WSJmarkets:     "28164923",
-  ReutersMarkets: "335907491",
-  financialtimes: "4898091",
-  business:       "34713362",
-  WSJ:            "3108351",
-};
-
-// Nitter instances ordered by reliability — first one that returns 200 wins per handle
-const NITTER_INSTANCES = [
-  "https://nitter.perennialte.ch",
-  "https://nitter.rawit.eu",
-  "https://nitter.12bit.vn",
-];
-
-interface XFetchResult {
-  items: RawItem[];
-  error?: string;
-}
-
-async function fetchXViaAPI(): Promise<XFetchResult> {
-  const token = process.env.TWITTER_BEARER_TOKEN;
-  if (!token) return { items: [], error: "TWITTER_BEARER_TOKEN is not set in this environment" };
-  // Use GET /2/users/:id/tweets — available on FREE tier (no $100/month plan needed)
-  let firstError: string | undefined;
-  const results = await Promise.allSettled(
-    X_HANDLES.map(async (handle) => {
-      const userId = X_USER_IDS[handle];
-      if (!userId) return [] as RawItem[];
-      try {
-        const params = new URLSearchParams({
-          max_results: "20",
-          "tweet.fields": "created_at",
-          exclude: "retweets,replies",
-        });
-        const r = await fetch(`https://api.twitter.com/2/users/${userId}/tweets?${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!r.ok) {
-          if (!firstError) {
-            const body = await r.text();
-            let detail = body.slice(0, 300);
-            try {
-              const parsed = JSON.parse(body) as { detail?: string; title?: string };
-              detail = parsed.detail || parsed.title || detail;
-            } catch { /* body wasn't JSON, keep raw slice */ }
-            firstError = `Twitter API returned HTTP ${r.status} for @${handle}: ${detail}`;
-          }
-          return [] as RawItem[];
-        }
-        const json = await r.json() as {
-          data?: { id: string; text: string; created_at: string }[];
-        };
-        return (json.data ?? [])
-          .map(t => ({
-            title: t.text.replace(/https?:\/\/\S+/g, "").trim(),
-            link: `https://x.com/${handle}/status/${t.id}`,
-            pubDate: t.created_at,
-            source: `X/@${handle}`,
-          }))
-          .filter(item => item.title.length > 15);
-      } catch (e) {
-        if (!firstError) firstError = `Twitter API request failed for @${handle}: ${String(e)}`;
-        return [] as RawItem[];
-      }
-    })
-  );
-  const items = results.flatMap(r => r.status === "fulfilled" ? r.value : []);
-  return { items, error: items.length === 0 ? firstError : undefined };
-}
-
-async function fetchXViaNitter(): Promise<XFetchResult> {
-  let firstError: string | undefined;
-  const results = await Promise.allSettled(
-    X_HANDLES.map(async (handle) => {
-      let handleError: string | undefined;
-      for (const instance of NITTER_INSTANCES) {
-        try {
-          const r = await fetch(`${instance}/${handle}/rss`, {
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; RSS reader)", Accept: "application/rss+xml" },
-            signal: AbortSignal.timeout(8000),
-          });
-          if (!r.ok) {
-            handleError = `${instance} returned HTTP ${r.status}`;
-            continue;
-          }
-          const xml = await r.text();
-          // Reject bot-check / captcha pages (Cloudflare "Just a moment...", Nitter's own check, etc.)
-          const isBotWall = /just a moment|cf-browser-verification|attention required|cloudflare|not a bot|making sure/i.test(xml);
-          if (!xml.includes("<item>") || isBotWall) {
-            handleError = isBotWall ? `${instance} blocked by bot-check` : `${instance} returned no items`;
-            continue;
-          }
-          return parseRSS(xml, `X/@${handle}`).slice(0, 15);
-        } catch (e) {
-          handleError = `${instance} request failed: ${String(e)}`;
-          continue;
-        }
-      }
-      if (handleError && !firstError) firstError = handleError;
-      return [] as RawItem[];
-    })
-  );
-  const items: RawItem[] = [];
-  for (const res of results) {
-    if (res.status === "fulfilled") items.push(...res.value);
-  }
-  return { items, error: items.length === 0 ? (firstError ? `All Nitter instances failed (e.g. ${firstError})` : "Nitter returned no items") : undefined };
-}
-
-async function fetchXContent(): Promise<XFetchResult & { source: "api" | "nitter" | "none" }> {
-  // Try official Twitter API first; fall back to Nitter instances
-  const api = await fetchXViaAPI();
-  if (api.items.length > 0) return { ...api, source: "api" };
-  const nitter = await fetchXViaNitter();
-  if (nitter.items.length > 0) return { ...nitter, source: "nitter" };
-  const parts = [api.error, nitter.error].filter(Boolean);
-  return { items: [], source: "none", error: parts.join(" | ") || "X/Twitter fetch failed for an unknown reason" };
 }
 
 // ─── Google News fallback ──────────────────────────────────────────────────────
@@ -780,8 +654,8 @@ function inferCategory(title: string, feedCategory: string): string {
     t.includes("palladium")
   )
     return "Commodities";
-  // X sources and other unknowns fall back to Market News, not raw "X" string
-  if (feedCategory === "X" || !feedCategory) return "Market News";
+  // Telegram sources and other unknowns fall back to Market News
+  if (feedCategory === "Telegram" || !feedCategory) return "Market News";
   return feedCategory;
 }
 
@@ -791,13 +665,13 @@ function toScoredItem(
   item: RawItem & { feedCategory: string; isPrimarySource?: boolean; isCalendarEvent?: boolean; calendarImpact?: string },
 ): ScoredItem {
   const isTier1Wire = TIER1_WIRE_NAMES.has(item.source);
-  const isXAlert = item.source.startsWith("X/");
+  const isFastAlert = item.source.startsWith("TG/");
   const { score, breakdown } = scoreArticle(item.title, "", item.pubDate, {
     isPrimarySource: item.isPrimarySource,
     isCalendarEvent: item.isCalendarEvent,
     calendarImpact: item.calendarImpact,
     isTier1Wire,
-    isXAlert,
+    isFastAlert,
   });
   return {
     title: item.title,
@@ -837,16 +711,23 @@ function finalizeArticles(scored: ScoredItem[], limit: number): NewsArticle[] {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get("symbol") || "XAUUSD").toUpperCase();
-  const minScore = searchParams.has("minScore") ? Number(searchParams.get("minScore")) : DEFAULT_IMPACT_THRESHOLD;
+  // Default to 0 — show everything that survives the hard-noise filter.
+  // The impact score remains fully computed/visible for sorting and badges,
+  // it just no longer silently hides most of the news feed by default. Pass
+  // ?minScore=30 explicitly to only see high-impact "signal" items.
+  const minScore = searchParams.has("minScore") ? Number(searchParams.get("minScore")) : 0;
 
   const isAll = symbol === "ALL";
   const config = SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG["XAUUSD"];
 
   if (isAll) {
-    // Fetch all RSS feeds + X/Twitter + central bank feeds + economic calendar in parallel
-    const [rssResults, xResult, cbItems, calendarEvents] = await Promise.all([
+    // Fetch all RSS feeds + Telegram + central bank feeds + calendar in parallel.
+    // Telegram is the reliable fast-alert channel — works identically on Vercel,
+    // unlike X/Nitter which has been removed (community frontends routinely
+    // block datacenter/cloud IP ranges, so it silently failed once deployed).
+    const [rssResults, tgResult, cbItems, calendarEvents] = await Promise.all([
       Promise.allSettled(FEEDS.map((f) => fetchFeed(f))),
-      fetchXContent(),
+      fetchTelegramContentSince(48),
       fetchCentralBankFeeds(),
       fetchEconomicCalendar(),
     ]);
@@ -857,7 +738,7 @@ export async function GET(req: NextRequest) {
         res.value.forEach((item) => allRaw.push({ ...item, feedCategory: FEEDS[i].category }));
       }
     });
-    xResult.items.forEach((item) => allRaw.push({ ...item, feedCategory: "X" }));
+    tgResult.items.forEach((item) => allRaw.push({ ...item, feedCategory: "Telegram" }));
     cbItems.forEach((item) => allRaw.push({ ...item, feedCategory: "Central Bank", isPrimarySource: true }));
 
     // Hard-noise + crypto-category sub-filter, then dedupe
@@ -877,16 +758,21 @@ export async function GET(req: NextRequest) {
     scored = scored.concat(calendarEventsToArticles(calendarEvents));
 
     scored = applyCorroborationBoost(scored);
-    scored.sort((a, b) => b.impactScore - a.impactScore);
+
+    // Sort by recency for the cap below — with no default score gate, this
+    // ensures the most RECENT items survive the cap rather than skewing
+    // toward whatever happens to score highest. impactScore is still on
+    // every item for the client's optional "Highest Impact" sort.
+    scored.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
 
     const signal = scored.filter((s) => s.impactScore >= minScore);
-    const articles = finalizeArticles(signal, 150);
+    const articles = finalizeArticles(signal, 300);
 
     const headers: Record<string, string> = {
       "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30",
-      "X-X-Feed-Source": xResult.source,
+      "X-Telegram-Count": String(tgResult.items.length),
     };
-    if (xResult.error) headers["X-X-Feed-Error"] = encodeURIComponent(xResult.error);
+    if (tgResult.error) headers["X-Telegram-Error"] = encodeURIComponent(tgResult.error);
 
     return NextResponse.json(articles, { headers });
   }
@@ -946,10 +832,10 @@ export async function GET(req: NextRequest) {
   scored = scored.concat(calendarEventsToArticles(calendarEvents, relevantCurrencies));
 
   scored = applyCorroborationBoost(scored);
-  scored.sort((a, b) => b.impactScore - a.impactScore);
+  scored.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
 
   const signal = scored.filter((s) => s.impactScore >= minScore);
-  const articles = finalizeArticles(signal, 80);
+  const articles = finalizeArticles(signal, 150);
 
   return NextResponse.json(articles, {
     headers: {

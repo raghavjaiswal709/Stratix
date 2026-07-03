@@ -6,6 +6,7 @@ import { NewsAnalyseReportModel } from "@/lib/models/NewsAnalyseReport";
 import { scoreArticle, applyCorroborationBoost, isHardNoise, TIER1_WIRE_NAMES } from "@/lib/news/scoring";
 import { CENTRAL_BANK_FEEDS, isCentralBankNoise } from "@/lib/news/central-banks";
 import { fetchEconomicCalendar, CURRENCY_TO_SYMBOLS } from "@/lib/news/calendar";
+import { fetchTelegramContentSince } from "@/lib/news/telegram";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -80,107 +81,19 @@ const FEEDS = [
   { url: "https://cryptobriefing.com/feed/",                               name: "CryptoBriefing",  category: "Crypto" },
   { url: "https://blockworks.co/feed",                                     name: "Blockworks",      category: "Crypto" },
   { url: "https://thedefiant.io/feed",                                     name: "The Defiant",     category: "Crypto" },
+  { url: "https://www.dukascopy.com/plugins/newsTicker/rss.php",           name: "DC/Dukascopy",    category: "Market News" },
+  // ── Additional breadth ───────────────────────────────────────────────────────
+  { url: "https://markets.businessinsider.com/rss/news",                   name: "Business Insider",category: "Market News" },
+  { url: "https://ambcrypto.com/feed/",                                    name: "AMBCrypto",       category: "Crypto" },
+  { url: "https://bitcoinist.com/feed/",                                   name: "Bitcoinist",      category: "Crypto" },
+  { url: "https://coinpedia.org/feed/",                                    name: "Coinpedia",       category: "Crypto" },
+  { url: "https://www.nasdaq.com/feed/rssoutbound?category=Commodities",   name: "NASDAQ",          category: "Commodities" },
+  { url: "https://u.today/rss",                                            name: "U.Today",         category: "Crypto" },
+  { url: "https://www.silverseek.com/rss.xml",                             name: "SilverSeek",      category: "Commodities" },
+  { url: "https://cryptoslate.com/feed/",                                  name: "CryptoSlate",     category: "Crypto" },
+  { url: "https://beincrypto.com/feed/",                                   name: "BeInCrypto",      category: "Crypto" },
+  { url: "https://www.thestreet.com/.rss/full/",                          name: "TheStreet",       category: "Market News" },
 ];
-
-// ─── X/Twitter integration for AI analysis ───────────────────────────────────
-
-const ANALYSE_X_HANDLES = [
-  "FirstSquawk", "KobeissiLetter", "unusual_whales",
-  "WatcherGuru", "zerohedge", "markets",
-  "WSJmarkets", "ReutersMarkets", "financialtimes", "business", "WSJ",
-];
-
-const ANALYSE_X_USER_IDS: Record<string, string> = {
-  FirstSquawk:    "3295423333",
-  KobeissiLetter: "3316376038",
-  unusual_whales: "1200616796295847936",
-  WatcherGuru:    "1387497871751196672",
-  zerohedge:      "18856867",
-  markets:        "69620713",
-  WSJmarkets:     "28164923",
-  ReutersMarkets: "335907491",
-  financialtimes: "4898091",
-  business:       "34713362",
-  WSJ:            "3108351",
-};
-
-const ANALYSE_NITTER_INSTANCES = [
-  "https://nitter.perennialte.ch",
-  "https://nitter.rawit.eu",
-  "https://nitter.12bit.vn",
-];
-
-async function fetchXForAnalysis(): Promise<RawItem[]> {
-  const token = process.env.TWITTER_BEARER_TOKEN;
-  if (!token) {
-    // Fallback: try Nitter instances with per-handle fallback chain
-    const results = await Promise.allSettled(
-      ANALYSE_X_HANDLES.map(async (handle) => {
-        for (const instance of ANALYSE_NITTER_INSTANCES) {
-          try {
-            const r = await fetch(`${instance}/${handle}/rss`, {
-              headers: { "User-Agent": "Mozilla/5.0 (compatible; RSS reader)", Accept: "application/rss+xml" },
-              signal: AbortSignal.timeout(6000),
-            });
-            if (!r.ok) continue;
-            const xml = await r.text();
-            if (!xml.includes("<item>")) continue;
-            // Inline RSS parse for tweets
-            const items: RawItem[] = [];
-            const rx = /<item>([\s\S]*?)<\/item>/g;
-            let m;
-            while ((m = rx.exec(xml)) !== null) {
-              const b = m[1];
-              const tM = /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/.exec(b) || /<title>([^<]*)<\/title>/.exec(b);
-              const lM = /<link>([^<]+)<\/link>/.exec(b) || /<guid[^>]*>([^<]+)<\/guid>/.exec(b);
-              const dM = /<pubDate>([^<]+)<\/pubDate>/.exec(b);
-              if (tM && lM && tM[1].trim().length > 10) {
-                items.push({ title: tM[1].trim(), link: lM[1].trim(), pubDate: dM?.[1]?.trim() ?? "", source: `X/@${handle}`, category: "X", description: "", fullContent: "" });
-              }
-            }
-            return items.slice(0, 15);
-          } catch { continue; }
-        }
-        return [] as RawItem[];
-      })
-    );
-    return results.flatMap(r => r.status === "fulfilled" ? r.value : []);
-  }
-  // Use GET /2/users/:id/tweets — available on FREE tier (no $100/month plan needed)
-  const results = await Promise.allSettled(
-    ANALYSE_X_HANDLES.map(async (handle) => {
-      const userId = ANALYSE_X_USER_IDS[handle];
-      if (!userId) return [] as RawItem[];
-      try {
-        const params = new URLSearchParams({
-          max_results: "20",
-          "tweet.fields": "created_at",
-          exclude: "retweets,replies",
-        });
-        const r = await fetch(`https://api.twitter.com/2/users/${userId}/tweets?${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!r.ok) return [] as RawItem[];
-        const json = await r.json() as {
-          data?: { id: string; text: string; created_at: string }[];
-        };
-        return (json.data ?? [])
-          .map(t => ({
-            title: t.text.replace(/https?:\/\/\S+/g, "").trim(),
-            link: `https://x.com/${handle}/status/${t.id}`,
-            pubDate: t.created_at,
-            source: `X/@${handle}`,
-            category: "X",
-            description: "",
-            fullContent: "",
-          }))
-          .filter(item => item.title.length > 15);
-      } catch { return [] as RawItem[]; }
-    })
-  );
-  return results.flatMap(r => r.status === "fulfilled" ? r.value : []);
-}
 
 // ─── Market relevance filter ──────────────────────────────────────────────────
 // Two-part filter (same logic as news/route.ts):
@@ -450,7 +363,9 @@ function parseRSS(xml: string, sourceName: string, category: string): RawItem[] 
       /<link>([^<]+)<\/link>/.exec(block) ||
       /<guid[^>]*isPermaLink="true"[^>]*>([^<]+)<\/guid>/.exec(block) ||
       /<guid[^>]*>([^<]+)<\/guid>/.exec(block);
-    const pubDateMatch = /<pubDate>([^<]+)<\/pubDate>/.exec(block);
+    const pubDateMatch =
+      /<pubDate><!\[CDATA\[([\s\S]*?)\]\]><\/pubDate>/.exec(block) ||
+      /<pubDate>([^<]+)<\/pubDate>/.exec(block);
     const description = extractDescription(block);
     if (titleMatch && linkMatch) {
       const rawTitle = decodeHtml(titleMatch[1].trim());
@@ -892,16 +807,24 @@ export async function POST(req: NextRequest) {
   const instrument = body.instrument ?? "ALL";
   const selectedLinks = body.selectedLinks ?? null;
 
-  // ── Fetch RSS feeds + X/Twitter + central bank feeds + economic calendar ────
-  const [feedResults, xItems, cbItems, calendarItems] = await Promise.all([
+  // ── Fetch RSS feeds + Telegram + central bank feeds + economic calendar ──────
+  // Telegram (lib/news/telegram.ts) is the reliable fast-alert channel that
+  // actually works once deployed to Vercel. X/Twitter fetching has been
+  // removed entirely — Nitter-based fallback routinely blocked datacenter
+  // IPs in production, so it was silently returning nothing on Vercel.
+  // Paginated fetch — matches the requested time range instead of only the
+  // first ~20 messages per channel, so high-frequency channels aren't
+  // silently truncated to a sliver of the actual window.
+  const telegramHours = { "2h": 2, "5h": 5, "12h": 12, "24h": 24 }[timeRange] ?? 24;
+  const [feedResults, tgResult, cbItems, calendarItems] = await Promise.all([
     Promise.allSettled(FEEDS.map(f => fetchFeed(f))),
-    fetchXForAnalysis(),
+    fetchTelegramContentSince(telegramHours),
     fetchCentralBankFeedsForAnalysis(),
     fetchCalendarAsArticles(),
   ]);
   const allItems: RawItem[] = [];
   feedResults.forEach(res => { if (res.status === "fulfilled") allItems.push(...res.value); });
-  allItems.push(...xItems);
+  allItems.push(...tgResult.items.map(i => ({ ...i, category: "Telegram", description: "", fullContent: "" })));
 
   // Central bank + calendar items relevant to the requested instrument (Fed/USD
   // is relevant to everything; ECB/BOE/BOJ only when their currency is in scope)
@@ -958,7 +881,7 @@ export async function POST(req: NextRequest) {
     item,
     ...scoreArticle(item.title, item.description || "", item.pubDate, {
       isTier1Wire: TIER1_WIRE_NAMES.has(item.source),
-      isXAlert: item.source.startsWith("X/"),
+      isFastAlert: item.source.startsWith("X/") || item.source.startsWith("TG/"),
     }),
   }));
   const cbScored = hasSelectedLinks ? [] : dedupedCb.map(item => ({
