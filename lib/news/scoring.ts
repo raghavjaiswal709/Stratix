@@ -112,7 +112,7 @@ export interface ScoreOptions {
   isCalendarEvent?: boolean;
   calendarImpact?: "High" | "Medium" | "Low" | "Holiday" | string;
   isTier1Wire?: boolean;
-  isXAlert?: boolean; // known fast-breaking X/Twitter accounts
+  isFastAlert?: boolean; // known fast-breaking accounts (X/Twitter or Telegram squawk channels)
 }
 
 export function scoreArticle(
@@ -136,9 +136,9 @@ export function scoreArticle(
   } else if (opts.isTier1Wire) {
     score += 20;
     breakdown.push("source:tier1-wire(+20)");
-  } else if (opts.isXAlert) {
+  } else if (opts.isFastAlert) {
     score += 18;
-    breakdown.push("source:x-breaking-alert(+18)");
+    breakdown.push("source:fast-alert-channel(+18)");
   } else {
     score += 8;
     breakdown.push("source:standard-rss(+8)");
