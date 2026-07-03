@@ -101,6 +101,7 @@ function getActiveSidebarItems(preferences: any): {
     if (item.href === "/habits") return items.habits !== false;
     if (item.href === "/diary") return items.diary !== false;
     if (item.href === "/notes") return items.notes !== false;
+    if (item.href === "/content-creator") return items.contentCreator !== false;
     return true;
   });
 

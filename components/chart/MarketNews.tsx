@@ -376,7 +376,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
               </h2>
               <p className="text-xs text-white/35 leading-none">
                 {activeSymbol === "ALL"
-                  ? "57 RSS + Telegram + Fed/ECB/BOE/BOJ + Economic Calendar · Bloomberg · Reuters · WSJ · FXStreet · ForexLive · Kitco · CoinDesk · Dukascopy + more"
+                  ? "57 RSS + Breaking Alerts + Fed/ECB/BOE/BOJ + Economic Calendar · Bloomberg · Reuters · WSJ · FXStreet · ForexLive · Kitco · CoinDesk · Dukascopy + more"
                   : <>Multi-source live coverage for{" "}
                       <span className="text-white/55 font-medium">
                         {ASSET_NAMES[activeSymbol] || activeSymbol}
@@ -411,23 +411,28 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
               />
               Refresh
             </button>
-            <button
-              onClick={() => setShowSentimentReports(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-white/[0.15] bg-gradient-to-r from-white/[0.07] to-white/[0.04] px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:from-white/[0.12] hover:to-white/[0.08] hover:text-white"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Analyse News
-            </button>
+            {/* On the standalone News Analysis page, the "AI News Analysis" button in
+                the page header already triggers this same feature — avoid a confusing
+                second entry point. Keep it here for non-standalone embeds (e.g. /chart). */}
+            {!standalone && (
+              <button
+                onClick={() => setShowSentimentReports(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-white/[0.15] bg-gradient-to-r from-white/[0.07] to-white/[0.04] px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:from-white/[0.12] hover:to-white/[0.08] hover:text-white"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Analyse News
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Telegram feed diagnostic banner */}
+        {/* Source diagnostic banner — generic wording, never names a specific vendor */}
         {telegramFeedError && !loading && activeSymbol === "ALL" && (
           <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2">
             <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-400 mt-0.5" />
             <p className="text-[11px] leading-snug text-amber-200/80">
-              <span className="font-semibold text-amber-300">Telegram feed unavailable:</span>{" "}
-              {telegramFeedError}
+              <span className="font-semibold text-amber-300">Some sources didn&apos;t load this refresh</span>{" "}
+              — showing results from all other sources. Try refreshing in a minute.
             </p>
           </div>
         )}

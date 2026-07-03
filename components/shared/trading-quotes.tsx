@@ -131,11 +131,23 @@ export function TradingQuotesModal() {
       setShow(false);
       return;
     }
-    // Show a fresh quote every time the dashboard mounts (each visit/navigation).
+
+    const now = Date.now();
+    const lastShown = localStorage.getItem("last_quote_shown_time");
+    const thirtyMinutes = 30 * 60 * 1000;
+
+    if (lastShown && now - parseInt(lastShown, 10) < thirtyMinutes) {
+      setShow(false);
+      return;
+    }
+
+    // Show a fresh quote
     const randomIndex = Math.floor(Math.random() * quotes.length);
     const timer = setTimeout(() => {
       setQuote(quotes[randomIndex]);
       setShow(true);
+      // Save last shown time immediately when showing to avoid repeat on nav
+      localStorage.setItem("last_quote_shown_time", now.toString());
     }, 0);
     return () => clearTimeout(timer);
   }, [preferences?.showQuotes]);

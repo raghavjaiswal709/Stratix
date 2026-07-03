@@ -28,6 +28,7 @@ import {
   Radio,
   BrainCircuit,
   Database,
+  Layers2,
 } from "lucide-react";
 
 const sidebarOptionMeta = [
@@ -39,12 +40,13 @@ const sidebarOptionMeta = [
   { key: "data",         label: "Data",          icon: Database,        category: "Trading" },
   { key: "newsAnalysis", label: "News Analysis", icon: Newspaper,       category: "Trading" },
   { key: "liveData",     label: "Live Data",     icon: Radio,           category: "Trading", adminOnly: true },
-  { key: "chart",        label: "Chart",         icon: ChartCandlestick,category: "Trading", adminOnly: true },
+  { key: "chart",        label: "Live Chart",    icon: ChartCandlestick,category: "Trading" },
   { key: "aiReport",     label: "AI Report",     icon: BrainCircuit,    category: "Trading", adminOnly: true },
   { key: "todo",         label: "To-Do",         icon: ListTodo,        category: "Life-OS" },
   { key: "habits",       label: "Habits",        icon: Activity,        category: "Life-OS" },
   { key: "diary",        label: "Diary",         icon: PenLine,         category: "Life-OS" },
   { key: "notes",        label: "Notes",         icon: StickyNote,      category: "Life-OS" },
+  { key: "contentCreator",label: "Content Creator",icon: Layers2,       category: "Life-OS" },
 ];
 
 export default function SettingsPage() {
@@ -97,6 +99,7 @@ export default function SettingsPage() {
       habits: true,
       diary: true,
       notes: true,
+      contentCreator: true,
     };
 
     const updated = {
@@ -239,6 +242,7 @@ export default function SettingsPage() {
       habits: true,
       diary: true,
       notes: true,
+      contentCreator: true,
     };
 
     const updatedPrefs = {
@@ -287,6 +291,7 @@ export default function SettingsPage() {
     habits: true,
     diary: true,
     notes: true,
+    contentCreator: true,
   };
 
   return (
@@ -566,6 +571,7 @@ export default function SettingsPage() {
                   habits: true,
                   diary: true,
                   notes: true,
+                  contentCreator: true,
                 };
 
                 return (

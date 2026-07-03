@@ -10,6 +10,8 @@ interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 import { cn } from "@/lib/utils";
 import { validateReportSchema } from "@/lib/newsValidation";
 import { MarketNews } from "@/components/chart/MarketNews";
+import { AnalyseNewsModal } from "@/components/chart/news-sentiment/analyse-news-modal";
+import { SentimentReportDashboard, type SentimentReport } from "@/components/chart/news-sentiment/sentiment-report-dashboard";
 import {
   Newspaper,
   ChevronLeft,
@@ -143,6 +145,17 @@ interface AnalyseHistoryEntry {
   newsCount:      number;
   generatedBy:    string;
   generatedAt:    string;
+}
+
+// ── New "Analyse News" sentiment-report feature (gpt-4o-mini) ────────────────
+interface SentimentHistoryEntry {
+  _id:               string;
+  hours:             number;
+  timeRangeLabel:    string;
+  newsAnalyzedCount: number;
+  generatedBy:       string;
+  generatedByName?:  string;
+  generatedAt:       string;
 }
 
 type AnalyseTab = "result" | "articles" | "prompt";
@@ -3321,14 +3334,18 @@ function ReportViewModal({
 function GlobalHistoryDrawer({
   reports,
   analyseHistory,
+  sentimentHistory,
   onViewReport,
   onViewAnalysis,
+  onViewSentiment,
   onClose,
 }: {
   reports: NewsEntry[];
   analyseHistory: AnalyseHistoryEntry[];
+  sentimentHistory: SentimentHistoryEntry[];
   onViewReport: (entry: NewsEntry) => void;
   onViewAnalysis: (id: string) => void;
+  onViewSentiment: (id: string) => void;
   onClose: () => void;
 }) {
   function fmtDate(iso: string) {
@@ -3338,6 +3355,8 @@ function GlobalHistoryDrawer({
       timeZone: "Asia/Kolkata", timeZoneName: "short",
     });
   }
+
+  const totalCount = reports.length + analyseHistory.length + sentimentHistory.length;
 
   return (
     <>
@@ -3350,7 +3369,7 @@ function GlobalHistoryDrawer({
             <History className="h-4 w-4 text-white/40" />
             <div>
               <p className="text-[13px] font-semibold text-white/80">Report History</p>
-              <p className="text-[11px] text-white/30">{reports.length + analyseHistory.length} saved items</p>
+              <p className="text-[11px] text-white/30">{totalCount} saved items</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition">
@@ -3359,11 +3378,12 @@ function GlobalHistoryDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {(reports.length > 0 || analyseHistory.length > 0) && (() => {
+          {totalCount > 0 && (() => {
             // Build a single time-sorted combined list (latest first)
             type CItem =
-              | { kind: "report";   sortMs: number; entry: NewsEntry }
-              | { kind: "analysis"; sortMs: number; entry: AnalyseHistoryEntry };
+              | { kind: "report";    sortMs: number; entry: NewsEntry }
+              | { kind: "analysis";  sortMs: number; entry: AnalyseHistoryEntry }
+              | { kind: "sentiment"; sortMs: number; entry: SentimentHistoryEntry };
 
             const combined: CItem[] = [
               ...reports.map(r => ({
@@ -3375,6 +3395,11 @@ function GlobalHistoryDrawer({
                 kind: "analysis" as const,
                 sortMs: new Date(a.generatedAt).getTime(),
                 entry: a,
+              })),
+              ...sentimentHistory.map(s => ({
+                kind: "sentiment" as const,
+                sortMs: new Date(s.generatedAt).getTime(),
+                entry: s,
               })),
             ].sort((a, b) => b.sortMs - a.sortMs);
 
@@ -3406,7 +3431,7 @@ function GlobalHistoryDrawer({
                         {isAIReport ? <AITag /> : <ManualTag />}
                       </button>
                     );
-                  } else {
+                  } else if (item.kind === "analysis") {
                     const e = item.entry;
                     return (
                       <button key={`a-${e._id}`} onClick={() => onViewAnalysis(e._id)}
@@ -3427,13 +3452,35 @@ function GlobalHistoryDrawer({
                         <AITag />
                       </button>
                     );
+                  } else {
+                    const e = item.entry;
+                    return (
+                      <button key={`s-${e._id}`} onClick={() => onViewSentiment(e._id)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition hover:bg-white/[0.05]"
+                        style={isFirst
+                          ? { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)" }
+                          : { background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)" }
+                        }
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold bg-white/[0.08] text-white/60">
+                          <Sparkles className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-semibold text-white/65 truncate">{e.timeRangeLabel}</p>
+                          <p className="text-[10px] text-white/25 mt-0.5">
+                            {fmtDate(e.generatedAt)} · {e.newsAnalyzedCount} news · {e.generatedByName || e.generatedBy}
+                          </p>
+                        </div>
+                        <AITag />
+                      </button>
+                    );
                   }
                 })}
               </div>
             );
           })()}
 
-          {reports.length === 0 && analyseHistory.length === 0 && (
+          {totalCount === 0 && (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <Database className="h-6 w-6 text-white/15" />
               <p className="text-[12px] text-white/30">Koi saved report nahi mila</p>
@@ -4395,6 +4442,72 @@ export default function NewsAnalysisPage() {
   const [analyseInstrument,      setAnalyseInstrument]      = useState<string>("ALL");
   const [selectedLinks,          setSelectedLinks]          = useState<string[]>([]);
 
+  // ── Sentiment report state (new "Analyse News" feature) ──────────────────
+  const [sentimentModalOpen,    setSentimentModalOpen]    = useState(false);
+  const [sentimentGenerating,   setSentimentGenerating]   = useState(false);
+  const [sentimentGenError,     setSentimentGenError]     = useState<string | null>(null);
+  const [sentimentProgress,     setSentimentProgress]     = useState<string | undefined>(undefined);
+  const [sentimentHistory,      setSentimentHistory]      = useState<SentimentHistoryEntry[]>([]);
+  const [sentimentViewId,       setSentimentViewId]       = useState<string | null>(null);
+  const [sentimentViewData,     setSentimentViewData]     = useState<SentimentReport | null>(null);
+  const [sentimentViewLoading,  setSentimentViewLoading]  = useState(false);
+
+  const refreshSentimentHistory = useCallback(async () => {
+    try {
+      const res = await fetch("/api/news/sentiment-report");
+      if (!res.ok) return;
+      const data = await res.json();
+      setSentimentHistory(Array.isArray(data) ? data : []);
+    } catch { /* keep previous list on failure */ }
+  }, []);
+
+  useEffect(() => { refreshSentimentHistory(); }, [refreshSentimentHistory]);
+
+  useEffect(() => {
+    if (!sentimentViewId) { setSentimentViewData(null); return; }
+    setSentimentViewLoading(true);
+    fetch(`/api/news/sentiment-report/${sentimentViewId}`)
+      .then(r => r.json())
+      .then(data => setSentimentViewData(data))
+      .catch(() => setSentimentViewData(null))
+      .finally(() => setSentimentViewLoading(false));
+  }, [sentimentViewId]);
+
+  const handleGenerateSentiment = useCallback(async (hours: number) => {
+    setSentimentGenerating(true);
+    setSentimentGenError(null);
+    setSentimentProgress("Fetching every RSS feed, breaking-alert source, central bank & calendar…");
+    try {
+      const res = await fetch("/api/news/sentiment-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hours }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSentimentGenError(data.error ?? "Failed to generate report");
+        return;
+      }
+      setSentimentHistory(prev => [{
+        _id: data._id,
+        hours: data.hours,
+        timeRangeLabel: data.timeRangeLabel,
+        newsAnalyzedCount: data.newsAnalyzedCount,
+        generatedBy: data.generatedBy,
+        generatedByName: data.generatedByName,
+        generatedAt: data.generatedAt,
+      }, ...prev]);
+      setSentimentViewData(data);
+      setSentimentViewId(data._id);
+      setSentimentModalOpen(false);
+    } catch {
+      setSentimentGenError("Network error — please try again");
+    } finally {
+      setSentimentGenerating(false);
+      setSentimentProgress(undefined);
+    }
+  }, []);
+
   // ── Load report index on mount ───────────────────────────────────────────
   useEffect(() => {
     fetch("/api/news-reports")
@@ -4634,9 +4747,10 @@ export default function NewsAnalysisPage() {
               Ask AI
             </button>
 
-            {/* AI News Analysis — gradient button */}
+            {/* AI News Analysis — now opens the newer, faster "Analyse News" sentiment
+                report (strictly-all-news + real candles + per-instrument sentiment) */}
             <button
-              onClick={() => setAiAnalysisOpen(true)}
+              onClick={() => setSentimentModalOpen(true)}
               className="relative flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold text-white transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]"
               style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 55%, #0891b2 100%)", boxShadow: "0 0 20px rgba(124,58,237,0.25), 0 0 40px rgba(5,150,105,0.10)" }}
             >
@@ -4646,14 +4760,14 @@ export default function NewsAnalysisPage() {
 
             {/* History */}
             <button
-              onClick={() => { refreshAnalyseHistory(); setHistoryDrawerOpen(true); }}
+              onClick={() => { refreshAnalyseHistory(); refreshSentimentHistory(); setHistoryDrawerOpen(true); }}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold border bg-white/[0.04] border-white/[0.08] text-white/45 hover:bg-white/[0.07] hover:text-white/70 hover:border-white/[0.13] transition"
             >
               <History className="h-3.5 w-3.5" />
               History
-              {(reports.length + analyseHistory.length) > 0 && (
+              {(reports.length + analyseHistory.length + sentimentHistory.length) > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
-                  {reports.length + analyseHistory.length}
+                  {reports.length + analyseHistory.length + sentimentHistory.length}
                 </span>
               )}
             </button>
@@ -4800,13 +4914,48 @@ export default function NewsAnalysisPage() {
         />
       )}
 
+      {/* ── Analyse News Modal (new sentiment-report feature, gpt-4o-mini) ──── */}
+      {sentimentModalOpen && (
+        <AnalyseNewsModal
+          onClose={() => { if (!sentimentGenerating) { setSentimentModalOpen(false); setSentimentGenError(null); } }}
+          onGenerate={handleGenerateSentiment}
+          generating={sentimentGenerating}
+          error={sentimentGenError}
+          progressLabel={sentimentProgress}
+        />
+      )}
+
+      {/* ── Sentiment Report Dashboard Overlay ────────────────────────────── */}
+      {(sentimentViewData || sentimentViewLoading) && (
+        <div className="fixed inset-4 md:inset-8 z-50">
+          <div className="relative h-full rounded-2xl border border-white/[0.08] bg-[#0a0b0f] shadow-2xl overflow-hidden flex flex-col">
+            <button
+              onClick={() => { setSentimentViewData(null); setSentimentViewId(null); }}
+              className="absolute top-3 right-3 z-10 p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/50 hover:text-white transition"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            {sentimentViewLoading || !sentimentViewData ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3">
+                <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
+                <p className="text-[12px] text-white/30">Loading report…</p>
+              </div>
+            ) : (
+              <SentimentReportDashboard report={sentimentViewData} />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Global History Drawer ──────────────────────────────────────────── */}
       {historyDrawerOpen && (
         <GlobalHistoryDrawer
           reports={reports}
           analyseHistory={analyseHistory}
+          sentimentHistory={sentimentHistory}
           onViewReport={openReportView}
           onViewAnalysis={(id) => { setHistoryDrawerOpen(false); setAiAnalysisOpen(true); handleLoadAnalyseReport(id); }}
+          onViewSentiment={(id) => { setHistoryDrawerOpen(false); setSentimentViewId(id); }}
           onClose={() => setHistoryDrawerOpen(false)}
         />
       )}

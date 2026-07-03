@@ -14,10 +14,11 @@ export const maxDuration = 120;
 
 // Uses gpt-4o-mini — low-tier, fast, cheap. The gpt-5.5-2026-04-23 model is
 // reserved for the deep CHOCH/QML news-analysis report only — do NOT change
-// this for the sentiment report feature.
+// this for the sentiment report feature. This call passes NO tools param —
+// the model cannot browse the web; it strictly reasons over the JSON we feed it.
 const SENTIMENT_MODEL = "gpt-4o-mini";
 
-const ALLOWED_HOURS = [6, 12, 24, 48, 72];
+const ALLOWED_HOURS = [1, 2, 3, 6, 12, 24, 48, 72];
 
 const INSTRUMENTS = [
   "XAUUSD", "XAGUSD", "BTCUSDT", "ETHUSD",
@@ -25,62 +26,105 @@ const INSTRUMENTS = [
 ];
 
 function timeRangeLabel(hours: number): string {
-  if (hours < 24) return `Last ${hours} Hours`;
+  if (hours < 24) return `Last ${hours} Hour${hours === 1 ? "" : "s"}`;
   if (hours === 24) return "Last 24 Hours";
   return `Last ${hours / 24} Days`;
 }
 
-const SYSTEM_PROMPT = `You are an elite trading sentiment analyst. You receive a STRICT, complete list of every news item published within a fixed recent time window — every RSS headline, every Telegram breaking-alert message, every official central bank press release, and every relevant economic calendar event that was actually collected for that window. Nothing has been pre-filtered by importance; you decide relevance and sentiment yourself.
+// ─── Real-time hourly candle data — grounds the AI in actual price action ────
+interface HCandle { t: number; o: number; h: number; l: number; c: number }
+interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 
-YOUR JOB — in two steps:
-STEP 1: From the complete news list provided, identify every item that is genuinely relevant to gold (XAUUSD/XAGUSD), Bitcoin/crypto (BTCUSDT/ETHUSD), or any forex pair (EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD, NZDUSD). Discard anything truly unrelated to trading/markets (e.g. unrelated corporate press releases, sports, lifestyle content that slipped through).
-STEP 2: For every relevant item, determine which of the 11 tracked instruments it affects, and whether it is Bullish, Bearish, or Neutral for EACH of those instruments specifically (one news item can be bullish for gold and bearish for EURUSD at the same time — tag each instrument independently, don't assume one sentiment fits all).
+const CANDLE_SYMBOLS = ["xauusd", "xagusd", "btcusdt", "ethusd", "eurusd", "gbpusd", "usdjpy", "audusd", "nzdusd", "usdcad", "usdchf"];
 
-STRICT RULES:
-- You MUST cover all 11 instruments in "instrument_sentiment": XAUUSD, XAGUSD, BTCUSDT, ETHUSD, EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD, NZDUSD — no skipping, even if an instrument has thin news coverage this window (state that plainly in its summary instead).
-- "analyzed_news" must include every genuinely relevant, distinguishable news item you found (do not artificially cap unless there are truly more than 150 relevant items, in which case include the 150 most significant and note the total found in your reasoning).
-- Do not invent news that wasn't provided. Every headline in your output must be copied from the input list.
-- Every sentiment tag must be one of exactly: "Bullish", "Bearish", "Neutral".
-- Be specific in summaries — cite actual headlines/events, not generic statements like "market sentiment is mixed."
-- Return ONLY a single valid JSON object. No markdown fences, no prose before or after.
+function formatCandlesForPrompt(data: CandleSummary | null, hours: number): string {
+  if (!data) return "";
+  const h1Limit = Math.min(48, Math.max(4, hours));
+  const lines: string[] = ["=== REAL-TIME HOURLY OHLC PRICE DATA (IST) — quote these actual levels, do not guess ==="];
 
-MANDATORY JSON SCHEMA (follow field names EXACTLY):
+  for (const sym of CANDLE_SYMBOLS) {
+    const d = data[sym];
+    if (!d?.h1?.length) continue;
+    const recent = d.h1.slice(-h1Limit);
+    const last = recent[recent.length - 1];
+    const first = recent[0];
+    const changePct = first?.c ? (((last.c - first.c) / first.c) * 100).toFixed(2) : "0.00";
+    lines.push(`\n${sym.toUpperCase()}: current ${last.c} | window-open ${first?.c ?? last.o} | change ${changePct}% | window-high ${Math.max(...recent.map(c => c.h))} | window-low ${Math.min(...recent.map(c => c.l))}`);
+  }
+
+  return lines.length > 1 ? lines.join("\n") : "";
+}
+
+async function fetchCandleSummary(req: NextRequest): Promise<CandleSummary | null> {
+  try {
+    const origin = new URL(req.url).origin;
+    const res = await fetch(`${origin}/api/candle-summary`, {
+      headers: { cookie: req.headers.get("cookie") ?? "" },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as CandleSummary;
+  } catch {
+    return null;
+  }
+}
+
+const SYSTEM_PROMPT = `Tu ek expert trading sentiment analyst hai. Tujhe ek fixed time window ke andar publish hui SAARI news milegi — har RSS headline, har breaking-alert message, har official central bank press release, har relevant economic calendar event, aur REAL hourly OHLC price data har tracked instrument ke liye. Kuch bhi pre-filtered nahi hai — relevance aur sentiment tu khud decide karega.
+
+⚠️ ABSOLUTE RULE — NO EXTERNAL TOOLS: Tu STRICTLY sirf neeche diya gaya data use karega. Koi web search, koi browsing, koi external lookup NAHI karna hai — sirf jo JSON news list aur candle data diya gaya hai usi par based reasoning karo. Agar kisi cheez ka pata nahi hai to woh mat likho — invent mat karo.
+
+TERA KAAM — do steps mein:
+STEP 1: Diye gaye complete news list se woh sabhi items identify karo jo genuinely gold (XAUUSD/XAGUSD), Bitcoin/crypto (BTCUSDT/ETHUSD), ya kisi bhi forex pair (EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD, NZDUSD) se relevant hain. Jo trading/markets se bilkul unrelated hai (jaise koi random corporate press release, sports, lifestyle content jo galti se aa gaya) — usse discard karo.
+STEP 2: Har relevant item ke liye determine karo ki woh kaunse tracked instruments ko affect karta hai, aur har instrument ke liye specifically Bullish, Bearish, ya Neutral hai (ek hi news gold ke liye bullish aur EURUSD ke liye bearish ho sakti hai simultaneously — har instrument ko independently tag karo, ek sentiment sabke liye assume mat karo).
+
+STRICT RULES — SENSITIVITY AUR ACCURACY DONO ZAROORI HAIN:
+- "instrument_sentiment" mein sabhi 11 instruments cover karna MANDATORY hai: XAUUSD, XAGUSD, BTCUSDT, ETHUSD, EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD, NZDUSD — koi bhi skip nahi hoga, agar kisi instrument ke liye thin coverage hai to summary mein clearly likho.
+- Har instrument ke "key_drivers" mein KAM SE KAM 2-4 alag-alag news items reference karo (agar utne available hain) — sirf ek headline pe depend mat karo, MULTIPLE news items ko cross-reference karke pattern/confirmation dhoondo. Ek hi news bias create nahi karti — agar 3 alag sources same direction confirm kar rahe hain to woh zyada reliable signal hai, isse explicitly mention karo.
+- "key_drivers" ka har entry sirf headline copy nahi hoga — har entry format "[headline] → [kyun yeh instrument ko affect karta hai, simple Hinglish mein 1-2 sentence explanation]" hona chahiye. Generic statements jaise "market sentiment mixed hai" REJECTED — specific numbers, events, aur mechanism batao.
+- Candle data ka use karo — instrument_sentiment ke summary mein current price level, window ka % change, aur high/low zone ko explicitly quote karo jahan relevant ho, taki analysis sirf news-based nahi balki actual price-action-confirmed bhi lage.
+- "analyzed_news" mein har genuinely relevant, distinguishable news item include karo (agar 150 se zyada relevant items hain to sabse significant 150 include karo aur baaki ka count summary mein mention karo).
+- Koi bhi news mat invent karo jo provide nahi ki gayi — har headline tera output mein EXACT input se copy honi chahiye (translate mat karo, jaisa hai waisa rakho).
+- Har sentiment tag exactly ek hoga: "Bullish", "Bearish", ya "Neutral".
+- Saare "summary", "key_drivers" explanations, aur "key_themes" STRICTLY Hinglish mein likhna hai (English alphabet, natural Hindi-English mix) — jaise ek senior trader apni team ko brief kar raha ho. Sirf headline/source/pubDate/symbol/sentiment fields English/original mein rahenge.
+- Return SIRF ek valid JSON object. Koi markdown fence nahi, koi prose pehle ya baad mein nahi.
+
+MANDATORY JSON SCHEMA (field names EXACTLY yeh follow karo):
 {
   "overall_sentiment": {
     "risk_tone": "Risk-On | Risk-Off | Neutral",
-    "summary": "MINIMUM 100 words. Describe the dominant theme(s) driving markets across this entire window, citing specific events/headlines and numbers where available."
+    "summary": "MINIMUM 120 words Hinglish mein. Is poore window mein market ko drive karne wale dominant theme(s) describe karo — specific events/headlines aur numbers cite karte hue. Candle data se overall risk sentiment confirm/contradict ho raha hai woh bhi batao."
   },
   "instrument_sentiment": [
     {
       "symbol": "XAUUSD",
       "sentiment": "Bullish | Bearish | Neutral",
       "confidence": <integer 0-100>,
-      "summary": "MINIMUM 40 words explaining why, citing specific headlines from the provided news.",
-      "key_drivers": ["exact headline 1 from the input", "exact headline 2 from the input"]
+      "summary": "MINIMUM 60 words Hinglish mein — kyun yeh sentiment hai, multiple news items cross-reference karke, current price level aur % change candle data se quote karke.",
+      "key_drivers": ["[exact headline 1] → [Hinglish explanation kyun yeh instrument ko affect karta hai]", "[exact headline 2] → [Hinglish explanation]", "[exact headline 3 agar available] → [Hinglish explanation]"]
     }
-    // ... one object per instrument, ALL 11 REQUIRED, same shape
+    // ... ek object per instrument, SABHI 11 MANDATORY, same shape
   ],
   "analyzed_news": [
     {
-      "headline": "exact headline text from the input list",
+      "headline": "exact headline text from the input list — mat translate karo",
       "source": "exact source from the input",
       "pubDate": "exact pubDate string from the input",
       "impact": "High | Medium | Low",
       "affected_instruments": [
         { "symbol": "XAUUSD", "sentiment": "Bullish" }
-        // only instruments this specific item actually affects — usually 1-4, not all 11
+        // sirf woh instruments jo yeh specific item actually affect karta hai — usually 1-4, sabhi 11 nahi
       ]
     }
-    // as many relevant items as found, most significant first
+    // jitne bhi relevant items mile, sabse significant pehle
   ],
   "key_themes": [
-    "Theme 1 — one sentence naming the theme and its cross-asset implication",
-    "Theme 2 — one sentence naming the theme and its cross-asset implication",
-    "Theme 3 — one sentence naming the theme and its cross-asset implication"
+    "Theme 1 — ek sentence Hinglish mein jo theme aur uska cross-asset implication naam kare",
+    "Theme 2 — ek sentence Hinglish mein jo theme aur uska cross-asset implication naam kare",
+    "Theme 3 — ek sentence Hinglish mein jo theme aur uska cross-asset implication naam kare"
   ]
 }
 
-FINAL MANDATE: Return ONLY the JSON object above, fully populated, no placeholders, no procrastination.`;
+FINAL MANDATE: Sirf upar wala JSON object return karo, fully populated, no placeholders, no procrastination, koi external tool use nahi.`;
 
 interface NewsInputItem {
   headline: string;
@@ -103,12 +147,13 @@ export async function POST(req: NextRequest) {
   const hours = ALLOWED_HOURS.includes(body.hours as number) ? (body.hours as number) : 12;
   const cutoffMs = Date.now() - hours * 60 * 60 * 1000;
 
-  // ── Fetch STRICTLY all news within the window, from every source, in parallel ──
-  const [rssItems, tgResult, cbItems, calendarEvents] = await Promise.all([
+  // ── Fetch STRICTLY all news within the window, from every source + real candles, in parallel ──
+  const [rssItems, tgResult, cbItems, calendarEvents, candles] = await Promise.all([
     fetchAllNewsFeeds(),
     fetchTelegramContentSince(hours),
     fetchCentralBankFeeds(),
     fetchEconomicCalendar(),
+    fetchCandleSummary(req),
   ]);
 
   const isWithinWindow = (pubDate: string) => {
@@ -126,7 +171,7 @@ export async function POST(req: NextRequest) {
       headline: i.title, source: i.source, pubDate: i.pubDate, category: i.category,
     })),
     ...tgResult.items.filter((i) => !isHardNoise(i.title)).map((i) => ({
-      headline: i.title, source: i.source, pubDate: i.pubDate, category: "Telegram",
+      headline: i.title, source: i.source, pubDate: i.pubDate, category: "Breaking Alert",
     })),
     ...cbInWindow.filter((i) => !isHardNoise(i.title)).map((i) => ({
       headline: i.title, source: i.source, pubDate: i.pubDate, category: "Central Bank",
@@ -152,14 +197,17 @@ export async function POST(req: NextRequest) {
   }
 
   const label = timeRangeLabel(hours);
+  const candleBlock = formatCandlesForPrompt(candles, hours);
+
   const userMsg = `Time window: ${label} (strictly all news published in this window, from every configured source).
 Total news items provided: ${deduped.length}
 Tracked instruments (all 11 mandatory in instrument_sentiment): ${INSTRUMENTS.join(", ")}
 
+${candleBlock ? `${candleBlock}\n` : ""}
 COMPLETE NEWS LIST (JSON array — every item below was actually published in this window):
 ${JSON.stringify(deduped, null, 1)}
 
-Analyze this data per the schema and rules in the system prompt.`;
+Analyze this data per the schema and rules in the system prompt. Remember: STRICTLY Hinglish for all descriptive text, no external tools, cross-reference multiple news items per instrument, and quote real candle levels where relevant.`;
 
   let rawResponse: string;
   try {
@@ -170,7 +218,7 @@ Analyze this data per the schema and rules in the system prompt.`;
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userMsg },
       ],
-      temperature: 0.3,
+      temperature: 0.35,
       max_tokens: 16000,
       response_format: { type: "json_object" },
     });

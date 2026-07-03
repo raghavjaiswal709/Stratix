@@ -17,6 +17,8 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnalyzingOverlay, RefineDiff, RefineIconButton } from "@/components/trade/journal/ai-refine";
@@ -192,9 +194,9 @@ function MissedTradeDetail({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // AI Refine — per-field inline diff (analyze → accept/discard)
+  // AI Refine — per-field inline diff (analyze → accept/discard), plus "Refine All"
   const [refining, setRefining] = useState(false);
-  const [refiningField, setRefiningField] = useState<MissedRefineField | null>(null);
+  const [refineFields, setRefineFields] = useState<MissedRefineField[]>([]);
   const [refineSuggestions, setRefineSuggestions] = useState<Partial<Record<MissedRefineField, string>>>({});
   const [refineError, setRefineError] = useState<string | null>(null);
 
@@ -224,7 +226,7 @@ function MissedTradeDetail({
     });
     setSaved(false);
     setRefining(false);
-    setRefiningField(null);
+    setRefineFields([]);
     setRefineSuggestions({});
     setRefineError(null);
   }, [trade?._id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -250,20 +252,8 @@ function MissedTradeDetail({
     return form.lessonsLearned;
   }
 
-  async function handleRefineField(field: MissedRefineField) {
+  async function refineOneField(field: MissedRefineField): Promise<{ field: MissedRefineField; refined?: string; error?: string }> {
     const text = getMissedRefineText(field);
-    if (text.trim().length <= 5) {
-      setRefineError("Write something in this section before refining");
-      return;
-    }
-    setRefining(true);
-    setRefiningField(field);
-    setRefineError(null);
-    setRefineSuggestions(prev => {
-      const next = { ...prev };
-      delete next[field];
-      return next;
-    });
     try {
       const res = await fetch("/api/journal/refine", {
         method: "POST",
@@ -275,22 +265,64 @@ function MissedTradeDetail({
         }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        setRefineError(data.error ?? "Refinement failed");
-        return;
-      }
-      const refined = (data.refined as string) ?? "";
-      if (refined.trim() && refined.trim() !== text.trim()) {
-        setRefineSuggestions(prev => ({ ...prev, [field]: refined }));
-      } else {
-        setRefineError("AI didn't suggest any changes — this entry already reads well.");
-      }
+      if (!res.ok) return { field, error: data.error ?? "Refinement failed" };
+      return { field, refined: data.refined as string };
     } catch {
-      setRefineError("Network error — please try again");
+      return { field, error: "Network error — please try again" };
+    }
+  }
+
+  async function runRefine(fields: MissedRefineField[]) {
+    if (fields.length === 0) return;
+    setRefining(true);
+    setRefineFields(fields);
+    setRefineError(null);
+    setRefineSuggestions(prev => {
+      const next = { ...prev };
+      fields.forEach(f => delete next[f]);
+      return next;
+    });
+    try {
+      const results = await Promise.all(fields.map(refineOneField));
+      const newSuggestions: Partial<Record<MissedRefineField, string>> = {};
+      let anyError: string | null = null;
+      for (const r of results) {
+        if (r.error) { anyError = r.error; continue; }
+        const original = getMissedRefineText(r.field);
+        if (r.refined && r.refined.trim() && r.refined.trim() !== original.trim()) {
+          newSuggestions[r.field] = r.refined;
+        }
+      }
+      setRefineSuggestions(prev => ({ ...prev, ...newSuggestions }));
+      if (Object.keys(newSuggestions).length === 0) {
+        setRefineError(anyError ?? "AI didn't suggest any changes — this entry already reads well.");
+      } else if (anyError) {
+        setRefineError(anyError);
+      }
     } finally {
       setRefining(false);
-      setRefiningField(null);
+      setRefineFields([]);
     }
+  }
+
+  function handleRefineField(field: MissedRefineField) {
+    if (getMissedRefineText(field).trim().length <= 5) {
+      setRefineError("Write something in this section before refining");
+      return;
+    }
+    runRefine([field]);
+  }
+
+  function handleRefineAll() {
+    const fieldsToRefine: MissedRefineField[] = [];
+    if (form.outcomeNotes.trim().length > 5) fieldsToRefine.push("outcomeNotes");
+    if (form.analysis.trim().length > 5) fieldsToRefine.push("analysis");
+    if (form.lessonsLearned.trim().length > 5) fieldsToRefine.push("lessonsLearned");
+    if (fieldsToRefine.length === 0) {
+      setRefineError("Write something before refining");
+      return;
+    }
+    runRefine(fieldsToRefine);
   }
 
   function acceptRefine(field: MissedRefineField) {
@@ -417,6 +449,26 @@ function MissedTradeDetail({
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/20 text-[12px] text-red-400 hover:bg-red-500/10 transition"
             >
               <Trash2 className="h-3.5 w-3.5" /> Delete
+            </button>
+          )}
+          {!isNew && (
+            <button
+              onClick={handleRefineAll}
+              disabled={refining}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition",
+                refining
+                  ? "border-white/10 bg-white/5 text-white/40 cursor-not-allowed"
+                  : "border-white/[0.15] bg-gradient-to-r from-white/[0.07] to-white/[0.04] text-white/80 hover:from-white/[0.12] hover:to-white/[0.08] hover:text-white"
+              )}
+              title="Refine all text with AI (gpt-4o-mini)"
+            >
+              {refining ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">{refining ? "Refining…" : "Refine All"}</span>
             </button>
           )}
           <button
@@ -635,13 +687,13 @@ function MissedTradeDetail({
                   onChange={e => set("outcomeNotes", e.target.value)}
                   placeholder="Describe what actually happened after…"
                   rows={3}
-                  disabled={refining && refiningField === "outcomeNotes"}
+                  disabled={refining && refineFields.includes("outcomeNotes")}
                   className={cn(
                     "w-full bg-transparent text-[12px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none transition",
-                    refining && refiningField === "outcomeNotes" && "opacity-30"
+                    refining && refineFields.includes("outcomeNotes") && "opacity-30"
                   )}
                 />
-                {refining && refiningField === "outcomeNotes" && <AnalyzingOverlay label="AI is analyzing…" />}
+                {refining && refineFields.includes("outcomeNotes") && <AnalyzingOverlay label="AI is analyzing…" />}
               </div>
             )}
           </div>
@@ -677,13 +729,13 @@ function MissedTradeDetail({
                     onChange={e => set("analysis", e.target.value)}
                     placeholder="What did you see? Why was it a valid setup? What would have been your confluence?"
                     rows={6}
-                    disabled={refining && refiningField === "analysis"}
+                    disabled={refining && refineFields.includes("analysis")}
                     className={cn(
                       "w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none transition",
-                      refining && refiningField === "analysis" && "opacity-30"
+                      refining && refineFields.includes("analysis") && "opacity-30"
                     )}
                   />
-                  {refining && refiningField === "analysis" && <AnalyzingOverlay label="AI is analyzing…" />}
+                  {refining && refineFields.includes("analysis") && <AnalyzingOverlay label="AI is analyzing…" />}
                 </>
               )}
             </div>
@@ -717,13 +769,13 @@ function MissedTradeDetail({
                     onChange={e => set("lessonsLearned", e.target.value)}
                     placeholder="What will you do differently next time? What pattern do you need to watch for?"
                     rows={6}
-                    disabled={refining && refiningField === "lessonsLearned"}
+                    disabled={refining && refineFields.includes("lessonsLearned")}
                     className={cn(
                       "w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none transition",
-                      refining && refiningField === "lessonsLearned" && "opacity-30"
+                      refining && refineFields.includes("lessonsLearned") && "opacity-30"
                     )}
                   />
-                  {refining && refiningField === "lessonsLearned" && <AnalyzingOverlay label="AI is analyzing…" />}
+                  {refining && refineFields.includes("lessonsLearned") && <AnalyzingOverlay label="AI is analyzing…" />}
                 </>
               )}
             </div>
