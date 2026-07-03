@@ -5,9 +5,13 @@ import { useAppContext } from "@/lib/context";
 import type { ApiTrade } from "@/types";
 import { JournalList, JournalTrade } from "@/components/trade/journal/journal-list";
 import { JournalDetail } from "@/components/trade/journal/journal-detail";
-import { AlertCircle, BookOpen, X } from "lucide-react";
+import { MissedTradesView } from "@/components/trade/missed-trades/missed-trades-view";
+import { ReportsView } from "@/components/trade/journal/reports-view";
+import { AlertCircle, BookOpen, X, AlertTriangle, FileBarChart } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type JournalTab = "all" | "journaled" | "pending";
+type PageView = "journal" | "missed" | "reports";
 
 function UnsavedDialog({
   onDiscard,
@@ -84,6 +88,8 @@ export default function JournalPage() {
   const [tab, setTab] = useState<JournalTab>("all");
   const [isDirty, setIsDirty] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [view, setView] = useState<PageView>("journal");
+  const [pendingView, setPendingView] = useState<PageView | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setHasUnsavedChanges(isDirty), 0);
@@ -187,30 +193,46 @@ export default function JournalPage() {
     }
   }
 
+  function handleViewChange(next: PageView) {
+    if (next === view) return;
+    if (isDirty) {
+      setPendingView(next);
+    } else {
+      setView(next);
+    }
+  }
+
   async function handleDialogSave() {
     window.dispatchEvent(new CustomEvent("journal-force-save"));
     await new Promise((r) => setTimeout(r, 700));
-    if (pendingId && pendingId !== "__back__") {
+    if (pendingView) {
+      setView(pendingView);
+    } else if (pendingId && pendingId !== "__back__") {
       setSelectedId(pendingId);
     } else if (pendingId === "__back__") {
       setSelectedId(null);
     }
     setIsDirty(false);
     setPendingId(null);
+    setPendingView(null);
   }
 
   function handleDialogDiscard() {
-    if (pendingId && pendingId !== "__back__") {
+    if (pendingView) {
+      setView(pendingView);
+    } else if (pendingId && pendingId !== "__back__") {
       setSelectedId(pendingId);
     } else if (pendingId === "__back__") {
       setSelectedId(null);
     }
     setIsDirty(false);
     setPendingId(null);
+    setPendingView(null);
   }
 
   function handleDialogCancel() {
     setPendingId(null);
+    setPendingView(null);
   }
 
   if (loading) {
@@ -221,9 +243,15 @@ export default function JournalPage() {
     );
   }
 
+  const TABS: { key: PageView; label: string; icon: typeof BookOpen }[] = [
+    { key: "journal", label: "Journal", icon: BookOpen },
+    { key: "missed", label: "Missed Trades", icon: AlertTriangle },
+    { key: "reports", label: "Reports", icon: FileBarChart },
+  ];
+
   return (
     <>
-      {pendingId && (
+      {(pendingId || pendingView) && (
         <UnsavedDialog
           onSave={handleDialogSave}
           onDiscard={handleDialogDiscard}
@@ -231,53 +259,80 @@ export default function JournalPage() {
         />
       )}
 
-      <div className="flex h-full">
-        {/* Left panel */}
-        <div className={`${selectedTrade ? "hidden md:flex" : "flex"} w-full md:w-70 shrink-0 flex-col h-full`}>
-          <JournalList
-            trades={trades}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-            tab={tab}
-            onTabChange={setTab}
-          />
+      <div className="flex flex-col h-full">
+        {/* Top tab bar */}
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/7 shrink-0 bg-[#0c0e14]">
+          {TABS.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => handleViewChange(key)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition",
+                view === key
+                  ? "bg-white/[0.09] text-white border border-white/[0.12]"
+                  : "text-white/40 hover:text-white/70 hover:bg-white/[0.05] border border-transparent"
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          ))}
         </div>
 
-        {/* Right panel */}
-        {selectedTrade ? (
-          <div className="flex-1 flex flex-col min-w-0">
-            {/* Mobile back */}
-            <div className="flex md:hidden items-center px-4 py-2 border-b border-border shrink-0">
-              <button
-                onClick={() => {
-                  if (isDirty) setPendingId("__back__");
-                  else setSelectedId(null);
-                }}
-                className="flex items-center gap-1.5 text-[12px] text-white/50 hover:text-white transition"
-              >
-                <span className="text-[16px] leading-none">←</span>
-                Back to list
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <JournalDetail
-                trade={selectedTrade}
-                onSaved={handleSaved}
-                onDirtyChange={setIsDirty}
+        {view === "missed" ? (
+          <MissedTradesView />
+        ) : view === "reports" ? (
+          <ReportsView />
+        ) : (
+          <div className="flex flex-1 min-h-0">
+            {/* Left panel */}
+            <div className={`${selectedTrade ? "hidden md:flex" : "flex"} w-full md:w-70 shrink-0 flex-col h-full`}>
+              <JournalList
+                trades={trades}
+                selectedId={selectedId}
+                onSelect={handleSelect}
+                tab={tab}
+                onTabChange={setTab}
               />
             </div>
-          </div>
-        ) : (
-          <div className="hidden md:flex flex-1 flex-col items-center justify-center text-white/25">
-            <div className="h-12 w-12 rounded-2xl bg-white/5 flex items-center justify-center mb-3">
-              <BookOpen className="h-6 w-6 opacity-50" />
-            </div>
-            <p className="text-[14px] font-medium">No trade selected</p>
-            <p className="text-[12px] mt-1">
-              {trades.length === 0
-                ? "Add a trade first to start journaling"
-                : "Select a trade from the list to journal it"}
-            </p>
+
+            {/* Right panel */}
+            {selectedTrade ? (
+              <div className="flex-1 flex flex-col min-w-0">
+                {/* Mobile back */}
+                <div className="flex md:hidden items-center px-4 py-2 border-b border-border shrink-0">
+                  <button
+                    onClick={() => {
+                      if (isDirty) setPendingId("__back__");
+                      else setSelectedId(null);
+                    }}
+                    className="flex items-center gap-1.5 text-[12px] text-white/50 hover:text-white transition"
+                  >
+                    <span className="text-[16px] leading-none">←</span>
+                    Back to list
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  <JournalDetail
+                    trade={selectedTrade}
+                    onSaved={handleSaved}
+                    onDirtyChange={setIsDirty}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="hidden md:flex flex-1 flex-col items-center justify-center text-white/25">
+                <div className="h-12 w-12 rounded-2xl bg-white/5 flex items-center justify-center mb-3">
+                  <BookOpen className="h-6 w-6 opacity-50" />
+                </div>
+                <p className="text-[14px] font-medium">No trade selected</p>
+                <p className="text-[12px] mt-1">
+                  {trades.length === 0
+                    ? "Add a trade first to start journaling"
+                    : "Select a trade from the list to journal it"}
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

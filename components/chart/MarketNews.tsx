@@ -213,6 +213,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [xFeedError, setXFeedError] = useState<string | null>(null);
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState("All");
@@ -250,11 +251,14 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
       setError(null);
+      setXFeedError(null);
       try {
         const res = await fetch(
           `/api/news?symbol=${encodeURIComponent(activeSymbol)}`
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const rawXError = res.headers.get("x-x-feed-error");
+        setXFeedError(rawXError ? decodeURIComponent(rawXError) : null);
         const data: NewsArticle[] = await res.json();
         setArticles(data);
         setCurrentPage(1);
@@ -364,7 +368,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
               </h2>
               <p className="text-xs text-white/35 leading-none">
                 {activeSymbol === "ALL"
-                  ? "46 RSS + X/Twitter · Bloomberg · Reuters · WSJ · FXStreet · ForexLive · Kitco · CoinDesk · Blockworks · OilPrice · TradingEconomics + more"
+                  ? "47 RSS + X/Twitter · Bloomberg · Reuters · WSJ · FXStreet · ForexLive · Kitco · CoinDesk · Blockworks · OilPrice · TradingEconomics · Dukascopy + more"
                   : <>Multi-source live coverage for{" "}
                       <span className="text-white/55 font-medium">
                         {ASSET_NAMES[activeSymbol] || activeSymbol}
@@ -402,6 +406,17 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
           </div>
         </div>
 
+        {/* X/Twitter feed diagnostic banner */}
+        {xFeedError && !loading && activeSymbol === "ALL" && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-400 mt-0.5" />
+            <p className="text-[11px] leading-snug text-amber-200/80">
+              <span className="font-semibold text-amber-300">X/Twitter feed unavailable:</span>{" "}
+              {xFeedError}
+            </p>
+          </div>
+        )}
+
         {/* Source chips */}
         {uniqueSources.length > 0 && !loading && (
           <div className="flex flex-wrap gap-1">
@@ -413,6 +428,14 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                 >
                   <span className="text-[7px] font-black bg-white text-black rounded px-0.5">𝕏</span>
                   {src.replace("X/", "")}
+                </span>
+              ) : src.startsWith("DC/") ? (
+                <span
+                  key={src}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] px-2 py-0.5 text-[9px] font-bold text-white/70 uppercase tracking-wide"
+                >
+                  <span className="text-[7px] font-black bg-white text-black rounded px-1">DC</span>
+                  {src.replace("DC/", "")}
                 </span>
               ) : (
                 <span
@@ -712,6 +735,13 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                           <span className="flex items-center justify-center rounded px-1 py-0.5 text-[8px] font-black bg-white/90 text-black leading-none">𝕏</span>
                           <span className="text-[10px] font-semibold text-white/60 truncate max-w-[80px]">
                             {item.source.replace("X/", "")}
+                          </span>
+                        </span>
+                      ) : item.source.startsWith("DC/") ? (
+                        <span className="inline-flex items-center gap-1 shrink-0">
+                          <span className="flex items-center justify-center rounded px-1 py-0.5 text-[8px] font-black bg-white/90 text-black leading-none">DC</span>
+                          <span className="text-[10px] font-semibold text-white/60 truncate max-w-[80px]">
+                            {item.source.replace("DC/", "")}
                           </span>
                         </span>
                       ) : (

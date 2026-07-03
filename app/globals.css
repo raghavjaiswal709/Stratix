@@ -209,6 +209,60 @@
 .animate-fade-up   { animation: fade-up  0.4s ease-out both; }
 .animate-scale-in  { animation: scale-in 0.35s ease-out both; }
 
+/* ===== AI ANALYZING — monochrome sweeping border + shimmer ===== */
+
+@keyframes ai-border-sweep {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes ai-shimmer-sweep {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+.ai-analyzing-border {
+  position: relative;
+  isolation: isolate;
+}
+.ai-analyzing-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 30%,
+    rgba(255, 255, 255, 0.75) 50%,
+    rgba(255, 255, 255, 0.06) 70%,
+    transparent 100%
+  );
+  background-size: 250% 100%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: ai-border-sweep 1.7s linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ai-shimmer-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.ai-shimmer-overlay::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; height: 100%; width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+  animation: ai-shimmer-sweep 1.6s ease-in-out infinite;
+}
+
 /* ===== TABS — dark glass override ===== */
 /* Placed outside @layer so it wins over Tailwind utilities */
 

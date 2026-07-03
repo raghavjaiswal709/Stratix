@@ -109,7 +109,6 @@ export function JournalList({
   const [showFilters, setShowFilters] = useState(false);
   const [durationFilter, setDurationFilter] = useState<"all" | "today" | "3days" | "week" | "2weeks" | "month">("all");
   const [sortOpen, setSortOpen] = useState(false);
-  const [durationOpen, setDurationOpen] = useState(false);
   const [extendedIds, setExtendedIds] = useState<string[]>([]);
 
   // Persist to preferences (debounced), skip initial mount
@@ -138,6 +137,7 @@ export function JournalList({
     filterSymbol !== "",
     filterDirection !== "all",
     filterOutcome !== "all",
+    durationFilter !== "all",
   ].filter(Boolean).length;
 
   // Tab filter - exclude child trades from the main list
@@ -208,150 +208,98 @@ export function JournalList({
     return "Date";
   }
 
-  function getDurationLabel(val: string) {
-    if (val === "all") return "All Time";
-    if (val === "today") return "Today";
-    if (val === "3days") return "3 Days";
-    if (val === "week") return "Last Week";
-    if (val === "2weeks") return "2 Weeks";
-    if (val === "month") return "Last Month";
-    return "All Time";
-  }
-
   return (
     <div className="flex flex-col h-full w-full shrink-0 border-r border-white/7 md:w-70">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-white/7 space-y-2">
+      <div className="px-4 pt-4 pb-3.5 border-b border-white/7 space-y-3">
         {/* Title row */}
         <div className="flex items-center justify-between">
-          <h2 className="text-[14px] font-semibold text-white">Trade Journal</h2>
-          <span className="text-[11px] text-white/35">{trades.length} entries</span>
+          <h2 className="text-[15px] font-bold text-white tracking-tight">Trade Journal</h2>
+          <span className="text-[10px] font-semibold text-white/35 bg-white/5 px-2 py-1 rounded-full">
+            {trades.length} entries
+          </span>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1">
+        {/* Tabs — segmented control */}
+        <div className="flex p-1 gap-1 rounded-xl bg-white/[0.04] border border-white/[0.06]">
           {(["all", "journaled", "pending"] as JournalTab[]).map((t) => (
             <button
               key={t}
               onClick={() => onTabChange(t)}
               className={cn(
-                "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition",
+                "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11.5px] font-semibold transition",
                 tab === t
-                  ? "bg-white/[0.08] text-white border border-white/[0.10]"
-                  : "text-white/35 hover:text-white/60 hover:bg-white/5"
+                  ? "bg-white/[0.10] text-white shadow-sm"
+                  : "text-white/35 hover:text-white/60 hover:bg-white/[0.03]"
               )}
             >
               {t.charAt(0).toUpperCase() + t.slice(1)}
-              <span className={cn("text-[10px] rounded-full px-1", tab === t ? "text-white/70" : "text-white/25")}>
+              <span className={cn("text-[10px] rounded-full px-1.5 py-px", tab === t ? "bg-white/10 text-white/70" : "text-white/25")}>
                 {counts[t]}
               </span>
             </button>
           ))}
         </div>
 
-        {/* Sort + filter bar */}
-        <div className="flex items-center justify-between gap-1">
-          <div className="flex items-center gap-1.5 z-20">
-            {/* Custom Sort Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => { setSortOpen(!sortOpen); setDurationOpen(false); }}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-white/10 text-[10px] text-white/50 hover:text-white/80 hover:bg-white/5 transition"
-              >
-                <ArrowUpDown className="h-3 w-3" />
-                <span>Sort: {getSortLabel(sortBy, sortDir)}</span>
-                <ChevronDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
-              {sortOpen && (
-                <div className="absolute left-0 mt-1.5 w-36 z-30 rounded-xl bg-[#0c0e14]/95 border border-white/10 shadow-2xl p-1 flex flex-col gap-0.5 backdrop-blur-md">
-                  {[
-                    { label: "Newest First", by: "date", dir: "desc" },
-                    { label: "Oldest First", by: "date", dir: "asc" },
-                    { label: "PnL: High to Low", by: "pnl", dir: "desc" },
-                    { label: "PnL: Low to High", by: "pnl", dir: "asc" },
-                    { label: "Symbol: A to Z", by: "symbol", dir: "asc" },
-                    { label: "Symbol: Z to A", by: "symbol", dir: "desc" },
-                  ].map((opt) => (
-                    <button
-                      key={`${opt.by}-${opt.dir}`}
-                      onClick={() => {
-                        setSortBy(opt.by as any);
-                        setSortDir(opt.dir as any);
-                        setSortOpen(false);
-                      }}
-                      className={cn(
-                        "w-full text-left px-2.5 py-1 rounded-md text-[10px] transition",
-                        sortBy === opt.by && sortDir === opt.dir
-                          ? "bg-white/[0.08] text-white font-medium"
-                          : "text-white/50 hover:bg-white/5 hover:text-white"
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Custom Duration Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => { setDurationOpen(!durationOpen); setSortOpen(false); }}
-                className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] transition",
-                  durationFilter !== "all"
-                    ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-400"
-                    : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
-                )}
-              >
-                <Filter className="h-3 w-3" />
-                <span>Time: {getDurationLabel(durationFilter)}</span>
-                <ChevronDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
-              {durationOpen && (
-                <div className="absolute left-0 mt-1.5 w-32 z-30 rounded-xl bg-[#0c0e14]/95 border border-white/10 shadow-2xl p-1 flex flex-col gap-0.5 backdrop-blur-md">
-                  {[
-                    { label: "All Time", value: "all" },
-                    { label: "Only Today", value: "today" },
-                    { label: "Last 3 Days", value: "3days" },
-                    { label: "Last Week", value: "week" },
-                    { label: "Last 2 Weeks", value: "2weeks" },
-                    { label: "Last Month", value: "month" },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => {
-                        setDurationFilter(opt.value as any);
-                        setDurationOpen(false);
-                      }}
-                      className={cn(
-                        "w-full text-left px-2 py-1 rounded-md text-[10px] transition",
-                        durationFilter === opt.value
-                          ? "bg-white/[0.08] text-white font-medium"
-                          : "text-white/50 hover:bg-white/5 hover:text-white"
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+        {/* Sort + Filters row */}
+        <div className="flex items-center gap-2">
+          {/* Sort dropdown */}
+          <div className="relative flex-1">
+            <button
+              onClick={() => setSortOpen(!sortOpen)}
+              className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 text-[11px] text-white/55 hover:text-white/85 hover:bg-white/5 transition"
+            >
+              <ArrowUpDown className="h-3 w-3 shrink-0" />
+              <span className="truncate">{getSortLabel(sortBy, sortDir)}</span>
+              <ChevronDown className="h-2.5 w-2.5 opacity-60 ml-auto shrink-0" />
+            </button>
+            {sortOpen && (
+              <div className="absolute left-0 mt-1.5 w-40 z-30 rounded-xl bg-[#0c0e14]/95 border border-white/10 shadow-2xl p-1 flex flex-col gap-0.5 backdrop-blur-md">
+                {[
+                  { label: "Newest First", by: "date", dir: "desc" },
+                  { label: "Oldest First", by: "date", dir: "asc" },
+                  { label: "PnL: High to Low", by: "pnl", dir: "desc" },
+                  { label: "PnL: Low to High", by: "pnl", dir: "asc" },
+                  { label: "Symbol: A to Z", by: "symbol", dir: "asc" },
+                  { label: "Symbol: Z to A", by: "symbol", dir: "desc" },
+                ].map((opt) => (
+                  <button
+                    key={`${opt.by}-${opt.dir}`}
+                    onClick={() => {
+                      setSortBy(opt.by as any);
+                      setSortDir(opt.dir as any);
+                      setSortOpen(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-2.5 py-1.5 rounded-md text-[11px] transition",
+                      sortBy === opt.by && sortDir === opt.dir
+                        ? "bg-white/[0.08] text-white font-medium"
+                        : "text-white/50 hover:bg-white/5 hover:text-white"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Filters button */}
           <button
-            onClick={() => setShowFilters(!showFilters)}
+            onClick={() => { setShowFilters(!showFilters); setSortOpen(false); }}
             className={cn(
-              "relative flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-medium transition-colors",
+              "relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-medium transition-colors shrink-0",
               showFilters
-                ? "text-white/65 bg-white/[0.07] border-white/15"
+                ? "text-white/70 bg-white/[0.08] border-white/15"
                 : activeFilterCount > 0
                 ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
-                : "text-white/30 border-white/10 hover:text-white/60"
+                : "text-white/40 border-white/10 hover:text-white/70 hover:bg-white/5"
             )}
           >
-            Filter
+            <Filter className="h-3 w-3" />
+            Filters
             {activeFilterCount > 0 && (
-              <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-amber-500 text-[8px] font-bold text-white flex items-center justify-center">
+              <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-amber-500 text-[9px] font-bold text-white flex items-center justify-center">
                 {activeFilterCount}
               </span>
             )}
@@ -360,74 +308,111 @@ export function JournalList({
 
         {/* Filter panel */}
         {showFilters && (
-          <div className="space-y-2 pt-1">
+          <div className="space-y-3 pt-1 pb-0.5">
+            {/* Duration chips */}
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-white/25 font-semibold mb-1.5">Time Range</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: "All Time", value: "all" },
+                  { label: "Today", value: "today" },
+                  { label: "3 Days", value: "3days" },
+                  { label: "Week", value: "week" },
+                  { label: "2 Weeks", value: "2weeks" },
+                  { label: "Month", value: "month" },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setDurationFilter(opt.value as any)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-medium border transition",
+                      durationFilter === opt.value
+                        ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
+                        : "bg-white/3 border-white/8 text-white/35 hover:text-white/65 hover:border-white/20"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Symbol search */}
-            <div className="relative">
-              <input
-                value={filterSymbol}
-                onChange={(e) => setFilterSymbol(e.target.value)}
-                placeholder="Filter by symbol…"
-                className="w-full bg-white/5 border border-white/8 rounded-lg px-3 py-1.5 text-[11px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] transition pr-6"
-              />
-              {filterSymbol && (
-                <button onClick={() => setFilterSymbol("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              )}
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-white/25 font-semibold mb-1.5">Symbol</p>
+              <div className="relative">
+                <input
+                  value={filterSymbol}
+                  onChange={(e) => setFilterSymbol(e.target.value)}
+                  placeholder="Filter by symbol…"
+                  className="w-full bg-white/5 border border-white/8 rounded-lg px-3 py-1.5 text-[11px] text-white placeholder:text-white/20 focus:outline-none focus:border-white/[0.25] transition pr-6"
+                />
+                {filterSymbol && (
+                  <button onClick={() => setFilterSymbol("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Direction */}
-            <div className="flex gap-1">
-              {(["all", "buy", "sell"] as const).map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setFilterDirection(d)}
-                  className={cn(
-                    "flex-1 py-1 rounded text-[10px] font-medium transition-colors border",
-                    filterDirection === d
-                      ? d === "buy"
-                        ? "bg-white/[0.08] text-white border-white/[0.10]"
-                        : d === "sell"
-                        ? "bg-red-500/20 text-red-400 border-red-500/20"
-                        : "bg-white/10 text-white/60 border-white/15"
-                      : "bg-white/3 text-white/30 hover:text-white/55 border-white/5"
-                  )}
-                >
-                  {d === "all" ? "All" : d === "buy" ? "Long" : "Short"}
-                </button>
-              ))}
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-white/25 font-semibold mb-1.5">Direction</p>
+              <div className="flex gap-1.5">
+                {(["all", "buy", "sell"] as const).map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setFilterDirection(d)}
+                    className={cn(
+                      "flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors border",
+                      filterDirection === d
+                        ? d === "buy"
+                          ? "bg-white/[0.08] text-white border-white/[0.10]"
+                          : d === "sell"
+                          ? "bg-red-500/20 text-red-400 border-red-500/20"
+                          : "bg-white/10 text-white/60 border-white/15"
+                        : "bg-white/3 text-white/30 hover:text-white/55 border-white/5"
+                    )}
+                  >
+                    {d === "all" ? "All" : d === "buy" ? "Long" : "Short"}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Outcome */}
-            <div className="flex gap-1">
-              {(["all", "winner", "loser", "open"] as const).map((o) => (
-                <button
-                  key={o}
-                  onClick={() => setFilterOutcome(o)}
-                  className={cn(
-                    "flex-1 py-1 rounded text-[10px] font-medium transition-colors border",
-                    filterOutcome === o
-                      ? o === "winner"
-                        ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/20"
-                        : o === "loser"
-                        ? "bg-red-500/20 text-red-400 border-red-500/20"
-                        : o === "open"
-                        ? "bg-white/10 text-white/60 border-white/15"
-                        : "bg-white/[0.08] text-white border-white/[0.10]"
-                      : "bg-white/3 text-white/30 hover:text-white/55 border-white/5"
-                  )}
-                >
-                  {o.charAt(0).toUpperCase() + o.slice(1)}
-                </button>
-              ))}
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-white/25 font-semibold mb-1.5">Outcome</p>
+              <div className="flex gap-1.5">
+                {(["all", "winner", "loser", "open"] as const).map((o) => (
+                  <button
+                    key={o}
+                    onClick={() => setFilterOutcome(o)}
+                    className={cn(
+                      "flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors border",
+                      filterOutcome === o
+                        ? o === "winner"
+                          ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/20"
+                          : o === "loser"
+                          ? "bg-red-500/20 text-red-400 border-red-500/20"
+                          : o === "open"
+                          ? "bg-white/10 text-white/60 border-white/15"
+                          : "bg-white/[0.08] text-white border-white/[0.10]"
+                        : "bg-white/3 text-white/30 hover:text-white/55 border-white/5"
+                    )}
+                  >
+                    {o.charAt(0).toUpperCase() + o.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {activeFilterCount > 0 && (
               <button
-                onClick={() => { setFilterSymbol(""); setFilterDirection("all"); setFilterOutcome("all"); }}
+                onClick={() => { setFilterSymbol(""); setFilterDirection("all"); setFilterOutcome("all"); setDurationFilter("all"); }}
                 className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors"
               >
-                <X className="h-2.5 w-2.5" /> Clear filters
+                <X className="h-2.5 w-2.5" /> Clear all filters
               </button>
             )}
           </div>
@@ -441,7 +426,7 @@ export function JournalList({
             <p className="text-[13px]">{trades.length === 0 ? "No trades" : "No matches"}</p>
             {trades.length > 0 && activeFilterCount > 0 && (
               <button
-                onClick={() => { setCurrentPage(1); setFilterSymbol(""); setFilterDirection("all"); setFilterOutcome("all"); }}
+                onClick={() => { setCurrentPage(1); setFilterSymbol(""); setFilterDirection("all"); setFilterOutcome("all"); setDurationFilter("all"); }}
                 className="text-[11px] mt-1 text-white/35 hover:text-white/80 transition-colors"
               >
                 Clear filters
