@@ -22,10 +22,13 @@ import {
   Trash2,
   LineChart,
   Puzzle,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/context";
 import { MergeModal } from "../trades/merge-modal";
+import { AnalyzingOverlay, RefineDiff, RefineIconButton } from "./ai-refine";
 
 interface ChecklistItem {
   item: string;
@@ -93,6 +96,15 @@ function fmt(n: number) {
   return `${sign}$${Math.abs(n).toFixed(2)}`;
 }
 
+type RefineField = "preTradeAnalysis" | "postTradeReview" | "lessonsLearned" | "emotions";
+
+const REFINE_FIELD_LABELS: Record<RefineField, string> = {
+  preTradeAnalysis: "pre-trade analysis",
+  postTradeReview: "post-trade review",
+  lessonsLearned: "lessons learned",
+  emotions: "emotions",
+};
+
 export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailProps) {
   const { sharedTrades, preferences } = useAppContext();
 
@@ -142,6 +154,12 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
 
   // Screenshot lightbox
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // AI Journal Refine — per-field inline diff (analyze → accept/discard)
+  const [refining, setRefining] = useState(false);
+  const [refineFields, setRefineFields] = useState<RefineField[]>([]);
+  const [refineSuggestions, setRefineSuggestions] = useState<Partial<Record<RefineField, string>>>({});
+  const [refineError, setRefineError] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const chartRef = useRef<TradeChartRef>(null);
@@ -206,6 +224,10 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     setEditTimeframe(trade.timeframe ?? "");
     setLightboxIndex(null);
     setShowChart(false);
+    setRefining(false);
+    setRefineFields([]);
+    setRefineSuggestions({});
+    setRefineError(null);
   }, [trade._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep editTimeframe in sync when timeframe changes via chart's "Set default"
@@ -501,6 +523,110 @@ Please analyze this data and generate a detailed report:
     markDirty();
   };
 
+  function getRefineFieldText(field: RefineField): string {
+    if (field === "preTradeAnalysis") return preTradeAnalysis;
+    if (field === "postTradeReview") return postTradeReview;
+    if (field === "lessonsLearned") return lessonsLearned;
+    return emotions;
+  }
+
+  async function refineOneField(field: RefineField): Promise<{ field: RefineField; refined?: string; error?: string }> {
+    const text = getRefineFieldText(field);
+    try {
+      const res = await fetch("/api/journal/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          fieldLabel: REFINE_FIELD_LABELS[field],
+          context: { symbol: trade.symbol, direction: trade.direction, profit: trade.profit },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { field, error: data.error ?? "Refinement failed" };
+      return { field, refined: data.refined as string };
+    } catch {
+      return { field, error: "Network error — please try again" };
+    }
+  }
+
+  async function runRefine(fields: RefineField[]) {
+    if (fields.length === 0) return;
+    setRefining(true);
+    setRefineFields(fields);
+    setRefineError(null);
+    setRefineSuggestions((prev) => {
+      const next = { ...prev };
+      fields.forEach((f) => delete next[f]);
+      return next;
+    });
+    try {
+      const results = await Promise.all(fields.map(refineOneField));
+      const newSuggestions: Partial<Record<RefineField, string>> = {};
+      let anyError: string | null = null;
+      for (const r of results) {
+        if (r.error) { anyError = r.error; continue; }
+        const original = getRefineFieldText(r.field);
+        if (r.refined && r.refined.trim() && r.refined.trim() !== original.trim()) {
+          newSuggestions[r.field] = r.refined;
+        }
+      }
+      setRefineSuggestions((prev) => ({ ...prev, ...newSuggestions }));
+      if (Object.keys(newSuggestions).length === 0) {
+        setRefineError(anyError ?? "AI didn't suggest any changes — this entry already reads well.");
+      } else if (anyError) {
+        setRefineError(anyError);
+      }
+    } finally {
+      setRefining(false);
+      setRefineFields([]);
+    }
+  }
+
+  function handleRefineJournal() {
+    const fieldsToRefine: RefineField[] = [];
+    if (preTradeAnalysis.trim().length > 5) fieldsToRefine.push("preTradeAnalysis");
+    if (postTradeReview.trim().length > 5) fieldsToRefine.push("postTradeReview");
+    if (lessonsLearned.trim().length > 5) fieldsToRefine.push("lessonsLearned");
+    if (emotions.trim().length > 5) fieldsToRefine.push("emotions");
+    if (fieldsToRefine.length === 0) {
+      setRefineError("Write something in the journal before refining");
+      return;
+    }
+    runRefine(fieldsToRefine);
+  }
+
+  function handleRefineSingleField(field: RefineField) {
+    if (getRefineFieldText(field).trim().length <= 5) {
+      setRefineError("Write something in this section before refining");
+      return;
+    }
+    runRefine([field]);
+  }
+
+  function acceptRefine(field: RefineField) {
+    const value = refineSuggestions[field];
+    if (value === undefined) return;
+    if (field === "preTradeAnalysis") setPreTradeAnalysis(value);
+    if (field === "postTradeReview") setPostTradeReview(value);
+    if (field === "lessonsLearned") setLessonsLearned(value);
+    if (field === "emotions") setEmotions(value);
+    markDirty();
+    setRefineSuggestions((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function discardRefine(field: RefineField) {
+    setRefineSuggestions((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
+
   async function handleSave() {
     setSaving(true);
     const compiledChecklist: ChecklistItem[] = [
@@ -638,42 +764,58 @@ Please analyze this data and generate a detailed report:
       )}
 
       {/* Sticky header */}
-      <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-[#0c0e14] border-b border-white/7">
+      <div className="sticky top-0 z-10 border-b border-white/7 bg-[#0c0e14]/95 backdrop-blur-sm">
+        <div className="flex items-center justify-between px-6 py-3.5">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full bg-amber-500/15 flex items-center justify-center text-[10px] font-bold text-amber-400">
+          <div className={cn(
+            "h-9 w-9 rounded-xl flex items-center justify-center text-[10px] font-bold shrink-0",
+            isWinner ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20" : trade.status === "open" ? "bg-white/8 text-white/60" : "bg-red-500/12 text-red-400 ring-1 ring-red-500/20"
+          )}>
             {trade.symbol.slice(0, 2)}
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[18px] font-bold text-white">{trade.symbol}</span>
+              <span className="text-[17px] font-bold text-white tracking-tight">{trade.symbol}</span>
               {trade._deleted && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/8 text-white/40 border border-white/10">
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/8 text-white/40 border border-white/10">
                   DELETED
                 </span>
               )}
               {isWinner && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-400 border border-emerald-500/20">
                   WINNER
                 </span>
               )}
               {!isWinner && trade.status === "closed" && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-500/12 text-red-400 border border-red-500/20">
                   LOSER
                 </span>
               )}
+              {trade.status === "open" && (
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/8 text-white/50 border border-white/12">
+                  OPEN
+                </span>
+              )}
               {isDirty && (
-                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-amber-500/12 text-amber-400 border border-amber-500/20 animate-pulse">
                   Unsaved
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-white/35 mt-0.5">
-              <span className={trade.direction === "buy" ? "text-white/65 font-semibold" : "text-red-400 font-semibold"}>
+            <div className="flex items-center gap-2 text-[11px] text-white/30 mt-0.5">
+              <span className={cn("font-semibold", trade.direction === "buy" ? "text-emerald-400/80" : "text-red-400/80")}>
                 {trade.direction === "buy" ? "Long" : "Short"}
               </span>
-              <span>· Entry ${trade.entryPrice}</span>
-              <span>· Size {trade.lots}</span>
-              <span>· {format(parseISO(trade.entryTime), "MMM d, yyyy, HH:mm")}</span>
+              <span className="text-white/15">·</span>
+              <span>Entry <span className="text-white/55">${trade.entryPrice}</span></span>
+              <span className="text-white/15">·</span>
+              {trade.profit !== 0 && (
+                <span className={cn("font-semibold", trade.profit >= 0 ? "text-emerald-400" : "text-red-400")}>
+                  {trade.profit >= 0 ? "+" : ""}${Math.abs(trade.profit).toFixed(2)}
+                </span>
+              )}
+              <span className="hidden sm:inline text-white/15">·</span>
+              <span className="hidden sm:inline">{format(parseISO(trade.entryTime), "MMM d, yyyy HH:mm")}</span>
             </div>
           </div>
         </div>
@@ -719,6 +861,24 @@ Please analyze this data and generate a detailed report:
             <span className="hidden sm:inline">Analytics</span>
           </button>
           <button
+            onClick={handleRefineJournal}
+            disabled={refining}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition",
+              refining
+                ? "border-white/10 bg-white/5 text-white/40 cursor-not-allowed"
+                : "border-white/[0.15] bg-gradient-to-r from-white/[0.07] to-white/[0.04] text-white/80 hover:from-white/[0.12] hover:to-white/[0.08] hover:text-white"
+            )}
+            title="Refine all journal text with AI (gpt-4o-mini)"
+          >
+            {refining ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            <span className="hidden sm:inline">{refining ? "Refining…" : "Refine All"}</span>
+          </button>
+          <button
             onClick={handleSave}
             disabled={saving}
             className={cn(
@@ -730,9 +890,10 @@ Please analyze this data and generate a detailed report:
             {saving ? "Saving…" : saved ? "Saved!" : "Save"}
           </button>
         </div>
+        </div>
       </div>
 
-      <div className="px-6 py-5 space-y-6">
+      <div className="px-6 py-5 space-y-5">
         {/* Deleted trade banner */}
         {trade._deleted && (
           <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
@@ -867,43 +1028,91 @@ Please analyze this data and generate a detailed report:
           </div>
         )}
 
-        {/* Trade summary bar */}
+        {/* Trade summary card */}
         {trade.exitPrice && (
-          <div className="flex flex-wrap items-center gap-4 p-4 rounded-xl bg-white/3 border border-white/7">
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-full bg-amber-500/15 flex items-center justify-center text-[9px] font-bold text-amber-400">
-                {trade.symbol.slice(0, 2)}
+          <div className={cn(
+            "rounded-xl overflow-hidden border",
+            isWinner ? "border-emerald-500/15 bg-gradient-to-br from-emerald-500/[0.06] to-transparent" : "border-red-500/15 bg-gradient-to-br from-red-500/[0.06] to-transparent"
+          )}>
+            <div className="flex flex-wrap items-center justify-between gap-4 p-4">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold",
+                  isWinner ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/12 text-red-400"
+                )}>
+                  {trade.symbol.slice(0, 2)}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[15px] font-bold text-white">{trade.symbol}</span>
+                    <span className={cn(
+                      "text-[10px] font-bold px-2 py-0.5 rounded-lg",
+                      trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
+                    )}>
+                      {trade.direction === "buy" ? "LONG" : "SHORT"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-white/30 mt-0.5">{format(parseISO(trade.entryTime), "MMM d, yyyy · HH:mm")}</p>
+                </div>
               </div>
-              <span className="text-[14px] font-bold text-white">{trade.symbol}</span>
-              <span className={cn(
-                "text-[11px] font-semibold px-2 py-0.5 rounded",
-                trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
+              <div className={cn(
+                "text-right",
               )}>
-                {trade.direction === "buy" ? "LONG" : "SHORT"}
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-[12px]">
-              <div><span className="text-white/35">ENTRY </span><span className="text-white/70 font-medium">${trade.entryPrice}</span></div>
-              <div><span className="text-white/35">EXIT </span><span className="text-white/70 font-medium">${trade.exitPrice}</span></div>
-              {trade.stopLoss && <div><span className="text-red-400/60">SL </span><span className="text-red-400/80 font-medium">${trade.stopLoss}</span></div>}
-              {trade.takeProfit && <div><span className="text-emerald-400/60">TP </span><span className="text-emerald-400/80 font-medium">${trade.takeProfit}</span></div>}
-              <div>
-                <span className="text-white/35">P&L </span>
-                <span className={cn("font-bold", trade.profit >= 0 ? "text-emerald-400" : "text-red-400")}>{fmt(trade.profit)}</span>
+                <p className={cn("text-[24px] font-black tabular-nums", isWinner ? "text-emerald-400" : "text-red-400")}>
+                  {trade.profit >= 0 ? "+" : ""}${Math.abs(trade.profit).toFixed(2)}
+                </p>
+                <p className="text-[11px] text-white/30">Realized P&L</p>
               </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 divide-x divide-white/5 border-t border-white/5">
+              <div className="px-4 py-2.5">
+                <p className="text-[9px] text-white/30 uppercase tracking-wider font-semibold">Entry</p>
+                <p className="text-[13px] font-semibold text-white/80 mt-0.5">${trade.entryPrice}</p>
+              </div>
+              <div className="px-4 py-2.5">
+                <p className="text-[9px] text-white/30 uppercase tracking-wider font-semibold">Exit</p>
+                <p className="text-[13px] font-semibold text-white/80 mt-0.5">${trade.exitPrice}</p>
+              </div>
+              {trade.stopLoss && (
+                <div className="px-4 py-2.5">
+                  <p className="text-[9px] text-red-400/50 uppercase tracking-wider font-semibold">Stop Loss</p>
+                  <p className="text-[13px] font-semibold text-red-400/70 mt-0.5">${trade.stopLoss}</p>
+                </div>
+              )}
+              {trade.takeProfit && (
+                <div className="px-4 py-2.5">
+                  <p className="text-[9px] text-emerald-400/50 uppercase tracking-wider font-semibold">Take Profit</p>
+                  <p className="text-[13px] font-semibold text-emerald-400/70 mt-0.5">${trade.takeProfit}</p>
+                </div>
+              )}
             </div>
           </div>
         )}
 
 
         {/* Execution Checklist */}
-        <div className="rounded-xl border border-white/7 overflow-hidden">
+        <div className={cn(
+          "rounded-xl border overflow-hidden transition-all",
+          checkedCount === totalChecklistItemsCount ? "border-emerald-500/20 bg-emerald-500/[0.03]" : "border-white/7"
+        )}>
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/7">
             <div className="flex items-center gap-2">
-              <CheckSquare className="h-4 w-4 text-white/65" />
+              <CheckSquare className={cn("h-4 w-4", checkedCount === totalChecklistItemsCount ? "text-emerald-400" : "text-white/55")} />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Execution Checklist</span>
             </div>
-            <span className="text-[12px] text-white/35">{checkedCount}/{totalChecklistItemsCount}</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <div className="h-1.5 w-20 rounded-full bg-white/8 overflow-hidden">
+                  <div
+                    className={cn("h-full rounded-full transition-all duration-500", checkedCount === totalChecklistItemsCount ? "bg-emerald-500" : "bg-white/40")}
+                    style={{ width: `${(checkedCount / totalChecklistItemsCount) * 100}%` }}
+                  />
+                </div>
+                <span className={cn("text-[11px] font-semibold tabular-nums", checkedCount === totalChecklistItemsCount ? "text-emerald-400" : "text-white/35")}>
+                  {checkedCount}/{totalChecklistItemsCount}
+                </span>
+              </div>
+            </div>
           </div>
           <div className="p-4 space-y-4">
             {/* Main Predefined Checklist Grid */}
@@ -1157,59 +1366,132 @@ Please analyze this data and generate a detailed report:
         {/* Pre-Trade Analysis */}
         <div className="rounded-xl border border-white/7 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-            <FileText className="h-4 w-4 text-white/65" />
+            <FileText className="h-4 w-4 text-white/55" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Pre-Trade Analysis</span>
+            {preTradeAnalysis.length > 10 && refineSuggestions.preTradeAnalysis === undefined && (
+              <div className="ml-auto">
+                <RefineIconButton
+                  onClick={() => handleRefineSingleField("preTradeAnalysis")}
+                  disabled={refining}
+                  title="Refine pre-trade analysis with AI"
+                />
+              </div>
+            )}
           </div>
-          <div className="p-4">
-            <textarea
-              value={preTradeAnalysis}
-              onChange={(e) => { setPreTradeAnalysis(e.target.value); markDirty(); }}
-              placeholder="What did you see? Plan, thesis, levels, risk..."
-              rows={5}
-              className="w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none"
-            />
+          <div className="p-4 relative">
+            {refineSuggestions.preTradeAnalysis !== undefined ? (
+              <RefineDiff
+                original={preTradeAnalysis}
+                suggestion={refineSuggestions.preTradeAnalysis}
+                onReplace={() => acceptRefine("preTradeAnalysis")}
+                onDiscard={() => discardRefine("preTradeAnalysis")}
+              />
+            ) : (
+              <>
+                <textarea
+                  value={preTradeAnalysis}
+                  onChange={(e) => { setPreTradeAnalysis(e.target.value); markDirty(); }}
+                  placeholder="What did you see? Plan, thesis, levels, risk..."
+                  rows={5}
+                  disabled={refining && refineFields.includes("preTradeAnalysis")}
+                  className={cn(
+                    "w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none leading-relaxed transition",
+                    refining && refineFields.includes("preTradeAnalysis") && "opacity-30"
+                  )}
+                />
+                {refining && refineFields.includes("preTradeAnalysis") && (
+                  <AnalyzingOverlay label="AI is analyzing…" />
+                )}
+              </>
+            )}
           </div>
         </div>
 
         {/* Post-Trade Review */}
         <div className="rounded-xl border border-white/7 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-            <BookOpen className="h-4 w-4 text-white/65" />
+            <BookOpen className="h-4 w-4 text-white/55" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Post-Trade Review</span>
+            {postTradeReview.length > 10 && refineSuggestions.postTradeReview === undefined && (
+              <div className="ml-auto">
+                <RefineIconButton
+                  onClick={() => handleRefineSingleField("postTradeReview")}
+                  disabled={refining}
+                  title="Refine post-trade review with AI"
+                />
+              </div>
+            )}
           </div>
-          <div className="p-4">
-            <textarea
-              value={postTradeReview}
-              onChange={(e) => { setPostTradeReview(e.target.value); markDirty(); }}
-              placeholder="What happened? Execution, slippage, improvements..."
-              rows={5}
-              className="w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none"
-            />
+          <div className="p-4 relative">
+            {refineSuggestions.postTradeReview !== undefined ? (
+              <RefineDiff
+                original={postTradeReview}
+                suggestion={refineSuggestions.postTradeReview}
+                onReplace={() => acceptRefine("postTradeReview")}
+                onDiscard={() => discardRefine("postTradeReview")}
+              />
+            ) : (
+              <>
+                <textarea
+                  value={postTradeReview}
+                  onChange={(e) => { setPostTradeReview(e.target.value); markDirty(); }}
+                  placeholder="What happened? Execution, slippage, improvements..."
+                  rows={5}
+                  disabled={refining && refineFields.includes("postTradeReview")}
+                  className={cn(
+                    "w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none leading-relaxed transition",
+                    refining && refineFields.includes("postTradeReview") && "opacity-30"
+                  )}
+                />
+                {refining && refineFields.includes("postTradeReview") && (
+                  <AnalyzingOverlay label="AI is analyzing…" />
+                )}
+              </>
+            )}
           </div>
         </div>
 
         {/* Risk : Reward */}
         <div className="rounded-xl border border-white/7 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="h-4 w-4 text-white/65" />
-            <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Risk : Reward</span>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-white/55" />
+              <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Risk : Reward</span>
+            </div>
+            <span className={cn(
+              "text-[12px] font-bold tabular-nums",
+              rewardRatio / riskRatio >= 2 ? "text-emerald-400" : rewardRatio / riskRatio >= 1 ? "text-amber-400" : "text-red-400"
+            )}>
+              1 : {(rewardRatio / riskRatio).toFixed(1)}
+            </span>
           </div>
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              value={riskRatio}
-              onChange={(e) => { setRiskRatio(parseFloat(e.target.value) || 1); markDirty(); }}
-              min="0.1" step="0.1"
-              className="w-20 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[14px] font-bold text-white text-center focus:outline-none focus:border-white/[0.25] transition"
-            />
-            <span className="text-[18px] font-bold text-white/30">:</span>
-            <input
-              type="number"
-              value={rewardRatio}
-              onChange={(e) => { setRewardRatio(parseFloat(e.target.value) || 2); markDirty(); }}
-              min="0.1" step="0.1"
-              className="w-20 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[14px] font-bold text-white/65 text-center focus:outline-none focus:border-white/[0.25] transition"
-            />
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex-1">
+              <p className="text-[9px] text-red-400/60 uppercase tracking-wider font-semibold mb-1">Risk</p>
+              <input
+                type="number"
+                value={riskRatio}
+                onChange={(e) => { setRiskRatio(parseFloat(e.target.value) || 1); markDirty(); }}
+                min="0.1" step="0.1"
+                className="w-full rounded-lg bg-red-500/5 border border-red-500/15 px-3 py-2 text-[14px] font-bold text-white text-center focus:outline-none focus:border-red-500/40 transition"
+              />
+            </div>
+            <span className="text-[20px] font-bold text-white/20 mt-4">:</span>
+            <div className="flex-1">
+              <p className="text-[9px] text-emerald-400/60 uppercase tracking-wider font-semibold mb-1">Reward</p>
+              <input
+                type="number"
+                value={rewardRatio}
+                onChange={(e) => { setRewardRatio(parseFloat(e.target.value) || 2); markDirty(); }}
+                min="0.1" step="0.1"
+                className="w-full rounded-lg bg-emerald-500/5 border border-emerald-500/15 px-3 py-2 text-[14px] font-bold text-emerald-400/80 text-center focus:outline-none focus:border-emerald-500/40 transition"
+              />
+            </div>
+          </div>
+          {/* Visual R:R bar */}
+          <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
+            <div className="bg-red-500/40 rounded-l-full" style={{ flex: riskRatio }} />
+            <div className="bg-emerald-500/50 rounded-r-full" style={{ flex: rewardRatio }} />
           </div>
         </div>
 
@@ -1219,17 +1501,49 @@ Please analyze this data and generate a detailed report:
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
               <Brain className="h-4 w-4 text-white/55" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Emotions</span>
+              {emotions.length > 10 && refineSuggestions.emotions === undefined && (
+                <div className="ml-auto">
+                  <RefineIconButton
+                    onClick={() => handleRefineSingleField("emotions")}
+                    disabled={refining}
+                    title="Refine emotions with AI"
+                  />
+                </div>
+              )}
             </div>
             <div className="p-4 space-y-3">
-              <textarea
-                value={emotions}
-                onChange={(e) => { setEmotions(e.target.value); markDirty(); }}
-                placeholder="Calm, anxious, FOMO, confident..."
-                rows={3}
-                className="w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none"
-              />
-              
-              <div className="flex flex-wrap gap-1.5 pt-2.5 border-t border-white/5">
+              {refineSuggestions.emotions !== undefined ? (
+                <RefineDiff
+                  original={emotions}
+                  suggestion={refineSuggestions.emotions}
+                  onReplace={() => acceptRefine("emotions")}
+                  onDiscard={() => discardRefine("emotions")}
+                />
+              ) : (
+                <div className="relative">
+                  <textarea
+                    value={emotions}
+                    onChange={(e) => { setEmotions(e.target.value); markDirty(); }}
+                    placeholder="Calm, anxious, FOMO, confident..."
+                    rows={3}
+                    disabled={refining && refineFields.includes("emotions")}
+                    className={cn(
+                      "w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none transition",
+                      refining && refineFields.includes("emotions") && "opacity-30"
+                    )}
+                  />
+                  {refining && refineFields.includes("emotions") && (
+                    <AnalyzingOverlay label="AI is analyzing…" />
+                  )}
+                </div>
+              )}
+
+              <div className={cn(
+                "flex flex-wrap gap-1.5 pt-2.5 border-t border-white/5 transition",
+                (refining && refineFields.includes("emotions")) || refineSuggestions.emotions !== undefined
+                  ? "opacity-30 pointer-events-none"
+                  : ""
+              )}>
                 {EMOTION_TAGS.map((tag) => {
                   const currentList = emotions
                     .split(",")
@@ -1259,15 +1573,42 @@ Please analyze this data and generate a detailed report:
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
               <Star className="h-4 w-4 text-amber-400" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Lessons Learned</span>
+              {lessonsLearned.length > 10 && refineSuggestions.lessonsLearned === undefined && (
+                <div className="ml-auto">
+                  <RefineIconButton
+                    onClick={() => handleRefineSingleField("lessonsLearned")}
+                    disabled={refining}
+                    title="Refine lessons learned with AI"
+                  />
+                </div>
+              )}
             </div>
-            <div className="p-4">
-              <textarea
-                value={lessonsLearned}
-                onChange={(e) => { setLessonsLearned(e.target.value); markDirty(); }}
-                placeholder="Key takeaways to repeat or avoid..."
-                rows={3}
-                className="w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none"
-              />
+            <div className="p-4 relative">
+              {refineSuggestions.lessonsLearned !== undefined ? (
+                <RefineDiff
+                  original={lessonsLearned}
+                  suggestion={refineSuggestions.lessonsLearned}
+                  onReplace={() => acceptRefine("lessonsLearned")}
+                  onDiscard={() => discardRefine("lessonsLearned")}
+                />
+              ) : (
+                <>
+                  <textarea
+                    value={lessonsLearned}
+                    onChange={(e) => { setLessonsLearned(e.target.value); markDirty(); }}
+                    placeholder="Key takeaways to repeat or avoid..."
+                    rows={3}
+                    disabled={refining && refineFields.includes("lessonsLearned")}
+                    className={cn(
+                      "w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none transition",
+                      refining && refineFields.includes("lessonsLearned") && "opacity-30"
+                    )}
+                  />
+                  {refining && refineFields.includes("lessonsLearned") && (
+                    <AnalyzingOverlay label="AI is analyzing…" />
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1304,25 +1645,37 @@ Please analyze this data and generate a detailed report:
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Star className="h-4 w-4 text-amber-400" />
-                <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Rating</span>
+                <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Trade Rating</span>
               </div>
-              <span className="text-[16px] font-bold text-white/65">{rating}/10</span>
+              <span className={cn(
+                "text-[20px] font-black tabular-nums",
+                rating >= 8 ? "text-emerald-400" : rating >= 5 ? "text-amber-400" : "text-red-400"
+              )}>{rating}<span className="text-[12px] text-white/25 font-medium">/10</span></span>
             </div>
-            <div className="relative">
-              <input
-                type="range" min="1" max="10" value={rating}
-                onChange={(e) => { setRating(parseInt(e.target.value)); markDirty(); }}
-                className="w-full cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, ${
-                    rating <= 3 ? "#ef4444" : rating <= 6 ? "#eab308" : rating <= 8 ? "#22c55e" : "#10b981"
-                  } ${((rating - 1) / 9) * 100}%, rgba(255,255,255,0.08) ${((rating - 1) / 9) * 100}%)`
-                }}
-              />
-              <div className="flex justify-between text-[9px] text-white/25 mt-1">
-                <span>1</span><span>5</span><span>10</span>
-              </div>
+            <div className="flex gap-1 mb-2">
+              {Array.from({ length: 10 }, (_, i) => {
+                const val = i + 1;
+                return (
+                  <button
+                    key={val}
+                    onClick={() => { setRating(val); markDirty(); }}
+                    className={cn(
+                      "flex-1 h-7 rounded-md text-[10px] font-bold transition-all",
+                      val <= rating
+                        ? val <= 3 ? "bg-red-500/70 text-white"
+                          : val <= 6 ? "bg-amber-500/70 text-white"
+                          : "bg-emerald-500/70 text-white"
+                        : "bg-white/5 text-white/20 hover:bg-white/10"
+                    )}
+                  >
+                    {val}
+                  </button>
+                );
+              })}
             </div>
+            <p className="text-[10px] text-white/25 text-center">
+              {rating <= 3 ? "Poor execution — major mistakes" : rating <= 5 ? "Below average — room to improve" : rating <= 7 ? "Decent execution" : rating <= 9 ? "Great trade execution" : "Perfect A+ execution"}
+            </p>
           </div>
         </div>
 
@@ -1372,6 +1725,17 @@ Please analyze this data and generate a detailed report:
           </div>
         )}
       </div>
+
+      {/* AI Refine Error Banner */}
+      {refineError && (
+        <div className="mx-6 mt-4 flex items-center gap-2.5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
+          <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+          <span className="text-[12px] text-red-300 flex-1">{refineError}</span>
+          <button onClick={() => setRefineError(null)} className="text-red-400/60 hover:text-red-400 transition">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Analytics AI Modal */}
       {analyticsOpen && (

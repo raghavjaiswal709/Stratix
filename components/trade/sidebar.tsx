@@ -47,14 +47,14 @@ interface NavItem {
 }
 
 const tradeItems: NavItem[] = [
-  { href: "/dashboard",     label: "Dashboard",     icon: LayoutDashboard },
-  { href: "/chart",         label: "Live Chart",    icon: TrendingUp },
-  { href: "/trades",        label: "Trades",        icon: ArrowLeftRight },
-  { href: "/journal",       label: "Journal",       icon: BookOpen },
-  { href: "/trade-notes",   label: "Trade Notes",   icon: FileText },
-  { href: "/backtesting",   label: "Backtesting",   icon: ChartCandlestick, beta: true },
-  { href: "/data",          label: "Data",          icon: Database },
-  { href: "/news-analysis", label: "News Analysis", icon: Newspaper },
+  { href: "/dashboard",        label: "Dashboard",        icon: LayoutDashboard },
+  { href: "/chart",            label: "Live Chart",       icon: TrendingUp },
+  { href: "/trades",           label: "Trades",           icon: ArrowLeftRight },
+  { href: "/journal",          label: "Journal",          icon: BookOpen },
+  { href: "/trade-notes",      label: "Trade Notes",      icon: FileText },
+  { href: "/backtesting",      label: "Backtesting",      icon: ChartCandlestick, beta: true },
+  { href: "/data",             label: "Data",             icon: Database },
+  { href: "/news-analysis",    label: "News Analysis",    icon: Newspaper },
 ];
 
 const adminTradeItems: NavItem[] = [

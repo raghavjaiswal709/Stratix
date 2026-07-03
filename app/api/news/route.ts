@@ -72,6 +72,7 @@ interface RawItem {
 //  43  Myfxbook              Forex         ← FX data provider
 //  44  FX Leaders            Forex         ← signals & analysis
 //  45  Calculated Risk       Economic Data ← macro economics blog
+//  46  DC/Dukascopy          Market News   ← broker venue notices (closures, holidays)
 
 const FEEDS: { url: string; name: string; category: string }[] = [
   // ── Forex & Macro ──────────────────────────────────────────────────────────
@@ -126,6 +127,8 @@ const FEEDS: { url: string; name: string; category: string }[] = [
   { url: "https://www.fxleaders.com/news/feed/",                          name: "FX Leaders",       category: "Forex & Commodities"   }, // 44
   // ── Deep macro ────────────────────────────────────────────────────────────
   { url: "https://www.calculatedriskblog.com/feeds/posts/default?alt=rss",name: "Calculated Risk",  category: "Economic Data"         }, // 45
+  // ── Broker/venue notices ──────────────────────────────────────────────────
+  { url: "https://www.dukascopy.com/plugins/newsTicker/rss.php",        name: "DC/Dukascopy",     category: "Market News"           }, // 46
 ];
 
 // ─── Instrument keyword filters ───────────────────────────────────────────────
@@ -141,7 +144,7 @@ const SYMBOL_CONFIG: Record<
 > = {
   // ── ALL ── special: no keyword filter, all feeds ───────────────────────────
   ALL: {
-    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45],
+    primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46],
     secondaryFeeds: [],
     keywords: [], // empty = include everything
     googleQuery: "",
@@ -414,10 +417,16 @@ const NITTER_INSTANCES = [
   "https://nitter.12bit.vn",
 ];
 
-async function fetchXViaAPI(): Promise<RawItem[]> {
+interface XFetchResult {
+  items: RawItem[];
+  error?: string;
+}
+
+async function fetchXViaAPI(): Promise<XFetchResult> {
   const token = process.env.TWITTER_BEARER_TOKEN;
-  if (!token) return [];
+  if (!token) return { items: [], error: "TWITTER_BEARER_TOKEN is not set in this environment" };
   // Use GET /2/users/:id/tweets — available on FREE tier (no $100/month plan needed)
+  let firstError: string | undefined;
   const results = await Promise.allSettled(
     X_HANDLES.map(async (handle) => {
       const userId = X_USER_IDS[handle];
@@ -432,7 +441,18 @@ async function fetchXViaAPI(): Promise<RawItem[]> {
           headers: { Authorization: `Bearer ${token}` },
           signal: AbortSignal.timeout(8000),
         });
-        if (!r.ok) return [] as RawItem[];
+        if (!r.ok) {
+          if (!firstError) {
+            const body = await r.text();
+            let detail = body.slice(0, 300);
+            try {
+              const parsed = JSON.parse(body) as { detail?: string; title?: string };
+              detail = parsed.detail || parsed.title || detail;
+            } catch { /* body wasn't JSON, keep raw slice */ }
+            firstError = `Twitter API returned HTTP ${r.status} for @${handle}: ${detail}`;
+          }
+          return [] as RawItem[];
+        }
         const json = await r.json() as {
           data?: { id: string; text: string; created_at: string }[];
         };
@@ -444,28 +464,45 @@ async function fetchXViaAPI(): Promise<RawItem[]> {
             source: `X/@${handle}`,
           }))
           .filter(item => item.title.length > 15);
-      } catch { return [] as RawItem[]; }
+      } catch (e) {
+        if (!firstError) firstError = `Twitter API request failed for @${handle}: ${String(e)}`;
+        return [] as RawItem[];
+      }
     })
   );
-  return results.flatMap(r => r.status === "fulfilled" ? r.value : []);
+  const items = results.flatMap(r => r.status === "fulfilled" ? r.value : []);
+  return { items, error: items.length === 0 ? firstError : undefined };
 }
 
-async function fetchXViaNitter(): Promise<RawItem[]> {
+async function fetchXViaNitter(): Promise<XFetchResult> {
+  let firstError: string | undefined;
   const results = await Promise.allSettled(
     X_HANDLES.map(async (handle) => {
+      let handleError: string | undefined;
       for (const instance of NITTER_INSTANCES) {
         try {
           const r = await fetch(`${instance}/${handle}/rss`, {
             headers: { "User-Agent": "Mozilla/5.0 (compatible; RSS reader)", Accept: "application/rss+xml" },
             signal: AbortSignal.timeout(8000),
           });
-          if (!r.ok) continue;
+          if (!r.ok) {
+            handleError = `${instance} returned HTTP ${r.status}`;
+            continue;
+          }
           const xml = await r.text();
-          // Reject bot-check / captcha pages
-          if (!xml.includes("<item>") || xml.includes("not a bot")) continue;
+          // Reject bot-check / captcha pages (Cloudflare "Just a moment...", Nitter's own check, etc.)
+          const isBotWall = /just a moment|cf-browser-verification|attention required|cloudflare|not a bot|making sure/i.test(xml);
+          if (!xml.includes("<item>") || isBotWall) {
+            handleError = isBotWall ? `${instance} blocked by bot-check` : `${instance} returned no items`;
+            continue;
+          }
           return parseRSS(xml, `X/@${handle}`).slice(0, 15);
-        } catch { continue; }
+        } catch (e) {
+          handleError = `${instance} request failed: ${String(e)}`;
+          continue;
+        }
       }
+      if (handleError && !firstError) firstError = handleError;
       return [] as RawItem[];
     })
   );
@@ -473,14 +510,17 @@ async function fetchXViaNitter(): Promise<RawItem[]> {
   for (const res of results) {
     if (res.status === "fulfilled") items.push(...res.value);
   }
-  return items;
+  return { items, error: items.length === 0 ? (firstError ? `All Nitter instances failed (e.g. ${firstError})` : "Nitter returned no items") : undefined };
 }
 
-async function fetchXContent(): Promise<RawItem[]> {
+async function fetchXContent(): Promise<XFetchResult & { source: "api" | "nitter" | "none" }> {
   // Try official Twitter API first; fall back to Nitter instances
-  const apiItems = await fetchXViaAPI();
-  if (apiItems.length > 0) return apiItems;
-  return fetchXViaNitter();
+  const api = await fetchXViaAPI();
+  if (api.items.length > 0) return { ...api, source: "api" };
+  const nitter = await fetchXViaNitter();
+  if (nitter.items.length > 0) return { ...nitter, source: "nitter" };
+  const parts = [api.error, nitter.error].filter(Boolean);
+  return { items: [], source: "none", error: parts.join(" | ") || "X/Twitter fetch failed for an unknown reason" };
 }
 
 // ─── Google News fallback ──────────────────────────────────────────────────────
@@ -582,6 +622,8 @@ const PHRASE_KEYWORDS = [
   "commodity", "copper", "iron ore", "wheat", "corn", "soybean",
   "fiscal policy", "stimulus", "quantitative easing", "tapering",
   "flash crash", "circuit breaker", "market halt",
+  "market closure", "market closures", "trading break", "bank holiday",
+  "daylight saving", "clock change", "reduced liquidity",
 ];
 
 // Category-specific crypto sub-filter:
@@ -902,7 +944,7 @@ export async function GET(req: NextRequest) {
     feedsToFetch = FEEDS;
 
     // Fetch all RSS feeds + X/Twitter in parallel
-    const [rssResults, xItems] = await Promise.all([
+    const [rssResults, xResult] = await Promise.all([
       Promise.allSettled(FEEDS.map((f) => fetchFeed(f))),
       fetchXContent(),
     ]);
@@ -916,7 +958,7 @@ export async function GET(req: NextRequest) {
       }
     });
     // X items: apply same market filter inline (tweet content is compact)
-    xItems.forEach((item) =>
+    xResult.items.forEach((item) =>
       allRaw.push({ ...item, feedIdx: -1, feedCategory: "X" })
     );
 
@@ -948,9 +990,13 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json(articles, {
-      headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30" },
-    });
+    const headers: Record<string, string> = {
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30",
+      "X-X-Feed-Source": xResult.source,
+    };
+    if (xResult.error) headers["X-X-Feed-Error"] = encodeURIComponent(xResult.error);
+
+    return NextResponse.json(articles, { headers });
   }
 
   // Symbol-specific mode

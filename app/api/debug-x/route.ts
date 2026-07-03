@@ -39,7 +39,7 @@ export async function GET() {
       status: r.status,
       ok: r.ok,
       hasItems: text.includes("<item>"),
-      isBotCheck: text.includes("not a bot") || text.includes("Making sure"),
+      isBotCheck: /just a moment|cf-browser-verification|attention required|cloudflare|not a bot|making sure/i.test(text),
       preview: text.slice(0, 300),
     };
   } catch (e) {
@@ -57,7 +57,7 @@ export async function GET() {
       status: r.status,
       ok: r.ok,
       hasItems: text.includes("<item>"),
-      isBotCheck: text.includes("not a bot") || text.includes("Making sure"),
+      isBotCheck: /just a moment|cf-browser-verification|attention required|cloudflare|not a bot|making sure/i.test(text),
       preview: text.slice(0, 200),
     };
   } catch (e) {
