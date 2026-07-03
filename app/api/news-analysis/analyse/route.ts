@@ -3,6 +3,9 @@ import OpenAI from "openai";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { NewsAnalyseReportModel } from "@/lib/models/NewsAnalyseReport";
+import { scoreArticle, applyCorroborationBoost, isHardNoise, TIER1_WIRE_NAMES } from "@/lib/news/scoring";
+import { CENTRAL_BANK_FEEDS, isCentralBankNoise } from "@/lib/news/central-banks";
+import { fetchEconomicCalendar, CURRENCY_TO_SYMBOLS } from "@/lib/news/calendar";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -483,6 +486,60 @@ async function fetchFeed(feed: { url: string; name: string; category: string }):
   }
 }
 
+// ─── Primary-source central bank feeds ────────────────────────────────────────
+// Official press releases (Fed/ECB/BOE/BOJ) — not third-party reporting. This
+// IS the market-moving event, not a paraphrase of it. Always market-relevant
+// by definition, so these bypass the isMarketRelevant keyword filter below.
+async function fetchCentralBankFeedsForAnalysis(): Promise<RawItem[]> {
+  const results = await Promise.allSettled(
+    CENTRAL_BANK_FEEDS.map(async (cb) => {
+      const items = await fetchFeed({ url: cb.url, name: cb.name, category: "Central Bank" });
+      return items.filter((i) => !isCentralBankNoise(i.title));
+    })
+  );
+  return results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+}
+
+// ─── Economic calendar → pseudo-articles ──────────────────────────────────────
+// Real forecast/previous/actual numbers for high/medium-impact releases —
+// the single strongest predictor of forex/gold moves, far more reliable than
+// headline sentiment. Converted into RawItem shape so it flows through the
+// exact same scoring/prompt pipeline as everything else.
+async function fetchCalendarAsArticles(): Promise<RawItem[]> {
+  const events = await fetchEconomicCalendar();
+  const now = Date.now();
+  const windowPastMs = 12 * 60 * 60 * 1000;
+  const windowFutureMs = 48 * 60 * 60 * 1000;
+
+  const items: RawItem[] = [];
+  for (const ev of events) {
+    if (ev.impact !== "High" && ev.impact !== "Medium") continue;
+    if (!ev.date) continue;
+    const t = new Date(ev.date).getTime();
+    if (isNaN(t)) continue;
+    const diff = t - now;
+    if (diff < -windowPastMs || diff > windowFutureMs) continue;
+
+    const isPast = diff <= 0;
+    const hasActual = !!ev.actual;
+    let desc: string;
+    if (hasActual) desc = `ACTUAL: ${ev.actual} | Forecast: ${ev.forecast || "n/a"} | Previous: ${ev.previous || "n/a"}`;
+    else if (isPast) desc = `Forecast: ${ev.forecast || "n/a"} | Previous: ${ev.previous || "n/a"} (actual pending)`;
+    else desc = `UPCOMING — Forecast: ${ev.forecast || "n/a"} | Previous: ${ev.previous || "n/a"}`;
+
+    items.push({
+      title: `[${ev.country}] ${ev.title} (${ev.impact} Impact)`,
+      link: `calendar://${ev.country}-${ev.title}-${ev.date}`.replace(/\s+/g, "-"),
+      pubDate: ev.date,
+      source: "Economic Calendar",
+      category: "Economic Data",
+      description: desc,
+      fullContent: desc,
+    });
+  }
+  return items;
+}
+
 
 function formatToIST(d: Date): string {
   const ist = new Date(d.getTime() + 330 * 60 * 1000);
@@ -835,50 +892,106 @@ export async function POST(req: NextRequest) {
   const instrument = body.instrument ?? "ALL";
   const selectedLinks = body.selectedLinks ?? null;
 
-  // ── Fetch RSS feeds + X/Twitter in parallel ─────────────────────────────────
-  const [feedResults, xItems] = await Promise.all([
+  // ── Fetch RSS feeds + X/Twitter + central bank feeds + economic calendar ────
+  const [feedResults, xItems, cbItems, calendarItems] = await Promise.all([
     Promise.allSettled(FEEDS.map(f => fetchFeed(f))),
     fetchXForAnalysis(),
+    fetchCentralBankFeedsForAnalysis(),
+    fetchCalendarAsArticles(),
   ]);
   const allItems: RawItem[] = [];
   feedResults.forEach(res => { if (res.status === "fulfilled") allItems.push(...res.value); });
   allItems.push(...xItems);
 
+  // Central bank + calendar items relevant to the requested instrument (Fed/USD
+  // is relevant to everything; ECB/BOE/BOJ only when their currency is in scope)
+  const relevantCurrencies = instrument === "ALL"
+    ? null
+    : Object.entries(CURRENCY_TO_SYMBOLS).filter(([, syms]) => syms.includes(instrument)).map(([code]) => code);
+  const CB_COUNTRY_MAP: Record<string, string> = {
+    "Federal Reserve": "USD", "ECB": "EUR", "Bank of England": "GBP", "Bank of Japan": "JPY",
+  };
+  const scopedCbItems = relevantCurrencies
+    ? cbItems.filter(i => relevantCurrencies.includes(CB_COUNTRY_MAP[i.source] || ""))
+    : cbItems;
+  const scopedCalendarItems = relevantCurrencies
+    ? calendarItems.filter(i => relevantCurrencies.some(c => i.title.startsWith(`[${c}]`)))
+    : calendarItems;
+
   // ── Deduplicate ──────────────────────────────────────────────────────────────
   const seen = new Set<string>();
-  const deduped = allItems.filter(item => {
+  const dedupe = (items: RawItem[]) => items.filter(item => {
     const key = item.title.toLowerCase().replace(/\s+/g, " ").slice(0, 60);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+  const deduped = dedupe(allItems);
+  const dedupedCb = dedupe(scopedCbItems);
+  const dedupedCalendar = dedupe(scopedCalendarItems);
 
   // ── Market relevance filter — remove retail stock-picking, dividend advice, etc.
-  const marketRelevant = deduped.filter(item => isMarketRelevant(item.title));
+  // Central bank + calendar items are always relevant by construction — skip the filter for those.
+  const marketRelevant = deduped.filter(item => !isHardNoise(item.title) && isMarketRelevant(item.title));
 
-  // ── Sort: dated articles first (newest → oldest), undated appended at end ──
-  marketRelevant.sort((a, b) => {
-    const ta = a.pubDate ? new Date(a.pubDate).getTime() : -1;
-    const tb = b.pubDate ? new Date(b.pubDate).getTime() : -1;
-    if (ta <= 0 && tb <= 0) return 0;
-    if (ta <= 0) return 1;
-    if (tb <= 0) return -1;
-    return tb - ta;
-  });
-
-  let articles = marketRelevant;
+  let articles: RawItem[] = marketRelevant;
 
   if (instrument !== "ALL") {
     const config = SYMBOL_CONFIG[instrument] || SYMBOL_CONFIG["XAUUSD"];
     articles = articles.filter(item => matchesKeywords(item.title, config.keywords));
   }
 
-  if (selectedLinks && Array.isArray(selectedLinks) && selectedLinks.length > 0) {
+  // A user-provided selectedLinks list is an explicit, narrow choice from the
+  // preview UI — respect it exactly rather than force-adding synthetic
+  // central-bank/calendar items that couldn't have been part of that selection.
+  const hasSelectedLinks = !!(selectedLinks && Array.isArray(selectedLinks) && selectedLinks.length > 0);
+  if (hasSelectedLinks) {
     const linksSet = new Set(selectedLinks);
     articles = articles.filter(item => linksSet.has(item.link));
   }
 
-  articles = articles.slice(0, articleTarget);
+  // ── Severity scoring — sort by real market-moving potential, not just recency ──
+  // This is what keeps "noise" (a random blog aside) from crowding out a
+  // genuine Fed statement or a beats/misses-forecast data print within the
+  // fixed articleTarget token budget.
+  const scored = articles.map(item => ({
+    item,
+    ...scoreArticle(item.title, item.description || "", item.pubDate, {
+      isTier1Wire: TIER1_WIRE_NAMES.has(item.source),
+      isXAlert: item.source.startsWith("X/"),
+    }),
+  }));
+  const cbScored = hasSelectedLinks ? [] : dedupedCb.map(item => ({
+    item,
+    ...scoreArticle(item.title, item.description || "", item.pubDate, { isPrimarySource: true }),
+  }));
+  const calendarScored = hasSelectedLinks ? [] : dedupedCalendar.map(item => ({
+    item,
+    ...scoreArticle(item.title, item.description || "", item.pubDate, {
+      isCalendarEvent: true,
+      calendarImpact: item.title.includes("(High Impact)") ? "High" : "Medium",
+    }),
+  }));
+
+  let combined = [...scored, ...cbScored, ...calendarScored].map(({ item, score, breakdown }) => ({
+    title: item.title, link: item.link, pubDate: item.pubDate, source: item.source,
+    feedCategory: item.category, impactScore: score, scoreBreakdown: breakdown,
+  }));
+  combined = applyCorroborationBoost(combined);
+
+  // Re-attach the corroboration-boosted score back onto the original RawItem list
+  const scoreByLink = new Map(combined.map(c => [c.link, c.impactScore]));
+  const allCandidates = [...scored.map(s => s.item), ...cbScored.map(s => s.item), ...calendarScored.map(s => s.item)];
+
+  allCandidates.sort((a, b) => {
+    const diff = (scoreByLink.get(b.link) ?? 0) - (scoreByLink.get(a.link) ?? 0);
+    if (diff !== 0) return diff;
+    const ta = a.pubDate ? new Date(a.pubDate).getTime() : -1;
+    const tb = b.pubDate ? new Date(b.pubDate).getTime() : -1;
+    return tb - ta;
+  });
+
+  articles = allCandidates.slice(0, articleTarget);
 
   // ── Fetch full article content in parallel ───────────────────────────────────
   // Scrape all selected articles at once so the AI sees the full text, not just headlines.

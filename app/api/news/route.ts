@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  scoreArticle,
+  applyCorroborationBoost,
+  isHardNoise,
+  DEFAULT_IMPACT_THRESHOLD,
+  TIER1_WIRE_NAMES,
+} from "@/lib/news/scoring";
+import { CENTRAL_BANK_FEEDS, isCentralBankNoise } from "@/lib/news/central-banks";
+import { fetchEconomicCalendar, calendarEventsToArticles, CURRENCY_TO_SYMBOLS } from "@/lib/news/calendar";
+import type { ScoredItem, NewsArticle as SharedNewsArticle } from "@/lib/news/types";
 
 export const runtime = "edge";
 export const maxDuration = 30;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface NewsArticle {
-  title: string;
-  link: string;
-  pubDate: string;
-  source: string;
-  sentiment: "Bullish" | "Bearish" | "Neutral";
-  sentimentScore: number;
-  marketImpact: string;
-  category: string;
-}
+type NewsArticle = SharedNewsArticle;
 
 interface RawItem {
   title: string;
@@ -142,144 +143,83 @@ const SYMBOL_CONFIG: Record<
     googleQuery: string;
   }
 > = {
-  // ── ALL ── special: no keyword filter, all feeds ───────────────────────────
   ALL: {
     primaryFeeds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46],
     secondaryFeeds: [],
     keywords: [], // empty = include everything
     googleQuery: "",
   },
-
-  // ── Gold ──────────────────────────────────────────────────────────────────
   XAUUSD: {
-    primaryFeeds: [0, 1, 9, 14, 16],       // FXStreet, ForexLive, Kitco, BullionVault, Inv.Commodities
-    secondaryFeeds: [3, 4, 5, 7, 11, 12, 13, 18], // Economy, Indicators, MarketWatch, DailyFX, CNBC, ZeroHedge, ActionForex
-    keywords: [
-      "gold", "xau", "xauusd", "bullion", "yellow metal",
-    ],
-    googleQuery:
-      '"gold price" OR "XAU/USD" OR "XAUUSD" OR "bullion" OR "yellow metal"',
+    primaryFeeds: [0, 1, 9, 14, 16],
+    secondaryFeeds: [3, 4, 5, 7, 11, 12, 13, 18],
+    keywords: ["gold", "xau", "xauusd", "bullion", "yellow metal"],
+    googleQuery: '"gold price" OR "XAU/USD" OR "XAUUSD" OR "bullion" OR "yellow metal"',
   },
-
-  // ── Silver ────────────────────────────────────────────────────────────────
   XAGUSD: {
-    primaryFeeds: [0, 1, 9, 14, 16],       // FXStreet, ForexLive, Kitco, BullionVault, Inv.Commodities
+    primaryFeeds: [0, 1, 9, 14, 16],
     secondaryFeeds: [3, 4, 5, 7, 11, 13],
-    keywords: [
-      "silver", "xag", "xagusd",
-    ],
-    googleQuery:
-      '"silver price" OR "XAG/USD" OR "XAGUSD" OR "silver spot"',
+    keywords: ["silver", "xag", "xagusd"],
+    googleQuery: '"silver price" OR "XAG/USD" OR "XAGUSD" OR "silver spot"',
   },
-
-  // ── EUR/USD ───────────────────────────────────────────────────────────────
   EURUSD: {
-    primaryFeeds: [0, 1, 2, 11, 18],       // FXStreet, ForexLive, Inv.Forex, DailyFX, ActionForex
+    primaryFeeds: [0, 1, 2, 11, 18],
     secondaryFeeds: [3, 4, 5, 7, 12],
-    keywords: [
-      "eur", "euro", "eurusd", "eur/usd",
-    ],
-    googleQuery:
-      '"EUR/USD" OR "EURUSD" OR "euro dollar"',
+    keywords: ["eur", "euro", "eurusd", "eur/usd"],
+    googleQuery: '"EUR/USD" OR "EURUSD" OR "euro dollar"',
   },
-
-  // ── GBP/USD ───────────────────────────────────────────────────────────────
   GBPUSD: {
     primaryFeeds: [0, 1, 2, 11, 18],
     secondaryFeeds: [3, 4, 5, 7, 12],
-    keywords: [
-      "gbp", "pound", "gbpusd", "gbp/usd", "sterling",
-    ],
-    googleQuery:
-      '"GBP/USD" OR "GBPUSD" OR "Pound Sterling" OR "sterling pound"',
+    keywords: ["gbp", "pound", "gbpusd", "gbp/usd", "sterling"],
+    googleQuery: '"GBP/USD" OR "GBPUSD" OR "Pound Sterling" OR "sterling pound"',
   },
-
-  // ── USD/JPY ───────────────────────────────────────────────────────────────
   USDJPY: {
     primaryFeeds: [0, 1, 2, 11, 18],
     secondaryFeeds: [3, 4, 5, 7, 12],
-    keywords: [
-      "jpy", "yen", "usdjpy", "usd/jpy",
-    ],
-    googleQuery:
-      '"USD/JPY" OR "USDJPY" OR "dollar yen"',
+    keywords: ["jpy", "yen", "usdjpy", "usd/jpy"],
+    googleQuery: '"USD/JPY" OR "USDJPY" OR "dollar yen"',
   },
-
-  // ── USD/CHF ───────────────────────────────────────────────────────────────
   USDCHF: {
     primaryFeeds: [0, 1, 2, 11, 18],
     secondaryFeeds: [3, 4, 5, 7, 12, 13],
-    keywords: [
-      "chf", "franc", "usdchf", "usd/chf", "swiss franc",
-    ],
-    googleQuery:
-      '"USD/CHF" OR "USDCHF" OR "Swiss franc"',
+    keywords: ["chf", "franc", "usdchf", "usd/chf", "swiss franc"],
+    googleQuery: '"USD/CHF" OR "USDCHF" OR "Swiss franc"',
   },
-
-  // ── USD/CAD ───────────────────────────────────────────────────────────────
   USDCAD: {
-    primaryFeeds: [0, 1, 2, 11, 16, 18],   // Added Inv.Commodities (oil)
+    primaryFeeds: [0, 1, 2, 11, 16, 18],
     secondaryFeeds: [3, 4, 5, 7, 12],
-    keywords: [
-      "cad", "loonie", "usdcad", "usd/cad", "canadian dollar",
-    ],
-    googleQuery:
-      '"USD/CAD" OR "USDCAD" OR "Canadian dollar" OR "loonie"',
+    keywords: ["cad", "loonie", "usdcad", "usd/cad", "canadian dollar"],
+    googleQuery: '"USD/CAD" OR "USDCAD" OR "Canadian dollar" OR "loonie"',
   },
-
-  // ── AUD/USD ───────────────────────────────────────────────────────────────
   AUDUSD: {
     primaryFeeds: [0, 1, 2, 11, 16, 18],
     secondaryFeeds: [3, 4, 5, 7, 12],
-    keywords: [
-      "aud", "aussie", "audusd", "aud/usd", "australian dollar",
-    ],
-    googleQuery:
-      '"AUD/USD" OR "AUDUSD" OR "Australian dollar" OR "Aussie dollar"',
+    keywords: ["aud", "aussie", "audusd", "aud/usd", "australian dollar"],
+    googleQuery: '"AUD/USD" OR "AUDUSD" OR "Australian dollar" OR "Aussie dollar"',
   },
-
-  // ── NZD/USD ───────────────────────────────────────────────────────────────
   NZDUSD: {
     primaryFeeds: [0, 1, 2, 11, 18],
     secondaryFeeds: [3, 4, 5, 7],
-    keywords: [
-      "nzd", "kiwi", "nzdusd", "nzd/usd", "new zealand dollar",
-    ],
-    googleQuery:
-      '"NZD/USD" OR "NZDUSD" OR "New Zealand dollar" OR "kiwi dollar"',
+    keywords: ["nzd", "kiwi", "nzdusd", "nzd/usd", "new zealand dollar"],
+    googleQuery: '"NZD/USD" OR "NZDUSD" OR "New Zealand dollar" OR "kiwi dollar"',
   },
-
-  // ── Bitcoin ───────────────────────────────────────────────────────────────
   BTCUSD: {
-    primaryFeeds: [6, 8, 10, 15, 17],  // Inv.Crypto, CoinDesk, CoinTelegraph, Decrypt, TheBlock
+    primaryFeeds: [6, 8, 10, 15, 17],
     secondaryFeeds: [0, 5, 7, 12, 13],
-    keywords: [
-      "bitcoin", "btc", "btcusd", "btcusdt",
-    ],
-    googleQuery:
-      '"Bitcoin" OR "BTCUSD" OR "BTC/USD" OR "Bitcoin price"',
+    keywords: ["bitcoin", "btc", "btcusd", "btcusdt"],
+    googleQuery: '"Bitcoin" OR "BTCUSD" OR "BTC/USD" OR "Bitcoin price"',
   },
-
-  // ── Ethereum ──────────────────────────────────────────────────────────────
   ETHUSD: {
     primaryFeeds: [6, 8, 10, 15, 17],
     secondaryFeeds: [0, 5, 7, 12],
-    keywords: [
-      "ethereum", "eth", "ethusd", "eth/usd",
-    ],
-    googleQuery:
-      '"Ethereum" OR "ETHUSD" OR "ETH/USD" OR "Ethereum price"',
+    keywords: ["ethereum", "eth", "ethusd", "eth/usd"],
+    googleQuery: '"Ethereum" OR "ETHUSD" OR "ETH/USD" OR "Ethereum price"',
   },
-
-  // ── BTCUSDT alias ─────────────────────────────────────────────────────────
   BTCUSDT: {
     primaryFeeds: [6, 8, 10, 15, 17],
     secondaryFeeds: [0, 5, 7, 12, 13],
-    keywords: [
-      "bitcoin", "btc", "btcusd", "btcusdt",
-    ],
-    googleQuery:
-      '"Bitcoin" OR "BTCUSDT" OR "BTC/USDT" OR "Bitcoin price"',
+    keywords: ["bitcoin", "btc", "btcusd", "btcusdt"],
+    googleQuery: '"Bitcoin" OR "BTCUSDT" OR "BTC/USDT" OR "Bitcoin price"',
   },
 };
 
@@ -373,6 +313,17 @@ async function fetchFeed(
   }
 }
 
+async function fetchCentralBankFeeds(): Promise<(RawItem & { feedName: string })[]> {
+  const results = await Promise.allSettled(
+    CENTRAL_BANK_FEEDS.map(async (cb) => {
+      const items = await fetchFeed({ url: cb.url, name: cb.name, category: "Central Bank" }, 7000);
+      return items
+        .filter((i) => !isCentralBankNoise(i.title))
+        .map((i) => ({ ...i, feedName: cb.name }));
+    })
+  );
+  return results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+}
 
 // ─── X / Twitter integration ──────────────────────────────────────────────────
 // Strategy 1: Twitter API v2 via Bearer token (set TWITTER_BEARER_TOKEN in env)
@@ -557,107 +508,10 @@ function matchesKeywords(title: string, keywords: string[]): boolean {
   });
 }
 
-// ─── Market relevance filter (for ALL mode) ───────────────────────────────────
-// Three-layer filter:
-//  1. Hard blocklist — definitively-not-trading-news patterns
-//  2. Category sub-filter — crypto feeds must have crypto/macro content (blocks
-//     "House Buyers Frustrated" from WatcherGuru etc.)
-//  3. Positive match — word-boundary regex for short words + phrase includes()
-
-const NOISE_BLOCKLIST = [
-  // Substring false-positives fixed by boundary check (see BOUNDARY_KW_RE)
-  /\bfrustrat\w*/,                       // "frustrated" was matching "rate"
-  /\bhom(e|es)\s+buyer/,                // "home buyer", "homes buyers"
-  /\bhomebuy\w+/,                        // "homebuyer"
-  /\bhomes?\s+(remain|unsold|for\s+sale)\b/,
-  /\b\d+\s+in\s+\d+\s+homes?\b/,       // "3 in 5 homes"
-  /\btips?\s+for\b/,                     // "tips for buying"
-  /\bhow\s+to\s+(buy|save|invest|afford|get\s+rich)\b/,
-  /\bshould\s+you\s+(buy|sell|invest|own)\b/,
-  /\bbest\s+(stocks?|cryptos?|coins?|funds?|etfs?)\s+(to|for)\b/,
-  /\b\d+\s+(stocks?|cryptos?|coins?)\s+to\s+(buy|sell|watch|own|avoid)\b/,
-  /\bpassive\s+income\b/,
-  /\bdividend\s+(pick|king|aristocrat|growth)\b/,
-  /\bundervalued\s+stocks?\b/,
-  /\bretirement\s+(pick|fund|tip|saving)\b/,
-  /\bpersonal\s+finance\b/,
-  /\binvesting\s+for\s+beginner/,
-  /\bhoroscope\b/,
-  /\brecipe\b/,
-  /\bcelebrity\b/,
-  /\bwedding\b/,
-  /\bpregnant\b/,
-  /\bdivorce\b/,
-  /\blifestyle\b/,
-  /\bfashion\b/,
-  /\bweather\s+(forecast|update|warning)\b/,
-  /\bsports?\s+(bet|score|result)\b/,
-];
-
-// Short single words that require word-boundary (avoids "rate" in "frustrated",
-// "bond" in "abandoned", "war" in "forward", "gas" in "gasoline" etc.)
-const BOUNDARY_KW_RE = /\b(fed|fomc|ecb|boj|boe|rba|rbnz|snb|pboc|g7|g20|cpi|ppi|pmi|gdp|nfp|ism|lng|wti|dxy|usd|eur|gbp|jpy|cad|aud|nzd|chf|xau|xag|btc|eth|oil|gold|corn|bond|yuan|yen|war|nato|sec|etf)\b/i;
-
-// Multi-word phrases — safe for substring matching
-const PHRASE_KEYWORDS = [
-  "federal reserve", "central bank", "interest rate", "rate cut", "rate hike",
-  "basis point", "monetary policy", "hawkish", "dovish", "quantitative",
-  "powell", "lagarde", "ueda", "bailey", "waller", "jefferson",
-  "inflation", "deflation", "stagflation", "disinflation",
-  "consumer price", "producer price", "housing starts", "housing permits",
-  "durable goods", "retail sales", "trade deficit", "current account",
-  "nonfarm payroll", "payroll", "employment", "unemployment", "labor market",
-  "consumer confidence", "economic growth", "gross domestic",
-  "bullion", "precious metal", "crude oil", "natural gas", "brent", "opec",
-  "bitcoin", "ethereum", "crypto", "blockchain", "defi", "stablecoin", "altcoin",
-  "token", "nft", "web3", "halving",
-  "dollar index", "franc", "pound sterling", "renminbi", "forex", "currency",
-  "exchange rate", "treasury", "yield curve", "bond yield", "credit rating",
-  "market crash", "selloff", "sell-off", "safe haven", "risk-off", "risk on",
-  "geopolit", "sanction", "tariff", "trade war", "export ban", "supply chain",
-  "conflict", "military", "nuclear", "missile", "airstrike",
-  "iran", "russia", "ukraine", "taiwan", "israel", "middle east", "north korea",
-  "s&p 500", "nasdaq", "dow jones", "nikkei", "ftse", "dax", "hang seng",
-  "bank failure", "debt ceiling", "default", "recession",
-  "commodity", "copper", "iron ore", "wheat", "corn", "soybean",
-  "fiscal policy", "stimulus", "quantitative easing", "tapering",
-  "flash crash", "circuit breaker", "market halt",
-  "market closure", "market closures", "trading break", "bank holiday",
-  "daylight saving", "clock change", "reduced liquidity",
-];
-
-// Category-specific crypto sub-filter:
-// Crypto feeds must post about crypto OR macro that moves crypto — not consumer news.
+// Crypto feeds specifically must have crypto/macro content, not consumer noise
+// that happens to sit in a crypto-tagged RSS category.
 const CRYPTO_CONTENT_RE = /\b(bitcoin|btc|ethereum|eth|crypto|blockchain|defi|nft|token|coin|web3|altcoin|stablecoin|solana|xrp|ripple|cardano|polkadot|chainlink|avalanche|bnb|usdt|usdc|layer|protocol|dao|dex|cex|exchange|wallet|mining|hash|halving|mempool)\b/i;
 const CRYPTO_MACRO_RE = /\b(fed|fomc|cpi|inflation|recession|sec|regulation|etf|rate|gdp|treasury|dollar|dxy|risk|rally|crash|selloff|market)\b/i;
-
-function isMarketRelevantForAll(title: string, feedCategory = ""): boolean {
-  const lower = title.toLowerCase();
-
-  // Layer 1: hard blocklist
-  if (NOISE_BLOCKLIST.some(p => p.test(lower))) return false;
-
-  // Layer 2: category sub-filter — crypto feeds must have crypto/macro content
-  if (feedCategory === "Crypto") {
-    if (!CRYPTO_CONTENT_RE.test(title) && !CRYPTO_MACRO_RE.test(title)) return false;
-  }
-
-  // Layer 3: positive match
-  if (BOUNDARY_KW_RE.test(title)) return true;
-  return PHRASE_KEYWORDS.some(kw => lower.includes(kw));
-}
-
-// ─── Deduplication ────────────────────────────────────────────────────────────
-
-function deduplicateItems<T extends RawItem>(items: T[]): T[] {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const key = item.title.toLowerCase().replace(/\s+/g, " ").slice(0, 60);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
 
 // ─── Context-aware market impact generator ────────────────────────────────────
 
@@ -749,6 +603,10 @@ function generateMarketImpact(title: string, sentiment: "Bullish" | "Bearish" | 
     if (S) return "Trade tension ↑ → AUD/NZD ↓ (China proxies). Gold ↑, risk-off. Iron ore, copper fall.";
     if (B) return "Trade deal/relief → AUD/NZD ↑ (China growth proxies). Commodity FX benefits. Risk-on.";
     return "Trade/tariff news → AUD primary (China proxy), then NZD, commodity prices. Global risk driver.";
+  }
+  // Economic calendar events — data-driven, no sentiment guess needed
+  if (/^\[[a-z]{3}\]/i.test(title)) {
+    return "Scheduled data release — compare actual vs forecast for direction. Surprises drive the real move, not the headline number alone.";
   }
 
   // Generic fallbacks
@@ -927,68 +785,102 @@ function inferCategory(title: string, feedCategory: string): string {
   return feedCategory;
 }
 
+// ─── Score + finalize pipeline ─────────────────────────────────────────────────
+
+function toScoredItem(
+  item: RawItem & { feedCategory: string; isPrimarySource?: boolean; isCalendarEvent?: boolean; calendarImpact?: string },
+): ScoredItem {
+  const isTier1Wire = TIER1_WIRE_NAMES.has(item.source);
+  const isXAlert = item.source.startsWith("X/");
+  const { score, breakdown } = scoreArticle(item.title, "", item.pubDate, {
+    isPrimarySource: item.isPrimarySource,
+    isCalendarEvent: item.isCalendarEvent,
+    calendarImpact: item.calendarImpact,
+    isTier1Wire,
+    isXAlert,
+  });
+  return {
+    title: item.title,
+    link: item.link,
+    pubDate: item.pubDate,
+    source: item.source,
+    feedCategory: item.feedCategory,
+    impactScore: score,
+    scoreBreakdown: breakdown,
+    isCalendarEvent: item.isCalendarEvent,
+    isPrimarySource: item.isPrimarySource,
+  };
+}
+
+function finalizeArticles(scored: ScoredItem[], limit: number): NewsArticle[] {
+  return scored.slice(0, limit).map((item) => {
+    const category = item.isCalendarEvent ? "Economic Data" : inferCategory(item.title, item.feedCategory || "Market News");
+    const { score, label, impact } = analyzeSentiment(item.title);
+    return {
+      title: item.title,
+      link: item.link,
+      pubDate: item.pubDate,
+      source: item.source,
+      sentiment: label,
+      sentimentScore: score,
+      marketImpact: item.isCalendarEvent ? generateMarketImpact(item.title, "Neutral") : impact,
+      category,
+      impactScore: item.impactScore,
+      isPrimarySource: item.isPrimarySource,
+      isCalendarEvent: item.isCalendarEvent,
+    };
+  });
+}
+
 // ─── GET Handler ───────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get("symbol") || "XAUUSD").toUpperCase();
+  const minScore = searchParams.has("minScore") ? Number(searchParams.get("minScore")) : DEFAULT_IMPACT_THRESHOLD;
 
-  // ALL mode: fetch every feed, no keyword filter, return 100 articles
   const isAll = symbol === "ALL";
   const config = SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG["XAUUSD"];
 
-  let feedsToFetch: typeof FEEDS;
-  let googleItems: RawItem[] = [];
-
   if (isAll) {
-    feedsToFetch = FEEDS;
-
-    // Fetch all RSS feeds + X/Twitter in parallel
-    const [rssResults, xResult] = await Promise.all([
+    // Fetch all RSS feeds + X/Twitter + central bank feeds + economic calendar in parallel
+    const [rssResults, xResult, cbItems, calendarEvents] = await Promise.all([
       Promise.allSettled(FEEDS.map((f) => fetchFeed(f))),
       fetchXContent(),
+      fetchCentralBankFeeds(),
+      fetchEconomicCalendar(),
     ]);
 
-    const allRaw: (RawItem & { feedIdx: number; feedCategory: string })[] = [];
+    const allRaw: (RawItem & { feedCategory: string; isPrimarySource?: boolean })[] = [];
     rssResults.forEach((res, i) => {
       if (res.status === "fulfilled") {
-        res.value.forEach((item) =>
-          allRaw.push({ ...item, feedIdx: i, feedCategory: FEEDS[i].category })
-        );
+        res.value.forEach((item) => allRaw.push({ ...item, feedCategory: FEEDS[i].category }));
       }
     });
-    // X items: apply same market filter inline (tweet content is compact)
-    xResult.items.forEach((item) =>
-      allRaw.push({ ...item, feedIdx: -1, feedCategory: "X" })
-    );
+    xResult.items.forEach((item) => allRaw.push({ ...item, feedCategory: "X" }));
+    cbItems.forEach((item) => allRaw.push({ ...item, feedCategory: "Central Bank", isPrimarySource: true }));
 
-    const deduped = deduplicateItems(allRaw);
-
-    // Three-layer relevance filter (also enforces crypto category sub-filter)
-    const marketFiltered = deduped.filter(item =>
-      isMarketRelevantForAll(item.title, item.feedCategory)
-    );
-
-    marketFiltered.sort((a, b) => {
-      const ta = a.pubDate ? new Date(a.pubDate).getTime() : 0;
-      const tb = b.pubDate ? new Date(b.pubDate).getTime() : 0;
-      return tb - ta;
+    // Hard-noise + crypto-category sub-filter, then dedupe
+    const seen = new Set<string>();
+    const filtered = allRaw.filter((item) => {
+      if (isHardNoise(item.title)) return false;
+      if (item.feedCategory === "Crypto" && !CRYPTO_CONTENT_RE.test(item.title) && !CRYPTO_MACRO_RE.test(item.title)) return false;
+      const key = item.title.toLowerCase().replace(/\s+/g, " ").slice(0, 60);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
 
-    const articles: NewsArticle[] = marketFiltered.slice(0, 150).map((item) => {
-      const category = inferCategory(item.title, item.feedCategory || "Market News");
-      const { score, label, impact } = analyzeSentiment(item.title);
-      return {
-        title: item.title,
-        link: item.link,
-        pubDate: item.pubDate,
-        source: item.source,
-        sentiment: label,
-        sentimentScore: score,
-        marketImpact: impact,
-        category,
-      };
-    });
+    let scored = filtered.map((item) => toScoredItem(item));
+
+    // Economic calendar — already correctly scored per event's own impact level
+    scored = scored.concat(calendarEventsToArticles(calendarEvents));
+
+    scored = applyCorroborationBoost(scored);
+    scored.sort((a, b) => b.impactScore - a.impactScore);
+
+    const signal = scored.filter((s) => s.impactScore >= minScore);
+    const articles = finalizeArticles(signal, 150);
 
     const headers: Record<string, string> = {
       "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30",
@@ -999,59 +891,65 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(articles, { headers });
   }
 
-  // Symbol-specific mode
-  const feedIndices = Array.from(
-    new Set([...config.primaryFeeds, ...config.secondaryFeeds])
-  );
-  feedsToFetch = feedIndices.map((i) => FEEDS[i]).filter(Boolean);
+  // ── Symbol-specific mode ──────────────────────────────────────────────────
+  const feedIndices = Array.from(new Set([...config.primaryFeeds, ...config.secondaryFeeds]));
+  const feedsToFetch = feedIndices.map((i) => FEEDS[i]).filter(Boolean);
 
-  // Fetch RSS feeds + Google News in parallel
-  const [gnItems, ...feedResults] = await Promise.allSettled([
+  const relevantCurrencies = Object.entries(CURRENCY_TO_SYMBOLS)
+    .filter(([, symbols]) => symbols.includes(symbol))
+    .map(([code]) => code);
+
+  const [gnResult, feedResults, cbItems, calendarEvents] = await Promise.all([
     fetchGoogleNews(config.googleQuery),
-    ...feedsToFetch.map((feed) => fetchFeed(feed)),
+    Promise.allSettled(feedsToFetch.map((feed) => fetchFeed(feed))),
+    fetchCentralBankFeeds(),
+    fetchEconomicCalendar(),
   ]);
 
-  if (gnItems.status === "fulfilled") googleItems = gnItems.value;
-
-  const allRaw: (RawItem & { feedIdx: number })[] = [];
-
+  const allRaw: (RawItem & { feedCategory: string; isPrimarySource?: boolean })[] = [];
   feedResults.forEach((res, i) => {
     if (res.status === "fulfilled") {
-      res.value.forEach((item) =>
-        allRaw.push({ ...item, feedIdx: feedIndices[i] })
-      );
+      res.value.forEach((item) => allRaw.push({ ...item, feedCategory: feedsToFetch[i].category }));
     }
   });
-  googleItems.forEach((item) => allRaw.push({ ...item, feedIdx: -1 }));
+  gnResult.forEach((item) => allRaw.push({ ...item, feedCategory: "News" }));
 
-  // Keyword filter
+  // Central bank items relevant to this symbol's currencies (Fed is relevant to everything via USD)
+  const CB_COUNTRY_MAP: Record<string, string> = {
+    "Federal Reserve": "USD",
+    "ECB": "EUR",
+    "Bank of England": "GBP",
+    "Bank of Japan": "JPY",
+  };
+  cbItems
+    .filter((item) => relevantCurrencies.includes(CB_COUNTRY_MAP[item.feedName] || ""))
+    .forEach((item) => allRaw.push({ ...item, feedCategory: "Central Bank", isPrimarySource: true }));
+
+  // Keyword filter (skip for central bank primary sources — always relevant if currency-matched)
   const filtered = allRaw.filter((item) => {
+    if (isHardNoise(item.title)) return false;
+    if (item.isPrimarySource) return true;
     return matchesKeywords(item.title, config.keywords);
   });
 
-  const deduped = deduplicateItems(filtered);
-
-  deduped.sort((a, b) => {
-    const ta = a.pubDate ? new Date(a.pubDate).getTime() : 0;
-    const tb = b.pubDate ? new Date(b.pubDate).getTime() : 0;
-    return tb - ta;
+  const seen = new Set<string>();
+  const deduped = filtered.filter((item) => {
+    const key = item.title.toLowerCase().replace(/\s+/g, " ").slice(0, 60);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 
-  const articles: NewsArticle[] = deduped.slice(0, 80).map((item) => {
-    const feedDef = item.feedIdx >= 0 ? FEEDS[item.feedIdx] : { category: "News" };
-    const category = inferCategory(item.title, feedDef.category || "News");
-    const { score, label, impact } = analyzeSentiment(item.title);
-    return {
-      title: item.title,
-      link: item.link,
-      pubDate: item.pubDate,
-      source: item.source,
-      sentiment: label,
-      sentimentScore: score,
-      marketImpact: impact,
-      category,
-    };
-  });
+  let scored = deduped.map((item) => toScoredItem(item));
+
+  // Economic calendar events relevant to this symbol's currencies — already scored
+  scored = scored.concat(calendarEventsToArticles(calendarEvents, relevantCurrencies));
+
+  scored = applyCorroborationBoost(scored);
+  scored.sort((a, b) => b.impactScore - a.impactScore);
+
+  const signal = scored.filter((s) => s.impactScore >= minScore);
+  const articles = finalizeArticles(signal, 80);
 
   return NextResponse.json(articles, {
     headers: {
