@@ -190,6 +190,7 @@ export interface UserPreferences {
     habits: boolean;
     diary: boolean;
     notes: boolean;
+    contentCreator?: boolean;
   };
 }
 

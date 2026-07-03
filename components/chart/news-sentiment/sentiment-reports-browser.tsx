@@ -144,7 +144,7 @@ export function SentimentReportsBrowser({ onClose }: { onClose: () => void }) {
   async function handleGenerate(hours: number) {
     setGenerating(true);
     setGenError(null);
-    setProgressLabel("Fetching every RSS feed, Telegram channel, central bank & calendar…");
+    setProgressLabel("Fetching every RSS feed, breaking-alert source, central bank & calendar…");
     try {
       const res = await fetch("/api/news/sentiment-report", {
         method: "POST",

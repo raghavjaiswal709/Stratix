@@ -70,6 +70,7 @@ const defaultPreferences: UserPreferences = {
     habits: true,
     diary: true,
     notes: true,
+    contentCreator: true,
   },
 };
 

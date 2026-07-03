@@ -92,23 +92,38 @@ function parseTelegramHtml(html: string, channel: string): ParsedPage {
   return { items, earliestId: posts[0].id };
 }
 
+async function fetchTelegramPageOnce(channel: string, beforeId: string | undefined, timeoutMs: number): Promise<ParsedPage> {
+  const url = beforeId
+    ? `https://t.me/s/${channel}?before=${beforeId}`
+    : `https://t.me/s/${channel}`;
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      Accept: "text/html",
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) return { items: [], earliestId: null };
+  const html = await res.text();
+  return parseTelegramHtml(html, channel);
+}
+
+// One retry with a short backoff — the preview endpoint occasionally times out
+// or hiccups under load; a single automatic retry meaningfully cuts down how
+// often a channel (or all of them) comes back empty for no real reason.
 async function fetchTelegramPage(channel: string, beforeId?: string, timeoutMs = 6000): Promise<ParsedPage> {
   try {
-    const url = beforeId
-      ? `https://t.me/s/${channel}?before=${beforeId}`
-      : `https://t.me/s/${channel}`;
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        Accept: "text/html",
-      },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!res.ok) return { items: [], earliestId: null };
-    const html = await res.text();
-    return parseTelegramHtml(html, channel);
+    const first = await fetchTelegramPageOnce(channel, beforeId, timeoutMs);
+    if (first.items.length > 0) return first;
+    await new Promise((r) => setTimeout(r, 400));
+    return await fetchTelegramPageOnce(channel, beforeId, timeoutMs);
   } catch {
-    return { items: [], earliestId: null };
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      return await fetchTelegramPageOnce(channel, beforeId, timeoutMs);
+    } catch {
+      return { items: [], earliestId: null };
+    }
   }
 }
 
