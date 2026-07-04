@@ -27,7 +27,7 @@ export async function GET() {
       },
       diaryData: { entries: [] },
       notesData: { notes: [] },
-                  preferences: { accentColor: "#6366f1", defaultPage: "/dashboard", defaultTab: "todos", sectionOrder: ["todos", "habits", "diary", "notes"] },      scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },
+                  preferences: { accentColor: "#10b981", defaultPage: "/dashboard", defaultTab: "todos", sectionOrder: ["todos", "habits", "diary", "notes"] },      scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },
       theme: "dark",
     });
   }

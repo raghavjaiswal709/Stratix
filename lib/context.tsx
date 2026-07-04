@@ -3,6 +3,18 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences, ApiTrade, TradingProfile } from "@/types";
+import { ACCENT_PRESETS } from "@/types";
+
+// Best-contrast text color for an arbitrary hex fill — used as a fallback for
+// legacy/custom accent values that aren't one of the curated ACCENT_PRESETS
+// (which each already carry a hand-picked `foreground`).
+function contrastForeground(hex: string): string {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!m) return "#ffffff";
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16) / 255);
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.6 ? "#000000" : "#ffffff";
+}
 
 // Subset of AppData fetched server-side in the root layout for zero-flicker shell rendering.
 export interface InitialMeta {
@@ -50,7 +62,7 @@ interface AppContextType extends AppData {
 }
 
 const defaultPreferences: UserPreferences = {
-  accentColor: "#6366f1",
+  accentColor: "#10b981",
   defaultPage: "/dashboard",
   defaultTab: "todos",
   sectionOrder: ["todos", "habits", "diary", "notes"],
@@ -399,9 +411,15 @@ export function AppProvider({
     }
   }, [data.theme]);
 
-  // Apply accent color
+  // Apply accent color — also sets a matching foreground so solid fills
+  // (primary buttons, active sidebar nav item) stay readable regardless of
+  // which of the 20 curated themes (or a legacy custom hex) is selected.
   useEffect(() => {
-    document.documentElement.style.setProperty("--accent-color", data.preferences.accentColor || "#6366f1");
+    const value = data.preferences.accentColor || "#10b981";
+    const preset = ACCENT_PRESETS.find((p) => p.value.toLowerCase() === value.toLowerCase());
+    const foreground = preset?.foreground ?? contrastForeground(value);
+    document.documentElement.style.setProperty("--accent-color", value);
+    document.documentElement.style.setProperty("--accent-color-foreground", foreground);
   }, [data.preferences.accentColor]);
 
   return (

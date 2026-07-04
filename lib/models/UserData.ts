@@ -48,7 +48,7 @@ const UserDataSchema = new Schema<IUserData>(
     },
     preferences: {
       type: Schema.Types.Mixed,
-      default: { accentColor: "#6366f1", defaultPage: "/dashboard", defaultTab: "todos", sectionOrder: ["todos", "habits", "diary", "notes"] },
+      default: { accentColor: "#10b981", defaultPage: "/dashboard", defaultTab: "todos", sectionOrder: ["todos", "habits", "diary", "notes"] },
     },
     scoreWeights: {
       type: Schema.Types.Mixed,

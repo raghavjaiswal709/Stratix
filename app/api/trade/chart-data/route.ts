@@ -13,9 +13,20 @@ const SYMBOL_MAP: Record<string, string> = {
   EURJPY: "EUR/JPY",
   AUDUSD: "AUD/USD",
   NZDUSD: "NZD/USD",
-  ETHUSD: "ETH/USD:Kraken",
-  BTCUSDT: "BTC/USDT:Binance",
+  ETHUSD: "ETH/USD",
+  BTCUSD: "BTC/USD",
+  BTCUSDT: "BTC/USDT",
 };
+
+function toUTCDateStr(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  const ss = String(d.getUTCSeconds()).padStart(2, "0");
+  return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+}
 
 function getMonthsInRange(from: Date, to: Date): Array<{ year: number; month: string }> {
   const result: Array<{ year: number; month: string }> = [];
@@ -58,6 +69,86 @@ function matchKnownSymbol(symbol: string): string | null {
 
 const cleanSymbol = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+async function fetchCsvContent(symbolFolder: string, fileName: string, origin: string, cookieHeader: string): Promise<string | null> {
+  const urls = [
+    `https://raw.githubusercontent.com/raghavjaiswal709/Stratix/refs/heads/master/public/data/candles/${symbolFolder}/${fileName}`,
+    `https://raw.githubusercontent.com/raghavjaiswal709/Stratix/refs/heads/main/public/data/candles/${symbolFolder}/${fileName}`,
+    `https://cdn.jsdelivr.net/gh/raghavjaiswal709/Stratix@master/public/data/candles/${symbolFolder}/${fileName}`,
+    `https://cdn.jsdelivr.net/gh/raghavjaiswal709/Stratix@main/public/data/candles/${symbolFolder}/${fileName}`,
+    `${origin}/data/candles/${symbolFolder}/${fileName}`
+  ];
+
+  for (const url of urls) {
+    try {
+      const headers: Record<string, string> = {};
+      if (url.startsWith(origin)) {
+        headers["cookie"] = cookieHeader;
+      }
+      const res = await fetch(url, { headers, cache: "no-store" });
+      if (res.status === 200) {
+        const text = await res.text();
+        if (text && text.trim().length > 0 && !text.includes("<html") && !text.includes("<!DOCTYPE")) {
+          return text;
+        }
+      }
+    } catch {
+      // ignore and try next
+    }
+  }
+  return null;
+}
+
+async function fetchTwelveData(symbol: string, interval: string, from: string, to: string) {
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
+  if (!apiKey) {
+    throw new Error("Twelve Data API key is missing");
+  }
+
+  const tdSymbol = SYMBOL_MAP[symbol.toUpperCase()] ?? symbol;
+
+  const INTERVAL_MIN: Record<string, number> = {
+    "1min": 1, "5min": 5, "15min": 15, "30min": 30,
+    "45min": 45, "1h": 60, "2h": 120, "4h": 240, "1day": 1440,
+  };
+  const ivMin = INTERVAL_MIN[interval] ?? 15;
+  const spanMin = Math.max(0, (new Date(to).getTime() - new Date(from).getTime()) / 60000);
+  const outputsize = Math.min(5000, Math.max(50, Math.ceil(spanMin / ivMin) + 100));
+
+  const url = new URL("https://api.twelvedata.com/time_series");
+  url.searchParams.set("symbol", tdSymbol);
+  url.searchParams.set("interval", interval);
+  url.searchParams.set("start_date", toUTCDateStr(new Date(from)));
+  url.searchParams.set("end_date", toUTCDateStr(new Date(to)));
+  url.searchParams.set("outputsize", String(outputsize));
+  url.searchParams.set("timezone", "UTC");
+  url.searchParams.set("apikey", apiKey);
+  url.searchParams.set("format", "JSON");
+
+  const res = await fetch(url.toString(), {
+    next: { revalidate: 300 },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Twelve Data API returned HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  if (data.status === "error" || !Array.isArray(data.values)) {
+    throw new Error(data.message ?? "Unexpected API response from Twelve Data");
+  }
+
+  return data.values
+    .reverse()
+    .map((v: any) => ({
+      time: Math.floor(new Date(v.datetime.replace(" ", "T") + "Z").getTime() / 1000),
+      open: parseFloat(v.open),
+      high: parseFloat(v.high),
+      low: parseFloat(v.low),
+      close: parseFloat(v.close),
+      volume: parseFloat(v.volume || "0"),
+    }));
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -83,7 +174,6 @@ export async function GET(req: NextRequest) {
   const fromSec = Math.floor(new Date(from).getTime() / 1000);
   const toSec = Math.floor(new Date(to).getTime() / 1000);
 
-  // Pad the "from" time to load sufficient historical candles for lookback/scroll back (e.g. 500 candles)
   const lookbackMins = 500 * ivMin;
   const paddedFromSec = fromSec - (lookbackMins * 60);
   const paddedFromDate = new Date(paddedFromSec * 1000);
@@ -99,14 +189,10 @@ export async function GET(req: NextRequest) {
 
   for (const { year, month } of months) {
     const fileName = `${symbolFolder}_${year}_${month}.csv`;
-    const fileUrl = `${origin}/data/candles/${symbolFolder}/${fileName}`;
+    const fileContent = await fetchCsvContent(symbolFolder, fileName, origin, cookieHeader);
+    if (!fileContent) continue;
+    
     try {
-      const res = await fetch(fileUrl, {
-        headers: { cookie: cookieHeader },
-        cache: "no-store",
-      });
-      if (!res.ok) continue;
-      const fileContent = await res.text();
       const lines = fileContent.split(/\r?\n/);
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -135,15 +221,22 @@ export async function GET(req: NextRequest) {
         }
       }
     } catch {
-      // File not found or read error, ignore
+      // ignore file parse errors
     }
   }
 
   if (candles1m.length === 0) {
-    return NextResponse.json({
-      error: "No local candle data found for the requested period.",
-      candles: [],
-    });
+    // Fallback to Twelve Data
+    try {
+      const paddedFromStr = new Date(paddedFromSec * 1000).toISOString();
+      const tdCandles = await fetchTwelveData(symbol, interval, paddedFromStr, to);
+      return NextResponse.json({ candles: tdCandles, source: "twelvedata" });
+    } catch (err: any) {
+      return NextResponse.json({
+        error: `No local/GitHub data found, and Twelve Data fallback failed: ${err.message}`,
+        candles: [],
+      });
+    }
   }
 
   // Sort oldest-first for lightweight-charts
@@ -193,103 +286,5 @@ export async function GET(req: NextRequest) {
     finalCandles = aggregated;
   }
 
-  return NextResponse.json({ candles: finalCandles });
+  return NextResponse.json({ candles: finalCandles, source: "github-local" });
 }
-
-/* ── Twelve Data Implementation (Commented out as requested) ───────────────────
-export async function GET_TWELVEDATA(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { searchParams } = new URL(req.url);
-  const symbol = searchParams.get("symbol") ?? "";
-  const interval = searchParams.get("interval") ?? "15min";
-  const from = searchParams.get("from") ?? "";
-  const to = searchParams.get("to") ?? "";
-
-  if (!symbol || !from || !to) {
-    return NextResponse.json({ error: "Missing required params", candles: [] });
-  }
-
-  const apiKey = process.env.TWELVE_DATA_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ noApiKey: true, candles: [] });
-  }
-
-  const tdSymbol = SYMBOL_MAP[symbol.toUpperCase()] ?? symbol;
-
-  // Size the request so the FULL requested window comes back in one call.
-  // (A fixed 500 truncated wide windows, dropping the candles a trade's real
-  // entry/exit fell on once we widened the window to absorb broker-time skew.)
-  const INTERVAL_MIN: Record<string, number> = {
-    "1min": 1, "5min": 5, "15min": 15, "30min": 30,
-    "45min": 45, "1h": 60, "2h": 120, "4h": 240, "1day": 1440,
-  };
-  const ivMin = INTERVAL_MIN[interval] ?? 15;
-  const spanMin = Math.max(0, (new Date(to).getTime() - new Date(from).getTime()) / 60000);
-  const outputsize = Math.min(5000, Math.max(50, Math.ceil(spanMin / ivMin) + 20));
-
-  try {
-    const url = new URL("https://api.twelvedata.com/time_series");
-    url.searchParams.set("symbol", tdSymbol);
-    url.searchParams.set("interval", interval);
-    url.searchParams.set("start_date", toUTCDateStr(new Date(from)));
-    url.searchParams.set("end_date", toUTCDateStr(new Date(to)));
-    url.searchParams.set("outputsize", String(outputsize));
-    url.searchParams.set("timezone", "UTC");
-    url.searchParams.set("apikey", apiKey);
-    url.searchParams.set("format", "JSON");
-
-    const res = await fetch(url.toString(), {
-      next: { revalidate: 300 }, // cache 5 minutes
-    });
-
-    if (!res.ok) {
-      return NextResponse.json({
-        error: `Twelve Data API returned HTTP ${res.status}`,
-        candles: [],
-      });
-    }
-
-    const data = await res.json();
-
-    if (data.status === "error" || !Array.isArray(data.values)) {
-      return NextResponse.json({
-        error: data.message ?? "Unexpected API response",
-        candles: [],
-      });
-    }
-
-    // Twelve Data returns newest-first; reverse to oldest-first for lightweight-charts
-    const candles = (
-      data.values as Array<{
-        datetime: string;
-        open: string;
-        high: string;
-        low: string;
-        close: string;
-      }>
-    )
-      .reverse()
-      .map((v) => ({
-        // datetime from Twelve Data with timezone=UTC, append "Z" to parse as UTC
-        time: Math.floor(
-          new Date(v.datetime.replace(" ", "T") + "Z").getTime() / 1000
-        ),
-        open: parseFloat(v.open),
-        high: parseFloat(v.high),
-        low: parseFloat(v.low),
-        close: parseFloat(v.close),
-      }));
-
-    return NextResponse.json({ candles });
-  } catch (err) {
-    return NextResponse.json({
-      error: err instanceof Error ? err.message : "Failed to fetch chart data",
-      candles: [],
-    });
-  }
-}
-*/

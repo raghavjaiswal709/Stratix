@@ -3,12 +3,13 @@
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { TradeSidebar } from "@/components/trade/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Menu, LogOut } from "lucide-react";
 
 import { useAppContext } from "@/lib/context";
+import { DASHBOARD_PALETTES } from "@/types";
 
 function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const { data: session } = useSession();
@@ -98,6 +99,31 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const isAuthPage = pathname.startsWith("/auth");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { preferences, theme } = useAppContext();
+  // "default" (or unset) means: no full-palette override — fall through to
+  // the normal dark/light + single-accent-color theme untouched. A palette
+  // is strictly opt-in; only a real DASHBOARD_PALETTES id activates it.
+  const palette = preferences.dashboardPalette && preferences.dashboardPalette !== "default"
+    ? DASHBOARD_PALETTES.find((p) => p.id === preferences.dashboardPalette)
+    : undefined;
+
+  // Sync document root class when custom palette changes or main theme changes
+  useEffect(() => {
+    const root = document.documentElement;
+    if (palette) {
+      if (palette.mode === "dark") {
+        root.classList.add("dark");
+      } else {
+        root.classList.remove("dark");
+      }
+    } else {
+      if (theme === "dark") {
+        root.classList.add("dark");
+      } else {
+        root.classList.remove("dark");
+      }
+    }
+  }, [palette, theme]);
 
   // Client-side safety: redirect authenticated users away from auth pages
   // (server middleware handles the unauthenticated → signIn redirect)
@@ -120,8 +146,53 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  // Only build the override style object when a palette is actually active.
+  // When "default", neither the class nor any inline var is applied, so the
+  // normal .dark / :root cascade (dark-light toggle + single accent color)
+  // governs everything exactly as it did before the palette feature existed.
+  const paletteStyle: CSSProperties | undefined = palette
+    ? ({
+        backgroundColor: palette.background,
+        "--background": palette.background,
+        "--foreground": palette.text,
+        "--card": palette.card,
+        "--card-foreground": palette.text,
+        "--popover": palette.card,
+        "--popover-foreground": palette.text,
+        "--border": palette.border,
+        "--input": palette.border,
+        "--muted": palette.border,
+        "--muted-foreground": palette.textMuted,
+        "--primary": palette.accent,
+        "--primary-foreground": palette.text,
+        "--ring": palette.accent,
+        "--accent": `color-mix(in srgb, ${palette.accent} 16%, transparent)`,
+        "--accent-foreground": palette.accent,
+        "--sidebar": palette.card,
+        "--sidebar-foreground": palette.text,
+        "--sidebar-border": palette.border,
+        "--sidebar-primary": palette.accent,
+        "--sidebar-primary-foreground": palette.text,
+        "--sidebar-accent": `color-mix(in srgb, ${palette.accent} 16%, transparent)`,
+        "--sidebar-accent-foreground": palette.accent,
+        "--sidebar-ring": palette.accent,
+        "--dash-total": palette.accent,
+        "--dash-pending": palette.icon,
+        "--dash-done": palette.positive,
+        "--dash-metric": palette.accent,
+        "--dash-card-top": palette.accent,
+        "--dash-icon": palette.icon,
+        "--dash-badge-ring": palette.badge,
+        "--dash-positive": palette.positive,
+        "--dash-negative": palette.negative,
+      } as CSSProperties)
+    : undefined;
+
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
+    <div
+      className={`flex h-screen w-full overflow-hidden bg-background${palette ? " app-theme-scope" : ""}`}
+      style={paletteStyle}
+    >
       <TradeSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden relative z-10">
         <MobileTopBar onMenuOpen={() => setSidebarOpen(true)} />

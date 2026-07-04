@@ -12,6 +12,7 @@ import { parseISO, differenceInMinutes, subMinutes, addMinutes } from "date-fns"
 import { RefreshCw, Camera, BarChart2, AlertTriangle, ExternalLink, Clock, Check, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/context";
+import { toTrueUTC, BROKER_UTC_OFFSET_MIN, IST_OFFSET_MIN } from "@/lib/utils/ist-time";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -28,9 +29,17 @@ interface TradeChartProps {
   stopLoss?: number;
   takeProfit?: number;
   direction: "buy" | "sell";
+  source?: "manual" | "mt5";         // decides which timezone correction applies
   defaultInterval?: string;          // saved timeframe e.g. "1H", "15m"
   onScreenshot?: (dataUrl: string) => void;
   onSaveInterval?: (interval: string) => void; // callback when user sets a default
+}
+
+interface RRBox {
+  left: number;
+  width: number;
+  top: number;
+  height: number;
 }
 
 // ─── Interval helpers ─────────────────────────────────────────────────────────
@@ -95,6 +104,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
       stopLoss,
       takeProfit,
       direction,
+      source,
       defaultInterval,
       onScreenshot,
       onSaveInterval,
@@ -103,6 +113,9 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
   ) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
+    const [riskBox, setRiskBox] = useState<RRBox | null>(null);
+    const [rewardBox, setRewardBox] = useState<RRBox | null>(null);
+    const [rrLabel, setRrLabel] = useState<{ left: number; top: number; text: string } | null>(null);
 
     // Resolve initial interval: use saved default if valid, else auto-detect
     const initInterval: Interval = defaultInterval && TF_TO_INTERVAL[defaultInterval]
@@ -161,17 +174,17 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
 
         const ivMins = INTERVAL_MINS[interval];
         const CONTEXT = 80;
-        // MT5 export times are broker-server time (commonly UTC+2/+3) but are
-        // stored as UTC. Stored CSV candles are true UTC, so the real entry/
-        // exit candles can sit a few hours away from the stated time. Pad the
-        // fetch window by SEARCH_PAD so those candles are always included, then
-        // we anchor the markers by price+time below.
-        const SEARCH_PAD = 360; // minutes (±6h) — covers any broker UTC offset
-        const start = subMinutes(parseISO(entryTime), CONTEXT * ivMins + SEARCH_PAD);
-        const end = addMinutes(
-          exitTime ? parseISO(exitTime) : new Date(),
-          CONTEXT * ivMins + SEARCH_PAD
-        );
+        // Stored entryTime/exitTime are civil-time digits mislabeled as UTC
+        // (MT5 export uses broker-server wall clock, manual entry uses the
+        // trader's own IST wall clock — see lib/utils/ist-time.ts for the
+        // full derivation). Undo that here so the fetch window — and every
+        // anchor below — is keyed off the real UTC instant, matching the
+        // candle data (which is genuinely UTC).
+        const entryTrueUTC = toTrueUTC(entryTime, source);
+        const exitTrueUTC = exitTime ? toTrueUTC(exitTime, source) : null;
+
+        const start = subMinutes(entryTrueUTC, CONTEXT * ivMins);
+        const end = addMinutes(exitTrueUTC ?? new Date(), CONTEXT * ivMins);
 
         let candles: Array<{ time: number; open: number; high: number; low: number; close: number }> = [];
 
@@ -217,29 +230,29 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           width: containerRef.current.offsetWidth,
           height: containerRef.current.offsetHeight || 380,
           layout: {
-            background: { type: ColorType.Solid, color: isDark ? "#0f1117" : "#ffffff" },
-            textColor: isDark ? "#ffffff55" : "#00000066",
+            background: { type: ColorType.Solid, color: "#0F0FOF" },
+            textColor: "#ffffff55",
             fontSize: 11,
             fontFamily: "Inter, ui-sans-serif, sans-serif",
           },
           grid: {
-            vertLines: { color: isDark ? "#ffffff08" : "#00000010" },
-            horzLines: { color: isDark ? "#ffffff08" : "#00000010" },
+            vertLines: { color: "#ffffff08" },
+            horzLines: { color: "#ffffff08" },
           },
           crosshair: { mode: CrosshairMode.Normal },
           timeScale: {
             timeVisible: true,
             secondsVisible: false,
-            borderColor: isDark ? "#ffffff0f" : "#0000001a",
+            borderColor: "#ffffff0f",
             barSpacing: 8,
           },
-          rightPriceScale: { borderColor: isDark ? "#ffffff0f" : "#0000001a" },
+          rightPriceScale: { borderColor: "#ffffff0f" },
           watermark: {
             visible: true,
             fontSize: 28,
             horzAlign: "center",
             vertAlign: "center",
-            color: isDark ? "#ffffff07" : "#00000009",
+            color: "#ffffff07",
             text: symbol,
           },
         });
@@ -247,122 +260,54 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         chartRef.current = chart;
 
         const candleSeries = chart.addCandlestickSeries({
-          upColor: "#22c55e",
+          upColor: "#b2b5be",
           downColor: "#ef4444",
           borderVisible: false,
-          wickUpColor: "#22c55e",
+          wickUpColor: "#b2b5be",
           wickDownColor: "#ef4444",
         });
 
-        candleSeries.setData(
-          candles.map((c) => ({ ...c, time: c.time as UTCTimestamp }))
-        );
-
-        // ── Timezone correction ───────────────────────────────────────────────
-        // lightweight-charts v4 internally strips the UTC offset and renders the
-        // raw UTC hour/minute values as if they were local hours. A candle at
-        // 04:30 UTC therefore shows as "04:30" even for IST users (who expect
-        // "10:00"). Fix: shift every timestamp by the browser's UTC offset so
-        // the "UTC hour" the library reads equals the actual local hour.
-        //   IST offset = getTimezoneOffset() = -330 min → tzOffset = +19800 s
-        //   04:30 UTC + 19800 s = 10:00 UTC → library reads hour=10 → shows "10:00" ✓
-        const tzOffset = -new Date().getTimezoneOffset() * 60; // seconds to ADD
+        // ── Display timezone ───────────────────────────────────────────────────
+        // Candle data is genuine UTC. lightweight-charts v4 reads a timestamp's
+        // UTC hour/minute and shows those digits as the label, so shifting the
+        // epoch by a fixed offset before setData is how we control what wall
+        // clock the chart displays. mt5 trades must show the broker/MT5
+        // terminal's own time; manual trades show the IST time the trader
+        // typed in.
+        const displayShiftSec = (source === "mt5" ? BROKER_UTC_OFFSET_MIN : IST_OFFSET_MIN) * 60;
 
         const shiftedCandles = candles.map((c) => ({
           ...c,
-          time: (c.time + tzOffset) as UTCTimestamp,
+          time: (c.time + displayShiftSec) as UTCTimestamp,
         }));
 
         candleSeries.setData(shiftedCandles);
 
-        // ── Price lines (price-only, no timestamp) ────────────────────────────
+        // ── Entry price line (the only reference line — SL/TP are drawn as
+        // shaded risk/reward boxes below, not more lines) ─────────────────────
         candleSeries.createPriceLine({
           price: entryPrice,
-          color: direction === "buy" ? "#10b981" : "#ef4444",
-          lineWidth: 2,
+          color: "rgba(255, 255, 255, 0.4)",
+          lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
           title: direction === "buy" ? "▲ Entry" : "▼ Entry",
         });
 
-        if (exitPrice != null) {
-          candleSeries.createPriceLine({
-            price: exitPrice,
-            color: "#f59e0b",
-            lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
-            axisLabelVisible: true,
-            title: "Exit",
-          });
+        // ── Entry / Exit markers (true-UTC anchored) ───────────────────────────
+        // entryTime/exitTime are converted to the real UTC instant above, so a
+        // simple nearest-candle lookup is enough — no more price-based fuzzy
+        // matching, and since both markers share the same conversion, the exit
+        // is always chronologically at-or-after the entry.
+        function nearestCandle(targetSec: number) {
+          return candles.reduce((best, c) =>
+            Math.abs(c.time - targetSec) < Math.abs(best.time - targetSec) ? c : best
+          );
         }
 
-        if (stopLoss != null && stopLoss > 0) {
-          candleSeries.createPriceLine({
-            price: stopLoss,
-            color: "#ef4444",
-            lineWidth: 2,
-            lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: "SL",
-          });
-        }
-
-        if (takeProfit != null && takeProfit > 0) {
-          candleSeries.createPriceLine({
-            price: takeProfit,
-            color: "#22c55e",
-            lineWidth: 2,
-            lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: "TP",
-          });
-        }
-
-        // ── Entry / Exit markers (price + time anchored) ──────────────────────
-        // Because the stored trade time can be skewed from candle UTC by the
-        // broker's offset, snapping purely by time lands the marker on the
-        // wrong candle. Instead we find the candle whose price RANGE is closest
-        // to the trade price, nearest in time to the stated moment. From the
-        // entry match we derive the broker offset and reuse it for the exit so
-        // both markers stay mutually consistent.
-        const SECS = (iso: string) => Math.floor(parseISO(iso).getTime() / 1000);
-        const MAX_OFFSET = 6 * 3600; // clamp: ignore matches further than ±6h
-
-        // Distance from a price to a candle's [low, high] range (0 if inside).
-        const rangeDist = (price: number, c: typeof candles[number]) =>
-          price >= c.low && price <= c.high ? 0 : Math.min(Math.abs(price - c.low), Math.abs(price - c.high));
-
-        // Pick the best candle for (price, statedTime): minimise price-range
-        // distance first, then time distance — but only consider candles within
-        // ±MAX_OFFSET of the stated time so we never match a far-away revisit.
-        function anchorCandle(price: number, statedTs: number) {
-          let best: typeof candles[number] | null = null;
-          let bestScore = Infinity;
-          let bestTimeDist = Infinity;
-          for (const c of candles) {
-            const td = Math.abs(c.time - statedTs);
-            if (td > MAX_OFFSET) continue;
-            const rd = rangeDist(price, c);
-            if (rd < bestScore || (rd === bestScore && td < bestTimeDist)) {
-              best = c; bestScore = rd; bestTimeDist = td;
-            }
-          }
-          // Fallback: nearest in time across all candles.
-          if (!best) {
-            best = candles.reduce((p, c) =>
-              Math.abs(c.time - statedTs) < Math.abs(p.time - statedTs) ? c : p
-            );
-          }
-          return best;
-        }
-
-        const entryTsRaw = SECS(entryTime);
-        const entryCandle = anchorCandle(entryPrice, entryTsRaw);
-        // Broker offset implied by the entry match (clamped for safety).
-        let brokerOffset = entryCandle.time - entryTsRaw;
-        if (Math.abs(brokerOffset) > MAX_OFFSET) brokerOffset = 0;
-
-        const entryTs = (entryCandle.time + tzOffset) as UTCTimestamp;
+        const entryTargetSec = Math.floor(entryTrueUTC.getTime() / 1000);
+        const entryCandle = nearestCandle(entryTargetSec);
+        const entryTs = (entryCandle.time + displayShiftSec) as UTCTimestamp;
 
         const markers: Array<{
           time: UTCTimestamp;
@@ -381,12 +326,10 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         ];
 
         let exitCandle: typeof candles[number] | null = null;
-        if (exitPrice != null && exitTime) {
-          // Apply the SAME broker offset to the exit's stated time, then refine
-          // by price so the exit marker also sits on its real candle.
-          const exitTarget = SECS(exitTime) + brokerOffset;
-          exitCandle = anchorCandle(exitPrice, exitTarget);
-          const exitTs = (exitCandle.time + tzOffset) as UTCTimestamp;
+        if (exitPrice != null && exitTrueUTC) {
+          const exitTargetSec = Math.floor(exitTrueUTC.getTime() / 1000);
+          exitCandle = nearestCandle(exitTargetSec);
+          const exitTs = (exitCandle.time + displayShiftSec) as UTCTimestamp;
           if (exitCandle.time !== entryCandle.time) {
             markers.push({
               time: exitTs,
@@ -406,8 +349,8 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         const viewPad = 30 * ivMins * 60;
         const lo = Math.min(entryCandle.time, exitCandle ? exitCandle.time : entryCandle.time);
         const hi = Math.max(entryCandle.time, exitCandle ? exitCandle.time : entryCandle.time);
-        const viewFrom = (lo + tzOffset - viewPad) as UTCTimestamp;
-        const viewTo = (hi + tzOffset + viewPad) as UTCTimestamp;
+        const viewFrom = (lo + displayShiftSec - viewPad) as UTCTimestamp;
+        const viewTo = (hi + displayShiftSec + viewPad) as UTCTimestamp;
 
         try {
           chart.timeScale().setVisibleRange({ from: viewFrom, to: viewTo });
@@ -415,16 +358,123 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           // ignore — range might exceed data bounds
         }
 
-        // ── Responsive width ──────────────────────────────────────────────────
+        // ── Risk / Reward box overlay (TradingView Position-tool style) ───────
+        const boxEndTs = exitCandle
+          ? ((exitCandle.time + displayShiftSec) as UTCTimestamp)
+          : ((shiftedCandles[shiftedCandles.length - 1]?.time ?? entryTs) as UTCTimestamp);
+
+        function updateBoxes() {
+          if (!containerRef.current) return;
+          const timeScale = chart.timeScale();
+          const x1 = timeScale.timeToCoordinate(entryTs);
+          const x2 = timeScale.timeToCoordinate(boxEndTs) ?? containerRef.current.offsetWidth;
+          const entryY = candleSeries.priceToCoordinate(entryPrice);
+
+          if (x1 == null || entryY == null) {
+            setRiskBox(null);
+            setRewardBox(null);
+            setRrLabel(null);
+            return;
+          }
+
+          const left = Math.min(x1, x2);
+          const width = Math.max(2, Math.abs(x2 - x1));
+
+          const slY = stopLoss != null && stopLoss > 0 ? candleSeries.priceToCoordinate(stopLoss) : null;
+          setRiskBox(
+            slY != null ? { left, width, top: Math.min(entryY, slY), height: Math.abs(slY - entryY) } : null
+          );
+
+          const tpY = takeProfit != null && takeProfit > 0 ? candleSeries.priceToCoordinate(takeProfit) : null;
+          setRewardBox(
+            tpY != null ? { left, width, top: Math.min(entryY, tpY), height: Math.abs(tpY - entryY) } : null
+          );
+
+          if (stopLoss && takeProfit) {
+            const risk = Math.abs(entryPrice - stopLoss);
+            const reward = Math.abs(takeProfit - entryPrice);
+            setRrLabel({
+              left: left + 6,
+              top: Math.min(entryY, slY ?? entryY, tpY ?? entryY) - 16,
+              text: `R:R 1:${(risk > 0 ? reward / risk : 0).toFixed(2)}`,
+            });
+          } else {
+            setRrLabel(null);
+          }
+        }
+
+        // setVisibleRange() above doesn't synchronously recompute the price
+        // scale/layout — calling priceToCoordinate/timeToCoordinate right away
+        // reads stale bounds, which briefly puts the box way off. Rather than
+        // guess how many frames the chart needs to settle, keep recomputing
+        // on every frame for a short window until it stabilizes.
+        let settleRaf = 0;
+        let settleFrames = 0;
+        const SETTLE_MAX_FRAMES = 40; // ~0.65s at 60fps — generous, cheap no-op once settled
+        const settleLoop = () => {
+          if (!alive) return;
+          updateBoxes();
+          settleFrames += 1;
+          if (settleFrames < SETTLE_MAX_FRAMES) {
+            settleRaf = requestAnimationFrame(settleLoop);
+          }
+        };
+        settleRaf = requestAnimationFrame(settleLoop);
+        chart.timeScale().subscribeVisibleTimeRangeChange(updateBoxes);
+
+        // ── Drag & Scroll (Wheel) listeners for instant coordinate updates ───────
+        let isMouseDown = false;
+        const handleMouseDown = () => { isMouseDown = true; };
+        const handleMouseUp = () => { isMouseDown = false; };
+        const handleMouseMove = () => {
+          if (isMouseDown) {
+            updateBoxes();
+          }
+        };
+        const handleWheel = () => {
+          updateBoxes();
+        };
+        const handleTouchMove = () => {
+          updateBoxes();
+        };
+
+        const container = containerRef.current;
+        if (container) {
+          container.addEventListener("mousedown", handleMouseDown);
+          window.addEventListener("mouseup", handleMouseUp);
+          container.addEventListener("mousemove", handleMouseMove);
+          container.addEventListener("wheel", handleWheel, { passive: true });
+          container.addEventListener("touchmove", handleTouchMove, { passive: true });
+        }
+
+        // ── Responsive width + height ──────────────────────────────────────────
+        // Only `width` was ever re-applied here, so squeezing the chart
+        // vertically left the canvas at its original fixed height while the
+        // box overlay's coordinates (derived from priceToCoordinate, which
+        // depends on the chart's rendered height) went stale.
         const ro = new ResizeObserver(() => {
           if (containerRef.current && chartRef.current) {
             chartRef.current.applyOptions({
               width: containerRef.current.offsetWidth,
+              height: containerRef.current.offsetHeight,
             });
+            updateBoxes();
+            requestAnimationFrame(updateBoxes);
           }
         });
         ro.observe(containerRef.current);
-        roCleanup = () => ro.disconnect();
+        roCleanup = () => {
+          cancelAnimationFrame(settleRaf);
+          ro.disconnect();
+          chart.timeScale().unsubscribeVisibleTimeRangeChange(updateBoxes);
+          if (container) {
+            container.removeEventListener("mousedown", handleMouseDown);
+            window.removeEventListener("mouseup", handleMouseUp);
+            container.removeEventListener("mousemove", handleMouseMove);
+            container.removeEventListener("wheel", handleWheel);
+            container.removeEventListener("touchmove", handleTouchMove);
+          }
+        };
 
         setLoading(false);
       };
@@ -440,7 +490,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         }
       };
        
-    }, [loaded, interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction, isDark]);
+    }, [loaded, interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction, source, isDark]);
 
     function handleCapture() {
       if (!chartRef.current) return;
@@ -542,8 +592,72 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         )}
 
         {/* Chart canvas area */}
-        <div className="relative" style={{ height: 380 }}>
+        <div className="relative overflow-hidden" style={{ height: 380 }}>
           <div ref={containerRef} className="w-full h-full" />
+
+          {/* Risk / Reward box overlay — TradingView Position-tool style */}
+          {riskBox && (
+            <div
+              className="absolute pointer-events-none whitespace-nowrap"
+              style={{
+                left: riskBox.left,
+                width: riskBox.width,
+                top: riskBox.top,
+                height: riskBox.height,
+                zIndex: 5,
+                background: "rgba(239, 68, 68, 0.12)",
+                borderTop: "1px dashed rgba(255, 255, 255, 0.15)",
+                borderBottom: "1px dashed rgba(255, 255, 255, 0.15)",
+                boxSizing: "border-box",
+              }}
+            >
+              <span
+                className="absolute left-1 text-[9px] font-semibold"
+                style={{ bottom: -16, color: "rgba(248, 113, 113, 0.9)" }}
+              >
+                Risk
+              </span>
+            </div>
+          )}
+          {rewardBox && (
+            <div
+              className="absolute pointer-events-none whitespace-nowrap"
+              style={{
+                left: rewardBox.left,
+                width: rewardBox.width,
+                top: rewardBox.top,
+                height: rewardBox.height,
+                zIndex: 5,
+                background: "rgba(255, 255, 255, 0.06)",
+                borderTop: "1px dashed rgba(255, 255, 255, 0.15)",
+                borderBottom: "1px dashed rgba(255, 255, 255, 0.15)",
+                boxSizing: "border-box",
+              }}
+            >
+              <span
+                className="absolute left-1 text-[9px] font-semibold"
+                style={{ top: -16, color: "rgba(255, 255, 255, 0.6)" }}
+              >
+                Reward
+              </span>
+            </div>
+          )}
+          {rrLabel && (
+            <div
+              className="absolute pointer-events-none px-1.5 py-0.5 rounded whitespace-nowrap"
+              style={{
+                left: rrLabel.left,
+                top: rrLabel.top,
+                zIndex: 6,
+                background: "rgba(0, 0, 0, 0.65)",
+                color: "rgba(255, 255, 255, 0.85)",
+                fontSize: 10,
+                fontWeight: 700,
+              }}
+            >
+              {rrLabel.text}
+            </div>
+          )}
 
           {/* Lazy-load gate — shown before user clicks Load Chart */}
           {!loaded && (
@@ -625,10 +739,10 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
               <LegendItem color="#f59e0b" label={`Exit $${exitPrice}`} />
             )}
             {stopLoss != null && stopLoss > 0 && (
-              <LegendItem color="#ef4444" dashed label={`SL $${stopLoss}`} />
+              <LegendItem color="#ef4444" swatch label={`Risk (SL $${stopLoss})`} />
             )}
             {takeProfit != null && takeProfit > 0 && (
-              <LegendItem color="#22c55e" dashed label={`TP $${takeProfit}`} />
+              <LegendItem color="#22c55e" swatch label={`Reward (TP $${takeProfit})`} />
             )}
           </div>
         )}
@@ -643,11 +757,24 @@ function LegendItem({
   color,
   label,
   dashed,
+  swatch,
 }: {
   color: string;
   label: string;
   dashed?: boolean;
+  swatch?: boolean;
 }) {
+  if (swatch) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <div
+          className="h-2.5 w-2.5 rounded-sm border"
+          style={{ background: `${color}30`, borderColor: `${color}90` }}
+        />
+        <span className="text-[10px] text-muted-foreground">{label}</span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-1.5">
       <div

@@ -194,7 +194,7 @@ export function JournalDetail({
   const displayEntryTime = agg ? agg.entryTime : trade.entryTime;
 
   // Chart visibility state
-  const [showChart, setShowChart] = useState(false);
+  const [showChart, setShowChart] = useState(true);
   const [mergeOpen, setMergeOpen] = useState(false);
 
   // Analytics AI modal states
@@ -372,7 +372,7 @@ export function JournalDetail({
     setEditLots(String(trade.lots));
     setEditTimeframe(trade.timeframe ?? "");
     setLightboxIndex(null);
-    setShowChart(false);
+    setShowChart(true);
     setRefining(false);
     setRefineFields([]);
     setRefineSuggestions({});
@@ -1975,6 +1975,7 @@ Please analyze this data and generate a detailed report:
               stopLoss={trade.stopLoss}
               takeProfit={trade.takeProfit}
               direction={trade.direction}
+              source={trade.source}
               defaultInterval={trade.timeframe}
               onSaveInterval={handleSaveTimeframe}
               onScreenshot={handleChartScreenshot}

@@ -30,8 +30,11 @@ export function StatsCards({
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-3">
       {/* Total P&L */}
       <div className="rounded-xl md:rounded-2xl border border-white/[0.10] bg-gradient-to-br from-white/[0.04] to-white/[0.02] p-3 md:p-4 relative overflow-hidden">
-        <div className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full bg-white/[0.08] flex items-center justify-center">
-          <DollarSign className="h-3.5 w-3.5 md:h-4 md:w-4 text-white/65" />
+        <div
+          className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: "color-mix(in srgb, var(--dash-total, #fff) 18%, transparent)" }}
+        >
+          <DollarSign className="h-3.5 w-3.5 md:h-4 md:w-4" style={{ color: "var(--dash-total, rgba(255,255,255,0.65))" }} />
         </div>
         <span className="inline-block text-[9px] md:text-[10px] font-semibold uppercase tracking-widest text-white/40 bg-white/[0.06] px-1.5 py-0.5 rounded-full border border-white/[0.10]">
           TOTAL
@@ -47,8 +50,11 @@ export function StatsCards({
 
       {/* Unrealized */}
       <div className="rounded-xl md:rounded-2xl border border-border bg-card p-3 md:p-4 relative overflow-hidden">
-        <div className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full bg-amber-600/15 flex items-center justify-center">
-          <Clock className="h-3.5 w-3.5 md:h-4 md:w-4 text-amber-400" />
+        <div
+          className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: "color-mix(in srgb, var(--dash-pending, #f59e0b) 15%, transparent)" }}
+        >
+          <Clock className="h-3.5 w-3.5 md:h-4 md:w-4" style={{ color: "var(--dash-pending, #fbbf24)" }} />
         </div>
         <p className="text-[10px] md:text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Unrealized</p>
         <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${unrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
@@ -59,8 +65,11 @@ export function StatsCards({
 
       {/* Realized */}
       <div className="rounded-xl md:rounded-2xl border border-border bg-card p-3 md:p-4 relative overflow-hidden">
-        <div className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full bg-emerald-600/15 flex items-center justify-center">
-          <CheckCircle2 className="h-3.5 w-3.5 md:h-4 md:w-4 text-emerald-400" />
+        <div
+          className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: "color-mix(in srgb, var(--dash-done, #10b981) 15%, transparent)" }}
+        >
+          <CheckCircle2 className="h-3.5 w-3.5 md:h-4 md:w-4" style={{ color: "var(--dash-done, #34d399)" }} />
         </div>
         <p className="text-[10px] md:text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Realized</p>
         <p className={`text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight ${realized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
@@ -71,15 +80,18 @@ export function StatsCards({
 
       {/* Win Rate */}
       <div className="rounded-xl md:rounded-2xl border border-border bg-card p-3 md:p-4 relative overflow-hidden">
-        <div className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full bg-white/[0.06] flex items-center justify-center">
-          <Target className="h-3.5 w-3.5 md:h-4 md:w-4 text-white/55" />
+        <div
+          className="absolute top-2.5 right-2.5 h-7 w-7 md:h-9 md:w-9 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: "color-mix(in srgb, var(--dash-metric, #fff) 15%, transparent)" }}
+        >
+          <Target className="h-3.5 w-3.5 md:h-4 md:w-4" style={{ color: "var(--dash-metric, rgba(255,255,255,0.55))" }} />
         </div>
         <p className="text-[10px] md:text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Win Rate</p>
         <p className="text-[16px] md:text-[22px] font-bold mt-0.5 leading-tight text-card-foreground">{winRate}%</p>
         <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
           <div
-            className="h-full rounded-full bg-white/[0.08] transition-all duration-700"
-            style={{ width: `${winRate}%` }}
+            className="h-full rounded-full transition-all duration-700"
+            style={{ width: `${winRate}%`, backgroundColor: "var(--dash-metric, rgba(255,255,255,0.08))" }}
           />
         </div>
       </div>
