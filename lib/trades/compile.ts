@@ -2,6 +2,8 @@ export interface CompilableTrade {
   _id: string;
   lots: number;
   profit: number;
+  swap?: number;
+  commission?: number;
   entryPrice: number;
   exitPrice?: number;
   entryTime: string | Date;
@@ -27,12 +29,14 @@ export function compileTrades<T extends CompilableTrade>(rawTrades: T[]): T[] {
     if (children.length === 0) return parent;
 
     const group = [parent, ...children];
-    let totalLots = 0, totalProfit = 0, weightedEntrySum = 0, weightedExitSum = 0, exitLots = 0;
+    let totalLots = 0, totalProfit = 0, totalSwap = 0, totalCommission = 0, weightedEntrySum = 0, weightedExitSum = 0, exitLots = 0;
     let earliestEntry = parent.entryTime, latestExit = parent.exitTime;
 
     for (const t of group) {
       totalLots += t.lots;
       totalProfit += t.profit;
+      totalSwap += t.swap || 0;
+      totalCommission += t.commission || 0;
       weightedEntrySum += t.entryPrice * t.lots;
       if (t.exitPrice) { weightedExitSum += t.exitPrice * t.lots; exitLots += t.lots; }
       if (new Date(t.entryTime) < new Date(earliestEntry)) earliestEntry = t.entryTime;
@@ -43,6 +47,8 @@ export function compileTrades<T extends CompilableTrade>(rawTrades: T[]): T[] {
       ...parent,
       lots: Number(totalLots.toFixed(2)),
       profit: Number(totalProfit.toFixed(2)),
+      swap: Number(totalSwap.toFixed(2)),
+      commission: Number(totalCommission.toFixed(2)),
       entryPrice: Number((weightedEntrySum / totalLots).toFixed(5)),
       exitPrice: exitLots > 0 ? Number((weightedExitSum / exitLots).toFixed(5)) : parent.exitPrice,
       entryTime: earliestEntry,
