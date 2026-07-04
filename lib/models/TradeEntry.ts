@@ -94,15 +94,7 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
     journaled: { type: Boolean, default: false },
     executionChecklist: {
       type: [ChecklistItemSchema],
-      default: [
-        { item: "A+ level", checked: false },
-        { item: "Other Levels", checked: false },
-        { item: "Confirmation", checked: false },
-        { item: "RiskFree", checked: false },
-        { item: "Risk Management", checked: false },
-        { item: "News", checked: false },
-        { item: "Multi timeframe analysis", checked: false },
-      ],
+      default: [],
     },
     screenshots: { type: [String], default: [] },
     preTradeAnalysis: { type: String, default: "" },

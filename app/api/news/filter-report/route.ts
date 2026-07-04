@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
-import { NewsSentimentReportModel } from "@/lib/models/NewsSentimentReport";
+import { NewsFilterReportModel } from "@/lib/models/NewsFilterReport";
 import { ALLOWED_HOURS, gatherNewsWindow, runSentimentAnalysis, SentimentAnalysisError } from "@/lib/news/sentiment-analysis";
 
 export const runtime = "nodejs";
@@ -25,6 +25,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No news found in this time window across any source" }, { status: 400 });
   }
 
+  // Reuses the exact same AI pass as the sentiment-report feature: it already
+  // identifies which items are genuinely relevant ("analyzed_news" = kept) and
+  // tags sentiment per affected instrument. Anything in the raw window that
+  // doesn't come back in analyzed_news is the "filtered out" (removed) set.
   let analysisData: unknown;
   try {
     analysisData = await runSentimentAnalysis(window, apiKey);
@@ -35,12 +39,23 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
+  const linkByHeadline = new Map(window.deduped.map((i) => [i.headline, i.link]));
+  const analyzedNews = (Array.isArray((analysisData as { analyzed_news?: unknown })?.analyzed_news)
+    ? (analysisData as { analyzed_news: { headline: string }[] }).analyzed_news
+    : []
+  ).map((item) => ({ ...item, link: linkByHeadline.get(item.headline) ?? "" }));
+
+  // Re-attach the (possibly AI-enriched) analyzed_news back onto analysisData
+  // so the stored/returned data carries links consistently in both arrays.
+  (analysisData as { analyzed_news: unknown }).analyzed_news = analyzedNews;
+
   await dbConnect();
-  const doc = await NewsSentimentReportModel.create({
+  const doc = await NewsFilterReportModel.create({
     hours,
     timeRangeLabel: window.label,
-    newsAnalyzedCount: window.deduped.length,
-    data: analysisData,
+    allNewsCount: window.deduped.length,
+    keptNewsCount: analyzedNews.length,
+    data: { allNews: window.deduped, ...(analysisData as object) },
     generatedBy: session.user.email ?? session.user.id,
     generatedByName: session.user.name ?? "",
     generatedAt: new Date(),
@@ -50,11 +65,12 @@ export async function POST(req: NextRequest) {
     _id: String(doc._id),
     hours,
     timeRangeLabel: window.label,
-    newsAnalyzedCount: window.deduped.length,
+    allNewsCount: window.deduped.length,
+    keptNewsCount: analyzedNews.length,
     generatedBy: doc.generatedBy,
     generatedByName: doc.generatedByName,
     generatedAt: doc.generatedAt,
-    data: analysisData,
+    data: { allNews: window.deduped, ...(analysisData as object) },
   }, { status: 201 });
 }
 
@@ -63,8 +79,7 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   await dbConnect();
-  // Visible to ALL users — no userId filter — each report is tagged with who generated it.
-  const reports = await NewsSentimentReportModel.find({})
+  const reports = await NewsFilterReportModel.find({})
     .select("-data")
     .sort({ generatedAt: -1 })
     .limit(100)

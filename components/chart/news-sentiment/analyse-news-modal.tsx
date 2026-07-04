@@ -21,12 +21,20 @@ export function AnalyseNewsModal({
   generating,
   error,
   progressLabel,
+  title = "Analyse News",
+  subtitle = "Choose how far back to pull strictly ALL news — every source, real candle data, sentiment per instrument",
+  generatingLabel = "Fetching every source + real-time candles, then scoring sentiment per instrument…",
+  actionLabel = "Analyse Now",
 }: {
   onClose: () => void;
   onGenerate: (hours: number) => void;
   generating: boolean;
   error: string | null;
   progressLabel?: string;
+  title?: string;
+  subtitle?: string;
+  generatingLabel?: string;
+  actionLabel?: string;
 }) {
   const [selected, setSelected] = useState(12);
 
@@ -46,9 +54,9 @@ export function AnalyseNewsModal({
             <Sparkles className="h-4 w-4 text-white/70" />
           </div>
           <div className="flex-1">
-            <h3 className="text-[15px] font-semibold text-white">Analyse News</h3>
+            <h3 className="text-[15px] font-semibold text-white">{title}</h3>
             <p className="text-[11px] text-white/40 mt-0.5">
-              {generating ? (progressLabel ?? "Gathering & analyzing…") : "Choose how far back to pull strictly ALL news — every source, real candle data, sentiment per instrument"}
+              {generating ? (progressLabel ?? "Gathering & analyzing…") : subtitle}
             </p>
           </div>
           <button onClick={onClose} disabled={generating} className="text-white/35 hover:text-white/70 transition disabled:opacity-40">
@@ -63,7 +71,7 @@ export function AnalyseNewsModal({
               <span className="h-1.5 w-1.5 rounded-full bg-white/60 animate-bounce [animation-delay:-0.15s]" />
               <span className="h-1.5 w-1.5 rounded-full bg-white/60 animate-bounce" />
             </div>
-            <span className="text-[11px] text-white/50 font-medium">Fetching every source + real-time candles, then scoring sentiment per instrument…</span>
+            <span className="text-[11px] text-white/50 font-medium">{generatingLabel}</span>
           </div>
         )}
 
@@ -118,7 +126,7 @@ export function AnalyseNewsModal({
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-[13px] font-semibold text-white transition disabled:opacity-50"
           >
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {generating ? "Analyzing…" : "Analyse Now"}
+            {generating ? "Analyzing…" : actionLabel}
           </button>
         </div>
       </div>

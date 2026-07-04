@@ -35,6 +35,15 @@ interface ChecklistItem {
   checked: boolean;
 }
 
+const availablePredefined = [
+  { id: "levels", label: "Levels" },
+  { id: "confirmation", label: "Confirmation" },
+  { id: "riskFree", label: "Risk Free" },
+  { id: "riskManagement", label: "Risk Management" },
+  { id: "news", label: "News" },
+  { id: "multiTimeframe", label: "Multi Timeframe Analysis" }
+];
+
 export interface JournalDetailTrade {
   _id: string;
   symbol: string;
@@ -70,6 +79,8 @@ interface JournalDetailProps {
   trade: JournalDetailTrade;
   onSaved: (updated: JournalDetailTrade) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  allTrades?: JournalDetailTrade[];
+  isAggregatedView?: boolean;
 }
 
 const TF_OPTIONS = ["1m", "5m", "15m", "30m", "1H", "4H"];
@@ -105,8 +116,82 @@ const REFINE_FIELD_LABELS: Record<RefineField, string> = {
   emotions: "emotions",
 };
 
-export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailProps) {
+export function JournalDetail({
+  trade,
+  onSaved,
+  onDirtyChange,
+  allTrades,
+  isAggregatedView = false
+}: JournalDetailProps) {
   const { sharedTrades, preferences } = useAppContext();
+
+  const agg = useMemo(() => {
+    if (!isAggregatedView || !allTrades) return null;
+    
+    const childTrades = allTrades.filter(t => t.parentTradeId === trade._id || t._id === trade._id);
+    
+    let totalLots = 0;
+    let totalProfit = 0;
+    let weightedEntrySum = 0;
+    let weightedExitSum = 0;
+    let exitLots = 0;
+    let earliestEntryTime = trade.entryTime;
+    let latestExitTime = trade.exitTime;
+    let weightedSLSum = 0;
+    let slLots = 0;
+    let weightedTPSum = 0;
+    let tpLots = 0;
+  
+    childTrades.forEach(t => {
+      totalLots += t.lots;
+      totalProfit += t.profit;
+      weightedEntrySum += t.entryPrice * t.lots;
+      if (t.exitPrice) {
+        weightedExitSum += t.exitPrice * t.lots;
+        exitLots += t.lots;
+      }
+      if (t.stopLoss) {
+        weightedSLSum += t.stopLoss * t.lots;
+        slLots += t.lots;
+      }
+      if (t.takeProfit) {
+        weightedTPSum += t.takeProfit * t.lots;
+        tpLots += t.lots;
+      }
+      if (new Date(t.entryTime) < new Date(earliestEntryTime)) {
+        earliestEntryTime = t.entryTime;
+      }
+      if (t.exitTime) {
+        if (!latestExitTime || new Date(t.exitTime) > new Date(latestExitTime)) {
+          latestExitTime = t.exitTime;
+        }
+      }
+    });
+  
+    const avgEntryPrice = totalLots > 0 ? weightedEntrySum / totalLots : trade.entryPrice;
+    const avgExitPrice = exitLots > 0 ? weightedExitSum / exitLots : trade.exitPrice;
+    const avgSL = slLots > 0 ? weightedSLSum / slLots : trade.stopLoss;
+    const avgTP = tpLots > 0 ? weightedTPSum / tpLots : trade.takeProfit;
+  
+    return {
+      lots: totalLots,
+      profit: totalProfit,
+      entryPrice: Number(avgEntryPrice.toFixed(5)),
+      exitPrice: avgExitPrice ? Number(avgExitPrice.toFixed(5)) : undefined,
+      stopLoss: avgSL ? Number(avgSL.toFixed(5)) : undefined,
+      takeProfit: avgTP ? Number(avgTP.toFixed(5)) : undefined,
+      entryTime: earliestEntryTime,
+      exitTime: latestExitTime,
+    };
+  }, [isAggregatedView, allTrades, trade]);
+
+  const displayLots = agg ? agg.lots : trade.lots;
+  const displayProfit = agg ? agg.profit : trade.profit;
+  const displayEntryPrice = agg ? agg.entryPrice : trade.entryPrice;
+  const displayExitPrice = agg ? agg.exitPrice : trade.exitPrice;
+  const displaySL = agg ? agg.stopLoss : trade.stopLoss;
+  const displayTP = agg ? agg.takeProfit : trade.takeProfit;
+  const displayEntryTime = agg ? agg.entryTime : trade.entryTime;
 
   // Chart visibility state
   const [showChart, setShowChart] = useState(false);
@@ -127,6 +212,9 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
   const [riskManagement, setRiskManagement] = useState(false);
   const [news, setNews] = useState(false);
   const [multiTimeframe, setMultiTimeframe] = useState(false);
+  const [activeItems, setActiveItems] = useState<string[]>([]);
+  const [customChecked, setCustomChecked] = useState<Record<string, boolean>>({});
+  const [newOptionInput, setNewOptionInput] = useState("");
   const [screenshots, setScreenshots] = useState<string[]>(trade.screenshots ?? []);
   const [preTradeAnalysis, setPreTradeAnalysis] = useState(trade.preTradeAnalysis ?? "");
   const [postTradeReview, setPostTradeReview] = useState(trade.postTradeReview ?? "");
@@ -176,32 +264,93 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
   }, [onDirtyChange]);
 
   // Reset all state when trade switches
+  // Reset all state when trade switches
   useEffect(() => {
     const rawChecklist = trade.executionChecklist ?? [];
+    const active: string[] = [];
+    const customCheckedMap: Record<string, boolean> = {};
+
+    // 1. Check Levels
+    const hasLevels = rawChecklist.some(c => c.item === "Levels" || c.item === "Other Levels" || c.item === "A+ level");
+    if (hasLevels) {
+      active.push("levels");
+    }
+
+    // 2. Check Confirmation
+    const hasConf = rawChecklist.some(c => c.item === "Confirmation" || c.item === "confirnation");
+    if (hasConf) {
+      active.push("confirmation");
+    }
+
+    // 3. Check RiskFree
+    const hasRiskFree = rawChecklist.some(c => c.item === "RiskFree" || c.item === "Risk Free");
+    if (hasRiskFree) {
+      active.push("riskFree");
+    }
+
+    // 4. Check Risk Management
+    const hasRiskMgmt = rawChecklist.some(c => c.item === "Risk Management" || c.item === "RIsk Management");
+    if (hasRiskMgmt) {
+      active.push("riskManagement");
+    }
+
+    // 5. Check News
+    const hasNews = rawChecklist.some(c => c.item === "News");
+    if (hasNews) {
+      active.push("news");
+    }
+
+    // 6. Check Multi timeframe
+    const hasMultiTF = rawChecklist.some(c => c.item === "Multi timeframe analysis" || c.item === "multi timeframe analysis");
+    if (hasMultiTF) {
+      active.push("multiTimeframe");
+    }
+
+    // 7. Check Custom items
+    const standardKeys = [
+      "A+ level", "Other Levels", "Levels", "Confirmation", "confirnation",
+      "RiskFree", "Risk Free", "Risk Management", "RIsk Management", "News",
+      "Multi timeframe analysis", "multi timeframe analysis"
+    ];
+    rawChecklist.forEach(c => {
+      if (standardKeys.includes(c.item)) return;
+      if (c.item.startsWith("Level: ") || c.item.startsWith("Other Level: ")) return;
+      if (c.item.startsWith("Confirmation: ")) return;
+
+      active.push(c.item);
+      customCheckedMap[c.item] = c.checked;
+    });
+
+    setActiveItems(active);
+    setCustomChecked(customCheckedMap);
+
     const hasAPlus = rawChecklist.find(c => c.item === "A+ level")?.checked ?? false;
-    const hasOther = rawChecklist.find(c => c.item === "Other Levels")?.checked ?? false;
-    const otherValItem = rawChecklist.find(c => c.item.startsWith("Other Level: ") && c.checked);
-    const otherVal = otherValItem ? otherValItem.item.replace("Other Level: ", "") : "";
+    const hasOther = rawChecklist.find(c => c.item === "Levels" || c.item === "Other Levels" || c.item === "A+ level")?.checked ?? false;
+    const otherValItem = rawChecklist.find(c => (c.item.startsWith("Level: ") || c.item.startsWith("Other Level: ")) && c.checked);
+    let otherVal = otherValItem ? otherValItem.item.replace("Level: ", "").replace("Other Level: ", "") : "";
+    if (hasAPlus && !otherVal) {
+      otherVal = "A+";
+    }
     
-    const hasConf = rawChecklist.find(c => c.item === "Confirmation" || c.item === "confirnation")?.checked ?? false;
+    const hasConfVal = rawChecklist.find(c => c.item === "Confirmation" || c.item === "confirnation")?.checked ?? false;
     const confVals = rawChecklist
       .filter(c => c.item.startsWith("Confirmation: ") && c.checked)
       .map(c => c.item.replace("Confirmation: ", ""));
       
-    const hasRiskFree = rawChecklist.find(c => c.item === "RiskFree" || c.item === "Risk Free")?.checked ?? false;
-    const hasRiskMgmt = rawChecklist.find(c => c.item === "Risk Management" || c.item === "RIsk Management")?.checked ?? false;
-    const hasNews = rawChecklist.find(c => c.item === "News")?.checked ?? false;
-    const hasMultiTF = rawChecklist.find(c => c.item === "Multi timeframe analysis" || c.item === "multi timeframe analysis")?.checked ?? false;
+    const hasRiskFreeVal = rawChecklist.find(c => c.item === "RiskFree" || c.item === "Risk Free")?.checked ?? false;
+    const hasRiskMgmtVal = rawChecklist.find(c => c.item === "Risk Management" || c.item === "RIsk Management")?.checked ?? false;
+    const hasNewsVal = rawChecklist.find(c => c.item === "News")?.checked ?? false;
+    const hasMultiTFVal = rawChecklist.find(c => c.item === "Multi timeframe analysis" || c.item === "multi timeframe analysis")?.checked ?? false;
 
     setAPlusLevel(hasAPlus);
     setOtherLevels(hasOther);
     setOtherLevelsValue(otherVal);
-    setConfirmation(hasConf);
+    setConfirmation(hasConfVal);
     setConfirmationValues(confVals);
-    setRiskFree(hasRiskFree);
-    setRiskManagement(hasRiskMgmt);
-    setNews(hasNews);
-    setMultiTimeframe(hasMultiTF);
+    setRiskFree(hasRiskFreeVal);
+    setRiskManagement(hasRiskMgmtVal);
+    setNews(hasNewsVal);
+    setMultiTimeframe(hasMultiTFVal);
     
     setScreenshots(trade.screenshots ?? []);
     setPreTradeAnalysis(trade.preTradeAnalysis ?? "");
@@ -383,17 +532,65 @@ export function JournalDetail({ trade, onSaved, onDirtyChange }: JournalDetailPr
     markDirty();
   };
 
-  const checkedCount = [
-    aPlusLevel,
-    otherLevels,
-    confirmation,
-    riskFree,
-    riskManagement,
-    news,
-    multiTimeframe
-  ].filter(Boolean).length;
+  const addActiveItem = (id: string) => {
+    setActiveItems(prev => [...prev, id]);
+    markDirty();
+  };
 
-  const totalChecklistItemsCount = 7;
+  const removeActiveItem = (id: string) => {
+    setActiveItems(prev => prev.filter(x => x !== id));
+    // Reset checked states when removed
+    if (id === "levels") {
+      setOtherLevels(false);
+      setOtherLevelsValue("");
+    } else if (id === "confirmation") {
+      setConfirmation(false);
+      setConfirmationValues([]);
+    } else if (id === "riskFree") {
+      setRiskFree(false);
+    } else if (id === "riskManagement") {
+      setRiskManagement(false);
+    } else if (id === "news") {
+      setNews(false);
+    } else if (id === "multiTimeframe") {
+      setMultiTimeframe(false);
+    } else {
+      setCustomChecked(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+    markDirty();
+  };
+
+  const handleAddCustomActiveItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    const label = newOptionInput.trim();
+    if (!label) return;
+
+    if (activeItems.includes(label)) {
+      setNewOptionInput("");
+      return;
+    }
+
+    setActiveItems(prev => [...prev, label]);
+    setCustomChecked(prev => ({ ...prev, [label]: false }));
+    setNewOptionInput("");
+    markDirty();
+  };
+
+  const checkedCount = activeItems.filter(itemId => {
+    if (itemId === "levels") return otherLevels && !!otherLevelsValue;
+    if (itemId === "confirmation") return confirmation && confirmationValues.length > 0;
+    if (itemId === "riskFree") return riskFree;
+    if (itemId === "riskManagement") return riskManagement;
+    if (itemId === "news") return news;
+    if (itemId === "multiTimeframe") return multiTimeframe;
+    return !!customChecked[itemId];
+  }).length;
+
+  const totalChecklistItemsCount = activeItems.length;
 
   const sortedCandidates = useMemo(() => {
     const journalPrefs = preferences.journalSortFilter ?? {
@@ -629,17 +826,56 @@ Please analyze this data and generate a detailed report:
 
   async function handleSave() {
     setSaving(true);
-    const compiledChecklist: ChecklistItem[] = [
-      { item: "A+ level", checked: aPlusLevel },
-      { item: "Other Levels", checked: otherLevels },
-      ...(otherLevels && otherLevelsValue ? [{ item: `Other Level: ${otherLevelsValue}`, checked: true }] : []),
-      { item: "Confirmation", checked: confirmation },
-      ...(confirmation ? confirmationValues.map(v => ({ item: `Confirmation: ${v}`, checked: true })) : []),
-      { item: "RiskFree", checked: riskFree },
-      { item: "Risk Management", checked: riskManagement },
-      { item: "News", checked: news },
-      { item: "Multi timeframe analysis", checked: multiTimeframe }
-    ];
+    const compiledChecklist: ChecklistItem[] = [];
+
+    // Levels
+    if (activeItems.includes("levels")) {
+      compiledChecklist.push({ item: "Levels", checked: otherLevels });
+      compiledChecklist.push({ item: "Other Levels", checked: otherLevels });
+      if (otherLevels && otherLevelsValue) {
+        compiledChecklist.push({ item: `Level: ${otherLevelsValue}`, checked: true });
+        compiledChecklist.push({ item: `Other Level: ${otherLevelsValue}`, checked: true });
+      }
+      compiledChecklist.push({ item: "A+ level", checked: otherLevels && otherLevelsValue === "A+" });
+    }
+
+    // Confirmation
+    if (activeItems.includes("confirmation")) {
+      compiledChecklist.push({ item: "Confirmation", checked: confirmation });
+      if (confirmation) {
+        confirmationValues.forEach(v => {
+          compiledChecklist.push({ item: `Confirmation: ${v}`, checked: true });
+        });
+      }
+    }
+
+    // Risk Free
+    if (activeItems.includes("riskFree")) {
+      compiledChecklist.push({ item: "RiskFree", checked: riskFree });
+    }
+
+    // Risk Management
+    if (activeItems.includes("riskManagement")) {
+      compiledChecklist.push({ item: "Risk Management", checked: riskManagement });
+    }
+
+    // News
+    if (activeItems.includes("news")) {
+      compiledChecklist.push({ item: "News", checked: news });
+    }
+
+    // Multi Timeframe Analysis
+    if (activeItems.includes("multiTimeframe")) {
+      compiledChecklist.push({ item: "Multi timeframe analysis", checked: multiTimeframe });
+    }
+
+    // Custom Options
+    const predefinedIds = ["levels", "confirmation", "riskFree", "riskManagement", "news", "multiTimeframe"];
+    activeItems.forEach(item => {
+      if (!predefinedIds.includes(item)) {
+        compiledChecklist.push({ item, checked: !!customChecked[item] });
+      }
+    });
 
     try {
       const res = await fetch(`/api/trade/${trade._id}`, {
@@ -719,7 +955,7 @@ Please analyze this data and generate a detailed report:
     }
   }
 
-  const isWinner = trade.profit > 0;
+  const isWinner = displayProfit > 0;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -796,6 +1032,11 @@ Please analyze this data and generate a detailed report:
                   OPEN
                 </span>
               )}
+              {isAggregatedView && (
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  COMPILED
+                </span>
+              )}
               {isDirty && (
                 <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-amber-500/12 text-amber-400 border border-amber-500/20 animate-pulse">
                   Unsaved
@@ -807,15 +1048,15 @@ Please analyze this data and generate a detailed report:
                 {trade.direction === "buy" ? "Long" : "Short"}
               </span>
               <span className="text-white/15">·</span>
-              <span>Entry <span className="text-white/55">${trade.entryPrice}</span></span>
+              <span>Entry <span className="text-white/55">${displayEntryPrice}</span></span>
               <span className="text-white/15">·</span>
-              {trade.profit !== 0 && (
-                <span className={cn("font-semibold", trade.profit >= 0 ? "text-emerald-400" : "text-red-400")}>
-                  {trade.profit >= 0 ? "+" : ""}${Math.abs(trade.profit).toFixed(2)}
+              {displayProfit !== 0 && (
+                <span className={cn("font-semibold", displayProfit >= 0 ? "text-emerald-400" : "text-red-400")}>
+                  {displayProfit >= 0 ? "+" : ""}${Math.abs(displayProfit).toFixed(2)}
                 </span>
               )}
               <span className="hidden sm:inline text-white/15">·</span>
-              <span className="hidden sm:inline">{format(parseISO(trade.entryTime), "MMM d, yyyy HH:mm")}</span>
+              <span className="hidden sm:inline">{format(parseISO(displayEntryTime), "MMM d, yyyy HH:mm")}</span>
             </div>
           </div>
         </div>
@@ -1051,15 +1292,20 @@ Please analyze this data and generate a detailed report:
                     )}>
                       {trade.direction === "buy" ? "LONG" : "SHORT"}
                     </span>
+                    {isAggregatedView && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                        COMPILED
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[11px] text-white/30 mt-0.5">{format(parseISO(trade.entryTime), "MMM d, yyyy · HH:mm")}</p>
+                  <p className="text-[11px] text-white/30 mt-0.5">{format(parseISO(displayEntryTime), "MMM d, yyyy · HH:mm")}</p>
                 </div>
               </div>
               <div className={cn(
                 "text-right",
               )}>
                 <p className={cn("text-[24px] font-black tabular-nums", isWinner ? "text-emerald-400" : "text-red-400")}>
-                  {trade.profit >= 0 ? "+" : ""}${Math.abs(trade.profit).toFixed(2)}
+                  {displayProfit >= 0 ? "+" : ""}${Math.abs(displayProfit).toFixed(2)}
                 </p>
                 <p className="text-[11px] text-white/30">Realized P&L</p>
               </div>
@@ -1067,22 +1313,22 @@ Please analyze this data and generate a detailed report:
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 divide-x divide-white/5 border-t border-white/5">
               <div className="px-4 py-2.5">
                 <p className="text-[9px] text-white/30 uppercase tracking-wider font-semibold">Entry</p>
-                <p className="text-[13px] font-semibold text-white/80 mt-0.5">${trade.entryPrice}</p>
+                <p className="text-[13px] font-semibold text-white/80 mt-0.5">${displayEntryPrice}</p>
               </div>
               <div className="px-4 py-2.5">
                 <p className="text-[9px] text-white/30 uppercase tracking-wider font-semibold">Exit</p>
-                <p className="text-[13px] font-semibold text-white/80 mt-0.5">${trade.exitPrice}</p>
+                <p className="text-[13px] font-semibold text-white/80 mt-0.5">${displayExitPrice !== undefined ? displayExitPrice : "N/A"}</p>
               </div>
-              {trade.stopLoss && (
+              {displaySL !== undefined && (
                 <div className="px-4 py-2.5">
                   <p className="text-[9px] text-red-400/50 uppercase tracking-wider font-semibold">Stop Loss</p>
-                  <p className="text-[13px] font-semibold text-red-400/70 mt-0.5">${trade.stopLoss}</p>
+                  <p className="text-[13px] font-semibold text-red-400/70 mt-0.5">${displaySL}</p>
                 </div>
               )}
-              {trade.takeProfit && (
+              {displayTP !== undefined && (
                 <div className="px-4 py-2.5">
                   <p className="text-[9px] text-emerald-400/50 uppercase tracking-wider font-semibold">Take Profit</p>
-                  <p className="text-[13px] font-semibold text-emerald-400/70 mt-0.5">${trade.takeProfit}</p>
+                  <p className="text-[13px] font-semibold text-emerald-400/70 mt-0.5">${displayTP}</p>
                 </div>
               )}
             </div>
@@ -1093,228 +1339,256 @@ Please analyze this data and generate a detailed report:
         {/* Execution Checklist */}
         <div className={cn(
           "rounded-xl border overflow-hidden transition-all",
-          checkedCount === totalChecklistItemsCount ? "border-emerald-500/20 bg-emerald-500/[0.03]" : "border-white/7"
+          checkedCount === totalChecklistItemsCount && totalChecklistItemsCount > 0 ? "border-emerald-500/20 bg-emerald-500/[0.03]" : "border-white/7"
         )}>
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/7">
             <div className="flex items-center gap-2">
-              <CheckSquare className={cn("h-4 w-4", checkedCount === totalChecklistItemsCount ? "text-emerald-400" : "text-white/55")} />
+              <CheckSquare className={cn("h-4 w-4", checkedCount === totalChecklistItemsCount && totalChecklistItemsCount > 0 ? "text-emerald-400" : "text-white/55")} />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Execution Checklist</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5">
                 <div className="h-1.5 w-20 rounded-full bg-white/8 overflow-hidden">
                   <div
-                    className={cn("h-full rounded-full transition-all duration-500", checkedCount === totalChecklistItemsCount ? "bg-emerald-500" : "bg-white/40")}
-                    style={{ width: `${(checkedCount / totalChecklistItemsCount) * 100}%` }}
+                    className={cn("h-full rounded-full transition-all duration-500", checkedCount === totalChecklistItemsCount && totalChecklistItemsCount > 0 ? "bg-emerald-500" : "bg-white/40")}
+                    style={{ width: `${totalChecklistItemsCount > 0 ? (checkedCount / totalChecklistItemsCount) * 100 : 0}%` }}
                   />
                 </div>
-                <span className={cn("text-[11px] font-semibold tabular-nums", checkedCount === totalChecklistItemsCount ? "text-emerald-400" : "text-white/35")}>
+                <span className={cn("text-[11px] font-semibold tabular-nums", checkedCount === totalChecklistItemsCount && totalChecklistItemsCount > 0 ? "text-emerald-400" : "text-white/35")}>
                   {checkedCount}/{totalChecklistItemsCount}
                 </span>
               </div>
             </div>
           </div>
           <div className="p-4 space-y-4">
-            {/* Main Predefined Checklist Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {/* 1. A+ Level */}
-              <div
-                className={cn(
-                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
-                  aPlusLevel ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
-                )}
-                onClick={toggleAPlus}
-              >
-                <div className={cn(
-                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                  aPlusLevel ? "bg-white/[0.09] border-white/30" : "border-white/20"
-                )}>
-                  {aPlusLevel && (
-                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
-                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-                <span className="text-[11px] text-white/60 flex-1">A+ Level</span>
+            {activeItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-6 text-center border border-dashed border-white/10 rounded-xl bg-white/[0.01]">
+                <CheckSquare className="h-8 w-8 text-white/15 mb-2" />
+                <p className="text-[11px] text-white/40 font-medium">No checklist items active for this trade</p>
+                <p className="text-[10px] text-white/20 mt-1">Select items below under "Add Checklists" to add them</p>
               </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {activeItems.map((itemId) => {
+                  let isChecked = false;
+                  let toggleFn = () => {};
+                  let label = "";
+                  let subOptionsContent: React.ReactNode = null;
 
-              {/* 2. Other Levels Checkbox */}
-              <div
-                className={cn(
-                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
-                  otherLevels ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
-                )}
-                onClick={toggleOtherLevels}
-              >
-                <div className={cn(
-                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                  otherLevels ? "bg-white/[0.09] border-white/30" : "border-white/20"
-                )}>
-                  {otherLevels && (
-                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
-                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-                <span className="text-[11px] text-white/60 flex-1">Other Levels</span>
-              </div>
+                  if (itemId === "levels") {
+                    isChecked = otherLevels && !!otherLevelsValue;
+                    label = "Levels";
+                    toggleFn = () => {
+                      setOtherLevels(!otherLevels);
+                      if (otherLevels) setOtherLevelsValue("");
+                      markDirty();
+                    };
+                    subOptionsContent = otherLevels && (
+                      <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 mt-2">
+                        <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Levels:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {["A+", "SBR/RBS", "DB/DT", "Level 3", "Level 4", "TJL1"].map((lvl) => (
+                            <button
+                              key={lvl}
+                              type="button"
+                              onClick={() => {
+                                selectOtherLevelValue(otherLevelsValue === lvl ? "" : lvl);
+                                if (otherLevelsValue !== lvl) {
+                                  setOtherLevels(true);
+                                }
+                              }}
+                              className={cn(
+                                "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                                otherLevelsValue === lvl
+                                  ? lvl === "A+"
+                                    ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-400 font-bold shadow-md shadow-yellow-500/10"
+                                    : "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
+                                  : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                              )}
+                            >
+                              {lvl}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  } else if (itemId === "confirmation") {
+                    isChecked = confirmation && confirmationValues.length > 0;
+                    label = "Confirmation";
+                    toggleFn = () => {
+                      setConfirmation(!confirmation);
+                      if (confirmation) setConfirmationValues([]);
+                      markDirty();
+                    };
+                    subOptionsContent = confirmation && (
+                      <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 mt-2">
+                        <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Confirmation:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {["Candle confirmation", "Choch confirmation"].map((conf) => {
+                            const isActive = confirmationValues.includes(conf);
+                            return (
+                              <button
+                                key={conf}
+                                type="button"
+                                onClick={() => {
+                                  toggleConfirmationValue(conf);
+                                  if (!confirmation) {
+                                    setConfirmation(true);
+                                  }
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                                  isActive
+                                    ? "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
+                                    : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                                )}
+                              >
+                                {conf}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  } else if (itemId === "riskFree") {
+                    isChecked = riskFree;
+                    label = "Risk Free";
+                    toggleFn = () => {
+                      setRiskFree(!riskFree);
+                      markDirty();
+                    };
+                  } else if (itemId === "riskManagement") {
+                    isChecked = riskManagement;
+                    label = "Risk Management";
+                    toggleFn = () => {
+                      setRiskManagement(!riskManagement);
+                      markDirty();
+                    };
+                  } else if (itemId === "news") {
+                    isChecked = news;
+                    label = "News";
+                    toggleFn = () => {
+                      setNews(!news);
+                      markDirty();
+                    };
+                  } else if (itemId === "multiTimeframe") {
+                    isChecked = multiTimeframe;
+                    label = "Multi Timeframe Analysis";
+                    toggleFn = () => {
+                      setMultiTimeframe(!multiTimeframe);
+                      markDirty();
+                    };
+                  } else {
+                    // Custom option!
+                    isChecked = !!customChecked[itemId];
+                    label = itemId;
+                    toggleFn = () => {
+                      setCustomChecked(prev => {
+                        const next = { ...prev, [itemId]: !prev[itemId] };
+                        return next;
+                      });
+                      markDirty();
+                    };
+                  }
 
-              {/* 3. Confirmation Checkbox */}
-              <div
-                className={cn(
-                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
-                  confirmation ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
-                )}
-                onClick={toggleConfirmation}
-              >
-                <div className={cn(
-                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                  confirmation ? "bg-white/[0.09] border-white/30" : "border-white/20"
-                )}>
-                  {confirmation && (
-                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
-                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-                <span className="text-[11px] text-white/60 flex-1">Confirmation</span>
-              </div>
-
-              {/* 4. RiskFree */}
-              <div
-                className={cn(
-                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
-                  riskFree ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
-                )}
-                onClick={toggleRiskFree}
-              >
-                <div className={cn(
-                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                  riskFree ? "bg-white/[0.09] border-white/30" : "border-white/20"
-                )}>
-                  {riskFree && (
-                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
-                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-                <span className="text-[11px] text-white/60 flex-1">Risk Free</span>
-              </div>
-
-              {/* 5. Risk Management */}
-              <div
-                className={cn(
-                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
-                  riskManagement ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
-                )}
-                onClick={toggleRiskManagement}
-              >
-                <div className={cn(
-                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                  riskManagement ? "bg-white/[0.09] border-white/30" : "border-white/20"
-                )}>
-                  {riskManagement && (
-                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
-                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-                <span className="text-[11px] text-white/60 flex-1">Risk Management</span>
-              </div>
-
-              {/* 6. News */}
-              <div
-                className={cn(
-                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
-                  news ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
-                )}
-                onClick={toggleNews}
-              >
-                <div className={cn(
-                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                  news ? "bg-white/[0.09] border-white/30" : "border-white/20"
-                )}>
-                  {news && (
-                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
-                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-                <span className="text-[11px] text-white/60 flex-1">News</span>
-              </div>
-
-              {/* 7. Multi timeframe analysis */}
-              <div
-                className={cn(
-                  "flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition",
-                  multiTimeframe ? "bg-white/[0.05] border-white/[0.15]" : "bg-white/2 border-white/7 hover:border-white/15"
-                )}
-                onClick={toggleMultiTimeframe}
-              >
-                <div className={cn(
-                  "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition",
-                  multiTimeframe ? "bg-white/[0.09] border-white/30" : "border-white/20"
-                )}>
-                  {multiTimeframe && (
-                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
-                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-                <span className="text-[11px] text-white/60 flex-1">Multi Timeframe Analysis</span>
-              </div>
-            </div>
-
-            {/* Conditional Sub-tags (Other Levels) */}
-            {otherLevels && (
-              <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
-                <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Other Levels:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {["SBR/RBS", "DB/DT", "Level 3", "Level 4", "TJL1"].map((lvl) => (
-                    <button
-                      key={lvl}
-                      type="button"
-                      onClick={() => selectOtherLevelValue(otherLevelsValue === lvl ? "" : lvl)}
+                  return (
+                    <div
+                      key={itemId}
                       className={cn(
-                        "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
-                        otherLevelsValue === lvl
-                          ? "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
-                          : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                        "group p-3 rounded-xl border transition-all flex flex-col justify-between",
+                        isChecked 
+                          ? "bg-emerald-500/[0.04] border-emerald-500/20 hover:border-emerald-500/35" 
+                          : "bg-white/2 border-white/7 hover:border-white/15"
                       )}
                     >
-                      {lvl}
-                    </button>
-                  ))}
-                </div>
+                      <div className="flex items-center gap-2.5 w-full">
+                        <div
+                          onClick={toggleFn}
+                          className={cn(
+                            "h-4.5 w-4.5 rounded border flex items-center justify-center shrink-0 transition-all cursor-pointer",
+                            isChecked 
+                              ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" 
+                              : "border-white/20 hover:border-white/30"
+                          )}
+                        >
+                          {isChecked && (
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 12 12">
+                              <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+                        <span 
+                          onClick={toggleFn}
+                          className={cn(
+                            "text-[12px] font-medium flex-1 cursor-pointer select-none truncate",
+                            isChecked ? "text-emerald-400 font-semibold" : "text-white/60"
+                          )}
+                        >
+                          {label}
+                          {isChecked && itemId === "levels" && ` (${otherLevelsValue})`}
+                        </span>
+                        
+                        {/* Remove button */}
+                        <button
+                          type="button"
+                          onClick={() => removeActiveItem(itemId)}
+                          className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-red-400 transition shrink-0 opacity-0 group-hover:opacity-100"
+                          title="Remove from checklist"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      {subOptionsContent}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
-            {/* Conditional Sub-tags (Confirmation) */}
-            {confirmation && (
-              <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
-                <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Confirmation:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {["Candle confirmation", "Choch confirmation"].map((conf) => {
-                    const isActive = confirmationValues.includes(conf);
-                    return (
+            {/* Add Checklists Section */}
+            <div className="border-t border-white/5 pt-4 space-y-3">
+              <span className="text-[10px] text-white/40 font-bold uppercase tracking-wider block">Add Checklists</span>
+              
+              {availablePredefined.filter(item => !activeItems.includes(item.id)).length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {availablePredefined
+                    .filter(item => !activeItems.includes(item.id))
+                    .map(item => (
                       <button
-                        key={conf}
+                        key={item.id}
                         type="button"
-                        onClick={() => toggleConfirmationValue(conf)}
-                        className={cn(
-                          "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
-                          isActive
-                            ? "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
-                            : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
-                        )}
+                        onClick={() => addActiveItem(item.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/2 border border-white/5 hover:border-white/12 hover:bg-white/[0.04] text-[11px] text-white/60 hover:text-white/80 transition"
                       >
-                        {conf}
+                        <span className="text-[12px] leading-none">+</span>
+                        {item.label}
                       </button>
-                    );
-                  })}
+                    ))
+                  }
                 </div>
-              </div>
-            )}
+              ) : (
+                <p className="text-[10px] text-white/20 italic">All predefined checklist items added.</p>
+              )}
+
+              {/* Add Custom Item Form */}
+              <form onSubmit={handleAddCustomActiveItem} className="flex gap-2 pt-2">
+                <input
+                  type="text"
+                  value={newOptionInput}
+                  onChange={(e) => setNewOptionInput(e.target.value)}
+                  placeholder="Add a custom checklist item only for this trade..."
+                  className="flex-1 bg-white/2 border border-white/7 rounded-lg px-3 py-1.5 text-[11px] text-white placeholder-white/25 focus:outline-none focus:border-white/15 transition text-left"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.13] border border-white/[0.10] text-[11px] font-semibold text-white transition flex items-center gap-1 shrink-0"
+                >
+                  <span>+</span> Add Custom
+                </button>
+              </form>
+            </div>
           </div>
         </div>
 

@@ -21,8 +21,18 @@ import {
   ChevronDown,
   SlidersHorizontal,
   Sparkles,
+  Filter,
+  Loader2,
 } from "lucide-react";
 import { SentimentReportsBrowser } from "./news-sentiment/sentiment-reports-browser";
+
+const FILTER_HOUR_OPTIONS = [1, 2, 3, 6, 12, 24, 48, 72];
+
+function filterHourLabel(h: number): string {
+  if (h < 24) return `Last ${h} Hour${h === 1 ? "" : "s"}`;
+  if (h === 24) return "Last 24 Hours";
+  return `Last ${h / 24} Days`;
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -228,6 +238,17 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
+  // AI "Filter News" — pushes the raw window through AI, removes irrelevant
+  // items in place, tags the rest with per-instrument sentiment. Purely a
+  // client-side transformation of `articles`; a page refresh always refetches
+  // the normal live feed since none of this is persisted to localStorage.
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
+  const [aiFiltering, setAiFiltering] = useState(false);
+  const [aiFilterError, setAiFilterError] = useState<string | null>(null);
+  const [aiFilterActive, setAiFilterActive] = useState(false);
+  const [aiFilterMeta, setAiFilterMeta] = useState<{ timeRangeLabel: string; allNewsCount: number; keptNewsCount: number } | null>(null);
+  const [cardStatus, setCardStatus] = useState<Record<string, "pending" | "kept" | "removing">>({});
+
   // Scraped modal states
   const [selectedArticleForModal, setSelectedArticleForModal] = useState<NewsArticle | null>(null);
   const [modalContent, setModalContent] = useState<string | null>(null);
@@ -249,6 +270,74 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
       setModalError(err.message || "Failed to load content");
     } finally {
       setModalLoading(false);
+    }
+  }, []);
+
+  const handleFilterNews = useCallback(async (hours: number) => {
+    setFilterDropdownOpen(false);
+    setAiFiltering(true);
+    setAiFilterError(null);
+    try {
+      const res = await fetch("/api/news/filter-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hours }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to filter news");
+
+      type Kept = { headline: string; impact: "High" | "Medium" | "Low"; link?: string; affected_instruments: { symbol: string; sentiment: "Bullish" | "Bearish" | "Neutral" }[] };
+      type Raw = { headline: string; source: string; pubDate: string; category: string; link?: string };
+      const allNews: Raw[] = json.data.allNews ?? [];
+      const keptList: Kept[] = json.data.analyzed_news ?? [];
+      const keptByHeadline = new Map(keptList.map((k) => [k.headline, k]));
+
+      const mapped: NewsArticle[] = allNews.map((n) => {
+        const kept = keptByHeadline.get(n.headline);
+        const primary = kept?.affected_instruments[0];
+        return {
+          title: n.headline,
+          link: n.link || kept?.link || "",
+          pubDate: n.pubDate,
+          source: n.source,
+          sentiment: primary?.sentiment ?? "Neutral",
+          sentimentScore: 0,
+          marketImpact: kept ? kept.affected_instruments.map((ai) => `${ai.symbol}: ${ai.sentiment}`).join(" · ") : "",
+          category: n.category,
+          impactScore: kept ? (kept.impact === "High" ? 80 : kept.impact === "Medium" ? 50 : 20) : 0,
+        };
+      });
+
+      const keyOf = (a: NewsArticle) => a.link || a.title;
+      const keptKeys = new Set(mapped.filter((a) => keptByHeadline.has(a.title)).map(keyOf));
+
+      setArticles(mapped);
+      setCategoryFilter("All");
+      setSentimentFilter("All");
+      setSearch("");
+      setCurrentPage(1);
+      setAiFilterActive(true);
+      setAiFilterMeta({ timeRangeLabel: json.timeRangeLabel, allNewsCount: json.allNewsCount, keptNewsCount: json.keptNewsCount });
+
+      const initialStatus: Record<string, "pending"> = {};
+      mapped.forEach((a) => { initialStatus[keyOf(a)] = "pending"; });
+      setCardStatus(initialStatus);
+
+      const stagger = Math.min(45, Math.max(8, 4500 / Math.max(1, mapped.length)));
+      mapped.forEach((a, i) => {
+        const key = keyOf(a);
+        setTimeout(() => {
+          setCardStatus((prev) => ({ ...prev, [key]: keptKeys.has(key) ? "kept" : "removing" }));
+        }, 300 + i * stagger);
+      });
+      setTimeout(() => {
+        setArticles((prev) => prev.filter((a) => keptKeys.has(keyOf(a))));
+        setCardStatus({});
+      }, 300 + mapped.length * stagger + 500);
+    } catch (err) {
+      setAiFilterError((err as Error).message);
+    } finally {
+      setAiFiltering(false);
     }
   }, []);
 
@@ -411,6 +500,39 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
               />
               Refresh
             </button>
+            {/* Filter News — standalone (news-analysis page) only. Pushes the raw
+                window through AI in place: irrelevant items fade out of this same
+                grid, kept ones get a sentiment tag. Never persisted — a page
+                refresh always shows the normal live feed again. */}
+            {standalone && !loading && articles.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setFilterDropdownOpen((v) => !v)}
+                  disabled={aiFiltering}
+                  className="flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.08] px-3 py-1.5 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-500/[0.14] disabled:opacity-50"
+                >
+                  {aiFiltering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Filter className="h-3.5 w-3.5" />}
+                  {aiFiltering ? "Filtering…" : "Filter News"}
+                  {!aiFiltering && <ChevronDown className={`h-3 w-3 transition-transform ${filterDropdownOpen ? "rotate-180" : ""}`} />}
+                </button>
+                {filterDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setFilterDropdownOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1.5 z-20 w-44 rounded-lg border border-white/[0.10] bg-[#161616] shadow-xl py-1.5">
+                      {FILTER_HOUR_OPTIONS.map((h) => (
+                        <button
+                          key={h}
+                          onClick={() => handleFilterNews(h)}
+                          className="w-full text-left px-3 py-1.5 text-xs text-white/60 hover:bg-white/[0.06] hover:text-white transition"
+                        >
+                          {filterHourLabel(h)}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             {/* On the standalone News Analysis page, the "AI News Analysis" button in
                 the page header already triggers this same feature — avoid a confusing
                 second entry point. Keep it here for non-standalone embeds (e.g. /chart). */}
@@ -425,6 +547,28 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
             )}
           </div>
         </div>
+
+        {/* AI Filter News — status / error banners */}
+        {aiFilterActive && aiFilterMeta && (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-2">
+            <Filter className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+            <p className="text-[11px] text-emerald-300">
+              AI-filtered · {aiFilterMeta.timeRangeLabel} · {aiFilterMeta.keptNewsCount}/{aiFilterMeta.allNewsCount} kept for forex/gold/crypto
+            </p>
+            <button
+              onClick={() => { setAiFilterActive(false); setAiFilterMeta(null); setAiFilterError(null); fetchNews(true); }}
+              className="ml-auto text-[11px] font-semibold text-emerald-300 underline underline-offset-2 hover:text-white transition shrink-0"
+            >
+              Show live feed
+            </button>
+          </div>
+        )}
+        {aiFilterError && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-3 py-2">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-rose-400 mt-0.5" />
+            <p className="text-[11px] leading-snug text-rose-300">{aiFilterError}</p>
+          </div>
+        )}
 
         {/* Source diagnostic banner — generic wording, never names a specific vendor */}
         {telegramFeedError && !loading && activeSymbol === "ALL" && (
@@ -739,12 +883,21 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
                 : "text-zinc-400/80 font-mono";
 
             const absIdx = (currentPage - 1) * PAGE_SIZE + idx + 1;
+            const status = cardStatus[item.link || item.title];
 
             return (
               <div
                 key={`${activeSymbol}-${item.link}-${idx}`}
                 onClick={() => handleOpenArticleModal(item)}
-                className="group flex flex-col justify-between rounded-xl border border-white/[0.05] bg-white/[0.01] p-4 cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.12] hover:bg-white/[0.03] hover:shadow-lg hover:shadow-black/30"
+                className={`group flex flex-col justify-between rounded-xl border p-4 cursor-pointer transition-all duration-500 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${
+                  status === "removing"
+                    ? "opacity-0 scale-90 pointer-events-none border-white/[0.05] bg-white/[0.01]"
+                    : status === "pending"
+                    ? "opacity-40 border-white/[0.05] bg-white/[0.01]"
+                    : status === "kept"
+                    ? "opacity-100 border-emerald-500/30 bg-emerald-500/[0.03] ring-1 ring-emerald-500/20 hover:border-emerald-500/40 hover:bg-emerald-500/[0.05]"
+                    : "opacity-100 border-white/[0.05] bg-white/[0.01] hover:border-white/[0.12] hover:bg-white/[0.03]"
+                }`}
               >
                 <div>
                   {/* Index + Source + Time + Sentiment */}

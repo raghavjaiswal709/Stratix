@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { validateReportSchema } from "@/lib/newsValidation";
 import { MarketNews } from "@/components/chart/MarketNews";
 import { AnalyseNewsModal } from "@/components/chart/news-sentiment/analyse-news-modal";
-import { SentimentReportDashboard, type SentimentReport } from "@/components/chart/news-sentiment/sentiment-report-dashboard";
+import { SentimentReportDashboard, type SentimentReport, type SentimentReportData } from "@/components/chart/news-sentiment/sentiment-report-dashboard";
 import {
   Newspaper,
   ChevronLeft,
@@ -42,6 +42,7 @@ import {
   Sparkles,
   Send,
   MessageSquare,
+  Filter,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -156,6 +157,32 @@ interface SentimentHistoryEntry {
   generatedBy:       string;
   generatedByName?:  string;
   generatedAt:       string;
+}
+
+// ── "Filter News" feature — pushes the raw news window through AI, animates
+// removal of irrelevant items, tags the rest with per-instrument sentiment ──
+interface RawNewsHeadline { headline: string; source: string; pubDate: string; }
+interface FilterReportData extends SentimentReportData { allNews: RawNewsHeadline[]; }
+interface FilterReport {
+  _id:            string;
+  hours:          number;
+  timeRangeLabel: string;
+  allNewsCount:   number;
+  keptNewsCount:  number;
+  generatedBy:    string;
+  generatedByName?: string;
+  generatedAt:    string;
+  data:           FilterReportData;
+}
+interface FilterHistoryEntry {
+  _id:            string;
+  hours:          number;
+  timeRangeLabel: string;
+  allNewsCount:   number;
+  keptNewsCount:  number;
+  generatedBy:    string;
+  generatedByName?: string;
+  generatedAt:    string;
 }
 
 type AnalyseTab = "result" | "articles" | "prompt";
@@ -3335,17 +3362,21 @@ function GlobalHistoryDrawer({
   reports,
   analyseHistory,
   sentimentHistory,
+  filterHistory,
   onViewReport,
   onViewAnalysis,
   onViewSentiment,
+  onViewFilter,
   onClose,
 }: {
   reports: NewsEntry[];
   analyseHistory: AnalyseHistoryEntry[];
   sentimentHistory: SentimentHistoryEntry[];
+  filterHistory: FilterHistoryEntry[];
   onViewReport: (entry: NewsEntry) => void;
   onViewAnalysis: (id: string) => void;
   onViewSentiment: (id: string) => void;
+  onViewFilter: (id: string) => void;
   onClose: () => void;
 }) {
   function fmtDate(iso: string) {
@@ -3356,7 +3387,7 @@ function GlobalHistoryDrawer({
     });
   }
 
-  const totalCount = reports.length + analyseHistory.length + sentimentHistory.length;
+  const totalCount = reports.length + analyseHistory.length + sentimentHistory.length + filterHistory.length;
 
   return (
     <>
@@ -3383,7 +3414,8 @@ function GlobalHistoryDrawer({
             type CItem =
               | { kind: "report";    sortMs: number; entry: NewsEntry }
               | { kind: "analysis";  sortMs: number; entry: AnalyseHistoryEntry }
-              | { kind: "sentiment"; sortMs: number; entry: SentimentHistoryEntry };
+              | { kind: "sentiment"; sortMs: number; entry: SentimentHistoryEntry }
+              | { kind: "filter";    sortMs: number; entry: FilterHistoryEntry };
 
             const combined: CItem[] = [
               ...reports.map(r => ({
@@ -3400,6 +3432,11 @@ function GlobalHistoryDrawer({
                 kind: "sentiment" as const,
                 sortMs: new Date(s.generatedAt).getTime(),
                 entry: s,
+              })),
+              ...filterHistory.map(f => ({
+                kind: "filter" as const,
+                sortMs: new Date(f.generatedAt).getTime(),
+                entry: f,
               })),
             ].sort((a, b) => b.sortMs - a.sortMs);
 
@@ -3452,7 +3489,7 @@ function GlobalHistoryDrawer({
                         <AITag />
                       </button>
                     );
-                  } else {
+                  } else if (item.kind === "sentiment") {
                     const e = item.entry;
                     return (
                       <button key={`s-${e._id}`} onClick={() => onViewSentiment(e._id)}
@@ -3469,6 +3506,28 @@ function GlobalHistoryDrawer({
                           <p className="text-[12px] font-semibold text-white/65 truncate">{e.timeRangeLabel}</p>
                           <p className="text-[10px] text-white/25 mt-0.5">
                             {fmtDate(e.generatedAt)} · {e.newsAnalyzedCount} news · {e.generatedByName || e.generatedBy}
+                          </p>
+                        </div>
+                        <AITag />
+                      </button>
+                    );
+                  } else {
+                    const e = item.entry;
+                    return (
+                      <button key={`f-${e._id}`} onClick={() => onViewFilter(e._id)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition hover:bg-white/[0.05]"
+                        style={isFirst
+                          ? { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)" }
+                          : { background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)" }
+                        }
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold bg-emerald-500/[0.10] text-emerald-400/70">
+                          <Filter className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-semibold text-white/65 truncate">{e.timeRangeLabel}</p>
+                          <p className="text-[10px] text-white/25 mt-0.5">
+                            {fmtDate(e.generatedAt)} · {e.keptNewsCount}/{e.allNewsCount} kept · {e.generatedByName || e.generatedBy}
                           </p>
                         </div>
                         <AITag />
@@ -4508,6 +4567,40 @@ export default function NewsAnalysisPage() {
     }
   }, []);
 
+  // ── "Filter News" feature state — the AI-filter itself now runs inline in
+  // MarketNews.tsx (in place on the live news grid); this page only tracks
+  // history so past filter runs are reviewable via the History drawer ──────
+  const [filterHistory,     setFilterHistory]     = useState<FilterHistoryEntry[]>([]);
+  const [filterViewId,      setFilterViewId]      = useState<string | null>(null);
+  const [filterViewData,    setFilterViewData]    = useState<FilterReport | null>(null);
+  const [filterViewLoading, setFilterViewLoading] = useState(false);
+
+  const refreshFilterHistory = useCallback(async () => {
+    try {
+      const res = await fetch("/api/news/filter-report");
+      if (!res.ok) return;
+      const data = await res.json();
+      setFilterHistory(Array.isArray(data) ? data : []);
+    } catch { /* keep previous list on failure */ }
+  }, []);
+
+  useEffect(() => { refreshFilterHistory(); }, [refreshFilterHistory]);
+
+  const closeFilterView = useCallback(() => {
+    setFilterViewData(null);
+    setFilterViewId(null);
+  }, []);
+
+  useEffect(() => {
+    if (!filterViewId) return;
+    setFilterViewLoading(true);
+    fetch(`/api/news/filter-report/${filterViewId}`)
+      .then(r => r.json())
+      .then(data => setFilterViewData(data))
+      .catch(() => setFilterViewData(null))
+      .finally(() => setFilterViewLoading(false));
+  }, [filterViewId]);
+
   // ── Load report index on mount ───────────────────────────────────────────
   useEffect(() => {
     fetch("/api/news-reports")
@@ -4760,14 +4853,14 @@ export default function NewsAnalysisPage() {
 
             {/* History */}
             <button
-              onClick={() => { refreshAnalyseHistory(); refreshSentimentHistory(); setHistoryDrawerOpen(true); }}
+              onClick={() => { refreshAnalyseHistory(); refreshSentimentHistory(); refreshFilterHistory(); setHistoryDrawerOpen(true); }}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold border bg-white/[0.04] border-white/[0.08] text-white/45 hover:bg-white/[0.07] hover:text-white/70 hover:border-white/[0.13] transition"
             >
               <History className="h-3.5 w-3.5" />
               History
-              {(reports.length + analyseHistory.length + sentimentHistory.length) > 0 && (
+              {(reports.length + analyseHistory.length + sentimentHistory.length + filterHistory.length) > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
-                  {reports.length + analyseHistory.length + sentimentHistory.length}
+                  {reports.length + analyseHistory.length + sentimentHistory.length + filterHistory.length}
                 </span>
               )}
             </button>
@@ -4927,24 +5020,54 @@ export default function NewsAnalysisPage() {
 
       {/* ── Sentiment Report Dashboard Overlay ────────────────────────────── */}
       {(sentimentViewData || sentimentViewLoading) && (
-        <div className="fixed inset-4 md:inset-8 z-50">
-          <div className="relative h-full rounded-2xl border border-white/[0.08] bg-[#0a0b0f] shadow-2xl overflow-hidden flex flex-col">
-            <button
-              onClick={() => { setSentimentViewData(null); setSentimentViewId(null); }}
-              className="absolute top-3 right-3 z-10 p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/50 hover:text-white transition"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            {sentimentViewLoading || !sentimentViewData ? (
-              <div className="flex flex-col items-center justify-center h-full gap-3">
-                <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
-                <p className="text-[12px] text-white/30">Loading report…</p>
-              </div>
-            ) : (
-              <SentimentReportDashboard report={sentimentViewData} />
-            )}
+        <>
+          <div 
+            onClick={() => { if (!sentimentViewLoading) { setSentimentViewData(null); setSentimentViewId(null); } }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 animate-fade-in"
+          />
+          <div className="fixed inset-4 md:inset-8 z-50 pointer-events-none flex items-center justify-center">
+            <div className="relative h-full w-full max-w-5xl rounded-2xl border border-white/[0.08] bg-[#0a0b0f] shadow-2xl overflow-hidden flex flex-col pointer-events-auto">
+              {sentimentViewLoading || !sentimentViewData ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
+                  <p className="text-[12px] text-white/30">Loading report…</p>
+                </div>
+              ) : (
+                <SentimentReportDashboard 
+                  report={sentimentViewData} 
+                  onClose={() => { setSentimentViewData(null); setSentimentViewId(null); }} 
+                />
+              )}
+            </div>
           </div>
-        </div>
+        </>
+      )}
+
+      {/* ── Filter News Overlay — reviews a past filtered run from History.
+          Generation itself now happens inline in MarketNews.tsx. ──────────── */}
+      {(filterViewData || filterViewLoading) && (
+        <>
+          <div
+            onClick={() => { if (!filterViewLoading) closeFilterView(); }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 animate-fade-in"
+          />
+          <div className="fixed inset-4 md:inset-8 z-50 pointer-events-none flex items-center justify-center">
+            <div className="relative h-full w-full max-w-5xl rounded-2xl border border-white/[0.08] bg-[#0a0b0f] shadow-2xl overflow-hidden flex flex-col pointer-events-auto">
+              {filterViewLoading || !filterViewData ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <Loader2 className="h-6 w-6 text-white/30 animate-spin" />
+                  <p className="text-[12px] text-white/30">Loading report…</p>
+                </div>
+              ) : (
+                <SentimentReportDashboard
+                  report={{ ...filterViewData, newsAnalyzedCount: filterViewData.keptNewsCount }}
+                  onClose={closeFilterView}
+                  title="Filtered News Report"
+                />
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Global History Drawer ──────────────────────────────────────────── */}
@@ -4953,9 +5076,11 @@ export default function NewsAnalysisPage() {
           reports={reports}
           analyseHistory={analyseHistory}
           sentimentHistory={sentimentHistory}
+          filterHistory={filterHistory}
           onViewReport={openReportView}
           onViewAnalysis={(id) => { setHistoryDrawerOpen(false); setAiAnalysisOpen(true); handleLoadAnalyseReport(id); }}
           onViewSentiment={(id) => { setHistoryDrawerOpen(false); setSentimentViewId(id); }}
+          onViewFilter={(id) => { setHistoryDrawerOpen(false); setFilterViewId(id); }}
           onClose={() => setHistoryDrawerOpen(false)}
         />
       )}
