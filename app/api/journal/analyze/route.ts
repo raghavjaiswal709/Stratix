@@ -33,27 +33,34 @@ function rangeStartDate(timeRange: ReportTimeRange): Date | null {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
-const SYSTEM_PROMPT = `You are an elite trading performance analyst and coach, specializing exclusively in the CHOCH (Change of Character) and QML (Quasimodo Level) price-action strategy framework. This trader logs every trade with a structured journal — pre-trade analysis, post-trade review, an execution checklist (A+ Level, Other Levels [SBR/RBS, DB/DT, Level 3, Level 4, TJL1], Confirmation [Candle confirmation, Choch confirmation], RiskFree, Risk Management, News, Multi Timeframe Analysis), emotions, lessons learned, tags, and a 1-10 rating — plus a separate log of trades they SAW but did NOT take ("missed trades").
+const SYSTEM_PROMPT = `You are an elite, methodology-agnostic trading performance analyst and coach — think of a professional prop-firm evaluator producing a performance review. This trader logs every trade with a structured journal — pre-trade analysis, post-trade review, a customizable execution checklist (item names vary per trader, do not assume any fixed strategy taxonomy), emotions, lessons learned, tags, and a 1-10 rating — plus a separate log of trades they SAW but did NOT take ("missed trades").
 
 You will receive one JSON object containing:
 - meta: time range info and pre-computed counts
-- aggregate: pre-computed hard numbers (win rate, PnL, profit factor, etc.) — trust these numbers exactly, do not recompute them differently
-- trades: the full list of executed trades with all journal fields
+- aggregate: pre-computed hard numbers (win rate, PnL, profit factor, etc.) — trust these numbers exactly, do not recompute or restate them differently
+- trades: the full list of executed trades with all journal fields (already de-duplicated — manually-compiled/merged positions are pre-combined into a single trade record, so each entry here is exactly one real trade)
 - missedTrades: the full list of setups the trader passed on
 
-YOUR JOB — analyze this data STRICTLY through the CHOCH/QML lens plus general trading discipline:
-1. Determine how consistently the trader identifies genuine CHOCH structure breaks vs respects QML (Quasimodo) levels, using the "Confirmation: Choch confirmation", "Confirmation: Candle confirmation", and "Other Levels" checklist fields, and cross-referencing with preTradeAnalysis/postTradeReview text for any mention of structure, liquidity sweeps, or QML levels.
-2. Score execution checklist discipline — which items are consistently skipped, and correlate skipped items with losing trades.
-3. Identify emotional patterns and their direct correlation with win/loss outcomes.
-4. Analyze missed trades — were they genuine CHOCH/QML setups the trader correctly identified but failed to execute? Quantify the cost of hesitation using potentialPips/estimatedRR where available.
+YOUR JOB — a general, strategy-agnostic professional analysis grounded in what THIS trader actually wrote:
+1. Read every non-empty text field on every trade — preTradeAnalysis, postTradeReview, emotions, lessonsLearned, tags — and extract the trader's ACTUAL reasoning, setup logic, and self-observations from it. This is the primary signal. Whatever checklist items, tags, or setup names the trader uses are THEIR terminology — analyze discipline and consistency around those, don't impose an external framework (e.g. do not force a CHOCH/QML or any other named strategy lens unless the trader's own notes/tags explicitly reference it).
+2. Score execution checklist discipline using whatever items this trader actually defined — which are consistently skipped, and correlate skipped items with losing trades.
+3. Identify emotional patterns (from the actual emotions/lessonsLearned text logged) and their correlation with win/loss outcomes.
+4. Analyze missed trades using their own stated reasonMissed/analysis text — quantify the cost of hesitation using potentialPips/estimatedRR where available.
 5. Give concrete, numbers-driven, non-generic recommendations tied directly to patterns found in THIS data.
+6. Deliver explicit, professional-grade Strengths and Weaknesses — like a performance review a trading desk manager would write, direct and evidence-based, not hedged or generic.
 
-STRICT RULES — ZERO TOLERANCE FOR VAGUENESS OR PROCRASTINATION:
+CRITICAL BALANCE — FOCUS ON WHAT WAS ACTUALLY WRITTEN, NOT WHAT'S MISSING:
+- Your primary source of insight is the trader's own words (preTradeAnalysis, postTradeReview, emotions, lessonsLearned, tags) and their actual trade outcomes. Mine these deeply for specific, quotable patterns — recurring phrases, repeated setups, specific mistakes described in their own words, specific wins they credit to specific behavior.
+- Do NOT treat a blank/empty optional field as a weakness or discipline failure by default — many fields are optional and a trader may simply not use every one. Only flag missing journaling as an issue if it's a clear, material pattern (e.g. the great majority of trades have zero pre/post-trade notes at all, making outcomes hard to explain) — and even then, state it once, factually, without moralizing.
+- Never pad the report with filler about "the trader should fill in more fields" — that is not useful coaching. Useful coaching is: "your last 4 losses on XAUUSD all mention 'entered early, no confirmation' in postTradeReview — this is your #1 fixable leak."
+
+STRICT RULES — ZERO TOLERANCE FOR VAGUENESS, HALLUCINATION OR PROCRASTINATION:
 - Every single field in the schema below is MANDATORY. Do not skip any. Do not return empty strings or empty arrays unless the underlying data is truly empty (e.g. zero missed trades).
-- NEVER write generic filler like "trader should be more disciplined" without tying it to a specific number, symbol, or pattern from the actual data provided.
+- NEVER write generic filler like "trader should be more disciplined" without tying it to a specific number, symbol, trade, or direct quote/paraphrase from the actual journal text provided.
 - All "summary" and "narrative" fields must meet their minimum word counts — this is enforced, short answers are REJECTED.
-- Pull REAL numbers from the data (win rate, PnL, RR, counts) into every relevant text field — do not just describe qualitatively.
+- Pull REAL numbers from the data (win rate, PnL, RR, counts) into every relevant text field — do not just describe qualitatively, and never invent a number that isn't in the provided data.
 - If trades array is empty, still return the full schema with meta/aggregate reflecting zero and clearly state there is insufficient data in every summary field — do NOT refuse or omit fields.
+- Keep the tone professional and direct — like a performance review, not a motivational poster. Truth over encouragement.
 - Return ONLY a single valid JSON object. No markdown fences, no prose before or after, no code block wrapper.
 
 MANDATORY JSON SCHEMA (follow field names EXACTLY):
@@ -63,17 +70,17 @@ MANDATORY JSON SCHEMA (follow field names EXACTLY):
     "trend": "Improving | Declining | Stable",
     "trend_reason": "One sentence citing specific evidence for the trend verdict."
   },
+  "strengths": ["specific, professional strength 1 — cite the trade/symbol/pattern/quote it's based on", "specific strength 2", "specific strength 3 if evidence supports it"],
+  "weaknesses": ["specific, professional weakness 1 — cite the trade/symbol/pattern/quote it's based on", "specific weakness 2", "specific weakness 3 if evidence supports it"],
   "discipline_score": {
     "score": <integer 0-100>,
     "grade": "A | B | C | D | F",
-    "summary": "MINIMUM 80 words explaining exactly why this score was given, citing specific checklist compliance rates and specific skipped items."
+    "summary": "MINIMUM 80 words explaining exactly why this score was given, citing specific checklist compliance rates and specific skipped items (using this trader's own checklist item names)."
   },
-  "choch_qml_analysis": {
-    "score": <integer 0-100, how well the trader applies CHOCH/QML methodology>,
-    "summary": "MINIMUM 150 words. Deep analysis of CHOCH structure-break recognition and QML level respect based on the confirmation checklist data, Other Levels usage, and any structure-related mentions in preTradeAnalysis/postTradeReview text. Cite specific trades or counts.",
-    "confirmation_compliance_rate": <percentage of trades with any Confirmation checked>,
-    "strengths": ["specific strength 1 tied to data", "specific strength 2"],
-    "weaknesses": ["specific weakness 1 tied to data", "specific weakness 2"]
+  "strategy_execution_analysis": {
+    "score": <integer 0-100, overall setup-quality and execution-consistency score>,
+    "summary": "MINIMUM 150 words. Deep analysis of how consistently this trader executes THEIR OWN stated setup logic and checklist items, based on preTradeAnalysis/postTradeReview text, tags, and checklist compliance. Reference whatever methodology or terminology the trader's own notes/tags actually use — do not impose an external framework. Cite specific trades or counts.",
+    "checklist_compliance_rate": <percentage of trades with the majority of their own checklist items checked>
   },
   "execution_checklist_compliance": {
     "overall_rate": <percentage>,
@@ -82,7 +89,7 @@ MANDATORY JSON SCHEMA (follow field names EXACTLY):
   },
   "emotional_patterns": {
     "dominant_emotions": ["emotion 1", "emotion 2"],
-    "summary": "MINIMUM 80 words on emotional patterns.",
+    "summary": "MINIMUM 80 words on emotional patterns drawn from the actual emotions/lessonsLearned text logged.",
     "emotion_pnl_correlation": "MINIMUM 60 words — specific correlation between logged emotions and trade outcomes, citing counts/examples."
   },
   "missed_trades_analysis": {
@@ -92,19 +99,20 @@ MANDATORY JSON SCHEMA (follow field names EXACTLY):
     "still_open_or_unknown": <integer>,
     "estimated_missed_pnl_note": "Text estimate of opportunity cost using potentialPips/estimatedRR data, or 'No missed trades logged' if zero.",
     "common_reasons": ["reason 1", "reason 2"],
-    "summary": "MINIMUM 100 words analyzing whether missed setups were genuine CHOCH/QML opportunities and the discipline cost of hesitation."
+    "summary": "MINIMUM 100 words analyzing whether missed setups were genuine opportunities per the trader's own reasoning, and the discipline cost of hesitation."
   },
   "symbol_breakdown": [
     { "symbol": "XAUUSD", "trades": <integer>, "win_rate": <percentage>, "net_pnl": <number> }
   ],
-  "key_mistakes": ["specific mistake 1 tied to actual data", "specific mistake 2", "specific mistake 3"],
+  "key_mistakes": ["specific mistake 1 tied to actual data/quotes", "specific mistake 2", "specific mistake 3"],
   "actionable_recommendations": ["specific numbered rule 1", "specific numbered rule 2", "specific numbered rule 3", "specific numbered rule 4"],
-  "narrative_summary": "MINIMUM 250 words. Full comprehensive summary tying together performance, CHOCH/QML execution quality, discipline, emotions, and missed trades into one coherent coaching narrative with concrete next steps."
+  "narrative_summary": "MINIMUM 250 words. Full comprehensive, professional performance-review narrative tying together performance, strengths/weaknesses, execution quality, discipline, emotions, and missed trades into one coherent coaching narrative with concrete next steps."
 }
 
 FINAL MANDATE: Return ONLY the JSON object above, fully populated, no exceptions, no procrastination, no placeholders.`;
 
 interface RawTrade {
+  _id: string;
   symbol: string;
   direction: string;
   lots: number;
@@ -127,6 +135,48 @@ interface RawTrade {
   tags?: string[];
   rating?: number;
   journaled?: boolean;
+  parentTradeId?: string;
+  mergedTradeIds?: string[];
+}
+
+// Manually-compiled ("merged") trades must count as exactly ONE trade in every
+// stat — mirrors the aggregation app/trades/page.tsx already uses for display
+// (sum profit/lots, weighted-avg entry/exit, earliest entry / latest exit).
+// Without this, a 3-way compiled position would be counted (and its PnL
+// summed) 4 times: once per child plus once for the parent.
+function compileTrades(rawTrades: RawTrade[]): RawTrade[] {
+  const byId = new Map(rawTrades.map((t) => [t._id, t]));
+  const parents = rawTrades.filter((t) => !t.parentTradeId);
+
+  return parents.map((parent) => {
+    const children = (parent.mergedTradeIds ?? [])
+      .map((id) => byId.get(id))
+      .filter((t): t is RawTrade => !!t);
+    if (children.length === 0) return parent;
+
+    const group = [parent, ...children];
+    let totalLots = 0, totalProfit = 0, weightedEntrySum = 0, weightedExitSum = 0, exitLots = 0;
+    let earliestEntry = parent.entryTime, latestExit = parent.exitTime;
+
+    for (const t of group) {
+      totalLots += t.lots;
+      totalProfit += t.profit;
+      weightedEntrySum += t.entryPrice * t.lots;
+      if (t.exitPrice) { weightedExitSum += t.exitPrice * t.lots; exitLots += t.lots; }
+      if (new Date(t.entryTime) < new Date(earliestEntry)) earliestEntry = t.entryTime;
+      if (t.exitTime && (!latestExit || new Date(t.exitTime) > new Date(latestExit))) latestExit = t.exitTime;
+    }
+
+    return {
+      ...parent,
+      lots: Number(totalLots.toFixed(2)),
+      profit: Number(totalProfit.toFixed(2)),
+      entryPrice: Number((weightedEntrySum / totalLots).toFixed(5)),
+      exitPrice: exitLots > 0 ? Number((weightedExitSum / exitLots).toFixed(5)) : parent.exitPrice,
+      entryTime: earliestEntry,
+      exitTime: latestExit,
+    };
+  });
 }
 
 interface RawMissedTrade {
@@ -193,18 +243,25 @@ export async function POST(req: NextRequest) {
 
   await dbConnect();
 
+  // No date filter here — a compiled group's constituent trades may span
+  // outside the requested window while the group's representative (earliest)
+  // entry time falls inside it, or vice versa. Fetch everything for this
+  // user/profile, compile merged groups into one trade each, THEN apply the
+  // time-range window on the compiled result below.
   const tradeQuery: Record<string, unknown> = { userId: session.user.id };
   if (profileId) tradeQuery.profileId = profileId;
-  if (startDate) tradeQuery.entryTime = { $gte: startDate };
 
   const missedQuery: Record<string, unknown> = { userId: session.user.id };
   if (profileId) missedQuery.profileId = profileId;
   if (startDate) missedQuery.date = { $gte: startDate };
 
-  const [trades, missedTrades] = await Promise.all([
+  const [allTrades, missedTrades] = await Promise.all([
     TradeEntryModel.find(tradeQuery).sort({ entryTime: -1 }).lean<RawTrade[]>(),
     MissedTradeModel.find(missedQuery).sort({ date: -1 }).lean<RawMissedTrade[]>(),
   ]);
+
+  const compiled = compileTrades(allTrades);
+  const trades = startDate ? compiled.filter(t => new Date(t.entryTime) >= startDate) : compiled;
 
   // ── Pre-compute hard aggregate numbers server-side (AI must trust these) ──
   const closedTrades = trades.filter(t => t.status === "closed");
@@ -305,7 +362,7 @@ export async function POST(req: NextRequest) {
         { role: "user", content: userMsg },
       ],
       temperature: 0.4,
-      max_tokens: 6000,
+      max_tokens: 7000,
       response_format: { type: "json_object" },
     });
     rawResponse = response.choices[0]?.message?.content ?? "";
@@ -328,6 +385,11 @@ export async function POST(req: NextRequest) {
       { status: 422 },
     );
   }
+
+  // Attach the server-computed hard numbers alongside the AI's narrative so
+  // the report can render exact stat tiles independent of anything the model
+  // paraphrases — the AI narrates, but the numbers on screen are ground truth.
+  analysisData = { ...(analysisData as object), aggregate };
 
   const doc = await JournalAnalysisReportModel.create({
     userId: session.user.id,

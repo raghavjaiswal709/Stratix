@@ -59,7 +59,7 @@ export function AnalyzeModal({
               <span className="h-1.5 w-1.5 rounded-full bg-white/60 animate-bounce [animation-delay:-0.15s]" />
               <span className="h-1.5 w-1.5 rounded-full bg-white/60 animate-bounce" />
             </div>
-            <span className="text-[11px] text-white/50 font-medium">AI is analyzing your CHOCH / QML execution…</span>
+            <span className="text-[11px] text-white/50 font-medium">AI is analyzing your trades, discipline &amp; execution…</span>
           </div>
         )}
 

@@ -16,7 +16,8 @@ type JournalTab = "all" | "journaled" | "pending";
 interface JournalListProps {
   trades: JournalTrade[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  selectedSubTradeId: string | null;
+  onSelect: (id: string, subId: string | null) => void;
   tab: JournalTab;
   onTabChange: (t: JournalTab) => void;
 }
@@ -92,6 +93,7 @@ const DEFAULT_PREFS: JournalSortFilterPrefs = {
 export function JournalList({
   trades,
   selectedId,
+  selectedSubTradeId,
   onSelect,
   tab,
   onTabChange,
@@ -447,10 +449,10 @@ export function JournalList({
             return (
               <div key={trade._id} className="border-b border-white/5">
                 <div
-                  onClick={() => onSelect(trade._id)}
+                  onClick={() => onSelect(trade._id, null)}
                   className={cn(
                     "w-full text-left px-4 py-3.5 transition hover:bg-white/3 flex items-start gap-2 relative",
-                    selectedId === trade._id && "bg-white/[0.05] border-l-2 border-l-white/30",
+                    selectedId === trade._id && selectedSubTradeId === null && "bg-white/[0.05] border-l-2 border-l-white/30",
                     trade._deleted && "opacity-40"
                   )}
                 >
@@ -537,10 +539,10 @@ export function JournalList({
                   <div className="bg-white/[0.02] border-t border-white/5 pl-4 divide-y divide-white/5">
                     {/* The parent trade itself as first child */}
                     <div
-                      onClick={() => onSelect(trade._id)}
+                      onClick={() => onSelect(trade._id, trade._id)}
                       className={cn(
-                        "w-full text-left px-4 py-2 transition hover:bg-white/3 flex items-center gap-2",
-                        selectedId === trade._id && "bg-white/[0.05]"
+                        "w-full text-left px-4 py-2 transition hover:bg-white/3 flex items-center gap-2 cursor-pointer",
+                        selectedId === trade._id && selectedSubTradeId === trade._id && "bg-white/[0.05]"
                       )}
                     >
                       <span className="text-[9px] text-white/40">#1 (Main)</span>
@@ -555,10 +557,10 @@ export function JournalList({
                     {agg.childTrades.map((child, idx) => (
                       <div
                         key={child._id}
-                        onClick={() => onSelect(child._id)}
+                        onClick={() => onSelect(child._id, child._id)}
                         className={cn(
                           "w-full text-left px-4 py-2 transition hover:bg-white/3 flex items-center gap-2 cursor-pointer",
-                          selectedId === child._id && "bg-white/[0.05]"
+                          selectedId === child._id && selectedSubTradeId === child._id && "bg-white/[0.05]"
                         )}
                       >
                         <span className="text-[9px] text-white/40">#{idx + 2}</span>

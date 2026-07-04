@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { format } from "date-fns";
 import {
   Sparkles,
@@ -11,8 +10,7 @@ import {
   Clock,
   Newspaper,
   Lightbulb,
-  ChevronDown,
-  ChevronUp,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -92,33 +90,23 @@ function ConfidenceBar({ value, sentiment }: { value: number; sentiment: Sentime
 }
 
 function InstrumentCard({ inst }: { inst: InstrumentSentiment }) {
-  const [expanded, setExpanded] = useState(false);
   const s = SENTIMENT_STYLES[inst.sentiment];
 
   return (
-    <div className={cn("rounded-xl border overflow-hidden transition", s.border, s.bg)}>
+    <div className={cn("rounded-xl border overflow-hidden transition break-inside-avoid mb-3", s.border, s.bg)}>
       <div className="p-3.5">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[13px] font-bold text-white">{inst.symbol}</span>
           <SentimentBadge sentiment={inst.sentiment} />
         </div>
         <ConfidenceBar value={inst.confidence} sentiment={inst.sentiment} />
-        <p className={cn("text-[11px] text-white/60 leading-relaxed mt-2.5", !expanded && "line-clamp-2")}>
+        <p className="text-[11px] text-white/60 leading-relaxed mt-2.5">
           {inst.summary}
         </p>
-        {(inst.summary.length > 90 || inst.key_drivers.length > 0) && (
-          <button
-            onClick={() => setExpanded((e) => !e)}
-            className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition mt-1.5"
-          >
-            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            {expanded ? "Show less" : "Key drivers"}
-          </button>
-        )}
-        {expanded && inst.key_drivers.length > 0 && (
-          <ul className="mt-2 space-y-1 border-t border-white/5 pt-2">
+        {inst.key_drivers.length > 0 && (
+          <ul className="mt-2.5 space-y-1.5 border-t border-white/5 pt-2.5">
             {inst.key_drivers.map((d, i) => (
-              <li key={i} className="text-[10px] text-white/45 flex gap-1.5">
+              <li key={i} className="text-[10px] text-white/45 flex gap-1.5 leading-relaxed">
                 <span className="shrink-0">•</span>{d}
               </li>
             ))}
@@ -129,7 +117,7 @@ function InstrumentCard({ inst }: { inst: InstrumentSentiment }) {
   );
 }
 
-export function SentimentReportDashboard({ report }: { report: SentimentReport }) {
+export function SentimentReportDashboard({ report, onClose, title = "News Sentiment Report" }: { report: SentimentReport; onClose?: () => void; title?: string }) {
   const d = report.data;
   const riskStyle = RISK_TONE_STYLES[d.overall_sentiment.risk_tone] ?? RISK_TONE_STYLES.Neutral;
   const RiskIcon = riskStyle.icon;
@@ -143,7 +131,7 @@ export function SentimentReportDashboard({ report }: { report: SentimentReport }
             <Sparkles className="h-4 w-4 text-white/70" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-[16px] font-bold text-white truncate">News Sentiment Report</h2>
+            <h2 className="text-[16px] font-bold text-white truncate">{title}</h2>
             <div className="flex items-center gap-1.5 text-[11px] text-white/35 flex-wrap">
               <span>{report.timeRangeLabel}</span>
               <span className="text-white/15">·</span>
@@ -155,10 +143,21 @@ export function SentimentReportDashboard({ report }: { report: SentimentReport }
             </div>
           </div>
         </div>
-        <span className={cn("flex items-center gap-1.5 shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-bold", riskStyle.text, riskStyle.bg, riskStyle.border)}>
-          <RiskIcon className="h-3.5 w-3.5" />
-          {d.overall_sentiment.risk_tone}
-        </span>
+        <div className="flex items-center gap-2.5 shrink-0">
+          <span className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold", riskStyle.text, riskStyle.bg, riskStyle.border)}>
+            <RiskIcon className="h-3.5 w-3.5" />
+            {d.overall_sentiment.risk_tone}
+          </span>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/50 hover:text-white transition"
+              aria-label="Close report"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="px-6 py-5 space-y-5 max-w-5xl mx-auto">
@@ -174,7 +173,7 @@ export function SentimentReportDashboard({ report }: { report: SentimentReport }
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Instrument Sentiment</span>
             <span className="ml-auto text-[10px] text-white/25">{d.instrument_sentiment.length} instruments</span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="columns-1 sm:columns-2 xl:columns-3 gap-3">
             {d.instrument_sentiment.map((inst) => (
               <InstrumentCard key={inst.symbol} inst={inst} />
             ))}

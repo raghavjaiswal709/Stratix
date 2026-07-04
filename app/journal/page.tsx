@@ -85,9 +85,21 @@ export default function JournalPage() {
     }
     return sharedTrades.length > 0 ? (sharedTrades[0] as ApiTrade)._id : null;
   });
+  const [selectedSubTradeId, setSelectedSubTradeId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tradeId = params.get("tradeId");
+      if (tradeId) {
+        const cached = sharedTrades.find(t => t._id === tradeId);
+        if (cached && cached.parentTradeId) return tradeId;
+      }
+    }
+    return null;
+  });
   const [tab, setTab] = useState<JournalTab>("all");
   const [isDirty, setIsDirty] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingSubTradeId, setPendingSubTradeId] = useState<string | null>(null);
   const [view, setView] = useState<PageView>("journal");
   const [pendingView, setPendingView] = useState<PageView | null>(null);
 
@@ -110,6 +122,11 @@ export default function JournalPage() {
         if (resolvedId !== selectedId) {
           setSelectedId(resolvedId);
         }
+        if (targetTrade && targetTrade.parentTradeId) {
+          if (tradeId !== selectedSubTradeId) {
+            setSelectedSubTradeId(tradeId);
+          }
+        }
       }
     }
   }, [trades]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -125,24 +142,29 @@ export default function JournalPage() {
           setSharedTrades(arr as unknown as ApiTrade[]);
           
           let targetId = selectedId;
+          let targetSubId = selectedSubTradeId;
           if (typeof window !== "undefined") {
             const params = new URLSearchParams(window.location.search);
             const tradeId = params.get("tradeId");
             if (tradeId) {
               const targetTrade = arr.find(t => t._id === tradeId);
               targetId = (targetTrade && targetTrade.parentTradeId) || tradeId;
+              if (targetTrade && targetTrade.parentTradeId) {
+                targetSubId = tradeId;
+              }
             }
           }
           
           if (arr.length > 0) {
             setSelectedId(targetId || arr[0]._id);
+            setSelectedSubTradeId(targetSubId);
           }
           setLoading(false);
         }, 0);
         return () => clearTimeout(timer);
       })
       .catch(() => setLoading(false));
-  }, [selectedId, setSharedTrades]);
+  }, [selectedId, selectedSubTradeId, setSharedTrades]);
 
   useEffect(() => { load(activeProfileId); }, [activeProfileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -176,20 +198,20 @@ export default function JournalPage() {
   const selectedTrade = trades.find((t) => t._id === selectedId);
 
   function handleSaved(updated: JournalTrade) {
-    setTrades((prev) => {
-      const next = prev.map((t) => (t._id === updated._id ? { ...t, ...updated } : t));
-      setSharedTrades(next as unknown as ApiTrade[]);
-      return next;
-    });
+    const next = trades.map((t) => (t._id === updated._id ? { ...t, ...updated } : t));
+    setTrades(next);
+    setSharedTrades(next as unknown as ApiTrade[]);
     setIsDirty(false);
   }
 
-  function handleSelect(id: string) {
-    if (id === selectedId) return;
+  function handleSelect(id: string, subId: string | null = null) {
+    if (id === selectedId && subId === selectedSubTradeId) return;
     if (isDirty) {
       setPendingId(id);
+      setPendingSubTradeId(subId);
     } else {
       setSelectedId(id);
+      setSelectedSubTradeId(subId);
     }
   }
 
@@ -209,11 +231,14 @@ export default function JournalPage() {
       setView(pendingView);
     } else if (pendingId && pendingId !== "__back__") {
       setSelectedId(pendingId);
+      setSelectedSubTradeId(pendingSubTradeId);
     } else if (pendingId === "__back__") {
       setSelectedId(null);
+      setSelectedSubTradeId(null);
     }
     setIsDirty(false);
     setPendingId(null);
+    setPendingSubTradeId(null);
     setPendingView(null);
   }
 
@@ -222,16 +247,20 @@ export default function JournalPage() {
       setView(pendingView);
     } else if (pendingId && pendingId !== "__back__") {
       setSelectedId(pendingId);
+      setSelectedSubTradeId(pendingSubTradeId);
     } else if (pendingId === "__back__") {
       setSelectedId(null);
+      setSelectedSubTradeId(null);
     }
     setIsDirty(false);
     setPendingId(null);
+    setPendingSubTradeId(null);
     setPendingView(null);
   }
 
   function handleDialogCancel() {
     setPendingId(null);
+    setPendingSubTradeId(null);
     setPendingView(null);
   }
 
@@ -290,6 +319,7 @@ export default function JournalPage() {
               <JournalList
                 trades={trades}
                 selectedId={selectedId}
+                selectedSubTradeId={selectedSubTradeId}
                 onSelect={handleSelect}
                 tab={tab}
                 onTabChange={setTab}
@@ -303,8 +333,13 @@ export default function JournalPage() {
                 <div className="flex md:hidden items-center px-4 py-2 border-b border-border shrink-0">
                   <button
                     onClick={() => {
-                      if (isDirty) setPendingId("__back__");
-                      else setSelectedId(null);
+                      if (isDirty) {
+                        setPendingId("__back__");
+                        setPendingSubTradeId(null);
+                      } else {
+                        setSelectedId(null);
+                        setSelectedSubTradeId(null);
+                      }
                     }}
                     className="flex items-center gap-1.5 text-[12px] text-white/50 hover:text-white transition"
                   >
@@ -317,6 +352,8 @@ export default function JournalPage() {
                     trade={selectedTrade}
                     onSaved={handleSaved}
                     onDirtyChange={setIsDirty}
+                    allTrades={trades}
+                    isAggregatedView={selectedSubTradeId === null && selectedTrade.mergedTradeIds && selectedTrade.mergedTradeIds.length > 0}
                   />
                 </div>
               </div>
