@@ -13,6 +13,7 @@ import {
 import { format, subDays, subMonths, parseISO, isAfter } from "date-fns";
 import { TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getISTDateKey } from "@/lib/utils/ist-time";
 
 interface Trade {
   _id: string;
@@ -21,11 +22,15 @@ interface Trade {
   swap?: number;
   commission?: number;
   status: string;
+  source?: "manual" | "mt5";
 }
 
 interface PerformanceChartProps {
   trades: Trade[];
   loading?: boolean;
+  /** Dashboard-palette-driven positive/negative colors (SVG props can't read CSS vars). */
+  positiveColor?: string;
+  negativeColor?: string;
 }
 
 const PERIODS = ["1D", "1W", "1M", "3M", "ALL"] as const;
@@ -50,11 +55,12 @@ function buildChartData(trades: Trade[], start: Date | null) {
     ? sorted.filter((t) => isAfter(parseISO(t.entryTime), start))
     : sorted;
 
-  // Group by calendar day (local time) based on entryTime so each day has one cumulative point.
-  // Multiple trades on the same day are summed, avoiding duplicate X labels.
+  // Group by calendar day in true IST based on entryTime so each day has one
+  // cumulative point. Multiple trades on the same day are summed, avoiding
+  // duplicate X labels.
   const byDay = new Map<string, number>();
   for (const t of filtered) {
-    const key = format(parseISO(t.entryTime), "yyyy-MM-dd");
+    const key = getISTDateKey(t.entryTime, t.source);
     const netProfit = t.profit + (t.swap || 0) + (t.commission || 0);
     byDay.set(key, (byDay.get(key) ?? 0) + netProfit);
   }
@@ -88,7 +94,7 @@ function CustomTooltip({
   );
 }
 
-export function PerformanceChart({ trades, loading }: PerformanceChartProps) {
+export function PerformanceChart({ trades, loading, positiveColor = "#10b981", negativeColor = "#ef4444" }: PerformanceChartProps) {
   // Default to ALL so the chart is never empty for users who have trades
   // from earlier periods. They can narrow down using the period buttons.
   const [period, setPeriod] = useState<Period>("ALL");
@@ -158,8 +164,8 @@ export function PerformanceChart({ trades, loading }: PerformanceChartProps) {
             <AreaChart data={data} margin={{ top: 8, right: 4, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0.25} />
-                  <stop offset="95%" stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0} />
+                  <stop offset="5%"  stopColor={isPositive ? positiveColor : negativeColor} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={isPositive ? positiveColor : negativeColor} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis
@@ -179,11 +185,11 @@ export function PerformanceChart({ trades, loading }: PerformanceChartProps) {
               <Area
                 type="monotone"
                 dataKey="pnl"
-                stroke={isPositive ? "#10b981" : "#ef4444"}
+                stroke={isPositive ? positiveColor : negativeColor}
                 strokeWidth={2}
                 fill="url(#pnlGrad)"
                 dot={false}
-                activeDot={{ r: 4, fill: isPositive ? "#10b981" : "#ef4444" }}
+                activeDot={{ r: 4, fill: isPositive ? positiveColor : negativeColor }}
               />
             </AreaChart>
           </ResponsiveContainer>

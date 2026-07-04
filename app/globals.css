@@ -49,94 +49,104 @@
 }
 
 /* ===== ACCENT COLOR SYSTEM ===== */
-/* --accent-color is set dynamically via JS from user preferences */
+/* --accent-color / --accent-color-foreground are set dynamically via JS from
+   user preferences (lib/context.tsx) based on the selected theme preset.
+   --primary/--ring/--sidebar-primary/--sidebar-ring/--accent/--sidebar-accent
+   below derive from these two, so picking a theme recolors every primitive
+   button, focus ring, and the active sidebar nav item app-wide. */
 :root {
-  --accent-color: #ffffff;
+  --accent-color: #10b981;
+  --accent-color-foreground: #ffffff;
 }
 
 /* ===== LIGHT MODE ===== */
+/* Every neutral surface below is tinted a few % toward the selected theme's
+   accent hue via color-mix() — so switching palettes doesn't just recolor a
+   handful of buttons, it gives the page background, every card, every
+   border, and the sidebar a genuinely different, cohesive mood. Text/
+   foreground colors stay neutral so contrast/legibility never degrades. */
 :root {
-  --background: oklch(0.985 0 0);
+  --background: color-mix(in srgb, var(--accent-color) 3%, oklch(0.985 0 0));
   --foreground: oklch(0.13 0 0);
-  --card: oklch(1 0 0);
+  --card: color-mix(in srgb, var(--accent-color) 2%, oklch(1 0 0));
   --card-foreground: oklch(0.13 0 0);
-  --popover: oklch(1 0 0);
+  --popover: color-mix(in srgb, var(--accent-color) 2%, oklch(1 0 0));
   --popover-foreground: oklch(0.13 0 0);
-  --primary: oklch(0.585 0.233 278.364);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.96 0 0);
+  --primary: var(--accent-color);
+  --primary-foreground: var(--accent-color-foreground);
+  --secondary: color-mix(in srgb, var(--accent-color) 6%, oklch(0.96 0 0));
   --secondary-foreground: oklch(0.2 0 0);
-  --muted: oklch(0.96 0 0);
+  --muted: color-mix(in srgb, var(--accent-color) 6%, oklch(0.96 0 0));
   --muted-foreground: oklch(0.51 0 0);
-  --accent: oklch(0.95 0.04 278.364);
-  --accent-foreground: oklch(0.45 0.2 278.364);
+  --accent: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  --accent-foreground: var(--accent-color);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.90 0 0);
-  --input: oklch(0.90 0 0);
-  --ring: oklch(0.585 0.233 278.364);
-  --chart-1: oklch(0.585 0.233 278.364);
+  --border: color-mix(in srgb, var(--accent-color) 10%, oklch(0.90 0 0));
+  --input: color-mix(in srgb, var(--accent-color) 10%, oklch(0.90 0 0));
+  --ring: var(--accent-color);
+  --chart-1: var(--accent-color);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.167 86.31);
   --chart-4: oklch(0.641 0.246 17.51);
   --chart-5: oklch(0.579 0.246 298.91);
   --radius: 0.5rem;
-  --sidebar: oklch(0.97 0 0);
+  --sidebar: color-mix(in srgb, var(--accent-color) 4%, oklch(0.97 0 0));
   --sidebar-foreground: oklch(0.13 0 0);
-  --sidebar-primary: oklch(0.585 0.233 278.364);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.95 0.04 278.364);
-  --sidebar-accent-foreground: oklch(0.45 0.2 278.364);
-  --sidebar-border: oklch(0.90 0 0);
-  --sidebar-ring: oklch(0.585 0.233 278.364);
+  --sidebar-primary: var(--accent-color);
+  --sidebar-primary-foreground: var(--accent-color-foreground);
+  --sidebar-accent: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  --sidebar-accent-foreground: var(--accent-color);
+  --sidebar-border: color-mix(in srgb, var(--accent-color) 10%, oklch(0.90 0 0));
+  --sidebar-ring: var(--accent-color);
 
   /* ── Theme-aware utility vars ── */
-  --table-border: rgba(0, 0, 0, 0.10);
-  --table-header-bg: rgba(0, 0, 0, 0.025);
-  --glass-border-color: rgba(0, 0, 0, 0.09);
-  --glass-surface: rgba(255, 255, 255, 0.75);
-  --glass-nav-bg: rgba(250, 250, 252, 0.88);
+  --table-border: color-mix(in srgb, var(--accent-color) 8%, rgba(0, 0, 0, 0.10));
+  --table-header-bg: color-mix(in srgb, var(--accent-color) 4%, rgba(0, 0, 0, 0.025));
+  --glass-border-color: color-mix(in srgb, var(--accent-color) 10%, rgba(0, 0, 0, 0.09));
+  --glass-surface: color-mix(in srgb, var(--accent-color) 3%, rgba(255, 255, 255, 0.75));
+  --glass-nav-bg: color-mix(in srgb, var(--accent-color) 3%, rgba(250, 250, 252, 0.88));
 }
 
 /* ===== DARK MODE ===== */
 .dark {
   --background: #0f0f0f;
   --foreground: oklch(0.97 0 0);
-  --card: #111111;
+  --card: color-mix(in srgb, var(--accent-color) 5%, #111111);
   --card-foreground: oklch(0.97 0 0);
-  --popover: #111111;
+  --popover: color-mix(in srgb, var(--accent-color) 5%, #111111);
   --popover-foreground: oklch(0.97 0 0);
-  --primary: oklch(0.97 0 0);
-  --primary-foreground: oklch(0.09 0 0);
-  --secondary: #1a1a1a;
+  --primary: var(--accent-color);
+  --primary-foreground: var(--accent-color-foreground);
+  --secondary: color-mix(in srgb, var(--accent-color) 6%, #1a1a1a);
   --secondary-foreground: oklch(0.97 0 0);
-  --muted: #161616;
+  --muted: color-mix(in srgb, var(--accent-color) 5%, #161616);
   --muted-foreground: oklch(0.55 0 0);
-  --accent: rgba(255, 255, 255, 0.06);
-  --accent-foreground: oklch(0.97 0 0);
+  --accent: color-mix(in srgb, var(--accent-color) 15%, transparent);
+  --accent-foreground: var(--accent-color);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: rgba(255, 255, 255, 0.07);
-  --input: rgba(255, 255, 255, 0.08);
-  --ring: rgba(255, 255, 255, 0.45);
-  --chart-1: oklch(0.585 0.233 278.364);
+  --border: color-mix(in srgb, var(--accent-color) 14%, rgba(255, 255, 255, 0.07));
+  --input: color-mix(in srgb, var(--accent-color) 14%, rgba(255, 255, 255, 0.08));
+  --ring: var(--accent-color);
+  --chart-1: var(--accent-color);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.167 86.31);
   --chart-4: oklch(0.641 0.246 17.51);
   --chart-5: oklch(0.579 0.246 298.91);
-  --sidebar: #0a0a0a;
+  --sidebar: color-mix(in srgb, var(--accent-color) 4%, #0a0a0a);
   --sidebar-foreground: oklch(0.97 0 0);
-  --sidebar-primary: oklch(0.97 0 0);
-  --sidebar-primary-foreground: oklch(0.09 0 0);
-  --sidebar-accent: rgba(255, 255, 255, 0.055);
-  --sidebar-accent-foreground: oklch(0.97 0 0);
-  --sidebar-border: rgba(255, 255, 255, 0.055);
-  --sidebar-ring: rgba(255, 255, 255, 0.45);
+  --sidebar-primary: var(--accent-color);
+  --sidebar-primary-foreground: var(--accent-color-foreground);
+  --sidebar-accent: color-mix(in srgb, var(--accent-color) 16%, transparent);
+  --sidebar-accent-foreground: var(--accent-color);
+  --sidebar-border: color-mix(in srgb, var(--accent-color) 12%, rgba(255, 255, 255, 0.055));
+  --sidebar-ring: var(--accent-color);
 
   /* ── Theme-aware utility vars ── */
-  --table-border: rgba(255, 255, 255, 0.07);
-  --table-header-bg: rgba(255, 255, 255, 0.025);
-  --glass-border-color: rgba(255, 255, 255, 0.07);
-  --glass-surface: rgba(255, 255, 255, 0.03);
-  --glass-nav-bg: rgba(10, 10, 10, 0.85);
+  --table-border: color-mix(in srgb, var(--accent-color) 10%, rgba(255, 255, 255, 0.07));
+  --table-header-bg: color-mix(in srgb, var(--accent-color) 6%, rgba(255, 255, 255, 0.025));
+  --glass-border-color: color-mix(in srgb, var(--accent-color) 12%, rgba(255, 255, 255, 0.07));
+  --glass-surface: color-mix(in srgb, var(--accent-color) 5%, rgba(255, 255, 255, 0.03));
+  --glass-nav-bg: color-mix(in srgb, var(--accent-color) 4%, rgba(10, 10, 10, 0.85));
 }
 
 /* ===== GLASS UTILITIES ===== */
@@ -161,6 +171,97 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 4px 24px rgba(0, 0, 0, 0.4);
 }
+
+/* ===== APPLICATION COLOR PALETTE ===== */
+/* .app-theme-scope now wraps the ENTIRE app shell (app/client-layout.tsx —
+   sidebar + every route's children), not just the Dashboard. It overrides
+   --background, --card, --border, --muted-foreground, --sidebar-* and more,
+   inline, per the selected DASHBOARD_PALETTES entry, so every component using those
+   tokens (the large majority of the app) already renders 100% from the
+   palette with zero contribution from the normal light/dark/accent theme.
+   The rules below handle what tokens alone can't reach: hardcoded Tailwind
+   utility classes (white/black opacity "glass" classes, and profit/loss
+   emerald/red), plus the dashboard's own card top-stripes/header-icons/
+   breakdown-row accents. */
+.app-theme-scope .rounded-2xl.border.border-border.bg-card {
+  border-top-width: 3px;
+  border-top-color: var(--dash-card-top, var(--border));
+}
+.app-theme-scope [class~="text-white/55"] {
+  color: var(--dash-icon, rgba(255, 255, 255, 0.55)) !important;
+}
+.app-theme-scope .bg-muted\/40.border-border {
+  border-left-width: 3px;
+  border-left-color: var(--dash-badge-ring, var(--border));
+}
+
+/* Profit/loss colors on the Dashboard specifically — enumerated because
+   these 6 components use a finite, known set of Tailwind emerald/red
+   classes (verified via grep), so each opacity variant can be remapped
+   precisely instead of guessing. */
+.app-theme-scope .text-emerald-400,
+.app-theme-scope .text-emerald-400\/70,
+.app-theme-scope .hover\:text-emerald-400:hover { color: var(--dash-positive) !important; }
+.app-theme-scope .text-red-400 { color: var(--dash-negative) !important; }
+
+.app-theme-scope .bg-emerald-400,
+.app-theme-scope .bg-emerald-500 { background-color: var(--dash-positive) !important; }
+.app-theme-scope .bg-red-400 { background-color: var(--dash-negative) !important; }
+
+.app-theme-scope .bg-emerald-500\/10 { background-color: color-mix(in srgb, var(--dash-positive) 10%, transparent) !important; }
+.app-theme-scope .bg-emerald-500\/15 { background-color: color-mix(in srgb, var(--dash-positive) 15%, transparent) !important; }
+.app-theme-scope .bg-emerald-500\/20,
+.app-theme-scope .hover\:bg-emerald-500\/20:hover { background-color: color-mix(in srgb, var(--dash-positive) 20%, transparent) !important; }
+.app-theme-scope .bg-emerald-500\/60 { background-color: color-mix(in srgb, var(--dash-positive) 60%, transparent) !important; }
+
+.app-theme-scope .bg-red-500\/10 { background-color: color-mix(in srgb, var(--dash-negative) 10%, transparent) !important; }
+.app-theme-scope .bg-red-500\/15 { background-color: color-mix(in srgb, var(--dash-negative) 15%, transparent) !important; }
+.app-theme-scope .bg-red-500\/20,
+.app-theme-scope .hover\:bg-red-500\/20:hover { background-color: color-mix(in srgb, var(--dash-negative) 20%, transparent) !important; }
+.app-theme-scope .bg-red-500\/60 { background-color: color-mix(in srgb, var(--dash-negative) 60%, transparent) !important; }
+
+.app-theme-scope .border-emerald-500\/20 { border-color: color-mix(in srgb, var(--dash-positive) 20%, transparent) !important; }
+.app-theme-scope .border-red-500\/20 { border-color: color-mix(in srgb, var(--dash-negative) 20%, transparent) !important; }
+
+/* Profit/loss colors EVERYWHERE ELSE in the app — anchored to the exact,
+   non-opacity token (`~=` requires a whole space-separated class match) so
+   only solid-fill usages (the big $ P&L numbers, solid badges) get
+   remapped. Deliberately does NOT touch opacity-suffixed variants
+   (bg-emerald-500/10 etc.) app-wide — at 60+ files there's no way to
+   enumerate every fraction safely, and forcing them all to one flat
+   opacity would flatten intentional translucent-tint hierarchy. The
+   result: every prominent P&L number matches the palette; softer badge
+   tints keep their designed look. */
+.app-theme-scope [class~="text-emerald-400"],
+.app-theme-scope [class~="text-emerald-500"] { color: var(--dash-positive) !important; }
+.app-theme-scope [class~="text-red-400"],
+.app-theme-scope [class~="text-red-500"] { color: var(--dash-negative) !important; }
+.app-theme-scope [class~="bg-emerald-400"],
+.app-theme-scope [class~="bg-emerald-500"],
+.app-theme-scope [class~="bg-emerald-600"] { background-color: var(--dash-positive) !important; }
+.app-theme-scope [class~="bg-red-400"],
+.app-theme-scope [class~="bg-red-500"],
+.app-theme-scope [class~="bg-red-600"] { background-color: var(--dash-negative) !important; }
+
+/* Hardcoded "glass" utility classes app-wide (news-analysis, journal AI
+   reports, sentiment dashboards, etc.) — the same catch-all technique as
+   the light-mode fix above, but active regardless of dark/light mode
+   whenever a palette is selected, since --card/--border/--muted/etc. are
+   already the palette's own colors inside .app-theme-scope. */
+.app-theme-scope [class^="bg-white/"],
+.app-theme-scope [class*=" bg-white/"] { background-color: var(--muted) !important; }
+.app-theme-scope [class^="text-white/"],
+.app-theme-scope [class*=" text-white/"] { color: var(--muted-foreground) !important; }
+.app-theme-scope [class~="text-white"] { color: var(--foreground) !important; }
+.app-theme-scope [class^="border-white/"],
+.app-theme-scope [class*=" border-white/"] { border-color: var(--border) !important; }
+.app-theme-scope [class^="divide-white/"] > :not([hidden]) ~ :not([hidden]),
+.app-theme-scope [class*=" divide-white/"] > :not([hidden]) ~ :not([hidden]) { border-color: var(--border) !important; }
+.app-theme-scope [class^="bg-["],
+.app-theme-scope [class*=" bg-["] { background-color: var(--card) !important; }
+.app-theme-scope [class*="hover:bg-white/"]:hover { background-color: color-mix(in srgb, var(--foreground) 8%, transparent) !important; }
+.app-theme-scope [class*="hover:text-white"]:hover { color: var(--foreground) !important; }
+.app-theme-scope [class*="hover:border-white/"]:hover { border-color: color-mix(in srgb, var(--foreground) 20%, transparent) !important; }
 
 .glass-nav {
   background: var(--glass-nav-bg);
@@ -330,7 +431,29 @@
 .dark .rdp-day.score25 { color: #4ade80 !important; }
 .dark .rdp-day.score50 { color: #86efac !important; }
 
-/* Light Mode Overrides for Hardcoded Dark Classes */
+/* ══════════════════════════════════════════════════════════════════════
+   LIGHT MODE OVERRIDES — catch-all for hardcoded "glass dark" classes
+   ══════════════════════════════════════════════════════════════════════
+   Many newer components (news-analysis, journal AI reports, sentiment
+   dashboards) hardcode Tailwind's BRACKET arbitrary-value syntax for
+   opacity, e.g. `bg-white/[0.05]`, `border-white/[0.07]`, which is a
+   different literal class than the fixed-scale `bg-white/5` — an
+   enumerated list of the fixed scale (as below) silently misses every
+   bracket variant, leaving those cards pitch black in light mode.
+
+   Attribute selectors matching on the literal `class` string fix this
+   for BOTH syntaxes at once, present and future, without having to
+   enumerate every fraction. Anchored with `^=`/`*=" "` so a modifier
+   like `hover:text-white/70` (a different, colon-prefixed token) is
+   never matched by the base rule — only real standalone utility
+   classes are. Dedicated hover rules exist separately below. */
+
+/* Hardcoded hex "glass" backgrounds — generic fallback first, then the
+   5 known shades win the tie-break by winning cascade order (same
+   specificity, later rule wins) for nuanced background/card/popover/
+   sidebar/muted layering. */
+:root:not(.dark) [class^="bg-["],
+:root:not(.dark) [class*=" bg-["] { background-color: var(--card) !important; }
 :root:not(.dark) .bg-\[\#0c0e14\] { background-color: var(--background) !important; }
 :root:not(.dark) .bg-\[\#0f1117\] { background-color: var(--sidebar) !important; }
 :root:not(.dark) .bg-\[\#141720\] { background-color: var(--card) !important; }
@@ -338,54 +461,27 @@
 :root:not(.dark) .bg-\[\#1e2536\] { background-color: var(--muted) !important; }
 
 :root:not(.dark) .text-white { color: var(--foreground) !important; }
-:root:not(.dark) .text-white\/20,
-:root:not(.dark) .text-white\/25,
-:root:not(.dark) .text-white\/30,
-:root:not(.dark) .text-white\/35,
-:root:not(.dark) .text-white\/40,
-:root:not(.dark) .text-white\/45,
-:root:not(.dark) .text-white\/50,
-:root:not(.dark) .text-white\/60,
-:root:not(.dark) .text-white\/70,
-:root:not(.dark) .text-white\/75,
-:root:not(.dark) .text-white\/80,
-:root:not(.dark) .text-white\/90 { color: var(--muted-foreground) !important; }
+:root:not(.dark) [class^="text-white/"],
+:root:not(.dark) [class*=" text-white/"] { color: var(--muted-foreground) !important; }
 
-:root:not(.dark) .border-white\/4,
-:root:not(.dark) .border-white\/5,
-:root:not(.dark) .border-white\/6,
-:root:not(.dark) .border-white\/7,
-:root:not(.dark) .border-white\/8,
-:root:not(.dark) .border-white\/10,
-:root:not(.dark) .border-white\/15,
-:root:not(.dark) .border-white\/20,
-:root:not(.dark) .border-white\/25,
-:root:not(.dark) .border-white\/30 { border-color: var(--border) !important; }
+:root:not(.dark) [class^="border-white/"],
+:root:not(.dark) [class*=" border-white/"] { border-color: var(--border) !important; }
 
-:root:not(.dark) .divide-white\/4 > :not([hidden]) ~ :not([hidden]),
-:root:not(.dark) .divide-white\/5 > :not([hidden]) ~ :not([hidden]),
-:root:not(.dark) .divide-white\/6 > :not([hidden]) ~ :not([hidden]),
-:root:not(.dark) .divide-white\/7 > :not([hidden]) ~ :not([hidden]),
-:root:not(.dark) .divide-white\/10 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border) !important; }
+:root:not(.dark) [class^="divide-white/"] > :not([hidden]) ~ :not([hidden]),
+:root:not(.dark) [class*=" divide-white/"] > :not([hidden]) ~ :not([hidden]) { border-color: var(--border) !important; }
 
-:root:not(.dark) .bg-white\/2,
-:root:not(.dark) .bg-white\/3,
-:root:not(.dark) .bg-white\/4,
-:root:not(.dark) .bg-white\/5,
-:root:not(.dark) .bg-white\/8,
-:root:not(.dark) .bg-white\/10,
-:root:not(.dark) .bg-white\/15,
-:root:not(.dark) .bg-white\/20 { background-color: var(--muted) !important; }
+:root:not(.dark) [class^="bg-white/"],
+:root:not(.dark) [class*=" bg-white/"] { background-color: var(--muted) !important; }
 
-:root:not(.dark) .hover\:bg-white\/3:hover,
-:root:not(.dark) .hover\:bg-white\/5:hover,
-:root:not(.dark) .hover\:bg-white\/8:hover,
-:root:not(.dark) .hover\:bg-white\/10:hover,
-:root:not(.dark) .hover\:bg-white\/20:hover { background-color: rgba(0,0,0,0.05) !important; }
+:root:not(.dark) [class^="ring-white/"],
+:root:not(.dark) [class*=" ring-white/"] { --tw-ring-color: var(--ring) !important; }
 
-:root:not(.dark) .hover\:text-white:hover,
-:root:not(.dark) .hover\:text-white\/70:hover,
-:root:not(.dark) .hover\:text-white\/80:hover { color: var(--foreground) !important; }
+:root:not(.dark) [class*="placeholder:text-white"] { caret-color: var(--foreground); }
+
+:root:not(.dark) [class*="hover:bg-white/"]:hover { background-color: color-mix(in srgb, black 5%, transparent) !important; }
+:root:not(.dark) [class*="hover:border-white/"]:hover { border-color: color-mix(in srgb, black 20%, transparent) !important; }
+
+:root:not(.dark) [class*="hover:text-white"]:hover { color: var(--foreground) !important; }
 
 /* ===== NOTION-LIKE EDITOR ===== */
 

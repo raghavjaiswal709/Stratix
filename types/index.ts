@@ -139,16 +139,138 @@ export interface NotesData {
 }
 
 // ============ USER PREFERENCES ============
-export const ACCENT_PRESETS = [
-  { name: "Indigo", value: "#6366f1" },
-  { name: "Violet", value: "#8b5cf6" },
-  { name: "Blue", value: "#3b82f6" },
-  { name: "Cyan", value: "#06b6d4" },
-  { name: "Emerald", value: "#10b981" },
-  { name: "Amber", value: "#f59e0b" },
-  { name: "Rose", value: "#f43f5e" },
-  { name: "Pink", value: "#ec4899" },
-] as const;
+export interface AccentPreset {
+  name: string;
+  value: string;
+  /** Best-contrast text color for solid fills using this accent (buttons, active nav). */
+  foreground: string;
+  /** Which theme mode this swatch is tuned for — vivid for dark backgrounds, deep/saturated for light. */
+  mode: "dark" | "light";
+}
+
+// 20 curated accent palettes — 10 tuned for dark mode (vivid, pop against
+// near-black surfaces), 10 tuned for light mode (deeper/richer shades that
+// stay legible against white). No blue/indigo/violet hues, matching the
+// app's monochrome-glass + emerald/red profit-loss convention.
+export const ACCENT_PRESETS: AccentPreset[] = [
+  // ── Dark mode ──
+  { name: "Emerald",  value: "#10b981", foreground: "#ffffff", mode: "dark" },
+  { name: "Lime",     value: "#84cc16", foreground: "#000000", mode: "dark" },
+  { name: "Amber",    value: "#f59e0b", foreground: "#000000", mode: "dark" },
+  { name: "Sunset",   value: "#f97316", foreground: "#ffffff", mode: "dark" },
+  { name: "Crimson",  value: "#ef4444", foreground: "#ffffff", mode: "dark" },
+  { name: "Rose",     value: "#f43f5e", foreground: "#ffffff", mode: "dark" },
+  { name: "Magenta",  value: "#ec4899", foreground: "#ffffff", mode: "dark" },
+  { name: "Orchid",   value: "#d946ef", foreground: "#ffffff", mode: "dark" },
+  { name: "Gold",     value: "#eab308", foreground: "#000000", mode: "dark" },
+  { name: "Coral",    value: "#fb7185", foreground: "#000000", mode: "dark" },
+  // ── Light mode ──
+  { name: "Forest",     value: "#059669", foreground: "#ffffff", mode: "light" },
+  { name: "Olive",      value: "#4d7c0f", foreground: "#ffffff", mode: "light" },
+  { name: "Honey",      value: "#b45309", foreground: "#ffffff", mode: "light" },
+  { name: "Terracotta", value: "#c2410c", foreground: "#ffffff", mode: "light" },
+  { name: "Ruby",       value: "#dc2626", foreground: "#ffffff", mode: "light" },
+  { name: "Garnet",     value: "#e11d48", foreground: "#ffffff", mode: "light" },
+  { name: "Berry",      value: "#be185d", foreground: "#ffffff", mode: "light" },
+  { name: "Plum",       value: "#a21caf", foreground: "#ffffff", mode: "light" },
+  { name: "Bronze",     value: "#a16207", foreground: "#ffffff", mode: "light" },
+  { name: "Maroon",     value: "#9f1239", foreground: "#ffffff", mode: "light" },
+];
+
+// ── Application Color Palette ─────────────────────────────────────────────
+// A FULL re-skin, app-wide: every role below replaces the app's normal
+// background/card/border/text tokens entirely while a palette is active.
+// "default" is a reserved id meaning "no palette — use the normal dark/light
+// + accent-color theme"; it is NOT in DASHBOARD_PALETTES (there's nothing to
+// look up), callers just treat an unset/"default" preference as "off".
+// Mutually exclusive with the single-tint Accent Color system: picking an
+// accent resets this to "default", and picking a palette here supersedes
+// the accent entirely while active. `positive`/`negative` stay green/red
+// family (for financial-data legibility) but muted — every color below is
+// deliberately desaturated/low-contrast, editor-theme style, not neon.
+export const DEFAULT_DASHBOARD_PALETTE_ID = "default";
+
+export interface DashboardPalette {
+  id: string;
+  name: string;
+  mode: "dark" | "light";
+  background: string;    // page background
+  card: string;          // card/section surface
+  border: string;        // card borders, row borders
+  text: string;           // primary heading/value text
+  textMuted: string;      // secondary/label text
+  positive: string;       // profit/win color (muted green-family)
+  negative: string;       // loss color (muted red-family)
+  accent: string;         // primary buttons/progress fills/chart accents
+  icon: string;           // section-header icons
+  badge: string;          // breakdown-row left accent / tag color
+}
+
+export const DASHBOARD_PALETTES: DashboardPalette[] = [
+  // ── Dark Mode Palettes ──
+  { id: "sage-clay",       name: "Sage & Clay", mode: "dark",
+    background: "#1c1b19", card: "#24221f", border: "#3a352f", text: "#e8e3d8", textMuted: "#a39c8c",
+    positive: "#8fae7a", negative: "#c1666b", accent: "#c9a35c", icon: "#a68a64", badge: "#b98b73" },
+  { id: "moss-moor",       name: "Moss & Moor", mode: "dark",
+    background: "#191d19", card: "#202521", border: "#333a33", text: "#e2e8de", textMuted: "#9aa696",
+    positive: "#7fa373", negative: "#b56258", accent: "#94ab7c", icon: "#c2a24f", badge: "#7d9471" },
+  { id: "rosewood-study",  name: "Rosewood Study", mode: "dark",
+    background: "#1d1817", card: "#26201e", border: "#3d322e", text: "#ecdfd9", textMuted: "#b09a91",
+    positive: "#8ba888", negative: "#b9645c", accent: "#c48b7f", icon: "#cf9a72", badge: "#a56b62" },
+  { id: "golden-hour",     name: "Golden Hour", mode: "dark",
+    background: "#1d1a14", card: "#25211a", border: "#40392b", text: "#f0e6d2", textMuted: "#b8a888",
+    positive: "#9cae6f", negative: "#c1705a", accent: "#cc9c4f", icon: "#d4b06a", badge: "#b8823f" },
+  { id: "amber-dusk",      name: "Amber Dusk", mode: "dark",
+    background: "#1c1815", card: "#24201b", border: "#3e352a", text: "#ecdfd0", textMuted: "#ab9a83",
+    positive: "#93a878", negative: "#bd6f5e", accent: "#ce9152", icon: "#d1a35f", badge: "#a8703f" },
+  { id: "terracotta-studio", name: "Terracotta Studio", mode: "dark",
+    background: "#1b1614", card: "#251e1a", border: "#3d2f27", text: "#efe2d6", textMuted: "#b39d8c",
+    positive: "#8fa878", negative: "#b8604f", accent: "#c07a56", icon: "#cc8f63", badge: "#a15b45" },
+  { id: "olive-grove",     name: "Olive Grove", mode: "dark",
+    background: "#191a15", card: "#21221b", border: "#383a2d", text: "#e6e6d6", textMuted: "#a3a48c",
+    positive: "#8a9e5e", negative: "#b06256", accent: "#9ba85e", icon: "#b3a555", badge: "#7c8a4f" },
+  { id: "copper-patina",   name: "Copper Patina", mode: "dark",
+    background: "#171a18", card: "#1f2320", border: "#333c35", text: "#dde8e0", textMuted: "#94a89b",
+    positive: "#7fae8f", negative: "#b06a58", accent: "#a67c5b", icon: "#8fa888", badge: "#8a6a4d" },
+  { id: "autumn-ember",    name: "Autumn Ember", mode: "dark",
+    background: "#1a1613", card: "#221c18", border: "#3d2f24", text: "#ecdfce", textMuted: "#ac9781",
+    positive: "#93a06a", negative: "#bb5d47", accent: "#c17d3e", icon: "#cf9853", badge: "#954f38" },
+  { id: "muted-rose",      name: "Muted Rose", mode: "dark",
+    background: "#1c1618", card: "#251d20", border: "#3d2e33", text: "#ecdfe2", textMuted: "#ab949c",
+    positive: "#8ba88f", negative: "#b16471", accent: "#b17d8c", icon: "#c99aa6", badge: "#8f5b68" },
+
+  // ── Light Mode Palettes ──
+  { id: "porcelain-mint",    name: "Porcelain & Mint", mode: "light",
+    background: "#f3f7f5", card: "#ffffff", border: "#dbe7e1", text: "#1e2925", textMuted: "#5c6f67",
+    positive: "#059669", negative: "#dc2626", accent: "#0f766e", icon: "#0f766e", badge: "#14b8a6" },
+  { id: "parchment-ink",     name: "Parchment & Ink", mode: "light",
+    background: "#faf8f5", card: "#ffffff", border: "#e9e4dc", text: "#26231f", textMuted: "#6b6359",
+    positive: "#15803d", negative: "#b91c1c", accent: "#a16207", icon: "#a16207", badge: "#b45309" },
+  { id: "alabaster-rose",    name: "Alabaster & Rose", mode: "light",
+    background: "#fdf8f7", card: "#ffffff", border: "#f3e6e3", text: "#372521", textMuted: "#7c605a",
+    positive: "#16a34a", negative: "#dc2626", accent: "#be123c", icon: "#e11d48", badge: "#fb7185" },
+  { id: "sandstone-slate",   name: "Sandstone & Slate", mode: "light",
+    background: "#fcf9f5", card: "#ffffff", border: "#ebdcd0", text: "#362e28", textMuted: "#7d6e64",
+    positive: "#16a34a", negative: "#d97706", accent: "#c2410c", icon: "#b45309", badge: "#dd6b20" },
+  { id: "linen-oats",        name: "Linen & Oats", mode: "light",
+    background: "#f9f6f0", card: "#ffffff", border: "#eae4d8", text: "#2d2924", textMuted: "#766e63",
+    positive: "#2e7d32", negative: "#c62828", accent: "#8d6e63", icon: "#8d6e63", badge: "#795548" },
+  { id: "chalk-clay",        name: "Chalk & Clay", mode: "light",
+    background: "#fcfaf9", card: "#ffffff", border: "#f0e5e0", text: "#3a2820", textMuted: "#806359",
+    positive: "#1b5e20", negative: "#b71c1c", accent: "#a73a24", icon: "#a73a24", badge: "#c05c46" },
+  { id: "morning-mist",      name: "Morning Mist", mode: "light",
+    background: "#f4f6f8", card: "#ffffff", border: "#e2e8f0", text: "#0f172a", textMuted: "#475569",
+    positive: "#16a34a", negative: "#dc2626", accent: "#0284c7", icon: "#0f766e", badge: "#06b6d4" },
+  { id: "silk-pewter",       name: "Silk & Pewter", mode: "light",
+    background: "#fafafa", card: "#ffffff", border: "#e5e5e5", text: "#171717", textMuted: "#525252",
+    positive: "#16a34a", negative: "#dc2626", accent: "#404040", icon: "#404040", badge: "#737373" },
+  { id: "soft-sage",         name: "Soft Sage", mode: "light",
+    background: "#f4f6f3", card: "#ffffff", border: "#e1e6de", text: "#1f291a", textMuted: "#566150",
+    positive: "#15803d", negative: "#c2410c", accent: "#4f6b3e", icon: "#4f6b3e", badge: "#708a5e" },
+  { id: "apricot-cream",     name: "Apricot Cream", mode: "light",
+    background: "#fefaf6", card: "#ffffff", border: "#faedd8", text: "#382e22", textMuted: "#80705d",
+    positive: "#2e7d32", negative: "#c62828", accent: "#ea580c", icon: "#ea580c", badge: "#f97316" },
+];
 
 export interface TradesSortFilterPrefs {
   sortBy: "date" | "pnl" | "symbol" | "lots";
@@ -169,6 +291,7 @@ export interface JournalSortFilterPrefs {
 
 export interface UserPreferences {
   accentColor: string;       // hex color for primary tint
+  dashboardPalette?: string; // DASHBOARD_PALETTES id — 7-color scheme scoped to the Dashboard page
   defaultPage: string;       // e.g. "/trade/trades" | "/productivity"
   defaultTab: string;        // default tab within landing page
   sectionOrder: string[];    // ordered list of tab values

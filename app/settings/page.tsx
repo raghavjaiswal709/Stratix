@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppContext } from "@/lib/context";
-import { ACCENT_PRESETS } from "@/types";
+import { ACCENT_PRESETS, DASHBOARD_PALETTES } from "@/types";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
@@ -22,6 +22,7 @@ import {
   Check,
   Moon,
   Sun,
+  SunMoon,
   Shield,
   ChevronDown,
   ChevronRight,
@@ -30,6 +31,13 @@ import {
   Database,
   Layers2,
 } from "lucide-react";
+
+// A neutral mid-gray "accent" — selecting it makes --primary/--ring/--accent/
+// --sidebar-* resolve to a hue-less gray via the exact same color-mix()
+// pipeline every other preset uses, so "None" needs no special-casing
+// anywhere else in globals.css or lib/context.tsx. Reads fine as a button/
+// focus-ring color in both dark and light mode without tinting anything.
+const NONE_ACCENT_COLOR = "#8a8a8a";
 
 const sidebarOptionMeta = [
   { key: "dashboard",    label: "Dashboard",     icon: LayoutDashboard, category: "Trading" },
@@ -75,9 +83,20 @@ export default function SettingsPage() {
   }, [isAdmin]);
 
   const updatePreference = (key: string, value: any) => {
+    updatePreferences({ [key]: value });
+  };
+
+  // Updates multiple preference keys in one atomic state write. Calling
+  // updatePreference() twice in the same click handler is a bug: both calls
+  // read the same closure-captured `preferences` snapshot (React batches the
+  // state updates), so the second call's spread doesn't see the first
+  // call's change and silently reverts it. Any handler that needs to change
+  // more than one preference at once (e.g. mutual exclusivity between the
+  // accent color and the application palette) must use this instead.
+  const updatePreferences = (partial: Record<string, any>) => {
     const updated = {
       ...preferences,
-      [key]: value,
+      ...partial,
     };
     setPreferences(updated);
     triggerSaveAlert("Settings saved");
@@ -164,13 +183,22 @@ export default function SettingsPage() {
   };
 
   const adminUpdateUserPreference = async (targetUserId: string, key: string, value: any) => {
+    await adminUpdateUserPreferences(targetUserId, { [key]: value });
+  };
+
+  // Same atomicity fix as updatePreferences() above, for the admin panel:
+  // calling adminUpdateUserPreference() twice in one handler re-reads
+  // usersList from the closure both times, so the second call's merge
+  // silently drops the first call's change. Any handler touching more than
+  // one key at once must use this instead.
+  const adminUpdateUserPreferences = async (targetUserId: string, partial: Record<string, any>) => {
     const targetUser = usersList.find((u) => u._id === targetUserId);
     if (!targetUser) return;
 
     const currentPrefs = targetUser.userData?.preferences || {};
     const updatedPrefs = {
       ...currentPrefs,
-      [key]: value,
+      ...partial,
     };
 
     setUsersList((prev) =>
@@ -360,32 +388,168 @@ export default function SettingsPage() {
           <div className="glass-card p-6 rounded-xl border border-white/[0.05] bg-white/[0.01] space-y-4">
             <div className="flex items-center gap-2">
               <Palette className="h-4 w-4 text-accent" />
-              <h2 className="text-[14px] font-semibold text-white/80">Accent Color Preset</h2>
+              <h2 className="text-[14px] font-semibold text-white/80">Accent Color Theme</h2>
             </div>
             <p className="text-xs text-white/40 leading-relaxed">
-              Select a primary color accent to apply across borders, active highlights, and buttons.
+              Pick <b>None</b> for the plain monochrome look, or one of 20 curated palettes — 10 tuned for Dark
+              Mode, 10 for Light Mode — to tint backgrounds, cards, borders, buttons, focus rings, and the
+              sidebar app-wide. Mutually exclusive with the Application Color Palette below — picking either
+              one here switches that back to Default.
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2">
-              {ACCENT_PRESETS.map((preset) => {
-                const isActive = (preferences.accentColor || "#6366f1") === preset.value;
+
+            {(() => {
+              const isNoneActive = (preferences.accentColor || "#10b981") === NONE_ACCENT_COLOR
+                && (!preferences.dashboardPalette || preferences.dashboardPalette === "default");
+              return (
+                <button
+                  onClick={() => updatePreferences({ accentColor: NONE_ACCENT_COLOR, dashboardPalette: "default" })}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs transition-all w-full sm:w-auto ${
+                    isNoneActive
+                      ? "bg-white/[0.08] border-white/20 text-white font-medium shadow-md"
+                      : "bg-transparent border-white/[0.04] text-white/45 hover:text-white/70 hover:bg-white/[0.02]"
+                  }`}
+                >
+                  <span
+                    className="h-3 w-3 rounded-full shrink-0 border border-black/30"
+                    style={{ backgroundColor: NONE_ACCENT_COLOR }}
+                  />
+                  None (monochrome)
+                </button>
+              );
+            })()}
+
+            {(["dark", "light"] as const).map((mode) => (
+              <div key={mode} className="space-y-2">
+                <p className="text-[10px] font-bold text-white/25 uppercase tracking-widest px-0.5">
+                  {mode === "dark" ? "Dark Mode Palettes" : "Light Mode Palettes"}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                  {ACCENT_PRESETS.filter((p) => p.mode === mode).map((preset) => {
+                    const isActive = (preferences.accentColor || "#10b981") === preset.value
+                      && (!preferences.dashboardPalette || preferences.dashboardPalette === "default");
+                    return (
+                      <button
+                        key={preset.value}
+                        onClick={() => {
+                          // Single accent tint and full app palette are mutually
+                          // exclusive — choosing one always turns the other off.
+                          // Must be one atomic update (see updatePreferences doc).
+                          updatePreferences({ accentColor: preset.value, dashboardPalette: "default" });
+                        }}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs transition-all ${
+                          isActive
+                            ? "bg-white/[0.08] border-white/20 text-white font-medium shadow-md"
+                            : "bg-transparent border-white/[0.04] text-white/45 hover:text-white/70 hover:bg-white/[0.02]"
+                        }`}
+                      >
+                        <span
+                          className="h-3 w-3 rounded-full shrink-0 border border-black/30"
+                          style={{ backgroundColor: preset.value }}
+                        />
+                        {preset.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Section: Application Color Palette */}
+          <div className="glass-card p-6 rounded-xl border border-white/[0.05] bg-white/[0.01] space-y-4">
+            <div className="flex items-center gap-2">
+              <Palette className="h-4 w-4 text-accent" />
+              <h2 className="text-[14px] font-semibold text-white/80">Application Color Palette</h2>
+            </div>
+            <p className="text-xs text-white/40 leading-relaxed">
+              Full re-skins for the ENTIRE app, including the sidebar — background, cards, borders, text,
+              and profit/loss colors on every page all come from the selected palette. Choose <b>Default</b> to
+              go back to the normal Dark/Light + accent-color theme above.
+            </p>
+            <div className="space-y-4 pt-2">
+              {(() => {
+                const isDefaultActive = !preferences.dashboardPalette || preferences.dashboardPalette === "default";
                 return (
                   <button
-                    key={preset.value}
-                    onClick={() => updatePreference("accentColor", preset.value)}
-                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs transition-all ${
-                      isActive
+                    onClick={() => updatePreference("dashboardPalette", "default")}
+                    className={`flex items-center gap-3 w-full max-w-xs px-3 py-2.5 rounded-lg border text-xs transition-all ${
+                      isDefaultActive
                         ? "bg-white/[0.08] border-white/20 text-white font-medium shadow-md"
                         : "bg-transparent border-white/[0.04] text-white/45 hover:text-white/70 hover:bg-white/[0.02]"
                     }`}
                   >
-                    <span
-                      className="h-3 w-3 rounded-full shrink-0 border border-black/30"
-                      style={{ backgroundColor: preset.value }}
-                    />
-                    {preset.name}
+                    <span className="relative h-7 w-7 rounded-md overflow-hidden border border-black/30 shrink-0 bg-gradient-to-br from-white/20 to-black/40 flex items-center justify-center">
+                      <SunMoon className="h-3.5 w-3.5 text-white/70" />
+                    </span>
+                    <span className="flex flex-col gap-0.5 shrink-0">
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/60" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                    </span>
+                    Default Theme
                   </button>
                 );
-              })}
+              })()}
+
+              <div className="space-y-2">
+                <h4 className="text-[10px] font-semibold text-white/35 uppercase tracking-wider">Dark Mode Palettes</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {DASHBOARD_PALETTES.filter(p => p.mode === "dark").map((p) => {
+                    const isActive = preferences.dashboardPalette === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => updatePreference("dashboardPalette", p.id)}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border text-xs transition-all ${
+                          isActive
+                            ? "bg-white/[0.08] border-white/20 text-white font-medium shadow-md"
+                            : "bg-transparent border-white/[0.04] text-white/45 hover:text-white/70 hover:bg-white/[0.02]"
+                        }`}
+                      >
+                        <span className="relative h-7 w-7 rounded-md overflow-hidden border border-black/30 shrink-0" style={{ backgroundColor: p.background }}>
+                          <span className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 rounded-sm border border-black/25" style={{ backgroundColor: p.card }} />
+                        </span>
+                        <span className="flex flex-col gap-0.5 shrink-0">
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.accent }} />
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.positive }} />
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.negative }} />
+                        </span>
+                        {p.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="text-[10px] font-semibold text-white/35 uppercase tracking-wider">Light Mode Palettes</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {DASHBOARD_PALETTES.filter(p => p.mode === "light").map((p) => {
+                    const isActive = preferences.dashboardPalette === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => updatePreference("dashboardPalette", p.id)}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border text-xs transition-all ${
+                          isActive
+                            ? "bg-white/[0.08] border-white/20 text-white font-medium shadow-md"
+                            : "bg-transparent border-white/[0.04] text-white/45 hover:text-white/70 hover:bg-white/[0.02]"
+                        }`}
+                      >
+                        <span className="relative h-7 w-7 rounded-md overflow-hidden border border-black/10 shrink-0" style={{ backgroundColor: p.background }}>
+                          <span className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 rounded-sm border border-black/10" style={{ backgroundColor: p.card }} />
+                        </span>
+                        <span className="flex flex-col gap-0.5 shrink-0">
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.accent }} />
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.positive }} />
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.negative }} />
+                        </span>
+                        {p.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -711,11 +875,14 @@ export default function SettingsPage() {
                             </p>
                             <div className="grid grid-cols-2 gap-1.5 pt-1">
                               {ACCENT_PRESETS.map((preset) => {
-                                const isActive = (uPref.accentColor || "#6366f1") === preset.value;
+                                const isActive = (uPref.accentColor || "#10b981") === preset.value
+                                  && (!uPref.dashboardPalette || uPref.dashboardPalette === "default");
                                 return (
                                   <button
                                     key={preset.value}
-                                    onClick={() => adminUpdateUserPreference(user._id, "accentColor", preset.value)}
+                                    onClick={() => {
+                                      adminUpdateUserPreferences(user._id, { accentColor: preset.value, dashboardPalette: "default" });
+                                    }}
                                     className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border text-[10.5px] transition-all ${
                                       isActive
                                         ? "bg-white/[0.08] border-white/20 text-white font-medium shadow-sm"

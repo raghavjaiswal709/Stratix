@@ -164,7 +164,7 @@ export function ReportDashboard({ report }: { report: Report }) {
             </p>
           </div>
         </div>
-        <TrendBadge trend={d.performance_summary.trend} />
+        <TrendBadge trend={d.performance_summary?.trend || "Stable"} />
       </div>
 
       <div className="px-6 py-5 space-y-5 max-w-[1600px] mx-auto">
@@ -187,8 +187,8 @@ export function ReportDashboard({ report }: { report: Report }) {
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Performance Summary</span>
           </div>
           <div className="p-4 space-y-2">
-            <p className="text-[13px] text-white/75 leading-relaxed whitespace-pre-wrap">{d.performance_summary.narrative}</p>
-            <p className="text-[11px] text-white/35 italic pt-1">{d.performance_summary.trend_reason}</p>
+            <p className="text-[13px] text-white/75 leading-relaxed whitespace-pre-wrap">{d.performance_summary?.narrative || "No narrative summary available."}</p>
+            <p className="text-[11px] text-white/35 italic pt-1">{d.performance_summary?.trend_reason || ""}</p>
           </div>
         </div>
 
@@ -201,7 +201,7 @@ export function ReportDashboard({ report }: { report: Report }) {
             </div>
             <div className="p-4">
               <ul className="space-y-2">
-                {d.strengths.map((s, i) => (
+                {(d.strengths || []).map((s, i) => (
                   <li key={i} className="text-[12.5px] text-white/75 leading-relaxed flex gap-2.5">
                     <span className="text-emerald-400 shrink-0 font-bold">+</span>{s}
                   </li>
@@ -216,7 +216,7 @@ export function ReportDashboard({ report }: { report: Report }) {
             </div>
             <div className="p-4">
               <ul className="space-y-2">
-                {d.weaknesses.map((s, i) => (
+                {(d.weaknesses || []).map((s, i) => (
                   <li key={i} className="text-[12.5px] text-white/75 leading-relaxed flex gap-2.5">
                     <span className="text-red-400 shrink-0 font-bold">−</span>{s}
                   </li>
@@ -233,12 +233,12 @@ export function ReportDashboard({ report }: { report: Report }) {
               <CheckSquare className="h-4 w-4 text-white/55" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Discipline Score</span>
               <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/8 text-white/60 border border-white/10">
-                Grade {d.discipline_score.grade}
+                Grade {d.discipline_score?.grade || "N/A"}
               </span>
             </div>
             <div className="p-4 flex items-start gap-4">
-              <ScoreRing score={d.discipline_score.score} />
-              <p className="text-[12px] text-white/65 leading-relaxed flex-1">{d.discipline_score.summary}</p>
+              <ScoreRing score={d.discipline_score?.score || 0} />
+              <p className="text-[12px] text-white/65 leading-relaxed flex-1">{d.discipline_score?.summary || "No discipline summary available."}</p>
             </div>
           </div>
 
@@ -246,11 +246,11 @@ export function ReportDashboard({ report }: { report: Report }) {
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
               <Target className="h-4 w-4 text-white/55" />
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Strategy Execution</span>
-              <span className="ml-auto text-[10px] text-white/35">{d.strategy_execution_analysis.checklist_compliance_rate}% consistent</span>
+              <span className="ml-auto text-[10px] text-white/35">{d.strategy_execution_analysis?.checklist_compliance_rate || 0}% consistent</span>
             </div>
             <div className="p-4 flex items-start gap-4">
-              <ScoreRing score={d.strategy_execution_analysis.score} />
-              <p className="text-[12px] text-white/65 leading-relaxed flex-1 line-clamp-5">{d.strategy_execution_analysis.summary}</p>
+              <ScoreRing score={d.strategy_execution_analysis?.score || 0} />
+              <p className="text-[12px] text-white/65 leading-relaxed flex-1 line-clamp-5">{d.strategy_execution_analysis?.summary || ""}</p>
             </div>
           </div>
         </div>
@@ -262,7 +262,7 @@ export function ReportDashboard({ report }: { report: Report }) {
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Strategy Execution — Deep Dive</span>
           </div>
           <div className="p-4">
-            <p className="text-[13px] text-white/70 leading-relaxed whitespace-pre-wrap">{d.strategy_execution_analysis.summary}</p>
+            <p className="text-[13px] text-white/70 leading-relaxed whitespace-pre-wrap">{d.strategy_execution_analysis?.summary || "No strategy execution summary available."}</p>
           </div>
         </div>
 
@@ -277,19 +277,19 @@ export function ReportDashboard({ report }: { report: Report }) {
               <div className="flex items-center gap-1.5">
                 <div className="h-1.5 w-20 rounded-full bg-white/8 overflow-hidden">
                   <div
-                    className={cn("h-full rounded-full", d.execution_checklist_compliance.overall_rate >= 70 ? "bg-emerald-500" : d.execution_checklist_compliance.overall_rate >= 40 ? "bg-amber-500" : "bg-red-500")}
-                    style={{ width: `${Math.min(100, d.execution_checklist_compliance.overall_rate)}%` }}
+                    className={cn("h-full rounded-full", (d.execution_checklist_compliance?.overall_rate || 0) >= 70 ? "bg-emerald-500" : (d.execution_checklist_compliance?.overall_rate || 0) >= 40 ? "bg-amber-500" : "bg-red-500")}
+                    style={{ width: `${Math.min(100, d.execution_checklist_compliance?.overall_rate || 0)}%` }}
                   />
                 </div>
-                <span className="text-[11px] font-semibold text-white/50">{d.execution_checklist_compliance.overall_rate}%</span>
+                <span className="text-[11px] font-semibold text-white/50">{d.execution_checklist_compliance?.overall_rate || 0}%</span>
               </div>
             </div>
             <div className="p-4 space-y-2">
-              <p className="text-[12px] text-white/65 leading-relaxed">{d.execution_checklist_compliance.summary}</p>
-              {d.execution_checklist_compliance.most_skipped_items.length > 0 && (
+              <p className="text-[12px] text-white/65 leading-relaxed">{d.execution_checklist_compliance?.summary || "No checklist compliance summary available."}</p>
+              {d.execution_checklist_compliance?.most_skipped_items && d.execution_checklist_compliance.most_skipped_items.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   <span className="text-[10px] text-white/30">Most skipped:</span>
-                  {d.execution_checklist_compliance.most_skipped_items.map((item, i) => (
+                  {(d.execution_checklist_compliance.most_skipped_items || []).map((item, i) => (
                     <span key={i} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-500/10 text-red-400/80 border border-red-500/20">
                       {item}
                     </span>
@@ -306,14 +306,14 @@ export function ReportDashboard({ report }: { report: Report }) {
             </div>
             <div className="p-4 space-y-3">
               <div className="flex flex-wrap gap-1.5">
-                {d.emotional_patterns.dominant_emotions.map((e, i) => (
+                {(d.emotional_patterns?.dominant_emotions || []).map((e, i) => (
                   <span key={i} className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/6 text-white/70 border border-white/10">
                     {e}
                   </span>
                 ))}
               </div>
-              <p className="text-[12px] text-white/65 leading-relaxed">{d.emotional_patterns.summary}</p>
-              <p className="text-[12px] text-white/50 leading-relaxed italic border-t border-white/5 pt-3">{d.emotional_patterns.emotion_pnl_correlation}</p>
+              <p className="text-[12px] text-white/65 leading-relaxed">{d.emotional_patterns?.summary || "No emotional patterns summary available."}</p>
+              <p className="text-[12px] text-white/50 leading-relaxed italic border-t border-white/5 pt-3">{d.emotional_patterns?.emotion_pnl_correlation || "No emotional correlation data."}</p>
             </div>
           </div>
         </div>
@@ -328,27 +328,27 @@ export function ReportDashboard({ report }: { report: Report }) {
             <div className="p-4 space-y-3">
               <div className="grid grid-cols-4 gap-2 text-center">
                 <div className="rounded-lg bg-white/3 p-2">
-                  <p className="text-[15px] font-bold text-white">{d.missed_trades_analysis.total_missed}</p>
+                  <p className="text-[15px] font-bold text-white">{d.missed_trades_analysis?.total_missed || 0}</p>
                   <p className="text-[9px] text-white/30 uppercase">Total</p>
                 </div>
                 <div className="rounded-lg bg-emerald-500/8 p-2">
-                  <p className="text-[15px] font-bold text-emerald-400">{d.missed_trades_analysis.would_have_won}</p>
+                  <p className="text-[15px] font-bold text-emerald-400">{d.missed_trades_analysis?.would_have_won || 0}</p>
                   <p className="text-[9px] text-white/30 uppercase">Would Win</p>
                 </div>
                 <div className="rounded-lg bg-red-500/8 p-2">
-                  <p className="text-[15px] font-bold text-red-400">{d.missed_trades_analysis.would_have_lost}</p>
+                  <p className="text-[15px] font-bold text-red-400">{d.missed_trades_analysis?.would_have_lost || 0}</p>
                   <p className="text-[9px] text-white/30 uppercase">Would Lose</p>
                 </div>
                 <div className="rounded-lg bg-white/3 p-2">
-                  <p className="text-[15px] font-bold text-white/60">{d.missed_trades_analysis.still_open_or_unknown}</p>
+                  <p className="text-[15px] font-bold text-white/60">{d.missed_trades_analysis?.still_open_or_unknown || 0}</p>
                   <p className="text-[9px] text-white/30 uppercase">Unknown</p>
                 </div>
               </div>
-              <p className="text-[12px] text-white/65 leading-relaxed">{d.missed_trades_analysis.summary}</p>
-              <p className="text-[11px] text-amber-400/70 italic">{d.missed_trades_analysis.estimated_missed_pnl_note}</p>
-              {d.missed_trades_analysis.common_reasons.length > 0 && (
+              <p className="text-[12px] text-white/65 leading-relaxed">{d.missed_trades_analysis?.summary || "No missed trades summary available."}</p>
+              <p className="text-[11px] text-amber-400/70 italic">{d.missed_trades_analysis?.estimated_missed_pnl_note || ""}</p>
+              {d.missed_trades_analysis?.common_reasons && d.missed_trades_analysis.common_reasons.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                  {d.missed_trades_analysis.common_reasons.map((r, i) => (
+                  {(d.missed_trades_analysis.common_reasons || []).map((r, i) => (
                     <span key={i} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400/80 border border-amber-500/20">
                       {r}
                     </span>
@@ -358,18 +358,18 @@ export function ReportDashboard({ report }: { report: Report }) {
             </div>
           </div>
 
-          {d.symbol_breakdown.length > 0 && (
+          {d.symbol_breakdown && d.symbol_breakdown.length > 0 && (
             <div className="rounded-xl border border-white/7 overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
                 <Target className="h-4 w-4 text-white/55" />
                 <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Symbol Breakdown</span>
               </div>
               <div className="divide-y divide-white/5">
-                {d.symbol_breakdown.map((s, i) => (
+                {(d.symbol_breakdown || []).map((s, i) => (
                   <div key={i} className="flex items-center justify-between px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
                       <div className="h-6 w-6 rounded-full bg-white/8 flex items-center justify-center text-[9px] font-bold text-white/60">
-                        {s.symbol.slice(0, 2)}
+                        {(s.symbol || "??").slice(0, 2)}
                       </div>
                       <span className="text-[12px] font-semibold text-white/80">{s.symbol}</span>
                       <span className="text-[10px] text-white/30">{s.trades} trades</span>
@@ -398,7 +398,7 @@ export function ReportDashboard({ report }: { report: Report }) {
             </div>
             <div className="p-4">
               <ul className="space-y-2">
-                {d.key_mistakes.map((m, i) => (
+                {(d.key_mistakes || []).map((m, i) => (
                   <li key={i} className="text-[12px] text-white/70 flex gap-2.5">
                     <span className="h-5 w-5 shrink-0 rounded-full bg-red-500/15 text-red-400 text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
                     {m}
@@ -415,7 +415,7 @@ export function ReportDashboard({ report }: { report: Report }) {
             </div>
             <div className="p-4">
               <ul className="space-y-2">
-                {d.actionable_recommendations.map((r, i) => (
+                {(d.actionable_recommendations || []).map((r, i) => (
                   <li key={i} className="text-[12px] text-white/70 flex gap-2.5">
                     <span className="h-5 w-5 shrink-0 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
                     {r}
@@ -433,7 +433,7 @@ export function ReportDashboard({ report }: { report: Report }) {
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Coach&apos;s Full Report</span>
           </div>
           <div className="p-4">
-            <p className="text-[13px] text-white/70 leading-relaxed whitespace-pre-wrap">{d.narrative_summary}</p>
+            <p className="text-[13px] text-white/70 leading-relaxed whitespace-pre-wrap">{d.narrative_summary || d.performance_summary?.narrative || "No narrative summary available."}</p>
           </div>
         </div>
       </div>

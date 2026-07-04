@@ -13,6 +13,10 @@ import { TradesTable } from "@/components/trade/sync/trades-table";
 import { ConnectMT5Form, DisconnectMT5Button } from "@/components/trade/mt5/connect-form";
 import { format } from "date-fns";
 import { useAppContext } from "@/lib/context";
+import { compileTrades } from "@/lib/trades/compile";
+import { AdvancedInsights } from "@/components/trade/dashboard/advanced-insights";
+import { PnlBreakdown } from "@/components/trade/dashboard/pnl-breakdown";
+import { DASHBOARD_PALETTES } from "@/types";
 
 interface Trade {
   _id: string;
@@ -29,6 +33,13 @@ interface Trade {
   status: "open" | "closed";
   stopLoss?: number;
   takeProfit?: number;
+  riskRatio?: number;
+  rewardRatio?: number;
+  rating?: number;
+  journaled?: boolean;
+  parentTradeId?: string;
+  mergedTradeIds?: string[];
+  source?: "manual" | "mt5";
 }
 
 interface MT5Info {
@@ -40,7 +51,14 @@ interface MT5Info {
 }
 
 export default function DashboardPage() {
-  const { activeProfileId, tradingProfiles, loading: contextLoading, sharedTrades, setSharedTrades } = useAppContext();
+  const { activeProfileId, tradingProfiles, loading: contextLoading, sharedTrades, setSharedTrades, preferences } = useAppContext();
+  // "default"/unset = no palette active; PerformanceChart falls back to its
+  // own emerald/red defaults. The app-wide token overrides + CSS catch-alls
+  // (card top-stripe, header icons, badge rows) already come from
+  // app/client-layout.tsx, which wraps this page — nothing more is needed here.
+  const dashPalette = preferences.dashboardPalette && preferences.dashboardPalette !== "default"
+    ? DASHBOARD_PALETTES.find((p) => p.id === preferences.dashboardPalette)
+    : undefined;
   const trades = sharedTrades;
   const [loading, setLoading] = useState(sharedTrades.length === 0);
   const [mt5Info, setMt5Info] = useState<MT5Info | null>(null);
@@ -92,9 +110,14 @@ export default function DashboardPage() {
       .catch(() => setMt5Loading(false));
   }, []);
 
+  // A manually-compiled ("merged") position must count as exactly ONE trade
+  // everywhere on this page — without this, every stat card, chart, and
+  // insight below would double/triple-count merged trades (parent + children).
+  const compiledTrades = useMemo(() => compileTrades(trades), [trades]);
+
   const stats = useMemo(() => {
-    const closed = trades.filter((t) => t.status === "closed");
-    const open = trades.filter((t) => t.status === "open");
+    const closed = compiledTrades.filter((t) => t.status === "closed");
+    const open = compiledTrades.filter((t) => t.status === "open");
     const netProfit = (t: Trade) => t.profit + (t.swap || 0) + (t.commission || 0);
     const realized = closed.reduce((s, t) => s + netProfit(t), 0);
     const unrealized = open.reduce((s, t) => s + netProfit(t), 0);
@@ -108,9 +131,9 @@ export default function DashboardPage() {
       winRate,
       openTrades: open.length,
       closedTrades: closed.length,
-      totalTrades: trades.length,
+      totalTrades: compiledTrades.length,
     };
-  }, [trades]);
+  }, [compiledTrades]);
 
   // Show full-page spinner while context resolves OR while trades are loading.
   // This prevents stats/charts from flashing zeros before data arrives.
@@ -150,14 +173,20 @@ export default function DashboardPage() {
 
       {/* Charts — each handles its own loading state */}
       <div className="grid gap-4 md:grid-cols-2">
-        <PerformanceChart trades={trades} loading={loading} />
-        <MonthlyCalendar  trades={trades} loading={loading} />
+        <PerformanceChart trades={compiledTrades} loading={loading} positiveColor={dashPalette?.positive} negativeColor={dashPalette?.negative} />
+        <MonthlyCalendar  trades={compiledTrades} loading={loading} />
       </div>
 
       {/* Costs, profit factor, direction & symbol insights */}
-      <TradingInsights trades={trades} />
+      <TradingInsights trades={compiledTrades} />
 
-      <OpenPositions trades={trades.filter((t) => t.status === "open")} />
+      {/* Monthly P&L rollup, trading sessions, trade duration buckets */}
+      <PnlBreakdown trades={compiledTrades} />
+
+      {/* Best/worst day, weekday performance, risk discipline, journaling health */}
+      <AdvancedInsights trades={compiledTrades} />
+
+      <OpenPositions trades={compiledTrades.filter((t) => t.status === "open")} />
 
       {/* ── Latest News ──────────────────────────────────────────────────── */}
       <LatestNewsWidget />
