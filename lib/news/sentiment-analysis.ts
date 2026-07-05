@@ -32,7 +32,7 @@ interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 
 const CANDLE_SYMBOLS = ["xauusd", "xagusd", "btcusdt", "ethusd", "eurusd", "gbpusd", "usdjpy", "audusd", "nzdusd", "usdcad", "usdchf"];
 
-function formatCandlesForPrompt(data: CandleSummary | null, hours: number): string {
+export function formatCandlesForPrompt(data: CandleSummary | null, hours: number): string {
   if (!data) return "";
   const h1Limit = Math.min(48, Math.max(4, hours));
   const lines: string[] = ["=== REAL-TIME HOURLY OHLC PRICE DATA (IST) — quote these actual levels, do not guess ==="];
@@ -50,7 +50,7 @@ function formatCandlesForPrompt(data: CandleSummary | null, hours: number): stri
   return lines.length > 1 ? lines.join("\n") : "";
 }
 
-async function fetchCandleSummary(req: NextRequest): Promise<CandleSummary | null> {
+export async function fetchCandleSummary(req: NextRequest): Promise<CandleSummary | null> {
   try {
     const origin = new URL(req.url).origin;
     const res = await fetch(`${origin}/api/candle-summary`, {

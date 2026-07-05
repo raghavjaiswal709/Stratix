@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, forwardRef, useImperativeHandle } from "react";
 import {
   Newspaper,
   Activity,
@@ -28,9 +28,9 @@ import {
   NewsCard,
 } from "./news-sentiment/news-display-shared";
 
-const FILTER_HOUR_OPTIONS = [1, 2, 3, 6, 12, 24, 48, 72];
+export const FILTER_HOUR_OPTIONS = [1, 2, 3, 6, 12, 24, 48, 72];
 
-function filterHourLabel(h: number): string {
+export function filterHourLabel(h: number): string {
   if (h < 24) return `Last ${h} Hour${h === 1 ? "" : "s"}`;
   if (h === 24) return "Last 24 Hours";
   return `Last ${h / 24} Days`;
@@ -43,6 +43,13 @@ interface MarketNewsProps {
   symbol?: string;
   /** Standalone mode: shows its own symbol selector (for news-analysis page) */
   standalone?: boolean;
+}
+
+/** Imperative handle so a parent (e.g. the top-level "Filter News" tab button
+ *  in news-analysis/page.tsx) can trigger the same AI filter this component
+ *  already runs inline, without lifting all of its state up. */
+export interface MarketNewsHandle {
+  runFilter: (hours: number) => void;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -102,7 +109,7 @@ function buildPageRange(current: number, total: number): (number | "…")[] {
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-export function MarketNews({ symbol, standalone }: MarketNewsProps) {
+export const MarketNews = forwardRef<MarketNewsHandle, MarketNewsProps>(function MarketNews({ symbol, standalone }, ref) {
   // Symbol
   const [localSymbol, setLocalSymbol] = useState("ALL");
   const activeSymbol = standalone ? localSymbol : symbol || "XAUUSD";
@@ -271,6 +278,10 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
       setAiFiltering(false);
     }
   }, [clearSelection]);
+
+  useImperativeHandle(ref, () => ({
+    runFilter: (hours: number) => { handleFilterNews(hours); },
+  }), [handleFilterNews]);
 
   const fetchNews = useCallback(
     async (isRefresh = false) => {
@@ -979,4 +990,4 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
       )}
     </div>
   );
-}
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { Filter, X, User, Clock, History } from "lucide-react";
+import { Filter, X, User, Clock, History, MessageSquare } from "lucide-react";
 import {
   NewsCard,
   articleKey,
@@ -10,6 +10,7 @@ import {
   type FilterReportKeptItem,
 } from "./news-display-shared";
 import { useExplainSelection, SelectionActionBar, ExplainModal } from "./explain-selection";
+import { useReportAskAI, ReportAskAI } from "./report-ask-ai";
 
 export interface FilteredReportData {
   allNews: FilterReportRawItem[];
@@ -55,6 +56,7 @@ export function FilteredReportView({ report, onClose }: { report: FilteredReport
     explainText,
     explainSelected,
   } = useExplainSelection();
+  const askAi = useReportAskAI(report.data?.analyzed_news ?? []);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -80,13 +82,23 @@ export function FilteredReportView({ report, onClose }: { report: FilteredReport
             </div>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/50 hover:text-white transition shrink-0"
-          aria-label="Close report"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => askAi.setOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90"
+            style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Ask AI
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/50 hover:text-white transition"
+            aria-label="Close report"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* "Saved report, not live" banner */}
@@ -149,6 +161,16 @@ export function FilteredReportView({ report, onClose }: { report: FilteredReport
         error={explainError}
         text={explainText}
         onClose={() => setExplainOpen(false)}
+      />
+      <ReportAskAI
+        open={askAi.open}
+        onClose={() => askAi.setOpen(false)}
+        messages={askAi.messages}
+        input={askAi.input}
+        onInputChange={askAi.setInput}
+        onSend={askAi.send}
+        loading={askAi.loading}
+        error={askAi.error}
       />
     </div>
   );
