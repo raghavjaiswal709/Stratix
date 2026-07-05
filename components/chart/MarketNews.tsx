@@ -3,18 +3,10 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   Newspaper,
-  TrendingUp,
-  TrendingDown,
   Activity,
   ArrowUpRight,
-  Clock,
   RefreshCw,
   AlertCircle,
-  Globe,
-  Landmark,
-  BarChart2,
-  Cpu,
-  Flame,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -25,6 +17,16 @@ import {
   Loader2,
 } from "lucide-react";
 import { SentimentReportsBrowser } from "./news-sentiment/sentiment-reports-browser";
+import { AiFilteringOverlay } from "./news-sentiment/ai-filtering-overlay";
+import { useExplainSelection, SelectionActionBar, ExplainModal } from "./news-sentiment/explain-selection";
+import {
+  type NewsArticle,
+  articleKey,
+  normalizeCategory,
+  CategoryBadge,
+  CAT_META,
+  NewsCard,
+} from "./news-sentiment/news-display-shared";
 
 const FILTER_HOUR_OPTIONS = [1, 2, 3, 6, 12, 24, 48, 72];
 
@@ -41,20 +43,6 @@ interface MarketNewsProps {
   symbol?: string;
   /** Standalone mode: shows its own symbol selector (for news-analysis page) */
   standalone?: boolean;
-}
-
-interface NewsArticle {
-  title: string;
-  link: string;
-  pubDate: string;
-  source: string;
-  sentiment: "Bullish" | "Bearish" | "Neutral";
-  sentimentScore: number;
-  marketImpact: string;
-  category: string;
-  impactScore: number;
-  isPrimarySource?: boolean;
-  isCalendarEvent?: boolean;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -92,109 +80,6 @@ const ASSET_NAMES: Record<string, string> = {
   NZDUSD: "NZD/USD",
   BTCUSD: "Bitcoin (BTC/USD)",
 };
-
-// ─── Category normalisation ─────────────────────────────────────────────────
-
-const FOREX_CATS = new Set([
-  "Forex & Commodities",
-  "Forex Breaking News",
-  "Forex News",
-]);
-const MACRO_CATS = new Set([
-  "Economy",
-  "Economic Indicators",
-  "Market News",
-  "News",
-]);
-
-function normalizeCategory(cat: string): string {
-  if (FOREX_CATS.has(cat)) return "Forex News";
-  if (MACRO_CATS.has(cat)) return "Market News";
-  return cat;
-}
-
-// ─── Category meta ──────────────────────────────────────────────────────────
-
-const CAT_META: Record<
-  string,
-  { border: string; bg: string; text: string; icon: React.ReactNode }
-> = {
-  Geopolitical: {
-    border: "border-orange-500/25",
-    bg: "bg-orange-500/10",
-    text: "text-orange-400",
-    icon: <Globe className="h-2.5 w-2.5" />,
-  },
-  "Central Bank": {
-    border: "border-violet-500/25",
-    bg: "bg-violet-500/10",
-    text: "text-violet-400",
-    icon: <Landmark className="h-2.5 w-2.5" />,
-  },
-  "Economic Data": {
-    border: "border-sky-500/25",
-    bg: "bg-sky-500/10",
-    text: "text-sky-400",
-    icon: <BarChart2 className="h-2.5 w-2.5" />,
-  },
-  Crypto: {
-    border: "border-yellow-500/25",
-    bg: "bg-yellow-500/10",
-    text: "text-yellow-400",
-    icon: <Cpu className="h-2.5 w-2.5" />,
-  },
-  Commodities: {
-    border: "border-amber-500/25",
-    bg: "bg-amber-500/10",
-    text: "text-amber-400",
-    icon: <Flame className="h-2.5 w-2.5" />,
-  },
-  "Forex News": {
-    border: "border-blue-500/25",
-    bg: "bg-blue-500/10",
-    text: "text-blue-400",
-    icon: <TrendingUp className="h-2.5 w-2.5" />,
-  },
-  "Market News": {
-    border: "border-zinc-500/25",
-    bg: "bg-zinc-500/10",
-    text: "text-zinc-400",
-    icon: <Activity className="h-2.5 w-2.5" />,
-  },
-};
-
-function CategoryBadge({ category }: { category: string }) {
-  const norm = normalizeCategory(category);
-  const meta = CAT_META[norm];
-  if (!meta) return null;
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider shrink-0 ${meta.bg} ${meta.border} ${meta.text}`}
-    >
-      {meta.icon}
-      {norm}
-    </span>
-  );
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function formatPubDate(dateStr: string): string {
-  try {
-    const pubTime = new Date(dateStr).getTime();
-    if (isNaN(pubTime)) return "Recent";
-    const diffMs = Date.now() - pubTime;
-    if (diffMs < 0) return "Just now";
-    const mins = Math.floor(diffMs / 60000);
-    if (mins < 1) return "Just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
-  } catch {
-    return "Recent";
-  }
-}
 
 // ─── Pagination helper ──────────────────────────────────────────────────────
 
@@ -249,6 +134,20 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
   const [aiFilterMeta, setAiFilterMeta] = useState<{ timeRangeLabel: string; allNewsCount: number; keptNewsCount: number } | null>(null);
   const [cardStatus, setCardStatus] = useState<Record<string, "pending" | "kept" | "removing">>({});
 
+  // Multi-select on AI-filtered cards + "Explain" (beginner Hinglish, no
+  // external search — grounded only in the selected headlines) modal state.
+  const {
+    selectedKeys,
+    toggleSelected,
+    clearSelection,
+    explainOpen,
+    setExplainOpen,
+    explainLoading,
+    explainError,
+    explainText,
+    explainSelected,
+  } = useExplainSelection();
+
   // Scraped modal states
   const [selectedArticleForModal, setSelectedArticleForModal] = useState<NewsArticle | null>(null);
   const [modalContent, setModalContent] = useState<string | null>(null);
@@ -260,6 +159,18 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
     setModalLoading(true);
     setModalContent(null);
     setModalError(null);
+
+    // Telegram messages ARE the full article — title already carries the
+    // entire message (see lib/news/telegram.ts). There's no separate page to
+    // scrape (t.me isn't a paragraph-based article page), so the generic
+    // <p>-tag scraper below always failed with "Could not automatically
+    // extract full paragraphs" for these. Show the message text directly.
+    if (article.source.startsWith("TG/")) {
+      setModalContent(article.title);
+      setModalLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/news/content?url=${encodeURIComponent(article.link)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -277,6 +188,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
     setFilterDropdownOpen(false);
     setAiFiltering(true);
     setAiFilterError(null);
+    clearSelection();
     try {
       const res = await fetch("/api/news/filter-report", {
         method: "POST",
@@ -286,7 +198,15 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to filter news");
 
-      type Kept = { headline: string; impact: "High" | "Medium" | "Low"; link?: string; affected_instruments: { symbol: string; sentiment: "Bullish" | "Bearish" | "Neutral" }[] };
+      type Kept = {
+        headline: string;
+        impact: "High" | "Medium" | "Low";
+        impact_score?: number;
+        tier?: 1 | 2 | 3;
+        tags?: string[];
+        link?: string;
+        affected_instruments: { symbol: string; sentiment: "Bullish" | "Bearish" | "Neutral"; impact_score?: number }[];
+      };
       type Raw = { headline: string; source: string; pubDate: string; category: string; link?: string };
       const allNews: Raw[] = json.data.allNews ?? [];
       const keptList: Kept[] = json.data.analyzed_news ?? [];
@@ -295,6 +215,10 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
       const mapped: NewsArticle[] = allNews.map((n) => {
         const kept = keptByHeadline.get(n.headline);
         const primary = kept?.affected_instruments[0];
+        const impactLabel = kept ? [
+          kept.tier ? `Tier ${kept.tier}` : null,
+          kept.tags && kept.tags.length ? kept.tags.join(", ") : null,
+        ].filter(Boolean).join(" — ") : "";
         return {
           title: n.headline,
           link: n.link || kept?.link || "",
@@ -302,9 +226,16 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
           source: n.source,
           sentiment: primary?.sentiment ?? "Neutral",
           sentimentScore: 0,
-          marketImpact: kept ? kept.affected_instruments.map((ai) => `${ai.symbol}: ${ai.sentiment}`).join(" · ") : "",
+          marketImpact: impactLabel,
           category: n.category,
-          impactScore: kept ? (kept.impact === "High" ? 80 : kept.impact === "Medium" ? 50 : 20) : 0,
+          impactScore: kept ? (typeof kept.impact_score === "number" ? kept.impact_score : (kept.impact === "High" ? 80 : kept.impact === "Medium" ? 50 : 20)) : 0,
+          instrumentBreakdown: kept
+            ? kept.affected_instruments.map((ai) => ({
+                symbol: ai.symbol,
+                sentiment: ai.sentiment,
+                score: typeof ai.impact_score === "number" ? ai.impact_score : (kept.impact === "High" ? 70 : kept.impact === "Medium" ? 45 : 20),
+              }))
+            : undefined,
         };
       });
 
@@ -339,7 +270,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
     } finally {
       setAiFiltering(false);
     }
-  }, []);
+  }, [clearSelection]);
 
   const fetchNews = useCallback(
     async (isRefresh = false) => {
@@ -360,6 +291,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
         setCategoryFilter("All");
         setSentimentFilter("All");
         setSearch("");
+        clearSelection();
       } catch (err) {
         setError((err as Error).message);
       } finally {
@@ -367,7 +299,7 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
         setRefreshing(false);
       }
     },
-    [activeSymbol]
+    [activeSymbol, clearSelection]
   );
 
   useEffect(() => {
@@ -855,135 +787,39 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
         </div>
       )}
 
+      {/* ── AI Filter News — high-intensity working animation ───────── */}
+      {aiFiltering && <AiFilteringOverlay articleCount={articles.length} />}
+
       {/* ── Articles grid ─────────────────────────────────────────── */}
-      {!loading && !error && paginated.length > 0 && (
+      {!aiFiltering && !loading && !error && paginated.length > 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {paginated.map((item, idx) => {
-            const sentimentClass =
-              item.sentiment === "Bullish"
-                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                : item.sentiment === "Bearish"
-                ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                : "text-zinc-400 bg-zinc-500/10 border-zinc-500/20";
-
-            const sentimentIcon =
-              item.sentiment === "Bullish" ? (
-                <TrendingUp className="h-3 w-3" />
-              ) : item.sentiment === "Bearish" ? (
-                <TrendingDown className="h-3 w-3" />
-              ) : (
-                <Activity className="h-3 w-3" />
-              );
-
-            const impactTextClass =
-              item.sentiment === "Bullish"
-                ? "text-emerald-400/80 font-mono"
-                : item.sentiment === "Bearish"
-                ? "text-rose-400/80 font-mono"
-                : "text-zinc-400/80 font-mono";
-
             const absIdx = (currentPage - 1) * PAGE_SIZE + idx + 1;
             const status = cardStatus[item.link || item.title];
+            const key = articleKey(item);
+            const isSelected = selectedKeys.has(key);
+
+            const wrapperClassName = isSelected
+              ? "opacity-100 border-white/25 bg-white/[0.05] ring-2 ring-white/40"
+              : status === "removing"
+              ? "opacity-0 scale-90 pointer-events-none border-white/[0.05] bg-white/[0.01]"
+              : status === "pending"
+              ? "opacity-40 border-white/[0.05] bg-white/[0.01]"
+              : status === "kept"
+              ? "opacity-100 border-emerald-500/30 bg-emerald-500/[0.03] ring-1 ring-emerald-500/20 hover:border-emerald-500/40 hover:bg-emerald-500/[0.05]"
+              : undefined;
 
             return (
-              <div
+              <NewsCard
                 key={`${activeSymbol}-${item.link}-${idx}`}
+                item={item}
+                displayIndex={absIdx}
                 onClick={() => handleOpenArticleModal(item)}
-                className={`group flex flex-col justify-between rounded-xl border p-4 cursor-pointer transition-all duration-500 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${
-                  status === "removing"
-                    ? "opacity-0 scale-90 pointer-events-none border-white/[0.05] bg-white/[0.01]"
-                    : status === "pending"
-                    ? "opacity-40 border-white/[0.05] bg-white/[0.01]"
-                    : status === "kept"
-                    ? "opacity-100 border-emerald-500/30 bg-emerald-500/[0.03] ring-1 ring-emerald-500/20 hover:border-emerald-500/40 hover:bg-emerald-500/[0.05]"
-                    : "opacity-100 border-white/[0.05] bg-white/[0.01] hover:border-white/[0.12] hover:bg-white/[0.03]"
-                }`}
-              >
-                <div>
-                  {/* Index + Source + Time + Sentiment */}
-                  <div className="mb-2.5 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-[9px] text-white/15 font-mono shrink-0">
-                        #{absIdx}
-                      </span>
-                      {item.source.startsWith("DC/") ? (
-                        <span className="inline-flex items-center gap-1 shrink-0">
-                          <span className="flex items-center justify-center rounded px-1 py-0.5 text-[8px] font-black bg-white/90 text-black leading-none">DC</span>
-                          <span className="text-[10px] font-semibold text-white/60 truncate max-w-[80px]">
-                            {item.source.replace("DC/", "")}
-                          </span>
-                        </span>
-                      ) : item.source.startsWith("TG/") ? (
-                        <span className="inline-flex items-center gap-1 shrink-0">
-                          <span className="flex items-center justify-center rounded px-1 py-0.5 text-[8px] font-black bg-white/90 text-black leading-none">TG</span>
-                          <span className="text-[10px] font-semibold text-white/60 truncate max-w-[80px]">
-                            {item.source.replace("TG/", "")}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-semibold text-white/55 truncate max-w-[90px]">
-                          {item.source}
-                        </span>
-                      )}
-                      <span className="text-white/15">·</span>
-                      <div className="flex items-center gap-0.5 shrink-0 text-white/30">
-                        <Clock className="h-2.5 w-2.5" />
-                        <span className="text-[10px]">
-                          {formatPubDate(item.pubDate)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {item.impactScore >= 60 && (
-                        <span className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-400" title="High market-moving potential">
-                          <Flame className="h-2.5 w-2.5" />
-                          {item.impactScore}
-                        </span>
-                      )}
-                      <span
-                        className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide shrink-0 ${sentimentClass}`}
-                      >
-                        {sentimentIcon}
-                        {item.sentiment}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Primary-source / calendar tag */}
-                  {(item.isPrimarySource || item.isCalendarEvent) && (
-                    <div className="mb-2">
-                      <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] px-2 py-0.5 text-[9px] font-bold text-white/60 uppercase tracking-wider">
-                        {item.isCalendarEvent ? "Economic Calendar" : "Official Source"}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Category badge */}
-                  {normalizeCategory(item.category) !== "Market News" && (
-                    <div className="mb-2">
-                      <CategoryBadge category={item.category} />
-                    </div>
-                  )}
-
-                  {/* Headline */}
-                  <div
-                    className="group/link mb-3 flex items-start gap-1 text-sm font-medium leading-snug text-white/75 transition-colors group-hover:text-white"
-                  >
-                    <span className="line-clamp-3">{item.title}</span>
-                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0 mt-0.5 opacity-0 transition-opacity group-hover:opacity-100" />
-                  </div>
-                </div>
-
-                {/* Market Impact */}
-                <div className="mt-auto rounded-lg border border-white/[0.04] bg-white/[0.01] p-2.5 text-xs">
-                  <div className="mb-1 text-[9px] font-bold uppercase tracking-wider text-white/20">
-                    Est. Market Impact
-                  </div>
-                  <p className={`text-[10px] leading-relaxed ${impactTextClass}`}>
-                    {item.marketImpact}
-                  </p>
-                </div>
-              </div>
+                showCheckbox={aiFilterActive}
+                selected={isSelected}
+                onToggleSelect={() => toggleSelected(key)}
+                wrapperClassName={wrapperClassName}
+              />
             );
           })}
         </div>
@@ -1121,6 +957,22 @@ export function MarketNews({ symbol, standalone }: MarketNewsProps) {
           </div>
         </div>
       )}
+
+      {/* ── Floating selection bar + Explain modal — beginner Hinglish, no search ── */}
+      {aiFilterActive && (
+        <SelectionActionBar
+          count={selectedKeys.size}
+          onClear={clearSelection}
+          onExplain={() => explainSelected(articles)}
+        />
+      )}
+      <ExplainModal
+        open={explainOpen}
+        loading={explainLoading}
+        error={explainError}
+        text={explainText}
+        onClose={() => setExplainOpen(false)}
+      />
 
       {showSentimentReports && (
         <SentimentReportsBrowser onClose={() => setShowSentimentReports(false)} />

@@ -63,7 +63,7 @@ const RISK_TONE_STYLES: Record<string, { text: string; bg: string; border: strin
 };
 
 function SentimentBadge({ sentiment, size = "sm" }: { sentiment: Sentiment; size?: "sm" | "md" }) {
-  const s = SENTIMENT_STYLES[sentiment];
+  const s = SENTIMENT_STYLES[sentiment] ?? SENTIMENT_STYLES.Neutral;
   const Icon = s.icon;
   return (
     <span className={cn(
@@ -82,30 +82,32 @@ function ConfidenceBar({ value, sentiment }: { value: number; sentiment: Sentime
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 flex-1 rounded-full bg-white/8 overflow-hidden">
-        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }} />
       </div>
-      <span className="text-[10px] font-semibold text-white/40 tabular-nums w-8 text-right">{value}%</span>
+      <span className="text-[10px] font-semibold text-white/40 tabular-nums w-8 text-right">{value ?? 0}%</span>
     </div>
   );
 }
 
 function InstrumentCard({ inst }: { inst: InstrumentSentiment }) {
-  const s = SENTIMENT_STYLES[inst.sentiment];
+  const sentiment = inst?.sentiment || "Neutral";
+  const s = SENTIMENT_STYLES[sentiment] ?? SENTIMENT_STYLES.Neutral;
+  const keyDrivers = Array.isArray(inst?.key_drivers) ? inst.key_drivers : [];
 
   return (
     <div className={cn("rounded-xl border overflow-hidden transition break-inside-avoid mb-3", s.border, s.bg)}>
       <div className="p-3.5">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[13px] font-bold text-white">{inst.symbol}</span>
-          <SentimentBadge sentiment={inst.sentiment} />
+          <span className="text-[13px] font-bold text-white">{inst?.symbol || "Unknown"}</span>
+          <SentimentBadge sentiment={sentiment} />
         </div>
-        <ConfidenceBar value={inst.confidence} sentiment={inst.sentiment} />
+        <ConfidenceBar value={inst?.confidence ?? 0} sentiment={sentiment} />
         <p className="text-[11px] text-white/60 leading-relaxed mt-2.5">
-          {inst.summary}
+          {inst?.summary || ""}
         </p>
-        {inst.key_drivers.length > 0 && (
+        {keyDrivers.length > 0 && (
           <ul className="mt-2.5 space-y-1.5 border-t border-white/5 pt-2.5">
-            {inst.key_drivers.map((d, i) => (
+            {keyDrivers.map((d, i) => (
               <li key={i} className="text-[10px] text-white/45 flex gap-1.5 leading-relaxed">
                 <span className="shrink-0">•</span>{d}
               </li>
@@ -118,8 +120,17 @@ function InstrumentCard({ inst }: { inst: InstrumentSentiment }) {
 }
 
 export function SentimentReportDashboard({ report, onClose, title = "News Sentiment Report" }: { report: SentimentReport; onClose?: () => void; title?: string }) {
-  const d = report.data;
-  const riskStyle = RISK_TONE_STYLES[d.overall_sentiment.risk_tone] ?? RISK_TONE_STYLES.Neutral;
+  const d = report?.data;
+  
+  // Safe fallback normalization
+  const overallSentiment = d?.overall_sentiment || {};
+  const riskTone = overallSentiment.risk_tone || "Neutral";
+  const overallSummary = overallSentiment.summary || "";
+  const instrumentSentiment = Array.isArray(d?.instrument_sentiment) ? d.instrument_sentiment : [];
+  const keyThemes = Array.isArray(d?.key_themes) ? d.key_themes : [];
+  const analyzedNews = Array.isArray(d?.analyzed_news) ? d.analyzed_news : [];
+
+  const riskStyle = RISK_TONE_STYLES[riskTone] ?? RISK_TONE_STYLES.Neutral;
   const RiskIcon = riskStyle.icon;
 
   return (
@@ -133,20 +144,29 @@ export function SentimentReportDashboard({ report, onClose, title = "News Sentim
           <div className="min-w-0">
             <h2 className="text-[16px] font-bold text-white truncate">{title}</h2>
             <div className="flex items-center gap-1.5 text-[11px] text-white/35 flex-wrap">
-              <span>{report.timeRangeLabel}</span>
+              <span>{report?.timeRangeLabel || ""}</span>
               <span className="text-white/15">·</span>
-              <span>{report.newsAnalyzedCount} news analyzed</span>
+              <span>{report?.newsAnalyzedCount ?? 0} news analyzed</span>
               <span className="text-white/15">·</span>
-              <span className="flex items-center gap-1"><User className="h-2.5 w-2.5" />{report.generatedByName || report.generatedBy}</span>
+              <span className="flex items-center gap-1"><User className="h-2.5 w-2.5" />{report ? (report.generatedByName || report.generatedBy) : ""}</span>
               <span className="text-white/15">·</span>
-              <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{format(new Date(report.generatedAt), "MMM d, HH:mm")}</span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-2.5 w-2.5" />
+                {report?.generatedAt ? (() => {
+                  try {
+                    return format(new Date(report.generatedAt), "MMM d, HH:mm");
+                  } catch {
+                    return "";
+                  }
+                })() : ""}
+              </span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2.5 shrink-0">
           <span className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold", riskStyle.text, riskStyle.bg, riskStyle.border)}>
             <RiskIcon className="h-3.5 w-3.5" />
-            {d.overall_sentiment.risk_tone}
+            {riskTone}
           </span>
           {onClose && (
             <button
@@ -163,7 +183,7 @@ export function SentimentReportDashboard({ report, onClose, title = "News Sentim
       <div className="px-6 py-5 space-y-5 max-w-5xl mx-auto">
         {/* Overall summary */}
         <div className="rounded-xl border border-white/7 p-4">
-          <p className="text-[13px] text-white/75 leading-relaxed whitespace-pre-wrap">{d.overall_sentiment.summary}</p>
+          <p className="text-[13px] text-white/75 leading-relaxed whitespace-pre-wrap">{overallSummary}</p>
         </div>
 
         {/* Instrument grid */}
@@ -171,17 +191,17 @@ export function SentimentReportDashboard({ report, onClose, title = "News Sentim
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="h-4 w-4 text-white/55" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Instrument Sentiment</span>
-            <span className="ml-auto text-[10px] text-white/25">{d.instrument_sentiment.length} instruments</span>
+            <span className="ml-auto text-[10px] text-white/25">{instrumentSentiment.length} instruments</span>
           </div>
           <div className="columns-1 sm:columns-2 xl:columns-3 gap-3">
-            {d.instrument_sentiment.map((inst) => (
-              <InstrumentCard key={inst.symbol} inst={inst} />
+            {instrumentSentiment.map((inst) => (
+              <InstrumentCard key={inst?.symbol || Math.random().toString()} inst={inst} />
             ))}
           </div>
         </div>
 
         {/* Key themes */}
-        {d.key_themes.length > 0 && (
+        {keyThemes.length > 0 && (
           <div className="rounded-xl border border-white/7 overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
               <Lightbulb className="h-4 w-4 text-amber-400/80" />
@@ -189,7 +209,7 @@ export function SentimentReportDashboard({ report, onClose, title = "News Sentim
             </div>
             <div className="p-4">
               <ul className="space-y-2">
-                {d.key_themes.map((theme, i) => (
+                {keyThemes.map((theme, i) => (
                   <li key={i} className="text-[12px] text-white/70 flex gap-2.5">
                     <span className="h-5 w-5 shrink-0 rounded-full bg-white/8 text-white/50 text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
                     {theme}
@@ -205,40 +225,54 @@ export function SentimentReportDashboard({ report, onClose, title = "News Sentim
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
             <Newspaper className="h-4 w-4 text-white/55" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Analyzed News</span>
-            <span className="ml-auto text-[10px] text-white/25">{d.analyzed_news.length} items</span>
+            <span className="ml-auto text-[10px] text-white/25">{analyzedNews.length} items</span>
           </div>
           <div className="divide-y divide-white/5">
-            {d.analyzed_news.map((item, i) => (
-              <div key={i} className="p-3.5">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-[12px] text-white/80 leading-snug flex-1">{item.headline}</p>
-                  <span className={cn(
-                    "shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border uppercase",
-                    item.impact === "High" ? "text-red-400 bg-red-500/10 border-red-500/25"
-                      : item.impact === "Medium" ? "text-amber-400 bg-amber-500/10 border-amber-500/25"
-                      : "text-white/40 bg-white/5 border-white/10"
-                  )}>
-                    {item.impact}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <span className="text-[10px] text-white/30">{item.source}</span>
-                  <span className="text-white/15">·</span>
-                  <span className="text-[10px] text-white/30">{item.pubDate ? format(new Date(item.pubDate), "MMM d, HH:mm") : ""}</span>
-                  {item.affected_instruments.map((ai) => (
-                    <span
-                      key={ai.symbol}
-                      className={cn(
-                        "text-[9px] font-semibold px-1.5 py-0.5 rounded border",
-                        SENTIMENT_STYLES[ai.sentiment].text, SENTIMENT_STYLES[ai.sentiment].bg, SENTIMENT_STYLES[ai.sentiment].border
-                      )}
-                    >
-                      {ai.symbol}
+            {analyzedNews.map((item, i) => {
+              const affected_instruments = Array.isArray(item?.affected_instruments) ? item.affected_instruments : [];
+              return (
+                <div key={i} className="p-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[12px] text-white/80 leading-snug flex-1">{item?.headline || ""}</p>
+                    <span className={cn(
+                      "shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border uppercase",
+                      item?.impact === "High" ? "text-red-400 bg-red-500/10 border-red-500/25"
+                        : item?.impact === "Medium" ? "text-amber-400 bg-amber-500/10 border-amber-500/25"
+                        : "text-white/40 bg-white/5 border-white/10"
+                    )}>
+                      {item?.impact || "Low"}
                     </span>
-                  ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    <span className="text-[10px] text-white/30">{item?.source || ""}</span>
+                    <span className="text-white/15">·</span>
+                    <span className="text-[10px] text-white/30">
+                      {item?.pubDate ? (() => {
+                        try {
+                          return format(new Date(item.pubDate), "MMM d, HH:mm");
+                        } catch {
+                          return "";
+                        }
+                      })() : ""}
+                    </span>
+                    {affected_instruments.map((ai) => {
+                      const badgeSentimentStyle = SENTIMENT_STYLES[ai?.sentiment] ?? SENTIMENT_STYLES.Neutral;
+                      return (
+                        <span
+                          key={ai?.symbol || Math.random().toString()}
+                          className={cn(
+                            "text-[9px] font-semibold px-1.5 py-0.5 rounded border",
+                            badgeSentimentStyle.text, badgeSentimentStyle.bg, badgeSentimentStyle.border
+                          )}
+                        >
+                          {ai?.symbol || ""}
+                        </span>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

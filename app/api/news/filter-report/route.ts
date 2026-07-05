@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { NewsFilterReportModel } from "@/lib/models/NewsFilterReport";
-import { ALLOWED_HOURS, gatherNewsWindow, runSentimentAnalysis, SentimentAnalysisError } from "@/lib/news/sentiment-analysis";
+import { ALLOWED_HOURS, gatherNewsWindow } from "@/lib/news/sentiment-analysis";
+import { runNewsFilter, type NewsFilterResult } from "@/lib/news/news-filter";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -25,29 +26,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No news found in this time window across any source" }, { status: 400 });
   }
 
-  // Reuses the exact same AI pass as the sentiment-report feature: it already
-  // identifies which items are genuinely relevant ("analyzed_news" = kept) and
-  // tags sentiment per affected instrument. Anything in the raw window that
-  // doesn't come back in analyzed_news is the "filtered out" (removed) set.
-  let analysisData: unknown;
+  // Runs the dedicated tier/sentiment classifier (lib/news/news-filter.ts) —
+  // a lean, parallel-batched call on the fast model, separate from the deep
+  // sentiment-report pass. Anything in the raw window that doesn't come back
+  // in analyzed_news is the "filtered out" (removed) set.
+  let analysisData: NewsFilterResult;
   try {
-    analysisData = await runSentimentAnalysis(window, apiKey);
+    analysisData = await runNewsFilter(window, apiKey);
   } catch (err) {
-    if (err instanceof SentimentAnalysisError) {
-      return NextResponse.json({ error: err.message, raw: err.raw }, { status: err.status });
-    }
-    throw err;
+    return NextResponse.json({ error: err instanceof Error ? err.message : "AI filtering failed" }, { status: 502 });
   }
 
-  const linkByHeadline = new Map(window.deduped.map((i) => [i.headline, i.link]));
-  const analyzedNews = (Array.isArray((analysisData as { analyzed_news?: unknown })?.analyzed_news)
-    ? (analysisData as { analyzed_news: { headline: string }[] }).analyzed_news
-    : []
-  ).map((item) => ({ ...item, link: linkByHeadline.get(item.headline) ?? "" }));
-
-  // Re-attach the (possibly AI-enriched) analyzed_news back onto analysisData
-  // so the stored/returned data carries links consistently in both arrays.
-  (analysisData as { analyzed_news: unknown }).analyzed_news = analyzedNews;
+  const analyzedNews = analysisData.analyzed_news;
 
   await dbConnect();
   const doc = await NewsFilterReportModel.create({
