@@ -22,6 +22,16 @@ import type { RawItem } from "./types";
 //   - WatcherGuru         : crypto/macro breaking alerts
 //   - WalterBloomberg     : high-signal breaking geopolitical/financial news
 //   - cryptoquant_official: on-chain crypto analysis (BTC/ETH specific)
+//
+// Added later — same hand-verification process (live-fetched, checked for
+// same-day timestamps AND genuine on-topic content, not just recent posts;
+// several tried candidates — FxStreet's Telegram handle, Kitco, TradingEconomics,
+// GoldSeek, most "official" broker/exchange handles — either 404'd, had gone
+// stale, or (FxStreet's handle specifically) had been squatted and now posts
+// airdrop/spam content, so they were rejected rather than added blindly:
+//   - cointelegraph  : official Cointelegraph breaking crypto news
+//   - CoinDeskGlobal : official CoinDesk breaking crypto news
+//   - OnChainLens    : on-chain whale/exchange-flow alerts (BTC/ETH specific)
 
 export const TELEGRAM_CHANNELS = [
   "financialjuice",
@@ -29,6 +39,9 @@ export const TELEGRAM_CHANNELS = [
   "WatcherGuru",
   "WalterBloomberg",
   "cryptoquant_official",
+  "cointelegraph",
+  "CoinDeskGlobal",
+  "OnChainLens",
 ];
 
 function decodeHtmlEntities(str: string): string {
@@ -79,7 +92,11 @@ function parseTelegramHtml(html: string, channel: string): ParsedPage {
     if (text.length < 15) continue; // skip media-only / empty posts
 
     items.push({
-      title: text.length > 300 ? text.slice(0, 300) + "…" : text,
+      // Telegram messages ARE the full "article" — there's no separate headline
+      // vs. body like RSS, so keep the whole message rather than truncating it
+      // to a headline-length snippet. Card display still line-clamps visually;
+      // this cap is just a generous safety bound against a pathological post.
+      title: text.length > 2000 ? text.slice(0, 2000) + "…" : text,
       link: `https://t.me/${posts[i].channel}/${posts[i].id}`,
       pubDate: timeMatch ? timeMatch[1] : "",
       source: `TG/${channel}`,
