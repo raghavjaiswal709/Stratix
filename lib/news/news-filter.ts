@@ -81,13 +81,13 @@ TIER 3 (Low-Impact / Trend Confirmation):
 - Large-scale institutional asset purchases or corporate treasury reallocations
 - Scheduled government debt auctions (e.g. Treasury bond yields)`;
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(candleBlock: string): string {
   return `You are a trading-news relevance classifier for a desk that tracks these instruments: ${INSTRUMENTS.join(", ")}.
 
 You will receive a numbered JSON array of news headlines (each with an index "i", "headline", "source"). For EACH item, decide whether to keep it using the tier taxonomy below.
 
 ${TIER_TAXONOMY}
-
+${candleBlock ? `\n${candleBlock}\n\n⚠️ HOW TO USE THE PRICE DATA ABOVE: it is ADDITIVE CONTEXT ONLY — a secondary sanity-check, never the primary basis for a decision. Tier, relevance (keep/discard), tags, and sentiment must be driven by the NEWS CONTENT itself. Do NOT keep an item just because a symbol moved, and do NOT discard a genuinely relevant item just because price action looks quiet. Only use the candle data to slightly refine an impact_score when the news' real-world severity is already ambiguous from the headline alone (e.g. confirming that a move already happened), never to override the news-based tier/keep decision.\n` : ""}
 For every item you decide to KEEP, output an object with:
 - "i": the exact index from the input
 - "tier": 1, 2, or 3 (whichever tier bullet it matches — pick the closest one)
@@ -116,14 +116,14 @@ interface RawKeptEntry {
 
 const TIER_TO_IMPACT: Record<1 | 2 | 3, "High" | "Medium" | "Low"> = { 1: "High", 2: "Medium", 3: "Low" };
 
-async function filterChunk(chunk: NewsInputItem[], apiKey: string): Promise<FilteredNewsItem[]> {
+async function filterChunk(chunk: NewsInputItem[], apiKey: string, candleBlock: string): Promise<FilteredNewsItem[]> {
   const payload = chunk.map((item, i) => ({ i, headline: item.headline, source: item.source }));
 
   const openai = new OpenAI({ apiKey });
   const response = await openai.chat.completions.create({
     model: SENTIMENT_MODEL,
     messages: [
-      { role: "system", content: buildSystemPrompt() },
+      { role: "system", content: buildSystemPrompt(candleBlock) },
       { role: "user", content: `Classify these ${chunk.length} news items:\n${JSON.stringify(payload)}` },
     ],
     temperature: 0.1,
@@ -189,7 +189,7 @@ export interface NewsFilterResult {
 // hundreds of correctly-classified items.
 export async function runNewsFilter(window: GatheredNewsWindow, apiKey: string): Promise<NewsFilterResult> {
   const chunks = chunkArray(window.deduped, CHUNK_SIZE);
-  const results = await Promise.allSettled(chunks.map((chunk) => filterChunk(chunk, apiKey)));
+  const results = await Promise.allSettled(chunks.map((chunk) => filterChunk(chunk, apiKey, window.candleBlock)));
   const analyzed_news = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
   return { analyzed_news };
 }

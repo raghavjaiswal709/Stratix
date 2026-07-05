@@ -9,7 +9,7 @@ interface HCandle { t: number; o: number; h: number; l: number; c: number }
 interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 import { cn } from "@/lib/utils";
 import { validateReportSchema } from "@/lib/newsValidation";
-import { MarketNews } from "@/components/chart/MarketNews";
+import { MarketNews, type MarketNewsHandle, FILTER_HOUR_OPTIONS, filterHourLabel } from "@/components/chart/MarketNews";
 import { AnalyseNewsModal } from "@/components/chart/news-sentiment/analyse-news-modal";
 import { SentimentReportDashboard, type SentimentReport } from "@/components/chart/news-sentiment/sentiment-report-dashboard";
 import { FilteredReportView } from "@/components/chart/news-sentiment/filtered-report-view";
@@ -4486,6 +4486,16 @@ export default function NewsAnalysisPage() {
   const [askAiOpen,         setAskAiOpen]         = useState(false);
   const [aiAnalysisOpen,    setAiAnalysisOpen]    = useState(false);
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
+
+  // ── Filter News tab button — imperatively triggers the same AI filter
+  // MarketNews already runs inline, so both entry points share one implementation.
+  const marketNewsRef = useRef<MarketNewsHandle>(null);
+  const [filterTabDropdownOpen, setFilterTabDropdownOpen] = useState(false);
+  const runFilterFromTab = useCallback((hours: number) => {
+    setFilterTabDropdownOpen(false);
+    marketNewsRef.current?.runFilter(hours);
+    document.getElementById("market-news-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
   const [reportViewEntry,  setReportViewEntry]  = useState<NewsEntry | null>(null);
   const [reportViewData,   setReportViewData]   = useState<NewsReport | null>(null);
   const [reportViewLoading, setReportViewLoading] = useState(false);
@@ -4858,7 +4868,9 @@ export default function NewsAnalysisPage() {
               Manual
             </button>
 
-            {/* Ask AI */}
+            {/* Ask AI — commented out per request; the "Ask AI" feature now
+                lives inside an already-generated Filtered News Report instead
+                (see ReportAskAI in filtered-report-view.tsx).
             <button
               onClick={() => setAskAiOpen(true)}
               className="relative flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold text-white transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]"
@@ -4867,9 +4879,11 @@ export default function NewsAnalysisPage() {
               <MessageSquare className="h-3.5 w-3.5" />
               Ask AI
             </button>
+            */}
 
-            {/* AI News Analysis — now opens the newer, faster "Analyse News" sentiment
-                report (strictly-all-news + real candles + per-instrument sentiment) */}
+            {/* AI News Analysis — commented out per request; "Filter News" now
+                takes this slot (same gradient), triggering the AI filter that
+                already lives inline in MarketNews via marketNewsRef.
             <button
               onClick={() => setSentimentModalOpen(true)}
               className="relative flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold text-white transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]"
@@ -4878,6 +4892,34 @@ export default function NewsAnalysisPage() {
               <Sparkles className="h-3.5 w-3.5" />
               AI News Analysis
             </button>
+            */}
+            <div className="relative">
+              <button
+                onClick={() => setFilterTabDropdownOpen((v) => !v)}
+                className="relative flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold text-white transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]"
+                style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 55%, #0891b2 100%)", boxShadow: "0 0 20px rgba(124,58,237,0.25), 0 0 40px rgba(5,150,105,0.10)" }}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                Filter News
+                <ChevronDown className={`h-3 w-3 transition-transform ${filterTabDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+              {filterTabDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setFilterTabDropdownOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1.5 z-20 w-44 rounded-lg border border-white/[0.10] bg-[#161616] shadow-xl py-1.5">
+                    {FILTER_HOUR_OPTIONS.map((h) => (
+                      <button
+                        key={h}
+                        onClick={() => runFilterFromTab(h)}
+                        className="w-full text-left px-3 py-1.5 text-xs text-white/60 hover:bg-white/[0.06] hover:text-white transition"
+                      >
+                        {filterHourLabel(h)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* History */}
             <button
@@ -5016,8 +5058,8 @@ export default function NewsAnalysisPage() {
       )}
 
       {/* ── Main: Live News ────────────────────────────────────────────────── */}
-      <div className="flex-1 pt-5">
-        <MarketNews standalone />
+      <div id="market-news-section" className="flex-1 pt-5">
+        <MarketNews standalone ref={marketNewsRef} />
       </div>
 
       {/* ── Report View Modal ──────────────────────────────────────────────── */}
