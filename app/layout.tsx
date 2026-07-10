@@ -10,10 +10,11 @@ import dbConnect from "@/lib/mongodb";
 import { UserDataModel } from "@/lib/models/UserData";
 import type { InitialMeta } from "@/lib/context";
 
+// Inter is a variable font — omitting `weight` loads ONE variable file
+// covering every weight instead of seven separate static files.
 const inter = Inter({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
   display: "swap",
 });
 

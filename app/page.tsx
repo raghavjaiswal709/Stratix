@@ -1,26 +1,37 @@
-"use client";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
+import dbConnect from "@/lib/mongodb";
+import { UserDataModel } from "@/lib/models/UserData";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAppContext } from "@/lib/context";
+// Server-side redirect: resolves the user's preferred landing page with one
+// tiny projected query instead of shipping a client bundle that waits for the
+// full /api/user-data payload before navigating.
+export default async function Home() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect("/auth/signin");
+  }
 
-export default function Home() {
-  const { preferences, loading } = useAppContext();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!loading) {
-      let dest = preferences.defaultPage || "/dashboard";
-      if (dest === "/productivity" || dest === "/trade/trades" || dest === "/trades") {
-        dest = "/dashboard";
-      }
-      router.replace(dest);
+  let dest = "/dashboard";
+  try {
+    await dbConnect();
+    const doc = await UserDataModel.findOne(
+      { userId: session.user.id },
+      "preferences.defaultPage"
+    ).lean<{ preferences?: { defaultPage?: string } }>();
+    const preferred = doc?.preferences?.defaultPage;
+    if (
+      preferred &&
+      preferred !== "/" &&
+      preferred !== "/productivity" &&
+      preferred !== "/trade/trades" &&
+      preferred !== "/trades"
+    ) {
+      dest = preferred;
     }
-  }, [loading, preferences.defaultPage, router]);
+  } catch {
+    // Non-fatal — fall through to the dashboard.
+  }
 
-  return (
-    <div className="flex items-center justify-center h-full">
-      <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
-    </div>
-  );
+  redirect(dest);
 }

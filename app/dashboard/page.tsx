@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { StatsCards } from "@/components/trade/dashboard/stats-cards";
 import { PerformanceChart } from "@/components/trade/dashboard/performance-chart";
 import { MonthlyCalendar } from "@/components/trade/dashboard/monthly-calendar";
@@ -17,6 +17,7 @@ import { compileTrades } from "@/lib/trades/compile";
 import { AdvancedInsights } from "@/components/trade/dashboard/advanced-insights";
 import { PnlBreakdown } from "@/components/trade/dashboard/pnl-breakdown";
 import { DASHBOARD_PALETTES } from "@/types";
+import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
 
 interface Trade {
   _id: string;
@@ -51,7 +52,11 @@ interface MT5Info {
 }
 
 export default function DashboardPage() {
-  const { activeProfileId, tradingProfiles, loading: contextLoading, sharedTrades, setSharedTrades, preferences } = useAppContext();
+  // metaLoading (not the full-content `loading`) — the dashboard only needs
+  // preferences + profiles, which the server already resolved in initialMeta.
+  // Gating on `loading` used to serialize this page behind the multi-MB
+  // /api/user-data fetch it never reads.
+  const { activeProfileId, tradingProfiles, metaLoading, sharedTrades, setSharedTrades, preferences } = useAppContext();
   // "default"/unset = no palette active; PerformanceChart falls back to its
   // own emerald/red defaults. The app-wide token overrides + CSS catch-alls
   // (card top-stripe, header icons, badge rows) already come from
@@ -65,45 +70,61 @@ export default function DashboardPage() {
   const [mt5Loading, setMt5Loading] = useState(true);
   const [syncRefreshKey, setSyncRefreshKey] = useState(0);
 
-  // Load manual trades — re-fetch when active profile changes.
-  // AbortController cancels in-flight requests when the profile switches so
-  // stale data from a previous profile never flashes on screen.
+  // Tracked via ref so the fetch effect doesn't depend on sharedTrades —
+  // having sharedTrades.length in the deps made the effect re-fire after its
+  // own setSharedTrades, fetching /api/trade twice on every mount.
+  const hasCachedTradesRef = useRef(sharedTrades.length > 0);
   useEffect(() => {
-    if (contextLoading) return;
+    hasCachedTradesRef.current = sharedTrades.length > 0;
+  }, [sharedTrades]);
 
-    const controller = new AbortController();
-    if (sharedTrades.length === 0) {
-      setLoading(true);
-    }
-    const url = activeProfileId
-      ? `/api/trade?profileId=${encodeURIComponent(activeProfileId)}`
-      : "/api/trade";
+  // Load manual trades — re-fetch when active profile changes. Served from
+  // the shared api-cache when a fresh copy already exists (instant revisit),
+  // and re-fetched fresh whenever another page reports a trade mutation.
+  // requestId guards against a slow, now-stale request (e.g. from a profile
+  // the user has already switched away from) overwriting newer state.
+  const requestIdRef = useRef(0);
+  const loadTrades = useCallback(
+    (profileId: string, opts: { force?: boolean; silent?: boolean } = {}) => {
+      const requestId = ++requestIdRef.current;
+      if (!opts.silent && !hasCachedTradesRef.current) setLoading(true);
+      const url = profileId ? `/api/trade?profileId=${encodeURIComponent(profileId)}` : "/api/trade";
 
-    fetch(url, { 
-      signal: controller.signal,
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache"
-      }
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        setSharedTrades(Array.isArray(data) ? data : []);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") setLoading(false);
-      });
+      cachedFetch<Trade[]>(url, { ttlMs: 30_000, force: opts.force })
+        .then((data) => {
+          if (requestId !== requestIdRef.current) return; // superseded by a newer request
+          setSharedTrades(Array.isArray(data) ? data : []);
+          setLoading(false);
+        })
+        .catch(() => {
+          if (requestId !== requestIdRef.current) return;
+          setLoading(false);
+        });
+    },
+    [setSharedTrades]
+  );
 
-    return () => controller.abort();
-  }, [activeProfileId, contextLoading, setSharedTrades, sharedTrades.length]);
+  useEffect(() => {
+    if (metaLoading) return;
+    loadTrades(activeProfileId);
+  }, [activeProfileId, metaLoading, loadTrades]);
+
+  // Any trade mutation elsewhere (Trades page, Journal, MT5 sync) invalidates
+  // the cache and re-syncs in the background — silent so it never flashes
+  // the full-page spinner over an already-rendered dashboard.
+  useEffect(() => {
+    const handler = () => {
+      invalidateApiCache("/api/trade");
+      loadTrades(activeProfileId, { force: true, silent: true });
+    };
+    window.addEventListener("refresh-trades", handler);
+    return () => window.removeEventListener("refresh-trades", handler);
+  }, [activeProfileId, loadTrades]);
 
   // Load MT5 status
   useEffect(() => {
-    fetch("/api/mt5/status")
-      .then((r) => r.json())
-      .then((data: MT5Info) => {
+    cachedFetch<MT5Info>("/api/mt5/status", { ttlMs: 30_000 })
+      .then((data) => {
         setMt5Info(data);
         setMt5Loading(false);
       })
@@ -135,9 +156,9 @@ export default function DashboardPage() {
     };
   }, [compiledTrades]);
 
-  // Show full-page spinner while context resolves OR while trades are loading.
+  // Show full-page spinner while meta resolves OR while trades are loading.
   // This prevents stats/charts from flashing zeros before data arrives.
-  if (contextLoading || loading) {
+  if (metaLoading || loading) {
     return (
       <div className="flex items-center justify-center h-full min-h-[60vh]">
         <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />

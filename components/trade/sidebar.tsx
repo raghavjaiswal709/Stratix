@@ -37,7 +37,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ProfileSwitcher, ProfileDot, ManageModal } from "@/components/trade/profile-switcher";
-import { GraffitiLogo, GraffitiMark } from "@/components/shared/graffiti-logo";
+import { StratixMark, StratixWordmark } from "@/components/shared/stratix-logo";
 
 interface NavItem {
   href: string;
@@ -153,7 +153,7 @@ function CollapsedSidebar({
     <aside className="flex flex-col w-14 h-full bg-sidebar border-r border-sidebar-border">
       {/* Logo + pin button */}
       <div className="flex flex-col items-center gap-2.5 py-4 border-b border-sidebar-border">
-        <GraffitiMark size={32} />
+        <StratixMark size={32} />
         <Tooltip>
           <TooltipTrigger
             render={
@@ -433,12 +433,9 @@ function ExpandedSidebar({
   return (
     <aside className="flex flex-col w-55 h-full bg-sidebar border-r border-sidebar-border">
       {/* Header */}
-      <div className="flex items-center gap-2.5 px-4 py-4 border-b border-sidebar-border">
-        <GraffitiMark size={32} />
-        <div className="flex flex-col leading-none flex-1 min-w-0">
-          <GraffitiLogo size={20} className="mb-0.5" />
-          <span className="text-[10px] mt-0.5 text-white/25 font-medium uppercase tracking-widest">Tradebook &amp; Life OS</span>
-        </div>
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-sidebar-border">
+        <StratixMark size={36} />
+        <StratixWordmark size={18} className="flex-1 min-w-0 items-start" />
         {/* Unpin / close button */}
         {!isMobile && onUnpin ? (
           <Tooltip>

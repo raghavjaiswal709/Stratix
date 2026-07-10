@@ -148,10 +148,11 @@ export interface AccentPreset {
   mode: "dark" | "light";
 }
 
-// 20 curated accent palettes — 10 tuned for dark mode (vivid, pop against
-// near-black surfaces), 10 tuned for light mode (deeper/richer shades that
-// stay legible against white). No blue/indigo/violet hues, matching the
-// app's monochrome-glass + emerald/red profit-loss convention.
+// 26 curated accent palettes — 13 tuned for dark mode (vivid, pop against
+// near-black surfaces), 13 tuned for light mode (deeper/richer shades that
+// stay legible against white). Includes an oceanic blue/violet/purple family
+// alongside the original warm-neutral set — all still opt-in single tints,
+// same convention as the Application Color Palette re-skins below.
 export const ACCENT_PRESETS: AccentPreset[] = [
   // ── Dark mode ──
   { name: "Emerald",  value: "#10b981", foreground: "#ffffff", mode: "dark" },
@@ -164,6 +165,10 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   { name: "Orchid",   value: "#d946ef", foreground: "#ffffff", mode: "dark" },
   { name: "Gold",     value: "#eab308", foreground: "#000000", mode: "dark" },
   { name: "Coral",    value: "#fb7185", foreground: "#000000", mode: "dark" },
+  // ── Dark mode · Oceanic ──
+  { name: "Azure",    value: "#0ea5e9", foreground: "#ffffff", mode: "dark" },
+  { name: "Indigo",   value: "#6366f1", foreground: "#ffffff", mode: "dark" },
+  { name: "Violet",   value: "#8b5cf6", foreground: "#ffffff", mode: "dark" },
   // ── Light mode ──
   { name: "Forest",     value: "#059669", foreground: "#ffffff", mode: "light" },
   { name: "Olive",      value: "#4d7c0f", foreground: "#ffffff", mode: "light" },
@@ -175,6 +180,10 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   { name: "Plum",       value: "#a21caf", foreground: "#ffffff", mode: "light" },
   { name: "Bronze",     value: "#a16207", foreground: "#ffffff", mode: "light" },
   { name: "Maroon",     value: "#9f1239", foreground: "#ffffff", mode: "light" },
+  // ── Light mode · Oceanic ──
+  { name: "Sapphire",   value: "#0369a1", foreground: "#ffffff", mode: "light" },
+  { name: "Cobalt",     value: "#4338ca", foreground: "#ffffff", mode: "light" },
+  { name: "Amethyst",   value: "#7e22ce", foreground: "#ffffff", mode: "light" },
 ];
 
 // ── Application Color Palette ─────────────────────────────────────────────
@@ -239,6 +248,17 @@ export const DASHBOARD_PALETTES: DashboardPalette[] = [
     background: "#1c1618", card: "#251d20", border: "#3d2e33", text: "#ecdfe2", textMuted: "#ab949c",
     positive: "#8ba88f", negative: "#b16471", accent: "#b17d8c", icon: "#c99aa6", badge: "#8f5b68" },
 
+  // ── Dark Mode Palettes · Oceanic (blue / indigo / violet) ──
+  { id: "deep-abyss",      name: "Deep Abyss", mode: "dark",
+    background: "#0f1720", card: "#152030", border: "#28394d", text: "#dde8f4", textMuted: "#8ea3ba",
+    positive: "#6ba888", negative: "#c1666b", accent: "#4f8fc4", icon: "#5fa3d6", badge: "#3d6f9c" },
+  { id: "midnight-tide",   name: "Midnight Tide", mode: "dark",
+    background: "#141328", card: "#1c1a35", border: "#332f57", text: "#e5e2f6", textMuted: "#9d97c0",
+    positive: "#6fab8c", negative: "#c1707a", accent: "#7c7ce0", icon: "#8f8cec", badge: "#6259b8" },
+  { id: "violet-depths",   name: "Violet Depths", mode: "dark",
+    background: "#180f22", card: "#22162f", border: "#3b2a4c", text: "#ecdff6", textMuted: "#ac96bd",
+    positive: "#71ab8f", negative: "#c16f8c", accent: "#a563d1", icon: "#c48fe0", badge: "#8b4fb8" },
+
   // ── Light Mode Palettes ──
   { id: "porcelain-mint",    name: "Porcelain & Mint", mode: "light",
     background: "#f3f7f5", card: "#ffffff", border: "#dbe7e1", text: "#1e2925", textMuted: "#5c6f67",
@@ -270,6 +290,17 @@ export const DASHBOARD_PALETTES: DashboardPalette[] = [
   { id: "apricot-cream",     name: "Apricot Cream", mode: "light",
     background: "#fefaf6", card: "#ffffff", border: "#faedd8", text: "#382e22", textMuted: "#80705d",
     positive: "#2e7d32", negative: "#c62828", accent: "#ea580c", icon: "#ea580c", badge: "#f97316" },
+
+  // ── Light Mode Palettes · Oceanic (blue / indigo / violet) ──
+  { id: "sea-glass",         name: "Sea Glass", mode: "light",
+    background: "#f4f8fb", card: "#ffffff", border: "#dbe7f0", text: "#0f2436", textMuted: "#5a7386",
+    positive: "#0f766e", negative: "#dc2626", accent: "#0369a1", icon: "#0369a1", badge: "#0891b2" },
+  { id: "coastal-breeze",    name: "Coastal Breeze", mode: "light",
+    background: "#f5f7fc", card: "#ffffff", border: "#dee3f5", text: "#1c2340", textMuted: "#5e6690",
+    positive: "#15803d", negative: "#dc2626", accent: "#4338ca", icon: "#4f46e5", badge: "#6366f1" },
+  { id: "lavender-mist",     name: "Lavender Mist", mode: "light",
+    background: "#f8f5fc", card: "#ffffff", border: "#ecdff5", text: "#2c1f3d", textMuted: "#73647f",
+    positive: "#15803d", negative: "#c2185b", accent: "#7e22ce", icon: "#9333ea", badge: "#a855f7" },
 ];
 
 export interface TradesSortFilterPrefs {

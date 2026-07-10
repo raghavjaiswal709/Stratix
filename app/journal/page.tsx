@@ -9,6 +9,7 @@ import { MissedTradesView } from "@/components/trade/missed-trades/missed-trades
 import { ReportsView } from "@/components/trade/journal/reports-view";
 import { AlertCircle, BookOpen, X, AlertTriangle, FileBarChart } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
 
 type JournalTab = "all" | "journaled" | "pending";
 type PageView = "journal" | "missed" | "reports";
@@ -131,11 +132,10 @@ export default function JournalPage() {
     }
   }, [trades]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const load = useCallback((profileId: string) => {
+  const load = useCallback((profileId: string, opts: { force?: boolean } = {}) => {
     const url = profileId ? `/api/trade?profileId=${encodeURIComponent(profileId)}` : "/api/trade";
-    fetch(url)
-      .then((r) => r.json())
-      .then((data: JournalTrade[]) => {
+    cachedFetch<JournalTrade[]>(url, { ttlMs: 30_000, force: opts.force })
+      .then((data) => {
         const arr = Array.isArray(data) ? data : [];
         const timer = setTimeout(() => {
           setTrades(arr);
@@ -169,7 +169,10 @@ export default function JournalPage() {
   useEffect(() => { load(activeProfileId); }, [activeProfileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const handler = () => load(activeProfileId);
+    const handler = () => {
+      invalidateApiCache("/api/trade");
+      load(activeProfileId, { force: true });
+    };
     window.addEventListener("refresh-trades", handler);
     return () => window.removeEventListener("refresh-trades", handler);
   }, [activeProfileId, load]);
