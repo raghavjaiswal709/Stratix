@@ -10,10 +10,13 @@ export async function GET() {
   }
 
   await dbConnect();
-  let userData = await UserDataModel.findOne({ userId: session.user.id });
-  
+  // .lean() skips hydrating a full Mongoose document — this doc can be
+  // multiple MB (habits + todos + diary + notes + tradeData), so plain
+  // objects cut both CPU and memory on every page load.
+  let userData = await UserDataModel.findOne({ userId: session.user.id }).lean();
+
   if (!userData) {
-    userData = await UserDataModel.create({
+    const created = await UserDataModel.create({
       userId: session.user.id,
       habitData: { habits: [], logs: [] },
       todoData: { todos: [], tags: [] },
@@ -30,6 +33,7 @@ export async function GET() {
                   preferences: { accentColor: "#10b981", defaultPage: "/dashboard", defaultTab: "todos", sectionOrder: ["todos", "habits", "diary", "notes"] },      scoreWeights: { habitWeight: 0.5, todoWeight: 0.5 },
       theme: "dark",
     });
+    userData = created.toObject();
   }
 
   return NextResponse.json(userData);

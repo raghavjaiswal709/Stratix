@@ -2,35 +2,66 @@
 
 import { useEffect, useRef } from "react";
 
-interface TradeFeedItem {
-  id: number;
+// ─────────────────────────────────────────────────────────────────────────
+// Ambient trading-floor backdrop — calm, dim, professional.
+// Composition: drifting emerald aurora glows, a fine static dot grid, a
+// slow marquee ticker, one sparse execution feed (left), one order-depth
+// ladder (right), and a full-width smooth spline price stream along the
+// bottom with a breathing live node. Everything stays under ~0.45 alpha so
+// foreground content always owns the frame. Honors prefers-reduced-motion
+// by painting a single static frame.
+// ─────────────────────────────────────────────────────────────────────────
+
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const EMERALD = "16, 185, 129";
+const RED = "239, 68, 68";
+
+interface FeedRow {
   time: string;
   symbol: string;
   side: "BUY" | "SELL";
   price: string;
-  size: string;
   y: number;
   opacity: number;
 }
 
-interface RoutingLogItem {
-  id: number;
-  text: string;
-  y: number;
-  opacity: number;
-}
-
-interface OrderBookRow {
+interface DepthRow {
   price: string;
   size: number;
-  type: "bid" | "ask";
+  target: number;
 }
 
-interface TickerSymbol {
+interface Ticker {
   name: string;
   price: number;
   change: number;
   isUp: boolean;
+  decimals: number;
+}
+
+const SYMBOLS: Array<{ name: string; base: number; decimals: number }> = [
+  { name: "EURUSD", base: 1.0892, decimals: 5 },
+  { name: "GBPUSD", base: 1.2743, decimals: 5 },
+  { name: "USDJPY", base: 156.42, decimals: 2 },
+  { name: "XAUUSD", base: 2354.1, decimals: 2 },
+  { name: "BTCUSD", base: 68579, decimals: 1 },
+  { name: "ETHUSD", base: 3745.2, decimals: 2 },
+];
+
+function timeStamp(offsetMs = 0): string {
+  const d = new Date(Date.now() - offsetMs);
+  return `${d.toTimeString().slice(0, 8)}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+}
+
+function makeFeedRow(): Omit<FeedRow, "y" | "opacity"> {
+  const s = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
+  const price = (s.base * (1 + (Math.random() - 0.5) * 0.004)).toFixed(s.decimals);
+  return {
+    time: timeStamp(),
+    symbol: s.name,
+    side: Math.random() > 0.5 ? "BUY" : "SELL",
+    price,
+  };
 }
 
 export function HftBackground() {
@@ -39,22 +70,15 @@ export function HftBackground() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let animationId: number;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    let raf = 0;
     let width = 0;
     let height = 0;
 
-    let greenGrad: CanvasGradient | null = null;
-    let redGrad: CanvasGradient | null = null;
-
-    const chartH = 90;
-    const colYStart = 50;
-    const lineHeight = 16;
-
-    // Responsive sizing and gradient pre-creation
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
       width = window.innerWidth;
@@ -64,575 +88,324 @@ export function HftBackground() {
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
       ctx.scale(dpr, dpr);
-
-      // Cache gradients
-      const chartY = height - chartH - 25;
-      greenGrad = ctx.createLinearGradient(0, chartY, 0, chartY + chartH);
-      greenGrad.addColorStop(0, "rgba(16, 185, 129, 0.05)");
-      greenGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
-
-      redGrad = ctx.createLinearGradient(0, chartY, 0, chartY + chartH);
-      redGrad.addColorStop(0, "rgba(239, 68, 68, 0.05)");
-      redGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
     };
-
     resize();
     window.addEventListener("resize", resize);
 
-    // Ticker Tape Setup
-    const tickers: TickerSymbol[] = [
-      { name: "EURUSD", price: 1.08920, change: 0.12, isUp: true },
-      { name: "GBPUSD", price: 1.27430, change: -0.05, isUp: false },
-      { name: "USDJPY", price: 156.42, change: 0.28, isUp: true },
-      { name: "XAUUSD", price: 2354.12, change: 0.81, isUp: true },
-      { name: "BTCUSD", price: 68579.9, change: 1.45, isUp: true },
-      { name: "ETHUSD", price: 3745.25, change: -0.92, isUp: false },
-      { name: "AUDUSD", price: 0.6652, change: 0.18, isUp: true },
-      { name: "USDCAD", price: 1.3685, change: -0.11, isUp: false }
-    ];
-    let tickerScrollX = 0;
-    const gridSpacing = 80;
+    // ── State ────────────────────────────────────────────────────────────
+    const tickers: Ticker[] = SYMBOLS.map((s) => ({
+      name: s.name,
+      price: s.base,
+      change: (Math.random() - 0.4) * 0.8,
+      isUp: Math.random() > 0.4,
+      decimals: s.decimals,
+    }));
+    let tickerX = 0;
 
-    const symbols = ["EURUSD", "GBPUSD", "XAUUSD", "BTCUSD", "US30", "NAS100"];
-    let trades: TradeFeedItem[] = [];
-    let tradeIdCounter = 0;
+    const feed: FeedRow[] = Array.from({ length: 12 }, (_, i) => ({
+      ...makeFeedRow(),
+      time: timeStamp((12 - i) * 1600),
+      y: -1, // resolved on first draw
+      opacity: 0.5,
+    }));
 
-    let routingLogs: RoutingLogItem[] = [];
-    let logIdCounter = 0;
-    const logTemplates = [
-      "ROUTE ORDER {sym} -> LMAX [OK]",
-      "ROUTE ORDER {sym} -> FXCM [OK]",
-      "WS TICK DATA DISPATCH (128b)",
-      "WS DEPTH STREAM DELTA UPDATE",
-      "SPREAD CONTRACTED // {sym}",
-      "VOLATILITY JOLT DETECTED",
-      "MATCHING_ENGINE FLUSH CACHE",
-      "AUTO_CLOSE SL TRIGGERED",
-      "REBALANCE PORTFOLIO SHIELD",
-      "LIQUIDITY PROVIDER SYNCRONIZED",
-      "PING TIME: 0.421ms (LD4 -> NY4)"
-    ];
+    const depth: DepthRow[] = [];
+    for (let i = 0; i < 10; i++) {
+      depth.push({ price: (1.085 + (i + 1) * 0.0001).toFixed(5), size: 20 + Math.random() * 60, target: 20 + Math.random() * 60 });
+    }
+    for (let i = 0; i < 10; i++) {
+      depth.push({ price: (1.0849 - i * 0.0001).toFixed(5), size: 20 + Math.random() * 60, target: 20 + Math.random() * 60 });
+    }
 
-    // Pre-populate trades to make screen look full immediately
-    const initTrades = () => {
-      const now = new Date();
-      for (let i = 0; i < 20; i++) {
-        const timeOffset = new Date(now.getTime() - (20 - i) * 1200);
-        const ms = String(timeOffset.getMilliseconds()).padStart(3, "0");
-        const timeStr = `${timeOffset.toTimeString().split(" ")[0]}.${ms}`;
-        const symbol = symbols[Math.floor(Math.random() * symbols.length)];
-        const side = Math.random() > 0.5 ? "BUY" : "SELL";
-        const basePrice = symbol === "BTCUSD" ? 68500 : symbol === "XAUUSD" ? 2350 : 1.085;
-        const price = (basePrice + (Math.random() - 0.5) * (basePrice * 0.005)).toFixed(symbol === "BTCUSD" ? 1 : symbol === "XAUUSD" ? 2 : 5);
-        const size = (Math.random() * 5 + 0.1).toFixed(2);
-        const targetY = colYStart + 28 + i * lineHeight;
+    // Price stream: values in [0,1]; rendered as a smooth spline that flows
+    // left continuously (phase interpolation between point insertions).
+    const WAVE_POINTS = 90;
+    const wave: number[] = [];
+    let v = 0.5;
+    for (let i = 0; i < WAVE_POINTS + 1; i++) {
+      v = Math.min(0.9, Math.max(0.1, v + (Math.random() - 0.5) * 0.09));
+      wave.push(v);
+    }
+    let wavePhase = 0; // 0..1 progress toward next point insertion
 
-        trades.push({
-          id: tradeIdCounter++,
-          time: timeStr,
-          symbol,
-          side,
-          price,
-          size,
-          y: targetY,
-          opacity: 0.65
-        });
-      }
-    };
-    initTrades();
+    let lastTs = 0;
+    let updateAccum = 0;
+    let feedAccum = 0;
 
-    // Pre-populate routing logs to make screen look full immediately
-    const initRoutingLogs = () => {
-      const now = new Date();
-      for (let i = 0; i < 18; i++) {
-        const timeOffset = new Date(now.getTime() - (18 - i) * 800);
-        const ms = String(timeOffset.getMilliseconds()).padStart(3, "0");
-        const timeStr = `${timeOffset.toTimeString().split(" ")[0]}.${ms}`;
-        const template = logTemplates[Math.floor(Math.random() * logTemplates.length)];
-        const sym = symbols[Math.floor(Math.random() * symbols.length)];
-        const text = `[${timeStr}] ` + template.replace("{sym}", sym);
-        const targetY = colYStart + 28 + i * lineHeight;
-
-        routingLogs.push({
-          id: logIdCounter++,
-          text,
-          y: targetY,
-          opacity: 0.55
-        });
-      }
-    };
-    initRoutingLogs();
-
-    // Order book data setup
-    let orderBook: OrderBookRow[] = [];
-    const initOrderBook = () => {
-      orderBook = [];
-      for (let i = 0; i < 15; i++) {
-        const p = (1.08500 + i * 0.0001).toFixed(5);
-        orderBook.push({ price: p, size: Math.random() * 80 + 10, type: "ask" });
-      }
-      for (let i = 0; i < 15; i++) {
-        const p = (1.08450 - i * 0.0001).toFixed(5);
-        orderBook.push({ price: p, size: Math.random() * 80 + 10, type: "bid" });
-      }
-    };
-    initOrderBook();
-
-    // Multi-Chart Ticks Setup
-    const maxWavePoints = 50;
-    let xauWave: number[] = [];
-    let eurWave: number[] = [];
-    let btcWave: number[] = [];
-
-    const initWave = (arr: number[]) => {
-      let val = 0.5;
-      for (let i = 0; i < maxWavePoints; i++) {
-        val += (Math.random() - 0.5) * 0.12;
-        if (val < 0.15) val = 0.15;
-        if (val > 0.85) val = 0.85;
-        arr.push(val);
-      }
-    };
-    initWave(xauWave);
-    initWave(eurWave);
-    initWave(btcWave);
-
-    const updateWave = (arr: number[]) => {
-      let lastVal = arr[arr.length - 1];
-      lastVal += (Math.random() - 0.5) * 0.14;
-      if (lastVal < 0.1) lastVal = 0.1;
-      if (lastVal > 0.9) lastVal = 0.9;
-      arr.push(lastVal);
-      if (arr.length > maxWavePoints) {
-        arr.shift();
+    // ── Drawing helpers ──────────────────────────────────────────────────
+    const drawGlows = (t: number) => {
+      const blobs = [
+        { x: width * (0.5 + 0.18 * Math.sin(t * 0.00006)), y: height * 0.95, r: width * 0.55, c: `rgba(${EMERALD}, 0.045)` },
+        { x: width * (0.15 + 0.05 * Math.cos(t * 0.00004)), y: height * 0.2, r: width * 0.35, c: "rgba(255,255,255,0.022)" },
+        { x: width * (0.85 + 0.04 * Math.sin(t * 0.00005)), y: height * 0.3, r: width * 0.3, c: `rgba(${EMERALD}, 0.028)` },
+      ];
+      for (const b of blobs) {
+        const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+        g.addColorStop(0, b.c);
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
       }
     };
 
-    // Performance throttled updates & renders
-    let lastUpdate = 0;
-    const updateInterval = 40; // Calculations update at 25 FPS
-    
-    let lastRenderTime = 0;
-    const renderInterval = 1000 / 40; // Throttle renders to 40 FPS
-
-    // Animation Loop
-    const draw = (timestamp: number) => {
-      animationId = requestAnimationFrame(draw);
-
-      if (lastRenderTime === 0) {
-        lastRenderTime = timestamp;
+    const drawDotGrid = () => {
+      const step = 30;
+      ctx.fillStyle = "rgba(255,255,255,0.028)";
+      for (let x = step; x < width; x += step) {
+        for (let y = step + 30; y < height - 20; y += step) {
+          ctx.fillRect(x, y, 1, 1);
+        }
       }
+    };
 
-      const elapsed = timestamp - lastRenderTime;
-      if (elapsed < renderInterval) return;
-      lastRenderTime = timestamp - (elapsed % renderInterval);
+    const drawTicker = () => {
+      const spacing = 190;
+      const total = tickers.length * spacing;
+      if (Math.abs(tickerX) >= total) tickerX = 0;
 
-      // Scroll speed normalized to 60 FPS (16.67ms per frame)
-      const elapsedFrames = elapsed / 16.67;
-      tickerScrollX -= 0.65 * elapsedFrames;
-
-      ctx.clearRect(0, 0, width, height);
-
-      // --- Draw Grid Background ---
-      ctx.strokeStyle = "rgba(16, 185, 129, 0.02)";
+      ctx.strokeStyle = "rgba(255,255,255,0.05)";
       ctx.lineWidth = 1;
-      
-      const offsetX = (timestamp * 0.015) % gridSpacing;
-      const offsetY = (timestamp * 0.015) % gridSpacing;
-
-      // Vertical lines
-      for (let x = -gridSpacing; x < width + gridSpacing; x += gridSpacing) {
-        ctx.beginPath();
-        ctx.moveTo(x + offsetX, 0);
-        ctx.lineTo(x + offsetX, height);
-        ctx.stroke();
-      }
-      // Horizontal lines
-      for (let y = -gridSpacing; y < height + gridSpacing; y += gridSpacing) {
-        ctx.beginPath();
-        ctx.moveTo(0, y + offsetY);
-        ctx.lineTo(width, y + offsetY);
-        ctx.stroke();
-      }
-
-      // Calculations updates at fixed interval
-      if (timestamp - lastUpdate > updateInterval) {
-        lastUpdate = timestamp;
-
-        // 1. Add Execution Trades
-        if (Math.random() < 0.45) {
-          const now = new Date();
-          const ms = String(now.getMilliseconds()).padStart(3, "0");
-          const timeStr = `${now.toTimeString().split(" ")[0]}.${ms}`;
-          const symbol = symbols[Math.floor(Math.random() * symbols.length)];
-          const side = Math.random() > 0.5 ? "BUY" : "SELL";
-          const basePrice = symbol === "BTCUSD" ? 68500 : symbol === "XAUUSD" ? 2350 : 1.085;
-          const price = (basePrice + (Math.random() - 0.5) * (basePrice * 0.005)).toFixed(symbol === "BTCUSD" ? 1 : symbol === "XAUUSD" ? 2 : 5);
-          const size = (Math.random() * 5 + 0.1).toFixed(2);
-
-          trades.push({
-            id: tradeIdCounter++,
-            time: timeStr,
-            symbol,
-            side,
-            price,
-            size,
-            y: 0,
-            opacity: 0
-          });
-          if (trades.length > 25) trades.shift();
-        }
-
-        // 2. Add Routing Logs (Middle Column Noise)
-        if (Math.random() < 0.5) {
-          const now = new Date();
-          const ms = String(now.getMilliseconds()).padStart(3, "0");
-          const timeStr = `${now.toTimeString().split(" ")[0]}.${ms}`;
-          const template = logTemplates[Math.floor(Math.random() * logTemplates.length)];
-          const sym = symbols[Math.floor(Math.random() * symbols.length)];
-          const text = `[${timeStr}] ` + template.replace("{sym}", sym);
-
-          routingLogs.push({
-            id: logIdCounter++,
-            text,
-            y: 0,
-            opacity: 0
-          });
-          if (routingLogs.length > 20) routingLogs.shift();
-        }
-
-        // 3. Jitter Order Book Entries
-        orderBook.forEach(row => {
-          row.size += (Math.random() - 0.5) * 12;
-          if (row.size < 5) row.size = 5;
-          if (row.size > 95) row.size = 95;
-        });
-
-        // 4. Update Tickers slightly
-        tickers.forEach(t => {
-          const delta = (Math.random() - 0.5) * (t.price * 0.0008);
-          t.price += delta;
-          t.isUp = delta >= 0;
-          t.change += (Math.random() - 0.5) * 0.02;
-        });
-
-        // 5. Update Waveforms
-        updateWave(xauWave);
-        updateWave(eurWave);
-        updateWave(btcWave);
-      }
-
-      ctx.textBaseline = "top";
-
-      // --- Draw Top Ticker Tape (Marquee) ---
-      const tickerSpacing = 160;
-      const totalWidth = tickers.length * tickerSpacing;
-      if (Math.abs(tickerScrollX) >= totalWidth) {
-        tickerScrollX = 0;
-      }
-
-      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
-      ctx.fillRect(0, 0, width, 25);
-      ctx.strokeStyle = "rgba(16, 185, 129, 0.1)";
       ctx.beginPath();
-      ctx.moveTo(0, 25);
-      ctx.lineTo(width, 25);
+      ctx.moveTo(0, 30);
+      ctx.lineTo(width, 30);
       ctx.stroke();
 
-      ctx.font = 'bold 9px "JetBrains Mono", "Courier New", monospace';
-      
-      // Draw double set of tickers for infinite marquee loop
-      for (let offset = 0; offset < 2; offset++) {
-        tickers.forEach((t, i) => {
-          const x = tickerScrollX + i * tickerSpacing + offset * totalWidth;
-          if (x > -tickerSpacing && x < width) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-            ctx.fillText(t.name, x, 8);
-
-            ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-            ctx.fillText(t.price.toFixed(t.name.includes("JPY") ? 2 : t.name.includes("USD") && t.price > 1000 ? 1 : 5), x + 50, 8);
-
-            if (t.isUp) {
-              ctx.fillStyle = "rgba(16, 185, 129, 0.9)";
-              ctx.fillText(`▲ +${t.change.toFixed(2)}%`, x + 105, 8);
-            } else {
-              ctx.fillStyle = "rgba(239, 68, 68, 0.9)";
-              ctx.fillText(`▼ ${t.change.toFixed(2)}%`, x + 105, 8);
-            }
-          }
+      ctx.font = `9px ${MONO}`;
+      ctx.textBaseline = "middle";
+      for (let rep = 0; rep < 2; rep++) {
+        tickers.forEach((tk, i) => {
+          const x = tickerX + i * spacing + rep * total;
+          if (x < -spacing || x > width) return;
+          ctx.fillStyle = "rgba(255,255,255,0.32)";
+          ctx.fillText(tk.name, x, 15);
+          ctx.fillStyle = "rgba(255,255,255,0.5)";
+          ctx.fillText(tk.price.toFixed(tk.decimals), x + 55, 15);
+          ctx.fillStyle = tk.isUp ? `rgba(${EMERALD}, 0.55)` : `rgba(${RED}, 0.5)`;
+          ctx.fillText(`${tk.isUp ? "▲" : "▼"} ${Math.abs(tk.change).toFixed(2)}%`, x + 122, 15);
         });
       }
-
-      // --- Draw Left Column: Trade Executions ---
-      const colX1 = 30;
-      const colWidth = 260;
-
-      const showLeftCol = width >= 360;
-      if (showLeftCol) {
-        ctx.fillStyle = "rgba(16, 185, 129, 0.6)";
-        ctx.font = 'bold 9px "JetBrains Mono", "Courier New", monospace';
-        ctx.fillText("TICK_EXECUTION_FEED // LOCAL_PORT", colX1, colYStart);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-        ctx.fillText("TIMESTAMP    TICKER   SIDE   PRICE      SIZE", colX1, colYStart + 12);
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-        ctx.beginPath();
-        ctx.moveTo(colX1, colYStart + 23);
-        ctx.lineTo(colX1 + colWidth, colYStart + 23);
-        ctx.stroke();
-
-        const maxFeedItems = Math.floor((height - colYStart - 180) / lineHeight);
-        
-        trades.forEach((trade, idx) => {
-          const targetY = colYStart + 28 + (trades.length - 1 - idx) * lineHeight;
-          if (trade.y === 0) {
-            trade.y = targetY + 8;
-            trade.opacity = 0;
-          }
-          trade.y += (targetY - trade.y) * 0.18;
-          trade.opacity += (0.65 - trade.opacity) * 0.15;
-
-          if (trade.y < height - 150 && idx >= trades.length - maxFeedItems) {
-            ctx.fillStyle = `rgba(255, 255, 255, ${trade.opacity * 0.6})`;
-            ctx.font = '10px "JetBrains Mono", "Courier New", monospace';
-            ctx.fillText(`[${trade.time}] ${trade.symbol.padEnd(7)}`, colX1, trade.y);
-
-            if (trade.side === "BUY") {
-              ctx.fillStyle = `rgba(16, 185, 129, ${trade.opacity})`;
-            } else {
-              ctx.fillStyle = `rgba(239, 68, 68, ${trade.opacity})`;
-            }
-            ctx.fillText(trade.side, colX1 + 105, trade.y);
-
-            ctx.fillStyle = `rgba(255, 255, 255, ${trade.opacity * 0.8})`;
-            ctx.fillText(`${trade.price.padStart(10)} | ${trade.size.padStart(4)}L`, colX1 + 135, trade.y);
-          }
-        });
-      }
-
-      // --- Draw Left-Center Column: Routing / API System Logs ---
-      const colX2 = colX1 + colWidth + 25;
-      if (showLeftCol && colX2 < width / 2 - 120) {
-        ctx.fillStyle = "rgba(16, 185, 129, 0.6)";
-        ctx.font = 'bold 9px "JetBrains Mono", "Courier New", monospace';
-        ctx.fillText("WEBSOCKET_ROUTING_METRICS // L2_PORT", colX2, colYStart);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-        ctx.fillText("NETWORK LOGS / ROUTER PATH", colX2, colYStart + 12);
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-        ctx.beginPath();
-        ctx.moveTo(colX2, colYStart + 23);
-        ctx.lineTo(colX2 + colWidth - 20, colYStart + 23);
-        ctx.stroke();
-
-        const maxFeedItems = Math.floor((height - colYStart - 180) / lineHeight);
-
-        routingLogs.forEach((log, idx) => {
-          const targetY = colYStart + 28 + (routingLogs.length - 1 - idx) * lineHeight;
-          if (log.y === 0) {
-            log.y = targetY + 8;
-            log.opacity = 0;
-          }
-          log.y += (targetY - log.y) * 0.18;
-          log.opacity += (0.55 - log.opacity) * 0.15;
-
-          if (log.y < height - 150 && idx >= routingLogs.length - maxFeedItems) {
-            ctx.fillStyle = `rgba(16, 185, 129, ${log.opacity * 0.95})`;
-            ctx.font = '9px "JetBrains Mono", "Courier New", monospace';
-            ctx.fillText(log.text, colX2, log.y);
-          }
-        });
-      }
-
-      // --- Draw Right Column: Order Depth Matrix ---
-      const colX3 = width - 240;
-      const showRightCol = width >= 680;
-      if (showRightCol) {
-        ctx.fillStyle = "rgba(16, 185, 129, 0.6)";
-        ctx.font = 'bold 9px "JetBrains Mono", "Courier New", monospace';
-        ctx.fillText("ORDER_DEPTH_MATRIX // EURUSD", colX3, colYStart);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-        ctx.fillText("PRICE         DEPTH (VOL %)", colX3, colYStart + 12);
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-        ctx.beginPath();
-        ctx.moveTo(colX3, colYStart + 23);
-        ctx.lineTo(colX3 + 210, colYStart + 23);
-        ctx.stroke();
-
-        const rowHeight = 13;
-        const maxBookRows = Math.floor((height - colYStart - 200) / rowHeight);
-        const halfDraw = Math.floor(maxBookRows / 2);
-
-        // Draw Asks (Red)
-        for (let i = 0; i < halfDraw; i++) {
-          const row = orderBook[i % orderBook.length];
-          const y = colYStart + 28 + i * rowHeight;
-          
-          ctx.fillStyle = "rgba(239, 68, 68, 0.02)";
-          ctx.fillRect(colX3, y, 210, rowHeight - 2);
-
-          ctx.fillStyle = "rgba(239, 68, 68, 0.065)";
-          const barW = (row.size / 100) * 110;
-          ctx.fillRect(colX3 + 210 - barW, y, barW, rowHeight - 2);
-
-          ctx.fillStyle = "rgba(239, 68, 68, 0.55)";
-          ctx.font = '10px "JetBrains Mono", "Courier New", monospace';
-          ctx.fillText(row.price, colX3 + 5, y + 1);
-          
-          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-          ctx.fillText(row.size.toFixed(1), colX3 + 100, y + 1);
-        }
-
-        // Middle Spread
-        const spreadY = colYStart + 28 + halfDraw * rowHeight;
-        ctx.fillStyle = "rgba(16, 185, 129, 0.04)";
-        ctx.fillRect(colX3, spreadY, 210, rowHeight - 2);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-        ctx.font = 'bold 8px "JetBrains Mono", "Courier New", monospace';
-        ctx.fillText("SPREAD: 0.00003 (3.0 Pips)", colX3 + 30, spreadY + 2);
-
-        // Draw Bids (Green)
-        for (let i = 0; i < halfDraw; i++) {
-          const row = orderBook[(halfDraw + i) % orderBook.length];
-          const y = colYStart + 28 + (halfDraw + 1 + i) * rowHeight;
-
-          ctx.fillStyle = "rgba(16, 185, 129, 0.02)";
-          ctx.fillRect(colX3, y, 210, rowHeight - 2);
-
-          ctx.fillStyle = "rgba(16, 185, 129, 0.065)";
-          const barW = (row.size / 100) * 110;
-          ctx.fillRect(colX3 + 210 - barW, y, barW, rowHeight - 2);
-
-          ctx.fillStyle = "rgba(16, 185, 129, 0.65)";
-          ctx.font = '10px "JetBrains Mono", "Courier New", monospace';
-          ctx.fillText(row.price, colX3 + 5, y + 1);
-
-          ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-          ctx.fillText(row.size.toFixed(1), colX3 + 100, y + 1);
-        }
-
-        // --- Draw Right-Center Column: Volatility / Indicators ---
-        const colX4 = colX3 - colWidth + 30;
-        if (colX4 > width / 2 + 120) {
-          ctx.fillStyle = "rgba(16, 185, 129, 0.6)";
-          ctx.font = 'bold 9px "JetBrains Mono", "Courier New", monospace';
-          ctx.fillText("TECHNICAL_VOLATILITY // INDICATORS", colX4, colYStart);
-          ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-          ctx.fillText("VOLATILITY   STOCHASTIC   RSI FEED", colX4, colYStart + 12);
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-          ctx.beginPath();
-          ctx.moveTo(colX4, colYStart + 23);
-          ctx.lineTo(colX4 + colWidth - 20, colYStart + 23);
-          ctx.stroke();
-
-          const indicators = [
-            { name: "RSI_M15_TREND", val: 56.4, desc: "BULLISH_STABLE" },
-            { name: "STOCH_K_M5", val: 78.2, desc: "OVERBOUGHT_WARN" },
-            { name: "ATR_14_DAILY", val: 142.1, desc: "HIGH_EXPANSION" },
-            { name: "MACD_HISTOGRAM", val: 0.00042, desc: "CROSSOVER_BUY" },
-            { name: "BOLLINGER_BAND", val: 0.82, desc: "UPPER_BAND_TEST" },
-            { name: "ORDER_VOLUME_AI", val: 94.2, desc: "ACCUMULATION" }
-          ];
-
-          indicators.forEach((ind, i) => {
-            const y = colYStart + 28 + i * 22;
-            
-            ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
-            ctx.font = '9px "JetBrains Mono", "Courier New", monospace';
-            ctx.fillText(ind.name, colX4, y);
-
-            ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
-            ctx.fillRect(colX4, y + 10, 160, 4);
-
-            const fillVal = ind.name.includes("ATR") ? 60 : ind.name.includes("MACD") ? 45 : ind.val;
-            const fillPercent = Math.min(100, Math.max(0, fillVal)) / 100;
-            ctx.fillStyle = fillPercent > 0.75 ? "rgba(239, 68, 68, 0.3)" : "rgba(16, 185, 129, 0.3)";
-            ctx.fillRect(colX4, y + 10, 160 * fillPercent, 4);
-
-            ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-            ctx.font = '7px "JetBrains Mono", "Courier New", monospace';
-            ctx.fillText(`${ind.desc} (${ind.val.toFixed(1)})`, colX4, y + 15);
-          });
-        }
-      }
-
-      // --- Draw Bottom Row: Multi-Charts (3 charts side-by-side) ---
-      const gap = 16;
-      const totalAvailableWidth = width - 60;
-      const chartW = (totalAvailableWidth - 2 * gap) / 3;
-      const chartY = height - chartH - 25;
-
-      const drawWaveChart = (x: number, y: number, w: number, title: string, wave: number[], lastMove: number) => {
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.04)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x, y, w, chartH);
-
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.012)";
-        for (let j = 1; j < 3; j++) {
-          const gridY = y + (chartH / 3) * j;
-          ctx.beginPath();
-          ctx.moveTo(x, gridY);
-          ctx.lineTo(x + w, gridY);
-          ctx.stroke();
-        }
-        for (let j = 1; j < 4; j++) {
-          const gridX = x + (w / 4) * j;
-          ctx.beginPath();
-          ctx.moveTo(gridX, y);
-          ctx.lineTo(gridX, y + chartH);
-          ctx.stroke();
-        }
-
-        if (wave.length > 1) {
-          ctx.beginPath();
-          ctx.lineWidth = 1.25;
-          const segmentW = w / (maxWavePoints - 1);
-          
-          wave.forEach((val, idx) => {
-            const ptX = x + idx * segmentW;
-            const ptY = y + (1 - val) * chartH;
-            if (idx === 0) ctx.moveTo(ptX, ptY);
-            else ctx.lineTo(ptX, ptY);
-          });
-
-          ctx.strokeStyle = lastMove >= 0 ? "rgba(16, 185, 129, 0.38)" : "rgba(239, 68, 68, 0.38)";
-          ctx.stroke();
-
-          // Fill underneath
-          ctx.lineTo(x + w, y + chartH);
-          ctx.lineTo(x, y + chartH);
-          ctx.closePath();
-          ctx.fillStyle = lastMove >= 0 ? (greenGrad || "rgba(16,185,129,0.015)") : (redGrad || "rgba(239,68,68,0.015)");
-          ctx.fill();
-        }
-
-        ctx.fillStyle = "rgba(255, 255, 255, 0.38)";
-        ctx.font = '8px "JetBrains Mono", "Courier New", monospace';
-        ctx.fillText(title, x + 6, y + 6);
-        ctx.fillStyle = lastMove >= 0 ? "rgba(16, 185, 129, 0.55)" : "rgba(239, 68, 68, 0.55)";
-        ctx.fillText(lastMove >= 0 ? "▲ BULLISH" : "▼ BEARISH", x + w - 50, y + 6);
-      };
-
-      if (chartW > 120 && height >= 480) {
-        const xauMove = xauWave[xauWave.length - 1] - xauWave[xauWave.length - 2];
-        drawWaveChart(30, chartY, chartW, "XAUUSD // TICK_STREAM", xauWave, xauMove);
-
-        const eurMove = eurWave[eurWave.length - 1] - eurWave[eurWave.length - 2];
-        drawWaveChart(30 + chartW + gap, chartY, chartW, "EURUSD // TICK_STREAM", eurWave, eurMove);
-
-        const btcMove = btcWave[btcWave.length - 1] - btcWave[btcWave.length - 2];
-        drawWaveChart(30 + 2 * (chartW + gap), chartY, chartW, "BTCUSD // TICK_STREAM", btcWave, btcMove);
-      }
-
-      // --- Draw Ambient Tech Info at the bottom edge ---
-      ctx.fillStyle = "rgba(16, 185, 129, 0.18)";
-      ctx.font = '7px "JetBrains Mono", "Courier New", monospace';
-      const statsText = `PACKETS_IN: 812K/s // PACKETS_OUT: 42K/s // NODE_ENGINE: UP // ADAPTER: MONGO_OK // MEMORY_HEAP: 142MB / 512MB // ACTIVE_PIPELINES: 12`;
-      ctx.fillText(statsText, 30, height - 13);
+      ctx.textBaseline = "top";
     };
 
-    animationId = requestAnimationFrame(draw);
+    const drawFeed = () => {
+      if (width < 760) return;
+      const x = 36;
+      const top = 64;
+      const lineH = 19;
+
+      ctx.font = `bold 8px ${MONO}`;
+      ctx.fillStyle = `rgba(${EMERALD}, 0.55)`;
+      ctx.fillText("EXECUTION FEED", x, top - 20);
+
+      const count = Math.min(feed.length, Math.floor((height * 0.55 - top) / lineH));
+      feed.forEach((row, idx) => {
+        const slot = feed.length - 1 - idx;
+        if (slot >= count) return;
+        const targetY = top + slot * lineH;
+        if (row.y < 0) {
+          row.y = targetY;
+        } else {
+          row.y += (targetY - row.y) * 0.12;
+        }
+        row.opacity += (0.85 - row.opacity) * 0.08;
+
+        // fade rows out toward the bottom of the column
+        const edgeFade = 1 - Math.max(0, (slot - (count - 4)) / 4);
+        const a = row.opacity * Math.max(0.15, edgeFade);
+
+        ctx.font = `9px ${MONO}`;
+        ctx.fillStyle = `rgba(255,255,255,${0.42 * a})`;
+        ctx.fillText(row.time, x, row.y);
+        ctx.fillStyle = `rgba(255,255,255,${0.7 * a})`;
+        ctx.fillText(row.symbol, x + 82, row.y);
+        ctx.fillStyle = row.side === "BUY" ? `rgba(${EMERALD}, ${0.9 * a})` : `rgba(${RED}, ${0.85 * a})`;
+        ctx.fillText(row.side, x + 138, row.y);
+        ctx.fillStyle = `rgba(255,255,255,${0.55 * a})`;
+        ctx.fillText(row.price, x + 175, row.y);
+      });
+    };
+
+    const drawDepth = () => {
+      if (width < 980) return;
+      const w = 180;
+      const x = width - w - 36;
+      const top = 64;
+      const rowH = 15;
+      const half = 10;
+
+      ctx.font = `bold 8px ${MONO}`;
+      ctx.fillStyle = `rgba(${EMERALD}, 0.55)`;
+      ctx.fillText("ORDER DEPTH · EURUSD", x, top - 20);
+
+      depth.forEach((row, i) => {
+        const isAsk = i < half;
+        const y = top + (i + (isAsk ? 0 : 0.6)) * rowH;
+        if (y > height * 0.55) return;
+        row.size += (row.target - row.size) * 0.05;
+
+        // center rows (near the spread) glow slightly brighter
+        const centerBoost = 1 - Math.abs(i - half + 0.5) / half;
+        const a = 0.5 + centerBoost * 0.5;
+        const rgb = isAsk ? RED : EMERALD;
+
+        const barW = (row.size / 100) * (w - 62);
+        ctx.fillStyle = `rgba(${rgb}, ${0.1 * a})`;
+        ctx.beginPath();
+        ctx.roundRect(x + w - barW, y + 1, barW, rowH - 5, 2);
+        ctx.fill();
+
+        ctx.font = `9px ${MONO}`;
+        ctx.fillStyle = `rgba(${rgb}, ${0.6 * a})`;
+        ctx.fillText(row.price, x, y);
+        ctx.fillStyle = `rgba(255,255,255,${0.38 * a})`;
+        ctx.fillText(row.size.toFixed(1), x + 62, y);
+      });
+
+      // spread divider
+      const spreadY = top + half * rowH + 2;
+      ctx.strokeStyle = "rgba(255,255,255,0.07)";
+      ctx.beginPath();
+      ctx.moveTo(x, spreadY);
+      ctx.lineTo(x + w, spreadY);
+      ctx.stroke();
+    };
+
+    const drawStream = () => {
+      const margin = 36;
+      const chartH = Math.min(150, height * 0.2);
+      const baseY = height - 34;
+      const topY = baseY - chartH;
+      const w = width - margin * 2;
+      const seg = w / (WAVE_POINTS - 2);
+
+      const pts = wave.slice(0, WAVE_POINTS).map((val, i) => ({
+        x: margin + i * seg - wavePhase * seg,
+        y: topY + (1 - val) * chartH,
+      }));
+
+      const spline = () => {
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const xc = (pts[i].x + pts[i + 1].x) / 2;
+          const yc = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+        }
+      };
+
+      // area fill
+      const grad = ctx.createLinearGradient(0, topY, 0, baseY);
+      grad.addColorStop(0, `rgba(${EMERALD}, 0.07)`);
+      grad.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.beginPath();
+      spline();
+      ctx.lineTo(pts[pts.length - 1].x, baseY);
+      ctx.lineTo(pts[0].x, baseY);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // glow pass + crisp line
+      ctx.beginPath();
+      spline();
+      ctx.strokeStyle = `rgba(${EMERALD}, 0.08)`;
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.beginPath();
+      spline();
+      ctx.strokeStyle = `rgba(${EMERALD}, 0.4)`;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      // breathing live node at the newest point
+      const last = pts[pts.length - 1];
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.003);
+      ctx.beginPath();
+      ctx.arc(last.x, last.y, 2, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${EMERALD}, 0.85)`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(last.x, last.y, 5 + pulse * 5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${EMERALD}, ${0.12 * (1 - pulse * 0.6)})`;
+      ctx.fill();
+
+      ctx.font = `bold 8px ${MONO}`;
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      ctx.fillText("EURUSD · LIVE STREAM", margin, topY - 14);
+    };
+
+    const drawSessions = () => {
+      const now = new Date();
+      const fmt = (offsetH: number) => {
+        const d = new Date(now.getTime() + (offsetH + now.getTimezoneOffset() / 60) * 3600000);
+        return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      };
+      const text = `LONDON ${fmt(1)}   ·   NEW YORK ${fmt(-4)}   ·   TOKYO ${fmt(9)}`;
+      ctx.font = `8px ${MONO}`;
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      const tw = ctx.measureText(text).width;
+      ctx.fillText(text, width - tw - 36, height - 18);
+    };
+
+    // ── Frame ────────────────────────────────────────────────────────────
+    const drawFrame = (t: number) => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.textBaseline = "top";
+      drawGlows(t);
+      drawDotGrid();
+      drawTicker();
+      drawFeed();
+      drawDepth();
+      drawStream();
+      drawSessions();
+    };
+
+    const loop = (t: number) => {
+      raf = requestAnimationFrame(loop);
+      const dt = lastTs === 0 ? 16.7 : Math.min(64, t - lastTs);
+      lastTs = t;
+
+      // gentle motion — everything flows, nothing rushes
+      tickerX -= 0.022 * dt;
+      wavePhase += dt / 900;
+      if (wavePhase >= 1) {
+        wavePhase -= 1;
+        wave.shift();
+        const prev = wave[wave.length - 1];
+        wave.push(Math.min(0.9, Math.max(0.1, prev + (Math.random() - 0.5) * 0.11)));
+      }
+
+      updateAccum += dt;
+      if (updateAccum > 700) {
+        updateAccum = 0;
+        tickers.forEach((tk) => {
+          const delta = (Math.random() - 0.5) * tk.price * 0.0004;
+          tk.price += delta;
+          tk.isUp = delta >= 0;
+          tk.change += (Math.random() - 0.5) * 0.015;
+        });
+        depth.forEach((row) => {
+          row.target = Math.min(95, Math.max(8, row.target + (Math.random() - 0.5) * 26));
+        });
+      }
+
+      feedAccum += dt;
+      if (feedAccum > 1500) {
+        feedAccum = 0;
+        feed.push({ ...makeFeedRow(), y: -1, opacity: 0 });
+        if (feed.length > 14) feed.shift();
+      }
+
+      drawFrame(t);
+    };
+
+    if (reducedMotion) {
+      drawFrame(0);
+    } else {
+      raf = requestAnimationFrame(loop);
+    }
 
     return () => {
-      cancelAnimationFrame(animationId);
+      cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
   }, []);
@@ -643,7 +416,8 @@ export function HftBackground() {
       className="absolute inset-0 pointer-events-none"
       style={{
         zIndex: 1,
-        background: "radial-gradient(circle at 50% 50%, rgba(3, 5, 4, 0.15) 0%, rgba(3, 5, 4, 0.8) 100%)"
+        background:
+          "radial-gradient(circle at 50% 45%, rgba(4, 6, 5, 0.1) 0%, rgba(3, 5, 4, 0.85) 100%)",
       }}
     />
   );

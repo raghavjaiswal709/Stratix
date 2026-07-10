@@ -391,8 +391,8 @@ export default function SettingsPage() {
               <h2 className="text-[14px] font-semibold text-white/80">Accent Color Theme</h2>
             </div>
             <p className="text-xs text-white/40 leading-relaxed">
-              Pick <b>None</b> for the plain monochrome look, or one of 20 curated palettes — 10 tuned for Dark
-              Mode, 10 for Light Mode — to tint backgrounds, cards, borders, buttons, focus rings, and the
+              Pick <b>None</b> for the plain monochrome look, or one of 26 curated palettes — 13 tuned for Dark
+              Mode, 13 for Light Mode — to tint backgrounds, cards, borders, buttons, focus rings, and the
               sidebar app-wide. Mutually exclusive with the Application Color Palette below — picking either
               one here switches that back to Default.
             </p>

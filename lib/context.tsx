@@ -51,6 +51,10 @@ interface AppContextType extends AppData {
   sharedTrades: ApiTrade[];
   setSharedTrades: (t: ApiTrade[]) => void;
   loading: boolean;
+  // False as soon as preferences/profiles are known (instant when the server
+  // provided initialMeta). Pages that don't need habit/todo/diary/notes content
+  // should gate on this instead of `loading` to skip the full-data fetch wait.
+  metaLoading: boolean;
   saveStatus: "idle" | "saving" | "saved" | "error";
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (val: boolean) => void;
@@ -119,6 +123,7 @@ const AppContext = createContext<AppContextType>({
   sharedTrades: [],
   setSharedTrades: () => {},
   loading: true,
+  metaLoading: true,
   saveStatus: "idle",
   hasUnsavedChanges: false,
   setHasUnsavedChanges: () => {},
@@ -170,6 +175,9 @@ export function AppProvider({
   const { data: session, status } = useSession();
   const [data, setData] = useState<AppData>(() => buildInitialData(initialMeta));
   const [loading, setLoading] = useState(true);
+  // Meta (preferences, profiles, theme) is already resolved when the server
+  // handed us initialMeta — dashboard & co. can render immediately.
+  const [metaLoading, setMetaLoading] = useState(initialMeta === null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sharedTrades, setSharedTrades] = useState<ApiTrade[]>([]);
@@ -181,7 +189,10 @@ export function AppProvider({
   useEffect(() => {
     if (status === "loading") return;
     if (!session?.user) {
-      const timer = setTimeout(() => setLoading(false), 0);
+      const timer = setTimeout(() => {
+        setLoading(false);
+        setMetaLoading(false);
+      }, 0);
       return () => clearTimeout(timer);
     }
 
@@ -206,11 +217,15 @@ export function AppProvider({
             activeProfileId: localActiveId || userData.activeProfileId || "",
           });
           setLoading(false);
+          setMetaLoading(false);
         }, 0);
         return () => clearTimeout(timer);
       })
       .catch(() => {
-        const timer = setTimeout(() => setLoading(false), 0);
+        const timer = setTimeout(() => {
+          setLoading(false);
+          setMetaLoading(false);
+        }, 0);
         return () => clearTimeout(timer);
       });
   }, [session, status]);
@@ -437,6 +452,7 @@ export function AppProvider({
         sharedTrades,
         setSharedTrades,
         loading,
+        metaLoading,
         saveStatus,
         hasUnsavedChanges,
         setHasUnsavedChanges,

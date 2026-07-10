@@ -34,8 +34,9 @@ import { AddTradeModal, type EditableTrade } from "@/components/trade/trades/add
 import { ConnectMT5Form } from "@/components/trade/mt5/connect-form";
 import { ImportModal } from "@/components/trade/trades/import-modal";
 import { MergeModal } from "@/components/trade/trades/merge-modal";
-import type { TradesSortFilterPrefs, ApiTrade } from "@/types";
+import type { TradesSortFilterPrefs } from "@/types";
 import { cn } from "@/lib/utils";
+import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
 
 interface Trade {
   _id: string;
@@ -181,14 +182,19 @@ function SortBtn({
 const PAGE_SIZE = 25;
 
 export default function TradesPage() {
-  const { preferences, setPreferences, setSharedTrades, activeProfileId, tradingProfiles } = useAppContext();
+  const { preferences, setPreferences, sharedTrades, setSharedTrades, activeProfileId, tradingProfiles } = useAppContext();
   const prefsRef = useRef(preferences);
   
   useEffect(() => {
     prefsRef.current = preferences;
   }, [preferences]);
 
+  // Current page's rows only — a parent trade's merged children ride along
+  // in this same array (server includes them) purely so getAggregatedTradeInfo
+  // can roll them up; they're filtered back out via `pageRows` before render.
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [mt5, setMt5] = useState<MT5Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -246,81 +252,113 @@ export default function TradesPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortBy, sortDir, filterSymbol, filterDirection, filterStatus, filterSource]);
 
-  const load = useCallback((profileId: string) => {
-    setLoading(true);
-    const tradeUrl = profileId ? `/api/trade?profileId=${encodeURIComponent(profileId)}` : "/api/trade";
-    Promise.all([
-      fetch(tradeUrl).then((r) => r.json()),
-      fetch("/api/mt5/status").then((r) => r.json()),
-    ])
-      .then(([t, m]) => {
-        const tradesArr = Array.isArray(t) ? t : [];
-        const timer = setTimeout(() => {
-          setTrades(tradesArr);
-          setSharedTrades(tradesArr as unknown as ApiTrade[]);
+  // Debounce the symbol text input so typing doesn't fire a request per
+  // keystroke — everything else (buttons/dropdowns) is already discrete.
+  const [debouncedSymbol, setDebouncedSymbol] = useState(filterSymbol);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSymbol(filterSymbol), 350);
+    return () => clearTimeout(t);
+  }, [filterSymbol]);
+
+  // Reset to page 1 whenever the query itself changes — an already-fetched
+  // page 4 of a new filter combination doesn't mean anything.
+  const firstQueryRun = useRef(true);
+  useEffect(() => {
+    if (firstQueryRun.current) { firstQueryRun.current = false; return; }
+    setCurrentPage(1);
+  }, [activeProfileId, sortBy, sortDir, debouncedSymbol, filterDirection, filterStatus, filterSource]);
+
+  const pageUrl = useCallback(
+    (page: number, profileId: string) => {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(PAGE_SIZE));
+      params.set("sortBy", sortBy);
+      params.set("sortDir", sortDir);
+      if (profileId) params.set("profileId", profileId);
+      if (debouncedSymbol) params.set("symbol", debouncedSymbol);
+      if (filterDirection !== "all") params.set("direction", filterDirection);
+      if (filterStatus !== "all") params.set("status", filterStatus);
+      if (filterSource !== "all") params.set("source", filterSource);
+      return `/api/trade?${params.toString()}`;
+    },
+    [sortBy, sortDir, debouncedSymbol, filterDirection, filterStatus, filterSource]
+  );
+
+  interface PagedTradesResponse {
+    trades: Trade[];
+    total: number;
+    page: number;
+    totalPages: number;
+  }
+
+  const load = useCallback(
+    (profileId: string, page: number, opts: { force?: boolean; silent?: boolean } = {}) => {
+      if (!opts.silent) setLoading(true);
+      Promise.all([
+        cachedFetch<PagedTradesResponse>(pageUrl(page, profileId), { ttlMs: 30_000, force: opts.force }),
+        cachedFetch<MT5Config>("/api/mt5/status", { ttlMs: 30_000, force: opts.force }),
+      ])
+        .then(([t, m]) => {
+          setTrades(Array.isArray(t.trades) ? t.trades : []);
+          setTotal(t.total ?? 0);
+          setTotalPages(t.totalPages ?? 1);
           setMt5(m);
           setLoading(false);
-        }, 0);
-        return () => clearTimeout(timer);
-      })
-      .catch(() => setLoading(false));
-  }, [setSharedTrades]);
+          // Warm the next page in the background so "Next" feels instant.
+          if (page < (t.totalPages ?? 1)) {
+            cachedFetch(pageUrl(page + 1, profileId), { ttlMs: 30_000 }).catch(() => {});
+          }
+        })
+        .catch(() => setLoading(false));
+    },
+    [pageUrl]
+  );
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      load(activeProfileId);
-    }, 0);
-    return () => clearTimeout(timer);
+    load(activeProfileId, currentPage);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProfileId]);
+  }, [activeProfileId, currentPage, pageUrl]);
 
+  // Any mutation invalidates the cache and re-syncs the current page in the
+  // background — `silent` so a delete/edit we already applied optimistically
+  // doesn't flash the loading spinner while it re-confirms with the server.
   useEffect(() => {
-    const handler = () => load(activeProfileId);
+    const handler = () => {
+      invalidateApiCache("/api/trade");
+      load(activeProfileId, currentPage, { force: true, silent: true });
+    };
     window.addEventListener("refresh-trades", handler);
     return () => window.removeEventListener("refresh-trades", handler);
-  }, [activeProfileId, load]);
+  }, [activeProfileId, currentPage, load]);
 
-  // Apply filter
-  const filtered = trades.filter((t) => {
-    if (t.parentTradeId) return false;
-    if (filterSymbol && !t.symbol.toLowerCase().includes(filterSymbol.toLowerCase())) return false;
-    if (filterDirection !== "all" && t.direction !== filterDirection) return false;
-    if (filterStatus !== "all" && t.status !== filterStatus) return false;
-    if (filterSource !== "all" && t.source !== filterSource) return false;
-    return true;
-  });
+  // Rows to actually render — parents' merged children ride along in
+  // `trades` (for getAggregatedTradeInfo below) but never get their own row.
+  const pageRows = trades.filter((t) => !t.parentTradeId);
 
-  // Apply sort
-  const sorted = [...filtered].sort((a, b) => {
-    let cmp = 0;
-    if (sortBy === "date") cmp = new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime();
-    else if (sortBy === "pnl") cmp = a.profit - b.profit;
-    else if (sortBy === "symbol") cmp = a.symbol.localeCompare(b.symbol);
-    else if (sortBy === "lots") cmp = a.lots - b.lots;
-    return sortDir === "asc" ? cmp : -cmp;
-  });
+  // Merge-candidate search needs every trade for this symbol, not just the
+  // current page — fetched on demand (cached) only when the modal opens.
+  const [mergeCandidateTrades, setMergeCandidateTrades] = useState<Trade[]>([]);
+  useEffect(() => {
+    if (!mergeTrade) { setMergeCandidateTrades([]); return; }
+    const params = new URLSearchParams({ symbol: mergeTrade.symbol });
+    if (activeProfileId) params.set("profileId", activeProfileId);
+    cachedFetch<Trade[]>(`/api/trade?${params.toString()}`, { ttlMs: 30_000 })
+      .then((arr) => setMergeCandidateTrades(Array.isArray(arr) ? arr : []))
+      .catch(() => setMergeCandidateTrades([]));
+  }, [mergeTrade, activeProfileId]);
 
+  // Merge candidates: the fetched-on-demand list above, filtered down to
+  // "same symbol as the trade being merged" plus its already-merged children —
+  // sorting doesn't matter much here (small on-demand set), so keep it simple.
   const mergeCandidates = useMemo(() => {
     if (!mergeTrade) return [];
-    const candidates = trades.filter((t) => {
+    return mergeCandidateTrades.filter((t) => {
       if (t._id === mergeTrade._id) return false;
       if (t.parentTradeId && t.parentTradeId !== mergeTrade._id) return false;
-      if (t.parentTradeId === mergeTrade._id) return true;
-      if (filterSymbol && !t.symbol.toLowerCase().includes(filterSymbol.toLowerCase())) return false;
-      if (filterDirection !== "all" && t.direction !== filterDirection) return false;
-      if (filterStatus !== "all" && t.status !== filterStatus) return false;
-      if (filterSource !== "all" && t.source !== filterSource) return false;
       return true;
     });
-    return candidates.sort((a, b) => {
-      let cmp = 0;
-      if (sortBy === "date") cmp = new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime();
-      else if (sortBy === "pnl") cmp = a.profit - b.profit;
-      else if (sortBy === "symbol") cmp = a.symbol.localeCompare(b.symbol);
-      else if (sortBy === "lots") cmp = a.lots - b.lots;
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [mergeTrade, trades, filterSymbol, filterDirection, filterStatus, filterSource, sortBy, sortDir]);
+  }, [mergeTrade, mergeCandidateTrades]);
 
   const activeFilterCount = [
     filterSymbol !== "",
@@ -329,23 +367,23 @@ export default function TradesPage() {
     filterSource !== "all",
   ].filter(Boolean).length;
 
-  // Pagination — reset to page 1 whenever filter/sort changes
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
-  const paginated = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   function toggleSort(col: TradesSortFilterPrefs["sortBy"]) {
-    setCurrentPage(1);
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortBy(col); setSortDir("desc"); }
   }
 
   function resetFilters() {
-    setCurrentPage(1);
     setFilterSymbol("");
     setFilterDirection("all");
     setFilterStatus("all");
     setFilterSource("all");
+  }
+
+  function afterMutation() {
+    invalidateApiCache("/api/trade");
+    window.dispatchEvent(new CustomEvent("refresh-trades"));
   }
 
   async function confirmDelete(id: string) {
@@ -353,18 +391,33 @@ export default function TradesPage() {
     setDeleteConfirmId(null);
     const res = await fetch(`/api/trade/${id}`, { method: "DELETE" });
     if (res.ok) {
-      const updated = trades.filter((t) => t._id !== id);
-      setTrades(updated);
-      setSharedTrades(updated as unknown as ApiTrade[]);
+      setTrades((prev) => prev.filter((t) => t._id !== id));
+      setTotal((prev) => Math.max(0, prev - 1));
+      setSharedTrades(sharedTrades.filter((t) => t._id !== id));
+      afterMutation();
     }
     setDeleting(null);
   }
 
   async function confirmClearAll() {
     setClearConfirm(false);
-    await Promise.all(trades.map((t) => fetch(`/api/trade/${t._id}`, { method: "DELETE" })));
+    // Deletes exactly what's currently filtered/displayed (matches the count
+    // shown in the confirm dialog) — not necessarily the user's entire history.
+    const params = new URLSearchParams();
+    if (activeProfileId) params.set("profileId", activeProfileId);
+    if (debouncedSymbol) params.set("symbol", debouncedSymbol);
+    if (filterDirection !== "all") params.set("direction", filterDirection);
+    if (filterStatus !== "all") params.set("status", filterStatus);
+    if (filterSource !== "all") params.set("source", filterSource);
+    await fetch(`/api/trade?${params.toString()}`, { method: "DELETE" });
     setTrades([]);
-    setSharedTrades([]);
+    setTotal(0);
+    setTotalPages(1);
+    // Precise removal from the cross-page cache only when unfiltered (the
+    // common case); a filtered clear relies on afterMutation's invalidation
+    // + the other pages' own refresh-trades listener to resync exactly.
+    if (activeFilterCount === 0) setSharedTrades([]);
+    afterMutation();
   }
 
   function startEdit(trade: Trade) {
@@ -437,7 +490,7 @@ export default function TradesPage() {
           </button>
           <button
             onClick={() => setClearConfirm(true)}
-            disabled={trades.length === 0}
+            disabled={total === 0}
             className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-red-600/10 border border-red-500/20 text-[13px] font-medium text-red-400 hover:bg-red-600/20 transition disabled:opacity-30 disabled:cursor-not-allowed"
             title="Clear All"
           >
@@ -462,7 +515,7 @@ export default function TradesPage() {
             <div>
               <h3 className="text-[14px] font-semibold text-foreground">Trade History</h3>
               <p className="text-[11px] text-muted-foreground">
-                {sorted.length}{trades.length !== sorted.length ? `/${trades.length}` : ""} trade{sorted.length !== 1 ? "s" : ""}
+                {total} trade{total !== 1 ? "s" : ""}
                 {totalPages > 1 && <span className="ml-1 text-white/30">· page {safePage}/{totalPages}</span>}
               </p>
             </div>
@@ -602,12 +655,12 @@ export default function TradesPage() {
           <div className="flex items-center justify-center py-16">
             <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
           </div>
-        ) : sorted.length === 0 ? (
+        ) : pageRows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center mb-2">
               <TrendingUp className="h-5 w-5 opacity-50" />
             </div>
-            {trades.length === 0 ? (
+            {activeFilterCount === 0 ? (
               <>
                 <p className="text-[13px]">No trades yet</p>
                 <p className="text-[11px] mt-1">Add a trade manually or connect MT5</p>
@@ -628,7 +681,7 @@ export default function TradesPage() {
           <>
             {/* Mobile: card list */}
             <div className="md:hidden divide-y divide-border">
-              {paginated.map((trade) => {
+              {pageRows.map((trade) => {
                 const isParent = trade.mergedTradeIds && trade.mergedTradeIds.length > 0;
                 const agg = isParent ? getAggregatedTradeInfo(trade, trades) : null;
                 const isExtended = extendedIds.includes(trade._id);
@@ -786,7 +839,7 @@ export default function TradesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {paginated.map((trade) => {
+                  {pageRows.map((trade) => {
                     const isParent = trade.mergedTradeIds && trade.mergedTradeIds.length > 0;
                     const agg = isParent ? getAggregatedTradeInfo(trade, trades) : null;
                     const isExtended = extendedIds.includes(trade._id);
@@ -1002,7 +1055,7 @@ export default function TradesPage() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-4 md:px-5 py-3 border-t border-border/50">
                 <span className="text-[11px] text-muted-foreground">
-                  {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, sorted.length)} of {sorted.length}
+                  {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
@@ -1084,7 +1137,7 @@ export default function TradesPage() {
               <div>
                 <p className="text-[14px] font-semibold text-foreground">Delete ALL Trades?</p>
                 <p className="text-[12px] text-muted-foreground mt-0.5">
-                  This will permanently delete all {trades.length} trade{trades.length !== 1 ? "s" : ""} and their journal data. This cannot be undone.
+                  This will permanently delete all {total} trade{total !== 1 ? "s" : ""} and their journal data. This cannot be undone.
                 </p>
               </div>
             </div>
@@ -1106,7 +1159,11 @@ export default function TradesPage() {
       {showAdd && (
         <AddTradeModal
           onClose={() => setShowAdd(false)}
-          onSaved={() => { setShowAdd(false); load(activeProfileId); }}
+          onSaved={() => {
+            setShowAdd(false);
+            afterMutation();
+            load(activeProfileId, currentPage, { force: true });
+          }}
           profileId={activeProfileId || undefined}
         />
       )}
@@ -1118,15 +1175,11 @@ export default function TradesPage() {
             setEditingTrade(null);
             if (updated && updated._id) {
               // Patch only the edited trade in-place — no full network round-trip needed
-              setTrades((prev) => {
-                const next = prev.map((t) =>
-                  t._id === updated._id ? ({ ...t, ...updated } as Trade) : t
-                );
-                setSharedTrades(next as unknown as ApiTrade[]);
-                return next;
-              });
+              setTrades((prev) => prev.map((t) => (t._id === updated._id ? ({ ...t, ...updated } as Trade) : t)));
+              setSharedTrades(sharedTrades.map((t) => (t._id === updated._id ? { ...t, ...updated } : t)));
+              afterMutation();
             } else {
-              load(activeProfileId);
+              load(activeProfileId, currentPage, { force: true });
             }
           }}
         />
@@ -1136,7 +1189,8 @@ export default function TradesPage() {
           onClose={() => setShowImport(false)}
           onImported={() => {
             setShowImport(false);
-            load(activeProfileId);
+            afterMutation();
+            load(activeProfileId, currentPage, { force: true });
           }}
           profileId={activeProfileId || undefined}
         />

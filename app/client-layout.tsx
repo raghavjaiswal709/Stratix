@@ -10,6 +10,7 @@ import { Menu, LogOut } from "lucide-react";
 
 import { useAppContext } from "@/lib/context";
 import { DASHBOARD_PALETTES } from "@/types";
+import { StratixMark, StratixWordmark } from "@/components/shared/stratix-logo";
 
 function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const { data: session } = useSession();
@@ -39,13 +40,9 @@ function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
       </button>
 
       {/* Logo */}
-      <div className="flex items-center gap-1.5 ml-2 flex-1 min-w-0">
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/[0.06] border border-white/[0.10]">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-white/70">
-            <path d="M2 11.5L5.5 7L9 9L14 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </div>
-        <span className="text-[13px] font-semibold text-white/85 tracking-tight">Stratix</span>
+      <div className="flex items-center gap-2 ml-2 flex-1 min-w-0">
+        <StratixMark size={24} />
+        <StratixWordmark size={11} />
       </div>
 
       {/* User avatar + dropdown — always visible */}

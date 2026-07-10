@@ -379,6 +379,21 @@ export function JournalDetail({
     setRefineError(null);
   }, [trade._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Screenshots are base64 data URIs (often 100–250KB each) — the list
+  // endpoints that populate `trade` strip them out so the trades table and
+  // dashboard stay fast. Backfill them here, scoped to just the one trade
+  // being journaled, via the single-trade endpoint (which keeps every field).
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/trade/${trade._id}`)
+      .then((r) => r.json())
+      .then((full: { screenshots?: string[] }) => {
+        if (!cancelled && Array.isArray(full.screenshots)) setScreenshots(full.screenshots);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [trade._id]);
+
   // Keep editTimeframe in sync when timeframe changes via chart's "Set default"
   // (trade._id stays the same, only timeframe changes)
   useEffect(() => {
