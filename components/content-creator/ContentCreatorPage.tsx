@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import JSZip from "jszip";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
   Download,
   Code2,
@@ -10,6 +12,7 @@ import {
   Copy,
   Check,
   ChevronRight,
+  ChevronLeft,
   AlertCircle,
   ImagePlus,
   Layers2,
@@ -21,6 +24,17 @@ import {
   Bot,
   Sparkles,
   Loader2,
+  ChevronDown,
+  Upload,
+  History,
+  Save,
+  Newspaper,
+  LineChart,
+  CheckSquare,
+  Square,
+  ListChecks,
+  Move,
+  ZoomIn,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -68,9 +82,37 @@ interface NewsItem {
   sentiment?: "Bullish" | "Bearish" | "Neutral";
   affectedAssets?: string;
   keyTakeaway?: string;
+  /** Ready-to-paste Grok Imagine prompt for this poster's background image. */
+  imagePrompt?: string;
+  /** Exact substring of `title` the poster highlights with a colored chip. */
+  highlightPhrase?: string;
+  /** Exact substrings of `description` to bold+color-highlight — the trader-relevant numbers/entities. */
+  descriptionHighlights?: string[];
+  /** Per-instrument direction for this story — rendered as colored chips (e.g. "▲ XAUUSD" in emerald). */
+  instrumentImpacts?: { symbol: string; sentiment: "Bullish" | "Bearish" | "Neutral" }[];
+  /** Horizontal focal point within the cover-fit image, 0 (left) - 1 (right), default 0.5 (centered). */
+  imageFocusX?: number;
+  /** Vertical focal point within the cover-fit image, 0 (top) - 1 (bottom), default 0.5 (centered). */
+  imageFocusY?: number;
+  /** Zoom multiplier on top of the cover-fit baseline, 1 (no zoom) - 2.5, default 1. */
+  imageZoom?: number;
+  /** Which of the 5 market-driver categories this story belongs to (Macro/Geopolitical/Corporate/Sentiment/Systemic) — used by the poster selection UI, not rendered on the poster itself. */
+  category?: "Macro" | "Geopolitical" | "Corporate" | "Sentiment" | "Systemic";
+  /** True only for the batch's slide #1 — the "last 24h" briefing cover. */
+  isCover?: boolean;
+  topAssets?: { symbol: string; sentiment: "Bullish" | "Bearish" | "Neutral" }[];
+  bulletHeadlines?: string[];
 }
 
 interface AspectRatio { id: string; label: string; w: number; h: number; desc: string; }
+
+interface HistoryListItem {
+  _id: string;
+  category: "news-batch" | "daily-analysis" | "indicator";
+  title: string;
+  itemCount: number;
+  createdAt: string;
+}
 
 interface PosterColors {
   bg: string;
@@ -392,6 +434,36 @@ const COLOR_PRESETS: (PosterColors & { name: string })[] = [
     subtle: "#FFE082",
   },
 ];
+
+const EMPTY_ANALYSIS: AnalysisData = {
+  category: "DAILY ANALYSIS",
+  instrument: "",
+  levelName: "",
+  timeframe: "",
+  session: "",
+  description: "",
+  whatToDo: "",
+  keyLevels: "",
+  imageUrl: "",
+  layout: "standard",
+  footer: "STRATIX RESEARCH",
+  date: "",
+};
+
+const EMPTY_INDICATOR: PosterData = {
+  category: "",
+  title: "",
+  subtitle: "",
+  index: "",
+  description: "",
+  sections: [],
+  metrics: [],
+  formula: "",
+  tags: [],
+  footer: "",
+  date: "",
+  imageUrl: "",
+};
 
 const SAMPLE: PosterData = {
   category: "TECHNICAL ANALYSIS",
@@ -1724,6 +1796,541 @@ function drawChaseStylePoster(
   return bounds;
 }
 
+// ─── Trading-news poster (scroll-stopping carousel style) ────────────────────
+// Distinct from drawChaseStylePoster (used for Daily Analysis / Indicator):
+// full-bleed photo, bold headline band with a colored highlight-phrase chip,
+// numbered/brand/dot carousel chrome, and a dedicated wide "cover" layout for
+// slide #1 — the "what moved markets in the last 24h" briefing.
+
+function sentimentPalette(sentiment?: string): { bg: string; fg: string } {
+  if (sentiment === "Bullish") return { bg: "#10b981", fg: "#ffffff" };
+  if (sentiment === "Bearish") return { bg: "#ef4444", fg: "#ffffff" };
+  return { bg: "#f59e0b", fg: "#111111" };
+}
+
+interface HLToken { text: string; isHL: boolean; }
+
+// Splits `title` into word tokens, keeping `highlight` (an exact substring)
+// as ONE atomic token so it never breaks across a line — it renders as a
+// single colored chip, like the boxed phrase in a tabloid-style headline.
+function tokenizeHighlight(title: string, highlight: string): HLToken[] {
+  const clean = (s: string) => s.split(" ").filter(Boolean).map((t) => ({ text: t, isHL: false }));
+  if (!highlight || !title.includes(highlight)) return clean(title);
+  const idx = title.indexOf(highlight);
+  const before = title.slice(0, idx).trim();
+  const after = title.slice(idx + highlight.length).trim();
+  const tokens: HLToken[] = [];
+  if (before) tokens.push(...clean(before));
+  tokens.push({ text: highlight, isHL: true });
+  if (after) tokens.push(...clean(after));
+  return tokens;
+}
+
+function measureToken(ctx: CanvasRenderingContext2D, tok: HLToken, font: string, hlPadX: number): number {
+  ctx.font = font;
+  return ctx.measureText(tok.text).width + (tok.isHL ? hlPadX * 2 : 0);
+}
+
+function wrapHighlightLine(
+  ctx: CanvasRenderingContext2D,
+  tokens: HLToken[],
+  maxW: number,
+  font: string,
+  hlPadX: number
+): HLToken[][] {
+  ctx.font = font;
+  const spaceW = ctx.measureText(" ").width;
+  const lines: HLToken[][] = [];
+  let cur: HLToken[] = [];
+  let curW = 0;
+  for (const tok of tokens) {
+    const w = measureToken(ctx, tok, font, hlPadX);
+    const addW = cur.length > 0 ? spaceW + w : w;
+    if (curW + addW > maxW && cur.length > 0) {
+      lines.push(cur);
+      cur = [tok];
+      curW = w;
+    } else {
+      cur.push(tok);
+      curW += addW;
+    }
+  }
+  if (cur.length > 0) lines.push(cur);
+  return lines;
+}
+
+// Searches font sizes from large to small and returns the first (largest)
+// that wraps within maxH — headlines should fill their band, not float small.
+function fitHighlightTitle(
+  ctx: CanvasRenderingContext2D,
+  tokens: HLToken[],
+  maxW: number,
+  maxH: number,
+  minSize: number,
+  maxSize: number
+): { lines: HLToken[][]; fontSize: number; lineH: number; font: string } {
+  for (let sz = maxSize; sz >= minSize; sz -= 1) {
+    const font = `900 ${sz}px "Inter", "Arial Black", sans-serif`;
+    const lines = wrapHighlightLine(ctx, tokens, maxW, font, sz * 0.26);
+    const lineH = sz * 1.16;
+    if (lines.length * lineH <= maxH) {
+      return { lines, fontSize: sz, lineH, font };
+    }
+  }
+  const font = `900 ${minSize}px "Inter", "Arial Black", sans-serif`;
+  return { lines: wrapHighlightLine(ctx, tokens, maxW, font, minSize * 0.26), fontSize: minSize, lineH: minSize * 1.16, font };
+}
+
+// Draws center-aligned headline lines, rendering the highlighted token as a
+// solid colored chip with contrasting text — the "CHINA FLOODS TRIGGER…"
+// tabloid look — and everything else as plain bold black text.
+function drawHighlightLines(
+  ctx: CanvasRenderingContext2D,
+  lines: HLToken[][],
+  font: string,
+  fontSize: number,
+  lineH: number,
+  centerX: number,
+  startY: number,
+  hlPadX: number,
+  hlColor: { bg: string; fg: string },
+  textColor: string
+) {
+  ctx.font = font;
+  ctx.textBaseline = "middle";
+  const spaceW = ctx.measureText(" ").width;
+
+  lines.forEach((line, i) => {
+    const widths = line.map((tok) => measureToken(ctx, tok, font, hlPadX));
+    const totalW = widths.reduce((a, b) => a + b, 0) + spaceW * Math.max(0, line.length - 1);
+    let x = centerX - totalW / 2;
+    const y = startY + i * lineH + lineH / 2;
+
+    line.forEach((tok, ti) => {
+      const w = widths[ti];
+      if (tok.isHL) {
+        const boxH = fontSize * 1.12;
+        rrect(ctx, x, y - boxH / 2, w, boxH, Math.min(fontSize * 0.16, 8));
+        ctx.fillStyle = hlColor.bg;
+        ctx.fill();
+        ctx.font = font;
+        ctx.fillStyle = hlColor.fg;
+        ctx.textAlign = "left";
+        ctx.fillText(tok.text, x + hlPadX, y + fontSize * 0.02);
+      } else {
+        ctx.font = font;
+        ctx.fillStyle = textColor;
+        ctx.textAlign = "left";
+        ctx.fillText(tok.text, x, y + fontSize * 0.02);
+      }
+      x += w + spaceW;
+    });
+  });
+}
+
+// ─── Body-paragraph highlighting ───────────────────────────────────────────
+// Unlike the headline's single boxed chip, body text can carry several
+// highlight terms (numbers, entity names) — these render as bold colored
+// words inline, not boxes, so a whole paragraph doesn't turn into a wall of
+// chips. Words wrap normally; a highlighted phrase can break across lines.
+
+// Finds each `highlights` term's first (non-overlapping) occurrence in
+// `text` and splits it into plain/highlighted word tokens in reading order.
+function tokenizeParagraphHighlights(text: string, highlights: string[]): HLToken[] {
+  const words = (s: string) => s.split(" ").filter(Boolean).map((t) => ({ text: t, isHL: false as boolean }));
+  if (!highlights || highlights.length === 0) return words(text);
+
+  type Range = { start: number; end: number };
+  const ranges: Range[] = [];
+  for (const term of highlights) {
+    if (!term) continue;
+    const idx = text.indexOf(term);
+    if (idx === -1) continue;
+    const start = idx, end = idx + term.length;
+    if (ranges.some((r) => start < r.end && end > r.start)) continue; // no overlaps
+    ranges.push({ start, end });
+  }
+  ranges.sort((a, b) => a.start - b.start);
+  if (ranges.length === 0) return words(text);
+
+  const tokens: HLToken[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start > cursor) tokens.push(...words(text.slice(cursor, range.start)));
+    tokens.push(...text.slice(range.start, range.end).split(" ").filter(Boolean).map((t) => ({ text: t, isHL: true })));
+    cursor = range.end;
+  }
+  if (cursor < text.length) tokens.push(...words(text.slice(cursor)));
+  return tokens;
+}
+
+// Plain word-wrap (no atomic grouping, no chip padding) — highlighted words
+// just render bold+colored in place, so wrapping is identical to normal text.
+function wrapParagraphTokens(
+  ctx: CanvasRenderingContext2D,
+  tokens: HLToken[],
+  maxW: number,
+  normalFont: string,
+  boldFont: string
+): HLToken[][] {
+  ctx.font = normalFont;
+  const spaceW = ctx.measureText(" ").width;
+  const lines: HLToken[][] = [];
+  let cur: HLToken[] = [];
+  let curW = 0;
+  for (const tok of tokens) {
+    ctx.font = tok.isHL ? boldFont : normalFont;
+    const w = ctx.measureText(tok.text).width;
+    const addW = cur.length > 0 ? spaceW + w : w;
+    if (curW + addW > maxW && cur.length > 0) {
+      lines.push(cur);
+      cur = [tok];
+      curW = w;
+    } else {
+      cur.push(tok);
+      curW += addW;
+    }
+  }
+  if (cur.length > 0) lines.push(cur);
+  return lines;
+}
+
+function drawParagraphLines(
+  ctx: CanvasRenderingContext2D,
+  lines: HLToken[][],
+  normalFont: string,
+  boldFont: string,
+  lineH: number,
+  x: number,
+  startY: number,
+  normalColor: string,
+  hlColor: string,
+  align: "left" | "center" = "left",
+  centerX?: number
+) {
+  ctx.textBaseline = "middle";
+  lines.forEach((line, i) => {
+    const y = startY + i * lineH + lineH / 2;
+    const widths = line.map((tok) => {
+      ctx.font = tok.isHL ? boldFont : normalFont;
+      return ctx.measureText(tok.text).width;
+    });
+    ctx.font = normalFont;
+    const spaceW = ctx.measureText(" ").width;
+    const totalW = widths.reduce((a, b) => a + b, 0) + spaceW * Math.max(0, line.length - 1);
+    let curX = align === "center" ? (centerX ?? x) - totalW / 2 : x;
+    line.forEach((tok, ti) => {
+      ctx.font = tok.isHL ? boldFont : normalFont;
+      ctx.fillStyle = tok.isHL ? hlColor : normalColor;
+      ctx.textAlign = "left";
+      ctx.fillText(tok.text, curX, y);
+      curX += widths[ti] + spaceW;
+    });
+  });
+}
+
+// Cover-fit math shared between the canvas renderer and the click-drag pan
+// handler, so dragging the poster image always matches exactly what gets
+// drawn — one axis fills the frame exactly at zoom 1, the other overflows;
+// zoom scales both up from there, producing the "slack" (in px) available
+// to pan along each axis.
+function computeCoverFitSlack(imgAspect: number, frameW: number, frameH: number, zoom: number) {
+  const frameAspect = frameW / frameH;
+  let baseW = frameW, baseH = frameH;
+  if (imgAspect > frameAspect) { baseH = frameH; baseW = frameH * imgAspect; }
+  else { baseW = frameW; baseH = frameW / imgAspect; }
+  const z = Math.max(1, Math.min(2.5, zoom || 1));
+  return { slackX: baseW * z - frameW, slackY: baseH * z - frameH };
+}
+
+function drawTradingNewsPoster(
+  ctx: CanvasRenderingContext2D,
+  data: any,
+  img: HTMLImageElement | null | undefined,
+  W: number,
+  H: number,
+  r: Rfn,
+  activeNewsIndex: number,
+  totalNewsCount: number
+): PosterElement[] {
+  const bounds: PosterElement[] = [];
+  const isCover = !!data.isCover;
+  const pal = sentimentPalette(data.sentiment);
+
+  ctx.fillStyle = "#0a0a0a";
+  ctx.fillRect(0, 0, W, H);
+
+  const PAD = r(30);
+  const CX = PAD, CXR = W - PAD, CW = CXR - CX;
+
+  const topBandH = Math.round(H * (isCover ? 0.58 : 0.44));
+  const photoY = topBandH;
+  const photoH = H - photoY;
+
+  // ── Top band (paper) ──────────────────────────────────────────────────
+  ctx.fillStyle = "#FAFAF7";
+  ctx.fillRect(0, 0, W, topBandH);
+
+  // Top accent bar — instant sentiment signal before reading a word: red for
+  // news that's bad for the affected instrument's longs, emerald for good,
+  // amber for neutral/policy.
+  ctx.fillStyle = pal.bg;
+  ctx.fillRect(0, 0, W, r(5));
+
+  let Y = r(34);
+
+  // Eyebrow row
+  if (isCover) {
+    const label = "MARKET PULSE · LAST 24H";
+    ctx.font = `900 ${r(12)}px "Inter", sans-serif`;
+    const tw = ctx.measureText(label).width;
+    const bw = tw + r(20), bh = r(26);
+    ctx.fillStyle = "#10b981";
+    rrect(ctx, CX, Y, bw, bh, bh / 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, CX + r(10), Y + bh / 2 + r(0.5));
+    bounds.push({ id: "category", label: "Eyebrow", x: CX, y: Y, w: bw, h: bh });
+    Y += bh + r(18);
+  } else {
+    ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
+    ctx.fillStyle = "rgba(17,17,17,0.5)";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    const eyebrow = `${(data.source || "WIRE").toUpperCase()}  ·  ${(data.date || "").toUpperCase()}`;
+    ctx.fillText(eyebrow, CX, Y + r(6));
+    bounds.push({ id: "source", label: "Source & Date", x: CX, y: Y - r(8), w: CW, h: r(20) });
+    Y += r(24);
+  }
+
+  // Headline with highlighted phrase — budgeted to leave room below for the
+  // explanation paragraph (non-cover) or overview + bullets (cover), so a
+  // long headline can't auto-fit itself into the rest of the band's space.
+  const rawTitle = (data.title || "Untitled").trim();
+  const tokens = tokenizeHighlight(rawTitle, data.highlightPhrase || "");
+  const afterEyebrowH = topBandH - Y;
+  const headlineMaxH = isCover ? afterEyebrowH - r(20) : Math.round(afterEyebrowH * 0.5);
+  const maxFont = isCover ? r(46) : r(46);
+  const minFont = r(20);
+  const fit = fitHighlightTitle(ctx, tokens, CW, Math.max(headlineMaxH, minFont * 1.2), minFont, maxFont);
+  drawHighlightLines(ctx, fit.lines, fit.font, fit.fontSize, fit.lineH, W / 2, Y, fit.fontSize * 0.26, pal, "#111111");
+  bounds.push({ id: "title", label: "Headline", x: CX, y: Y, w: CW, h: fit.lines.length * fit.lineH });
+  Y += fit.lines.length * fit.lineH + r(12);
+
+  if (!isCover) {
+    // Trader-relevant explanation, with key numbers/entities highlighted —
+    // renders directly below the headline, exactly like a news app.
+    const descText = (data.description || "").trim();
+    if (descText) {
+      const descNormalFont = `500 ${r(14)}px "Inter", sans-serif`;
+      const descBoldFont = `800 ${r(14)}px "Inter", sans-serif`;
+      const descLineH = r(18.5);
+      const descTokens = tokenizeParagraphHighlights(descText, Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []);
+      const allDescLines = wrapParagraphTokens(ctx, descTokens, CW, descNormalFont, descBoldFont);
+      const maxDescLines = Math.max(2, Math.floor((topBandH - Y - r(14)) / descLineH));
+      let descLines = allDescLines.slice(0, maxDescLines);
+      if (allDescLines.length > maxDescLines && descLines.length > 0) {
+        const lastLine = [...descLines[descLines.length - 1]];
+        const lastTok = { ...lastLine[lastLine.length - 1] };
+        lastTok.text = lastTok.text.replace(/[.,;:]+$/, "") + "…";
+        lastLine[lastLine.length - 1] = lastTok;
+        descLines = [...descLines.slice(0, -1), lastLine];
+      }
+      drawParagraphLines(ctx, descLines, descNormalFont, descBoldFont, descLineH, CX, Y, "rgba(17,17,17,0.76)", pal.bg, "left");
+      bounds.push({ id: "description", label: "Explanation", x: CX, y: Y, w: CW, h: descLines.length * descLineH });
+      Y += descLines.length * descLineH + r(6);
+    }
+  }
+
+  if (isCover) {
+    // Overview paragraph, with key numbers/entities highlighted
+    const ovNormalFont = `600 ${r(15.5)}px "Inter", sans-serif`;
+    const ovBoldFont = `800 ${r(15.5)}px "Inter", sans-serif`;
+    const ovLineH = r(20);
+    const ovTokens = tokenizeParagraphHighlights(data.description || "", Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []);
+    const overviewLines = wrapParagraphTokens(ctx, ovTokens, CW * 0.92, ovNormalFont, ovBoldFont).slice(0, 3);
+    drawParagraphLines(ctx, overviewLines, ovNormalFont, ovBoldFont, ovLineH, CX, Y, "rgba(17,17,17,0.72)", pal.bg, "center", W / 2);
+    bounds.push({ id: "description", label: "Overview", x: CX, y: Y, w: CW, h: overviewLines.length * ovLineH });
+    Y += overviewLines.length * ovLineH + r(16);
+
+    // Divider
+    ctx.strokeStyle = "rgba(17,17,17,0.12)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(CX, Y); ctx.lineTo(CXR, Y); ctx.stroke();
+    Y += r(16);
+
+    // Bullet roundup of the batch's stories
+    const bullets: string[] = Array.isArray(data.bulletHeadlines) ? data.bulletHeadlines.slice(0, 5) : [];
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    const bulletFont = `700 ${r(13.5)}px "Inter", sans-serif`;
+    const bulletMaxY = topBandH - r(14);
+    for (const headline of bullets) {
+      if (Y + r(22) > bulletMaxY) break;
+      ctx.fillStyle = "#10b981";
+      ctx.beginPath(); ctx.arc(CX + r(4), Y + r(11), r(3.5), 0, Math.PI * 2); ctx.fill();
+      ctx.font = bulletFont;
+      ctx.fillStyle = "#1a1a1a";
+      let text = headline;
+      while (ctx.measureText(text).width > CW - r(20) && text.length > 4) text = text.slice(0, -1);
+      if (text !== headline) text = text.slice(0, -1) + "…";
+      ctx.fillText(text, CX + r(14), Y + r(11));
+      Y += r(24);
+    }
+  }
+
+  // ── Photo area ───────────────────────────────────────────────────────
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, photoY, W, photoH);
+  ctx.clip();
+
+  if (img) {
+    const iAR = img.naturalWidth / img.naturalHeight;
+    const zoom = Math.max(1, Math.min(2.5, data.imageZoom || 1));
+    const { slackX, slackY } = computeCoverFitSlack(iAR, W, photoH, zoom);
+    const fAR = W / photoH;
+    let baseW = W, baseH = photoH;
+    if (iAR > fAR) { baseH = photoH; baseW = photoH * iAR; }
+    else { baseW = W; baseH = W / iAR; }
+    const dw = baseW * zoom, dh = baseH * zoom;
+    const focusX = Math.max(0, Math.min(1, data.imageFocusX ?? 0.5));
+    const focusY = Math.max(0, Math.min(1, data.imageFocusY ?? 0.5));
+    const dx = -slackX * focusX;
+    const dy = photoY - slackY * focusY;
+    ctx.drawImage(img, dx, dy, dw, dh);
+
+    // Broad, eased fade at the seam — dissolves the paper band into the
+    // photo over a wide span (not a thin edge line) so the transition reads
+    // as a gradual dissolve from top to bottom, not a hard cut.
+    const fadeH = Math.round(photoH * 0.45);
+    const fade = ctx.createLinearGradient(0, photoY, 0, photoY + fadeH);
+    fade.addColorStop(0,    "rgba(250,250,247,1)");
+    fade.addColorStop(0.22, "rgba(250,250,247,0.82)");
+    fade.addColorStop(0.5,  "rgba(250,250,247,0.48)");
+    fade.addColorStop(0.78, "rgba(250,250,247,0.16)");
+    fade.addColorStop(1,    "rgba(250,250,247,0)");
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, photoY, W, fadeH);
+  } else {
+    ctx.fillStyle = "#161616";
+    ctx.fillRect(0, photoY, W, photoH);
+    ctx.font = `700 ${r(13)}px "Inter", sans-serif`;
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("[ PLACE IMAGE HERE — see Grok prompt ]", W / 2, photoY + photoH / 2);
+  }
+
+  // Bottom scrim for legible chrome
+  const scrim = ctx.createLinearGradient(0, H - photoH * 0.42, 0, H);
+  scrim.addColorStop(0, "rgba(0,0,0,0)");
+  scrim.addColorStop(1, "rgba(0,0,0,0.72)");
+  ctx.fillStyle = scrim;
+  ctx.fillRect(0, H - photoH * 0.42, W, photoH * 0.42);
+
+  // Chip row — top-left of the photo area: impact level, then which
+  // instruments this news moves and in which direction (per-instrument
+  // colored chips: emerald ▲ bullish, red ▼ bearish, amber • neutral).
+  {
+    let chipX = CX;
+    const chipY = photoY + r(16);
+    const chipH = r(24);
+    const rowMaxW = W - CX - r(16);
+
+    if (!isCover && data.impact) {
+      const impactDotColor = data.impact === "High" ? "#ef4444" : data.impact === "Medium" ? "#f59e0b" : "#9ca3af";
+      const label = `${String(data.impact).toUpperCase()} IMPACT`;
+      ctx.font = `800 ${r(10.5)}px "Inter", sans-serif`;
+      const tw = ctx.measureText(label).width;
+      const chipW = tw + r(26);
+      ctx.fillStyle = "rgba(10,10,10,0.55)";
+      rrect(ctx, chipX, chipY, chipW, chipH, chipH / 2);
+      ctx.fill();
+      ctx.fillStyle = impactDotColor;
+      ctx.beginPath(); ctx.arc(chipX + r(13), chipY + chipH / 2, r(3.5), 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, chipX + r(22), chipY + chipH / 2 + r(0.5));
+      chipX += chipW + r(8);
+    }
+
+    const instrumentImpacts: { symbol: string; sentiment?: string }[] = Array.isArray(data.instrumentImpacts) ? data.instrumentImpacts : [];
+    let chipRowY = chipY;
+    ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
+    for (const inst of instrumentImpacts.slice(0, 4)) {
+      if (!inst?.symbol) continue;
+      const arrow = inst.sentiment === "Bullish" ? "▲" : inst.sentiment === "Bearish" ? "▼" : "•";
+      const label = `${arrow} ${inst.symbol}`;
+      const tw = ctx.measureText(label).width;
+      const chipW = tw + r(18);
+      if (chipX + chipW > CX + rowMaxW && chipX > CX) {
+        chipX = CX;
+        chipRowY += chipH + r(6);
+      }
+      const instPal = sentimentPalette(inst.sentiment);
+      ctx.fillStyle = instPal.bg;
+      rrect(ctx, chipX, chipRowY, chipW, chipH, chipH / 2);
+      ctx.fill();
+      ctx.fillStyle = instPal.fg;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, chipX + r(9), chipRowY + chipH / 2 + r(0.5));
+      chipX += chipW + r(8);
+    }
+  }
+
+  ctx.restore();
+  bounds.push({ id: "imageUrl", label: "News Image", x: 0, y: photoY, w: W, h: photoH });
+
+  // ── Carousel chrome over the photo ──────────────────────────────────
+  const chromeY = H - r(30);
+
+  // Numbered badge (bottom-left) — cover gets a "TODAY" chip instead of a number
+  const badgeText = isCover ? "TODAY'S BRIEFING" : `#${Math.max(1, activeNewsIndex)}`;
+  ctx.font = `900 ${r(13)}px "Inter", sans-serif`;
+  const badgeTw = ctx.measureText(badgeText).width;
+  const badgeW = badgeTw + r(20), badgeH = r(28);
+  ctx.fillStyle = pal.bg;
+  rrect(ctx, CX, chromeY - badgeH / 2, badgeW, badgeH, r(6));
+  ctx.fill();
+  ctx.fillStyle = pal.fg;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(badgeText, CX + r(10), chromeY + r(0.5));
+
+  // Brand handle (bottom-right)
+  ctx.font = `900 ${r(13)}px "Inter", sans-serif`;
+  const xW = ctx.measureText("X").width;
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#10b981";
+  ctx.fillText("X", CXR, chromeY + r(0.5));
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.fillText("STRATI", CXR - xW, chromeY + r(0.5));
+
+  // Dot pagination (bottom-center)
+  if (totalNewsCount > 1) {
+    const dotSpacing = r(11);
+    const totalDotsW = (totalNewsCount - 1) * dotSpacing;
+    const startDotX = (W - totalDotsW) / 2;
+    for (let i = 0; i < totalNewsCount; i++) {
+      ctx.beginPath();
+      ctx.arc(startDotX + i * dotSpacing, chromeY, r(2.6), 0, Math.PI * 2);
+      ctx.fillStyle = i === activeNewsIndex ? "#FFFFFF" : "rgba(255,255,255,0.32)";
+      ctx.fill();
+    }
+  }
+
+  // NOTE: prev/next carousel arrows are real app UI (overlaid on the preview,
+  // outside this canvas) — not drawn into the poster image. See the
+  // "Preview carousel nav" buttons in the Interactive Preview panel below.
+
+  return bounds;
+}
+
 function drawPoster(
   canvas: HTMLCanvasElement,
   data: any,
@@ -1751,6 +2358,10 @@ function drawPoster(
   const PAD = r(24);
   const GUT = r(24);
   const CX = PAD + GUT, CXR = W - PAD - GUT, CW = CXR - CX;
+
+  if (mode === "news") {
+    return drawTradingNewsPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount);
+  }
 
   return drawChaseStylePoster(
     ctx,
@@ -2927,6 +3538,363 @@ function mapNewsReportToItems(parsed: any): NewsItem[] {
   return items;
 }
 
+// ─── History modal ────────────────────────────────────────────────────────────
+
+const HISTORY_CATEGORY_META: Record<HistoryListItem["category"], { label: string; icon: typeof Newspaper; color: string }> = {
+  "news-batch":     { label: "News Batch",     icon: Newspaper,  color: "#10b981" },
+  "daily-analysis": { label: "Daily Analysis", icon: LineChart,  color: "#f59e0b" },
+  "indicator":      { label: "Indicator",      icon: Layers2,    color: "#8b93a1" },
+};
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function HistoryModal({
+  items,
+  loading,
+  error,
+  busyId,
+  onClose,
+  onLoad,
+  onDelete,
+}: {
+  items: HistoryListItem[];
+  loading: boolean;
+  error: string | null;
+  busyId: string | null;
+  onClose: () => void;
+  onLoad: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [filter, setFilter] = useState<"all" | HistoryListItem["category"]>("all");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const filtered = filter === "all" ? items : items.filter((i) => i.category === filter);
+  const counts = items.reduce<Record<string, number>>((acc, i) => { acc[i.category] = (acc[i.category] || 0) + 1; return acc; }, {});
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="relative w-full max-w-xl max-h-[85vh] flex flex-col rounded-2xl border border-white/[0.1] bg-[#141412] shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] shrink-0">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-white/60" />
+            <span className="text-[13px] font-bold text-white">Generation History</span>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition cursor-pointer">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Category filter */}
+        <div className="flex items-center gap-1.5 px-5 py-3 border-b border-white/[0.06] shrink-0 flex-wrap">
+          {(["all", "news-batch", "daily-analysis", "indicator"] as const).map((cat) => {
+            const active = filter === cat;
+            const label = cat === "all" ? "All" : HISTORY_CATEGORY_META[cat].label;
+            const count = cat === "all" ? items.length : (counts[cat] || 0);
+            return (
+              <button
+                key={cat}
+                onClick={() => setFilter(cat)}
+                className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer border ${
+                  active
+                    ? "bg-white/[0.1] text-white border-white/[0.15]"
+                    : "bg-white/[0.02] text-white/45 border-white/[0.06] hover:text-white/70"
+                }`}
+              >
+                {label} <span className="opacity-50">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+          {loading ? (
+            <div className="flex items-center justify-center py-14 text-white/40 gap-2 text-[12px]">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading history…
+            </div>
+          ) : error ? (
+            <div className="flex items-center gap-2 px-3 py-3 rounded-xl bg-red-500/[0.08] border border-red-500/[0.2] text-[11px] text-red-300/90">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 text-white/30 gap-2">
+              <History className="h-6 w-6 opacity-40" />
+              <p className="text-[12px]">No saved generations yet.</p>
+              <p className="text-[10.5px] text-white/20">News batches auto-save here. Use the Save icon to store Daily Analysis / Indicator posters too.</p>
+            </div>
+          ) : (
+            filtered.map((item) => {
+              const meta = HISTORY_CATEGORY_META[item.category];
+              const Icon = meta.icon;
+              const busy = busyId === item._id;
+              return (
+                <div
+                  key={item._id}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-white/[0.05] bg-white/[0.015] hover:bg-white/[0.035] transition-all group"
+                >
+                  <div
+                    className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: `${meta.color}1f`, border: `1px solid ${meta.color}33` }}
+                  >
+                    <Icon className="h-3.5 w-3.5" style={{ color: meta.color }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-semibold text-white/90 truncate">{item.title}</p>
+                    <p className="text-[10px] text-white/35">
+                      {meta.label} · {item.itemCount} {item.itemCount === 1 ? "poster" : "posters"} · {relativeTime(item.createdAt)}
+                    </p>
+                  </div>
+                  {confirmDeleteId === item._id ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => onDelete(item._id)}
+                        disabled={busy}
+                        className="px-2 py-1.5 rounded-lg text-[10px] font-bold bg-red-500/20 text-red-300 hover:bg-red-500/30 transition cursor-pointer disabled:opacity-50"
+                      >
+                        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="px-2 py-1.5 rounded-lg text-[10px] font-bold text-white/50 hover:text-white/80 hover:bg-white/[0.06] transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => onLoad(item._id)}
+                        disabled={busy}
+                        title="Load into customizer"
+                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-white/[0.08] text-white/80 hover:bg-white/[0.14] hover:text-white transition cursor-pointer disabled:opacity-50"
+                      >
+                        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Load"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(item._id)}
+                        title="Delete"
+                        className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CATEGORY_LABELS: Record<NonNullable<NewsItem["category"]>, string> = {
+  Macro: "Macro",
+  Geopolitical: "Geopolitical",
+  Corporate: "Corporate",
+  Sentiment: "Sentiment",
+  Systemic: "Systemic",
+};
+const CATEGORY_ORDER = ["all", "Macro", "Geopolitical", "Corporate", "Sentiment", "Systemic"] as const;
+
+// Shown right after generation (and re-openable any time a raw batch exists)
+// so the user can narrow the 20-30 AI-curated candidates down to the stories
+// they actually want in the exported batch — every candidate stays available,
+// nothing is silently dropped by the AI.
+function PosterSelectionModal({
+  candidates,
+  selected,
+  onToggle,
+  onSelectAll,
+  onClear,
+  onClose,
+  onApply,
+}: {
+  candidates: NewsItem[];
+  selected: Set<number>;
+  onToggle: (idx: number) => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+  onClose: () => void;
+  onApply: () => void;
+}) {
+  const [filter, setFilter] = useState<(typeof CATEGORY_ORDER)[number]>("all");
+
+  const counts = candidates.reduce<Record<string, number>>((acc, c) => {
+    const cat = c.category || "Macro";
+    acc[cat] = (acc[cat] || 0) + 1;
+    return acc;
+  }, {});
+  const filtered = filter === "all" ? candidates : candidates.filter((c) => (c.category || "Macro") === filter);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-white/[0.1] bg-[#141412] shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] shrink-0">
+          <div className="flex items-center gap-2">
+            <ListChecks className="h-4 w-4 text-white/60" />
+            <div>
+              <span className="text-[13px] font-bold text-white block">Select Posters for Batch</span>
+              <span className="text-[10px] text-white/35">
+                {candidates.length} curated stories found · {selected.size} selected
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition cursor-pointer">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Category filter */}
+        <div className="flex items-center gap-1.5 px-5 py-3 border-b border-white/[0.06] shrink-0 flex-wrap">
+          {CATEGORY_ORDER.map((cat) => {
+            const active = filter === cat;
+            const label = cat === "all" ? "All" : CATEGORY_LABELS[cat];
+            const count = cat === "all" ? candidates.length : (counts[cat] || 0);
+            return (
+              <button
+                key={cat}
+                onClick={() => setFilter(cat)}
+                className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer border ${
+                  active
+                    ? "bg-white/[0.1] text-white border-white/[0.15]"
+                    : "bg-white/[0.02] text-white/45 border-white/[0.06] hover:text-white/70"
+                }`}
+              >
+                {label} <span className="opacity-50">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Bulk actions */}
+        <div className="flex items-center gap-2 px-5 py-2.5 border-b border-white/[0.06] shrink-0">
+          <button
+            onClick={onSelectAll}
+            className="text-[10.5px] font-bold text-white/50 hover:text-white/85 transition cursor-pointer"
+          >
+            Select All
+          </button>
+          <span className="text-white/15">·</span>
+          <button
+            onClick={onClear}
+            className="text-[10.5px] font-bold text-white/50 hover:text-white/85 transition cursor-pointer"
+          >
+            Clear
+          </button>
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 text-white/30 gap-2">
+              <p className="text-[12px]">No stories in this category.</p>
+            </div>
+          ) : (
+            filtered.map((item) => {
+              const idx = candidates.indexOf(item);
+              const isSelected = selected.has(idx);
+              const sentimentColor = item.sentiment === "Bearish" ? "#ef4444" : item.sentiment === "Bullish" ? "#10b981" : "#f59e0b";
+              return (
+                <button
+                  key={idx}
+                  onClick={() => onToggle(idx)}
+                  className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    isSelected
+                      ? "bg-white/[0.06] border-white/20"
+                      : "bg-white/[0.01] border-white/[0.05] hover:bg-white/[0.03]"
+                  }`}
+                >
+                  {isSelected ? (
+                    <CheckSquare className="h-4 w-4 text-white shrink-0 mt-0.5" />
+                  ) : (
+                    <Square className="h-4 w-4 text-white/25 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                      <span className="text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/[0.06] text-white/50 border border-white/[0.08]">
+                        {CATEGORY_LABELS[item.category || "Macro"]}
+                      </span>
+                      <span
+                        className="text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border"
+                        style={{ color: sentimentColor, borderColor: `${sentimentColor}40`, background: `${sentimentColor}14` }}
+                      >
+                        {item.sentiment || "Neutral"}
+                      </span>
+                      <span className="text-[8.5px] text-white/30 uppercase tracking-wider">{item.impact || "Medium"} impact</span>
+                    </div>
+                    <p className={`text-[12px] font-semibold truncate ${isSelected ? "text-white/95" : "text-white/60"}`}>
+                      {item.title || "Untitled"}
+                    </p>
+                    <p className="text-[10px] text-white/30 truncate mt-0.5">{item.affectedAssets || item.source || ""}</p>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-white/[0.06] shrink-0">
+          <span className="text-[10.5px] text-white/35">{selected.size} of {candidates.length} selected</span>
+          <button
+            onClick={onApply}
+            disabled={selected.size === 0}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-bold bg-emerald-500/[0.18] text-emerald-300 hover:bg-emerald-500/[0.26] border border-emerald-500/[0.28] transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <CheckSquare className="h-3.5 w-3.5" /> Continue with {selected.size} {selected.size === 1 ? "Poster" : "Posters"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function compressImage(dataUrl: string, maxDim = 1200): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      let w = img.width;
+      let h = img.height;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.8));
+      } else {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ContentCreatorPage() {
@@ -2934,10 +3902,16 @@ export function ContentCreatorPage() {
   const [ratioId, setRatioId] = useState("square");
 
   // Keep track of JSON states independently so switching modes doesn't lose modifications
-  const [analysisData, setAnalysisData] = useState<AnalysisData>(SAMPLE_ANALYSIS);
-  const [newsData, setNewsData] = useState<NewsItem[]>(SAMPLE_NEWS);
-  const [parsedData, setParsedData] = useState<PosterData>(SAMPLE);
+  const [analysisData, setAnalysisData] = useState<AnalysisData>(EMPTY_ANALYSIS);
+  const [newsData, setNewsData] = useState<NewsItem[]>([]);
+  const [parsedData, setParsedData] = useState<PosterData>(EMPTY_INDICATOR);
   const [activeNewsIndex, setActiveNewsIndex] = useState(0);
+
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  const loadedImagesRef = useRef<Record<string, HTMLImageElement>>({});
 
   const [candlesData, setCandlesData] = useState<any>(null);
   const [promptSession, setPromptSession] = useState<string>("London");
@@ -2948,6 +3922,241 @@ export function ContentCreatorPage() {
   const [promptCopied, setPromptCopied] = useState<boolean>(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
 
+  // ── AI Generate (niche dropdown) ──────────────────────────────────────────
+  const [showGenerateMenu, setShowGenerateMenu] = useState(false);
+  const [generatingBatch, setGeneratingBatch] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [batchMeta, setBatchMeta] = useState<{ timeRangeLabel: string; reportGeneratedAt: string | null } | null>(null);
+  // Raw AI-curated batch (20-30 candidates, cover excluded) from the most
+  // recent generation — kept separately so the user can revisit the
+  // selection modal to change which stories make the final batch without
+  // re-calling the AI.
+  const [rawBatchCandidates, setRawBatchCandidates] = useState<NewsItem[]>([]);
+  const [rawBatchCover, setRawBatchCover] = useState<NewsItem | null>(null);
+  const [selectedPosterIndices, setSelectedPosterIndices] = useState<Set<number>>(new Set());
+  const [showSelectionModal, setShowSelectionModal] = useState(false);
+
+  // Attach a locally generated image (e.g. from Grok Imagine) to the active
+  // news poster: clicking the poster's image area or the Upload button opens
+  // the OS file picker; the chosen file is inlined as a data URL so the
+  // canvas can draw it without any CORS/taint issues.
+  const imageFileRef = useRef<HTMLInputElement>(null);
+
+  // ── History (saved generations) ───────────────────────────────────────────
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyItems, setHistoryItems] = useState<HistoryListItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
+
+  const loadHistoryList = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch("/api/content-creator/history");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to load history");
+      setHistoryItems(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "Failed to load history");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const openHistory = () => {
+    setShowHistory(true);
+    loadHistoryList();
+  };
+
+  // Fire-and-forget save — a failed save should never block the creator flow,
+  // so errors are swallowed (surfaced only via a console warning).
+  const saveToHistory = async (
+    category: "news-batch" | "daily-analysis" | "indicator",
+    title: string,
+    itemCount: number,
+    payload: unknown,
+    id: string | null = null
+  ): Promise<string | null> => {
+    try {
+      const method = id ? "PUT" : "POST";
+      const url = id ? `/api/content-creator/history/${id}` : "/api/content-creator/history";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, title, itemCount, payload }),
+      });
+      const data = await res.json();
+      if (res.ok && data._id) {
+        return data._id;
+      }
+    } catch (e) {
+      console.warn("Failed to save content-creator history:", e);
+    }
+    return null;
+  };
+
+  const handleSaveCurrentToHistory = async () => {
+    setSaveStatus("saving");
+    try {
+      let createdId: string | null = null;
+      if (creatorMode === "news") {
+        const first = newsData[0];
+        const title = newsData.length > 1
+          ? `News Batch · ${newsData.length} stories${first?.date ? ` · ${first.date}` : ""}`
+          : (first?.title || "News Batch");
+        createdId = await saveToHistory("news-batch", title, newsData.length, { posters: newsData, ratioId, colors, config }, activeHistoryId);
+      } else if (creatorMode === "analysis") {
+        const title = analysisData.instrument
+          ? `${analysisData.instrument} · ${analysisData.levelName || "Daily Analysis"}`
+          : "Daily Analysis";
+        createdId = await saveToHistory("daily-analysis", title, 1, { analysisData, ratioId, colors, config }, activeHistoryId);
+      } else {
+        const title = parsedData.title || parsedData.category || "Indicator Poster";
+        createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config }, activeHistoryId);
+      }
+      if (createdId) {
+        setActiveHistoryId(createdId);
+        setSaveStatus("success");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      } else {
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      }
+    } catch (e) {
+      console.error(e);
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    }
+  };
+
+  const loadHistoryEntry = async (id: string) => {
+    setHistoryBusyId(id);
+    try {
+      const res = await fetch(`/api/content-creator/history/${id}`);
+      const doc = await res.json();
+      if (!res.ok) throw new Error(doc?.error || "Failed to load entry");
+
+      setActiveHistoryId(id);
+      const payload = doc.payload || {};
+      if (doc.category === "news-batch" && Array.isArray(payload.posters)) {
+        setCreatorMode("news");
+        setNewsData(payload.posters);
+        setActiveNewsIndex(0);
+        setJsonText(JSON.stringify(payload.posters, null, 2));
+      } else if (doc.category === "daily-analysis" && payload.analysisData) {
+        setCreatorMode("analysis");
+        setAnalysisData(payload.analysisData);
+        setJsonText(JSON.stringify(payload.analysisData, null, 2));
+      } else if (payload.parsedData) {
+        setCreatorMode("indicator");
+        setParsedData(payload.parsedData);
+        setJsonText(JSON.stringify(payload.parsedData, null, 2));
+      }
+      if (payload.ratioId) setRatioId(payload.ratioId);
+      if (payload.colors) setColors(payload.colors);
+      if (payload.config) setConfig(payload.config);
+      setJsonError(null);
+      setActiveTab("content");
+      setShowHistory(false);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "Failed to load entry");
+    } finally {
+      setHistoryBusyId(null);
+    }
+  };
+
+  const deleteHistoryEntry = async (id: string) => {
+    setHistoryBusyId(id);
+    try {
+      const res = await fetch(`/api/content-creator/history/${id}`, { method: "DELETE" });
+      if (!res.ok) { const d = await res.json(); throw new Error(d?.error || "Failed to delete"); }
+      setHistoryItems((prev) => prev.filter((h) => h._id !== id));
+      if (id === activeHistoryId) {
+        setActiveHistoryId(null);
+      }
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "Failed to delete entry");
+    } finally {
+      setHistoryBusyId(null);
+    }
+  };
+
+  const generateNewsBatch = async () => {
+    setShowGenerateMenu(false);
+    setGeneratingBatch(true);
+    setGenerateError(null);
+    setActiveHistoryId(null);
+    try {
+      const res = await fetch("/api/content-creator/news-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+
+      const items: NewsItem[] = Array.isArray(data.posters) ? data.posters : [];
+      if (items.length === 0) throw new Error("AI returned no posters — try again.");
+
+      // items[0] is always the cover slide (isCover: true); the rest are the
+      // 20-30 curated candidates. Don't commit to newsData yet — open the
+      // selection modal so the user picks which stories make the final batch.
+      const [cover, ...candidates] = items;
+      setCreatorMode("news");
+      setActiveTab("content");
+      setBatchMeta({
+        timeRangeLabel: data.timeRangeLabel ?? "",
+        reportGeneratedAt: data.reportGeneratedAt ?? null,
+      });
+      setRawBatchCover(cover ?? null);
+      setRawBatchCandidates(candidates);
+      setSelectedPosterIndices(new Set(candidates.map((_, i) => i))); // default: everything selected
+      setShowSelectionModal(true);
+    } catch (e) {
+      setGenerateError(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setGeneratingBatch(false);
+    }
+  };
+
+  const togglePosterSelection = (idx: number) => {
+    setSelectedPosterIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+  const selectAllPosters = () => setSelectedPosterIndices(new Set(rawBatchCandidates.map((_, i) => i)));
+  const clearPosterSelection = () => setSelectedPosterIndices(new Set());
+
+  // Builds the final batch (cover + whichever candidates are checked) and
+  // commits it as the active newsData — this is the point the batch is
+  // actually saved to History, so History only ever reflects what the user
+  // chose to keep, not the full raw AI candidate pool.
+  const applyPosterSelection = async () => {
+    const chosen = rawBatchCandidates.filter((_, idx) => selectedPosterIndices.has(idx));
+    const items: NewsItem[] = rawBatchCover ? [rawBatchCover, ...chosen] : chosen;
+    if (items.length === 0) return;
+
+    setNewsData(items);
+    setActiveNewsIndex(0);
+    setJsonText(JSON.stringify(items, null, 2));
+    setJsonError(null);
+    setShowSelectionModal(false);
+    setActiveHistoryId(null);
+
+    const createdId = await saveToHistory(
+      "news-batch",
+      `News Batch · ${chosen.length} ${chosen.length === 1 ? "story" : "stories"} · ${batchMeta?.timeRangeLabel ?? "curated"}`,
+      items.length,
+      { posters: items, ratioId, colors, config, timeRangeLabel: batchMeta?.timeRangeLabel, reportGeneratedAt: batchMeta?.reportGeneratedAt }
+    );
+    if (createdId) {
+      setActiveHistoryId(createdId);
+    }
+  };
+
   useEffect(() => {
     fetch("/api/candle-summary")
       .then(r => { if (!r.ok) throw new Error("API failed"); return r.json(); })
@@ -2955,7 +4164,7 @@ export function ContentCreatorPage() {
       .catch(e => console.error("Candle summary load error:", e));
   }, []);
 
-  const [jsonText, setJsonText] = useState(JSON.stringify(SAMPLE_ANALYSIS, null, 2));
+  const [jsonText, setJsonText] = useState(JSON.stringify(EMPTY_ANALYSIS, null, 2));
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [showSample, setShowSample] = useState(false);
   const [rendered, setRendered] = useState(false);
@@ -2988,6 +4197,25 @@ export function ContentCreatorPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+
+  // Click-drag-to-pan / scroll-to-zoom on the news poster image. The
+  // currently-loaded image element is kept in a ref (set when render()
+  // loads it) so the drag/wheel handlers can read its natural dimensions
+  // synchronously without re-loading anything.
+  const activeImgRef = useRef<HTMLImageElement | null>(null);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
+  const dragStateRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startFocusX: number;
+    startFocusY: number;
+    boxW: number;
+    boxH: number;
+    zoom: number;
+    moved: boolean;
+    liveFocusX: number;
+    liveFocusY: number;
+  } | null>(null);
 
   const ar = RATIOS.find((r) => r.id === ratioId)!;
 
@@ -3065,9 +4293,18 @@ export function ContentCreatorPage() {
 
   // Handler to click elements on canvas
   const handleElementClick = (fieldId: string) => {
+    // News posters: clicking the empty image frame opens the OS file picker
+    // to attach the first image. Once an image exists, plain clicks on it do
+    // nothing — drag pans it, scroll zooms it, and the dedicated "Change
+    // Image" button (rendered on the box itself) handles replacement.
+    if (fieldId === "imageUrl" && creatorMode === "news") {
+      if (!newsData[activeNewsIndex]?.imageUrl) imageFileRef.current?.click();
+      return;
+    }
+
     setActiveTab("content");
     setHighlightedField(fieldId);
-    
+
     setTimeout(() => {
       const el = document.getElementById(`input-${fieldId}`);
       if (el) {
@@ -3075,6 +4312,127 @@ export function ContentCreatorPage() {
         el.focus();
       }
     }, 100);
+  };
+
+  // Click-drag-to-pan on the news poster image. Drives the canvas directly
+  // (bypassing the jsonText round-trip) during the drag for smooth 60fps
+  // feedback — re-stringifying the whole newsData array on every mousemove
+  // would be expensive when a poster's imageUrl is a multi-MB base64 data
+  // URL. State (and jsonText) is committed once, on mouseup.
+  const handleImageMouseDown = (e: React.MouseEvent, box: PosterElement) => {
+    if (creatorMode !== "news") return;
+    const item = newsData[activeNewsIndex];
+    if (!item?.imageUrl) return; // no image yet — let the click-to-upload flow handle it
+    e.preventDefault();
+    e.stopPropagation();
+    dragStateRef.current = {
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startFocusX: item.imageFocusX ?? 0.5,
+      startFocusY: item.imageFocusY ?? 0.5,
+      boxW: box.w,
+      boxH: box.h,
+      zoom: item.imageZoom ?? 1,
+      moved: false,
+      liveFocusX: item.imageFocusX ?? 0.5,
+      liveFocusY: item.imageFocusY ?? 0.5,
+    };
+    setIsDraggingImage(true);
+  };
+
+  useEffect(() => {
+    if (!isDraggingImage) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const ds = dragStateRef.current;
+      const img = activeImgRef.current;
+      if (!ds || !img) return;
+
+      const dxScreen = e.clientX - ds.startClientX;
+      const dyScreen = e.clientY - ds.startClientY;
+      if (Math.abs(dxScreen) > 3 || Math.abs(dyScreen) > 3) ds.moved = true;
+      const dxCanvas = dxScreen / scale;
+      const dyCanvas = dyScreen / scale;
+
+      const iAR = img.naturalWidth / img.naturalHeight;
+      const { slackX, slackY } = computeCoverFitSlack(iAR, ds.boxW, ds.boxH, ds.zoom);
+      const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+      ds.liveFocusX = slackX > 0 ? clamp01(ds.startFocusX - dxCanvas / slackX) : ds.startFocusX;
+      ds.liveFocusY = slackY > 0 ? clamp01(ds.startFocusY - dyCanvas / slackY) : ds.startFocusY;
+
+      const item = newsData[activeNewsIndex];
+      if (item && canvasRef.current) {
+        const liveData = { ...item, imageFocusX: ds.liveFocusX, imageFocusY: ds.liveFocusY };
+        const bounds = drawPoster(canvasRef.current, liveData, ar, colors, config, img, creatorMode, activeNewsIndex, newsData.length);
+        setElementBounds(bounds);
+      }
+    };
+
+    const handleUp = () => {
+      const ds = dragStateRef.current;
+      if (ds?.moved && newsData[activeNewsIndex]) {
+        const updated = [...newsData];
+        updated[activeNewsIndex] = { ...updated[activeNewsIndex], imageFocusX: ds.liveFocusX, imageFocusY: ds.liveFocusY };
+        setNewsData(updated);
+        setJsonText(JSON.stringify(updated, null, 2));
+      }
+      setIsDraggingImage(false);
+      dragStateRef.current = null;
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [isDraggingImage, scale, ar, colors, config, creatorMode, activeNewsIndex, newsData]);
+
+  // Scroll-to-zoom on the news poster image. React 19 attaches the delegated
+  // "wheel" listener as passive by default, so preventDefault() inside a
+  // normal onWheel prop is silently ignored (and warns) — a native listener
+  // with { passive: false } is required to actually stop page scroll here.
+  const wheelNodeRef = useRef<HTMLDivElement | null>(null);
+  const handleImageWheelNative = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    setNewsData((prev) => {
+      const idx = activeNewsIndex;
+      const item = prev[idx];
+      if (!item?.imageUrl) return prev;
+      const current = item.imageZoom ?? 1;
+      const next = Math.max(1, Math.min(2.5, current - Math.sign(e.deltaY) * 0.08));
+      const updated = [...prev];
+      updated[idx] = { ...item, imageZoom: next };
+      setJsonText(JSON.stringify(updated, null, 2));
+      return updated;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNewsIndex]);
+
+  const setImageWheelRef = useCallback((node: HTMLDivElement | null) => {
+    if (wheelNodeRef.current) {
+      wheelNodeRef.current.removeEventListener("wheel", handleImageWheelNative);
+    }
+    wheelNodeRef.current = node;
+    if (node) {
+      node.addEventListener("wheel", handleImageWheelNative, { passive: false });
+    }
+  }, [handleImageWheelNative]);
+
+  // File → data URL → active poster's imageUrl
+  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again still fires onChange
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      if (typeof reader.result === "string") {
+        const compressed = await compressImage(reader.result);
+        handleUpdateField("imageUrl", compressed);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Clear highlighted field styling after 2 seconds
@@ -3193,24 +4551,39 @@ export function ContentCreatorPage() {
     if (!activeData) return;
 
     if (activeData.imageUrl) {
-      const imgEl = new Image();
-      imgEl.crossOrigin = "anonymous";
-      imgEl.onload = () => {
+      const imageUrl = activeData.imageUrl;
+      if (loadedImagesRef.current[imageUrl]) {
+        const imgEl = loadedImagesRef.current[imageUrl];
+        activeImgRef.current = imgEl;
         if (canvasRef.current) {
           const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length);
           setElementBounds(bounds);
           setRendered(true);
         }
-      };
-      imgEl.onerror = () => {
-        if (canvasRef.current) {
-          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length);
-          setElementBounds(bounds);
-          setRendered(true);
-        }
-      };
-      imgEl.src = activeData.imageUrl;
+      } else {
+        const imgEl = new Image();
+        imgEl.crossOrigin = "anonymous";
+        imgEl.onload = () => {
+          loadedImagesRef.current[imageUrl] = imgEl;
+          activeImgRef.current = imgEl;
+          if (canvasRef.current) {
+            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length);
+            setElementBounds(bounds);
+            setRendered(true);
+          }
+        };
+        imgEl.onerror = () => {
+          activeImgRef.current = null;
+          if (canvasRef.current) {
+            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length);
+            setElementBounds(bounds);
+            setRendered(true);
+          }
+        };
+        imgEl.src = imageUrl;
+      }
     } else {
+      activeImgRef.current = null;
       if (canvasRef.current) {
         const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length);
         setElementBounds(bounds);
@@ -3225,7 +4598,45 @@ export function ContentCreatorPage() {
   }, [render]);
 
   function download() {
-    if (!canvasRef.current || !rendered) return;
+    if (!rendered) return;
+
+    const tempCanvas = document.createElement("canvas");
+    const scaleFactor = 3.0; // 3x high resolution
+    const highResAr = {
+      ...ar,
+      w: ar.w * scaleFactor,
+      h: ar.h * scaleFactor
+    };
+
+    let activeData: any;
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (creatorMode === "news") {
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          activeData = parsed[activeNewsIndex] || parsed[0];
+        } else {
+          activeData = parsed;
+        }
+      } else {
+        activeData = parsed;
+      }
+    } catch {
+      return;
+    }
+
+    if (!activeData) return;
+
+    drawPoster(
+      tempCanvas,
+      activeData,
+      highResAr,
+      colors,
+      config,
+      activeImgRef.current,
+      creatorMode,
+      activeNewsIndex,
+      newsData.length
+    );
 
     let fileName = `stratix-poster-${ratioId}-${Date.now()}.png`;
     if (creatorMode === "analysis") {
@@ -3237,29 +4648,86 @@ export function ContentCreatorPage() {
     }
 
     const a = document.createElement("a");
-    a.href = canvasRef.current.toDataURL("image/png");
+    a.href = tempCanvas.toDataURL("image/png");
     a.download = fileName;
     a.click();
   }
 
-  // Sequentially renders and downloads all news cards
+  // Preloads images in parallel and packages all news cards into a high-res ZIP
   const downloadAll = async () => {
     if (creatorMode !== "news" || newsData.length === 0) return;
+    setDownloadingZip(true);
     
-    for (let i = 0; i < newsData.length; i++) {
-      setActiveNewsIndex(i);
-      await new Promise((resolve) => setTimeout(resolve, 350));
-      
-      if (canvasRef.current) {
-        const a = document.createElement("a");
-        a.href = canvasRef.current.toDataURL("image/png");
-        const titleSlug = (newsData[i].title || "news")
+    try {
+      // 1. Preload all background images in parallel
+      await Promise.all(
+        newsData.map(async (item) => {
+          const imageUrl = item.imageUrl;
+          if (!imageUrl || loadedImagesRef.current[imageUrl]) return;
+          
+          const imgEl = new Image();
+          imgEl.crossOrigin = "anonymous";
+          await new Promise((resolve) => {
+            imgEl.onload = () => {
+              loadedImagesRef.current[imageUrl] = imgEl;
+              resolve(null);
+            };
+            imgEl.onerror = () => resolve(null);
+            imgEl.src = imageUrl;
+          });
+        })
+      );
+
+      // 2. Render each poster sequentially on a high-res temporary canvas and add to JSZip
+      const zip = new JSZip();
+      const scaleFactor = 3.0; // 3x high resolution
+      const highResAr = {
+        ...ar,
+        w: ar.w * scaleFactor,
+        h: ar.h * scaleFactor
+      };
+
+      for (let i = 0; i < newsData.length; i++) {
+        const item = newsData[i];
+        const tempCanvas = document.createElement("canvas");
+        const cachedImg = item.imageUrl ? loadedImagesRef.current[item.imageUrl] : null;
+
+        drawPoster(
+          tempCanvas,
+          item,
+          highResAr,
+          colors,
+          config,
+          cachedImg,
+          "news",
+          i,
+          newsData.length
+        );
+
+        const dataUrl = tempCanvas.toDataURL("image/png");
+        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        
+        const titleSlug = (item.title || "news")
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .slice(0, 20);
-        a.download = `stratix-news-${i + 1}-${titleSlug}.png`;
-        a.click();
+        
+        const fileName = `stratix-news-${i + 1}-${titleSlug}.png`;
+        zip.file(fileName, base64Data, { base64: true });
       }
+
+      // 3. Generate ZIP and trigger browser download
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `stratix-news-batch-${ratioId}-${Date.now()}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("ZIP Generation failed:", e);
+    } finally {
+      setDownloadingZip(false);
     }
   };
 
@@ -3274,7 +4742,7 @@ export function ContentCreatorPage() {
 
   const getFieldClassName = (fieldId: string) => {
     return `w-full rounded-xl px-3 py-2 text-[12px] outline-none transition-all duration-300 focus:border-white/20 focus:ring-1 focus:ring-white/10 ${
-      highlightedField === fieldId ? "ring-2 ring-white/30 scale-[1.02] border-white/40 bg-white/5 text-white font-bold" : ""
+      highlightedField === fieldId ? "ring-2 ring-white/30 border-white/40 bg-white/5 text-white" : ""
     }`;
   };
 
@@ -3287,34 +4755,49 @@ export function ContentCreatorPage() {
   ];
 
   return (
-    <div className="flex h-full overflow-hidden text-white/80 font-sans selection:bg-white/10 selection:text-white">
+    <div className="flex h-full overflow-hidden text-white/80 font-sans selection:bg-white/10 selection:text-white relative">
       {/* ── Left Panel ─────────────────────────────────────────────────────── */}
       <div
-        className="flex flex-col w-[350px] shrink-0 border-r overflow-hidden glass-liquid"
+        className={`flex flex-col shrink-0 overflow-hidden glass-liquid transition-all duration-300 ease-in-out relative ${
+          panelCollapsed ? "w-0 border-r-0 opacity-0" : "w-[350px] border-r opacity-100"
+        }`}
         style={{ borderColor: "rgba(255, 255, 255, 0.08)" }}
       >
-        {/* Panel header */}
-        <div
-          className="flex items-center justify-between px-4 py-3 border-b shrink-0"
-          style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
-        >
-          <div className="flex items-center gap-2">
-            <Layers2 className="h-4 w-4 shrink-0 text-white/60" />
-            <span className="text-[12px] font-bold uppercase tracking-wider text-white/90">
-              Poster Customizer
-            </span>
-          </div>
-          <button
-            onClick={() => setShowSample(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-white/[0.08] bg-white/5 hover:bg-white/10 cursor-pointer text-white/70 hover:text-white"
+        {/* Static content container to avoid squishing during collapse transition */}
+        <div className="w-[350px] flex flex-col h-full flex-grow">
+          {/* Panel header */}
+          <div
+            className="flex items-center justify-between px-4 py-2 border-b shrink-0"
+            style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
           >
-            <Code2 className="h-3 w-3" /> Sample JSON
-          </button>
-        </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPanelCollapsed(true)}
+                className="p-1 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 transition cursor-pointer"
+                title="Collapse Panel"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <Layers2 className="h-4 w-4 shrink-0 text-white/60" />
+              <span className="text-[12px] font-bold uppercase tracking-wider text-white/90">
+                Content Creator
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {creatorMode === "news" && rawBatchCandidates.length > 0 && (
+                <button
+                  onClick={() => setShowSelectionModal(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-emerald-500/[0.25] bg-emerald-500/[0.1] hover:bg-emerald-500/[0.16] cursor-pointer text-emerald-300"
+                >
+                  <ListChecks className="h-3 w-3" /> Select Posters
+                </button>
+              )}
+            </div>
+          </div>
 
         {/* Creator Mode Switcher */}
-        <div className="px-4 py-2.5 border-b shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
-          <label className="text-[9px] font-bold uppercase tracking-widest text-[#787870] block mb-1.5">
+        <div className="px-4 py-1.5 border-b shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+          <label className="text-[8.5px] font-bold uppercase tracking-widest text-[#787870] block mb-1">
             Creator Mode
           </label>
           <div className="flex bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg">
@@ -3343,26 +4826,33 @@ export function ContentCreatorPage() {
         </div>
 
         {/* Tab Selection */}
-        <div className="px-4 py-2 border-b shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+        <div className="px-4 py-1 border-b shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
           <div className="flex bg-white/[0.03] border border-white/[0.06] p-0.5 rounded-lg">
-            {TABS.map((tab) => {
-              const active = activeTab === tab.id;
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all cursor-pointer text-[10px] font-bold uppercase tracking-wider ${
-                    active
-                      ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
-                      : "text-[#787870] hover:text-white/60"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
+            <TooltipProvider delay={100}>
+              {TABS.map((tab) => {
+                const active = activeTab === tab.id;
+                const Icon = tab.icon;
+                return (
+                  <Tooltip key={tab.id}>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          onClick={() => setActiveTab(tab.id)}
+                          className={`flex-1 flex items-center justify-center py-2 rounded-md transition-all cursor-pointer ${
+                            active
+                              ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                              : "text-[#787870] hover:text-white/60"
+                          }`}
+                        />
+                      }
+                    >
+                      <Icon className="h-4 w-4" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{tab.label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </TooltipProvider>
           </div>
         </div>
 
@@ -3610,18 +5100,123 @@ export function ContentCreatorPage() {
                         />
                       </div>
 
-                      {/* Image URL */}
+                      {/* Grok Imagine prompt for this poster's image */}
+                      {newsData[activeNewsIndex].imagePrompt && (
+                        <div className="rounded-xl border border-emerald-500/[0.18] bg-emerald-500/[0.04] p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <Sparkles className="h-3 w-3 text-emerald-400/80" />
+                              <span className="text-[10px] font-bold text-emerald-300/90 uppercase tracking-wider">
+                                Grok Image Prompt
+                              </span>
+                            </div>
+                            <CopyButton text={newsData[activeNewsIndex].imagePrompt!} label="Copy" />
+                          </div>
+                          <p className="text-[10.5px] text-white/55 leading-relaxed max-h-32 overflow-y-auto select-text whitespace-pre-wrap">
+                            {newsData[activeNewsIndex].imagePrompt}
+                          </p>
+                          <p className="text-[9px] text-white/30 leading-snug">
+                            Paste into Grok Imagine → save the image → click the poster&apos;s image area (or Upload) to attach it.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Image URL + local file upload */}
                       <div>
-                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">News Image URL</label>
-                        <input
-                          id="input-imageUrl"
-                          type="text"
-                          className={getFieldClassName("imageUrl")}
-                          style={inputStyle}
-                          value={newsData[activeNewsIndex].imageUrl || ""}
-                          onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
-                        />
+                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">News Image</label>
+                        <div className="flex gap-2">
+                          <input
+                            id="input-imageUrl"
+                            type="text"
+                            placeholder="Paste URL or upload from PC →"
+                            className={getFieldClassName("imageUrl")}
+                            style={inputStyle}
+                            value={newsData[activeNewsIndex].imageUrl || ""}
+                            onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
+                          />
+                          <button
+                            onClick={() => imageFileRef.current?.click()}
+                            title="Choose an image from your PC"
+                            className="flex items-center gap-1.5 px-3 rounded-xl text-[10px] font-bold shrink-0 transition-all cursor-pointer border border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white"
+                          >
+                            <Upload className="h-3 w-3" />
+                            Upload
+                          </button>
+                        </div>
                       </div>
+
+                      {/* Pan & zoom — adjusts how the image fills its frame */}
+                      {newsData[activeNewsIndex].imageUrl && (
+                        <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <Move className="h-3 w-3 text-white/40" />
+                              <span className="text-[10px] font-bold text-white/60 uppercase tracking-wider">Adjust Image</span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                handleUpdateField("imageFocusX", 0.5);
+                                handleUpdateField("imageFocusY", 0.5);
+                                handleUpdateField("imageZoom", 1);
+                              }}
+                              className="text-[9.5px] font-bold text-white/35 hover:text-white/70 transition cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
+                              <span className="flex items-center gap-1"><ZoomIn className="h-2.5 w-2.5" /> Zoom</span>
+                              <span>{Math.round((newsData[activeNewsIndex].imageZoom ?? 1) * 100)}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="1"
+                              max="2.5"
+                              step="0.05"
+                              value={newsData[activeNewsIndex].imageZoom ?? 1}
+                              onChange={(e) => handleUpdateField("imageZoom", parseFloat(e.target.value))}
+                              className="w-full cursor-pointer"
+                              style={{ accentColor: "#ffffff" }}
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
+                              <span>Pan Horizontal</span>
+                              <span>{Math.round((newsData[activeNewsIndex].imageFocusX ?? 0.5) * 100)}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.02"
+                              value={newsData[activeNewsIndex].imageFocusX ?? 0.5}
+                              onChange={(e) => handleUpdateField("imageFocusX", parseFloat(e.target.value))}
+                              className="w-full cursor-pointer"
+                              style={{ accentColor: "#ffffff" }}
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
+                              <span>Pan Vertical</span>
+                              <span>{Math.round((newsData[activeNewsIndex].imageFocusY ?? 0.5) * 100)}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.02"
+                              value={newsData[activeNewsIndex].imageFocusY ?? 0.5}
+                              onChange={(e) => handleUpdateField("imageFocusY", parseFloat(e.target.value))}
+                              className="w-full cursor-pointer"
+                              style={{ accentColor: "#ffffff" }}
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       {/* Source & Date */}
                       <div className="grid grid-cols-2 gap-2">
@@ -3654,6 +5249,12 @@ export function ContentCreatorPage() {
                         <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-2">
                           News Items in Batch
                         </label>
+                        {batchMeta && (
+                          <p className="text-[9px] text-emerald-400/50 mb-2 -mt-1">
+                            AI-curated from filtered news · {batchMeta.timeRangeLabel}
+                            {batchMeta.reportGeneratedAt && ` · report ${new Date(batchMeta.reportGeneratedAt).toLocaleString()}`}
+                          </p>
+                        )}
                         <div className="space-y-1.5 max-h-48 overflow-y-auto">
                           {newsData.map((item, idx) => {
                             const isCurrent = idx === activeNewsIndex;
@@ -4230,14 +5831,22 @@ export function ContentCreatorPage() {
                 >
                   Raw JSON Data
                 </p>
-                {jsonError && (
-                  <div className="flex items-center gap-1 text-red-500">
-                    <AlertCircle className="h-3 w-3" />
-                    <span className="text-[9px]">
-                      Invalid JSON
-                    </span>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowSample(true)}
+                    className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-[9px] font-bold uppercase text-white/60 hover:text-white transition border border-white/5 cursor-pointer"
+                  >
+                    Load Sample
+                  </button>
+                  {jsonError && (
+                    <div className="flex items-center gap-1 text-red-500">
+                      <AlertCircle className="h-3 w-3" />
+                      <span className="text-[9px]">
+                        Invalid JSON
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
               <textarea
                 value={jsonText}
@@ -4297,22 +5906,150 @@ export function ContentCreatorPage() {
           )}
         </div>
 
-        {/* Generate button (Left panel footer) */}
-        <div className="px-4 pb-4 pt-2 border-t shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
-          <button
-            onClick={render}
-            className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 shadow-[0_4px_12px_rgba(255,255,255,0.1)] border border-transparent"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            FORCE RE-RENDER
-          </button>
+        {/* Generate + Re-render (Left panel footer) */}
+        <div className="px-4 pb-4 pt-2 border-t shrink-0 space-y-2" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
+          {generateError && (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-red-500/[0.08] border border-red-500/[0.2]">
+              <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" />
+              <p className="text-[10px] text-red-300/90 leading-relaxed flex-1">{generateError}</p>
+              <button onClick={() => setGenerateError(null)} className="text-red-400/60 hover:text-red-300 shrink-0">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+
+          <div className="flex gap-2 relative">
+            {/* Generate — niche dropdown (opens upward) */}
+            <div className="relative flex-1">
+              {showGenerateMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowGenerateMenu(false)} />
+                  <div className="absolute bottom-full mb-2 left-0 w-[318px] z-50 rounded-xl border border-white/[0.08] bg-[#121210] shadow-[0_10px_35px_rgba(0,0,0,0.85)] backdrop-blur-xl overflow-hidden p-1 space-y-0.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <button
+                      onClick={generateNewsBatch}
+                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-white/[0.05] active:scale-[0.99] transition cursor-pointer"
+                    >
+                      <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shrink-0 mt-0.5">
+                        <Sparkles className="h-4 w-4 text-emerald-400" />
+                      </div>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[11.5px] font-bold text-white tracking-wide">AI News Batch</span>
+                        <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
+                          Curate 20-30 high-impact geopolitical/macro news stories. Select which slides to include.
+                        </span>
+                      </span>
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setShowGenerateMenu(false);
+                        setCreatorMode("analysis");
+                        setShowPromptModal(true);
+                      }}
+                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-white/[0.05] active:scale-[0.99] transition cursor-pointer border-t border-white/[0.03]"
+                    >
+                      <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-white/5 border border-white/10 shrink-0 mt-0.5">
+                        <Bot className="h-4 w-4 text-white/70" />
+                      </div>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[11.5px] font-bold text-white tracking-wide">Daily Analysis Prompt</span>
+                        <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
+                          Compile session candles and structures into prompts for external AI.
+                        </span>
+                      </span>
+                    </button>
+
+                    <button
+                      disabled
+                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left opacity-35 cursor-not-allowed border-t border-white/[0.03]"
+                    >
+                      <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-white/[0.02] border border-white/[0.04] shrink-0 mt-0.5">
+                        <Layers2 className="h-4 w-4 text-white/30" />
+                      </div>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[11.5px] font-bold text-white/50 tracking-wide">Indicator / Classic</span>
+                        <span className="block text-[9.5px] text-white/25 leading-snug mt-0.5 font-normal">Coming soon</span>
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+              <button
+                onClick={() => setShowGenerateMenu((v) => !v)}
+                disabled={generatingBatch}
+                className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-emerald-500/[0.15] text-emerald-300 hover:bg-emerald-500/[0.22] border border-emerald-500/[0.25] disabled:opacity-60 disabled:cursor-wait"
+              >
+                {generatingBatch ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    CURATING NEWS…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3.5 w-3.5" />
+                    GENERATE
+                    <ChevronDown className={`h-3 w-3 transition-transform ${showGenerateMenu ? "rotate-180" : ""}`} />
+                  </>
+                )}
+              </button>
+            </div>
+
+            <button
+              onClick={render}
+              className="flex items-center justify-center gap-1.5 flex-grow py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 shadow-[0_4px_12px_rgba(255,255,255,0.1)] border border-transparent"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              RE-RENDER
+            </button>
+
+            <button
+              onClick={handleSaveCurrentToHistory}
+              disabled={saveStatus === "saving"}
+              title="Save current poster(s) to History"
+              className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-95 cursor-pointer border ${
+                saveStatus === "success"
+                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
+                  : saveStatus === "error"
+                  ? "border-red-500 bg-red-500/10 text-red-400"
+                  : "border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white"
+              }`}
+            >
+              {saveStatus === "saving" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : saveStatus === "success" ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : saveStatus === "error" ? (
+                <X className="h-3.5 w-3.5" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+            </button>
+
+            <button
+              onClick={openHistory}
+              title="View History list"
+              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-95 cursor-pointer border border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white"
+            >
+              <History className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
+      </div>
       </div>
 
       {/* ── Right Panel: Preview ──────────────────────────────────────────── */}
       <div
         className="flex-1 flex flex-col overflow-hidden bg-background relative"
       >
+        {panelCollapsed && (
+          <button
+            onClick={() => setPanelCollapsed(false)}
+            className="absolute left-4 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-8 h-12 bg-white/5 hover:bg-white/10 border border-white/10 rounded-r-xl transition-all duration-200 text-white/60 hover:text-white cursor-pointer group shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-md"
+            title="Expand Panel"
+          >
+            <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+        )}
         {/* Apple liquid glass backdrop glow circles */}
         <div 
           className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-[128px] pointer-events-none" 
@@ -4325,7 +6062,7 @@ export function ContentCreatorPage() {
 
         {/* Preview toolbar */}
         <div
-          className="flex items-center justify-between px-5 py-3 border-b shrink-0 z-10"
+          className="flex items-center justify-between px-4 py-1.5 border-b shrink-0 z-10"
           style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
         >
           <div className="flex items-center gap-2">
@@ -4358,11 +6095,20 @@ export function ContentCreatorPage() {
               </button>
               <button
                 onClick={downloadAll}
-                disabled={!rendered || newsData.length === 0}
+                disabled={!rendered || newsData.length === 0 || downloadingZip}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 border border-transparent shadow-[0_2px_8px_rgba(255,255,255,0.1)]"
               >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Download All Batch
+                {downloadingZip ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Packaging ZIP...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Download All Batch
+                  </>
+                )}
               </button>
             </div>
           ) : (
@@ -4408,8 +6154,33 @@ export function ContentCreatorPage() {
         {/* Canvas preview area with clickable element overlay */}
         <div
           ref={previewRef}
-          className="flex-1 flex items-center justify-center overflow-hidden p-6 select-none z-10"
+          className="relative flex-1 flex items-center justify-center overflow-hidden p-6 select-none z-10"
         >
+          {/* Carousel nav — real app buttons, not baked into the poster image.
+              Changes which poster is being previewed/edited/exported. */}
+          {creatorMode === "news" && newsData.length > 1 && (
+            <>
+              <button
+                onClick={() => setActiveNewsIndex((i) => Math.max(0, i - 1))}
+                disabled={activeNewsIndex === 0}
+                aria-label="Previous poster"
+                title="Previous poster"
+                className="absolute left-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full flex items-center justify-center transition-all cursor-pointer border border-white/[0.1] bg-black/50 backdrop-blur-sm text-white/80 hover:bg-black/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-black/50"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => setActiveNewsIndex((i) => Math.min(newsData.length - 1, i + 1))}
+                disabled={activeNewsIndex === newsData.length - 1}
+                aria-label="Next poster"
+                title="Next poster"
+                className="absolute right-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full flex items-center justify-center transition-all cursor-pointer border border-white/[0.1] bg-black/50 backdrop-blur-sm text-white/80 hover:bg-black/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-black/50"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </>
+          )}
+
           <div
             style={{
               width: ar.w * scale,
@@ -4441,43 +6212,74 @@ export function ContentCreatorPage() {
                 pointerEvents: "none",
               }}
             >
-              {elementBounds.map((box, i) => (
-                <div
-                  key={`${box.id}-${i}-${box.x}-${box.y}`}
-                  onClick={() => handleElementClick(box.id)}
-                  className="absolute pointer-events-auto border border-transparent border-dashed cursor-pointer group transition-all duration-200 rounded"
-                  style={{
-                    left: box.x * scale,
-                    top: box.y * scale,
-                    width: box.w * scale,
-                    height: box.h * scale,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = colors.accent;
-                    e.currentTarget.style.backgroundColor = `${colors.accent}15`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "transparent";
-                    e.currentTarget.style.backgroundColor = "transparent";
-                  }}
-                >
-                  {/* Floating badge tooltip on hover */}
+              {elementBounds.map((box, i) => {
+                const isNewsImage = box.id === "imageUrl" && creatorMode === "news";
+                const hasImage = isNewsImage && !!newsData[activeNewsIndex]?.imageUrl;
+
+                return (
                   <div
-                    className="absolute opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none px-2 py-0.5 rounded text-[8.5px] font-bold tracking-wider uppercase z-20 whitespace-nowrap"
+                    key={`${box.id}-${i}-${box.x}-${box.y}`}
+                    ref={hasImage ? setImageWheelRef : undefined}
+                    onClick={() => handleElementClick(box.id)}
+                    onMouseDown={hasImage ? (e) => handleImageMouseDown(e, box) : undefined}
+                    className="absolute pointer-events-auto border border-transparent border-dashed group transition-all duration-200 rounded"
                     style={{
-                      top: "-20px",
-                      left: "50%",
-                      transform: "translateX(-50%)",
-                      background: "rgba(255, 255, 255, 0.9)",
-                      color: "#000000",
-                      fontFamily: "var(--font-sans), sans-serif",
-                      boxShadow: "0 4px 10px rgba(0,0,0,0.3)",
+                      left: box.x * scale,
+                      top: box.y * scale,
+                      width: box.w * scale,
+                      height: box.h * scale,
+                      cursor: hasImage ? (isDraggingImage ? "grabbing" : "grab") : "pointer",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = colors.accent;
+                      e.currentTarget.style.backgroundColor = `${colors.accent}15`;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "transparent";
+                      e.currentTarget.style.backgroundColor = "transparent";
                     }}
                   >
-                    Edit {box.label}
+                    {/* Floating badge tooltip on hover */}
+                    <div
+                      className="absolute opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none px-2 py-0.5 rounded text-[8.5px] font-bold tracking-wider uppercase z-20 whitespace-nowrap"
+                      style={{
+                        top: "-20px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        background: "rgba(255, 255, 255, 0.9)",
+                        color: "#000000",
+                        fontFamily: "var(--font-sans), sans-serif",
+                        boxShadow: "0 4px 10px rgba(0,0,0,0.3)",
+                      }}
+                    >
+                      {hasImage ? "Drag to Pan · Scroll to Zoom" : `Edit ${box.label}`}
+                    </div>
+
+                    {/* Dedicated replace-image button — only once an image exists;
+                        clicking the box itself now pans, so replacement needs its
+                        own affordance, always visible in the corner. */}
+                    {hasImage && (
+                      <button
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          imageFileRef.current?.click();
+                        }}
+                        title="Change image"
+                        className="absolute top-2 right-2 z-20 flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold cursor-pointer transition-all opacity-0 group-hover:opacity-100"
+                        style={{
+                          background: "rgba(10,10,10,0.65)",
+                          color: "rgba(255,255,255,0.9)",
+                          backdropFilter: "blur(4px)",
+                        }}
+                      >
+                        <Upload className="h-2.5 w-2.5" />
+                        Change Image
+                      </button>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -4498,6 +6300,16 @@ export function ContentCreatorPage() {
         </div>
       </div>
 
+      {/* Hidden file picker — clicking a news poster's image frame (or the
+          Upload button) routes here; the chosen file becomes the poster image */}
+      <input
+        ref={imageFileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageFile}
+      />
+
       {/* Sample JSON modal */}
       {showSample && (
         <SampleJsonModal
@@ -4513,6 +6325,32 @@ export function ContentCreatorPage() {
           defaultDate={promptDate}
           defaultSession={promptSession}
           onClose={() => setShowPromptModal(false)}
+        />
+      )}
+
+      {/* History modal */}
+      {showHistory && (
+        <HistoryModal
+          items={historyItems}
+          loading={historyLoading}
+          error={historyError}
+          busyId={historyBusyId}
+          onClose={() => setShowHistory(false)}
+          onLoad={loadHistoryEntry}
+          onDelete={deleteHistoryEntry}
+        />
+      )}
+
+      {/* Poster selection modal — narrows the 20-30 AI candidates down to the final batch */}
+      {showSelectionModal && (
+        <PosterSelectionModal
+          candidates={rawBatchCandidates}
+          selected={selectedPosterIndices}
+          onToggle={togglePosterSelection}
+          onSelectAll={selectAllPosters}
+          onClear={clearPosterSelection}
+          onClose={() => setShowSelectionModal(false)}
+          onApply={applyPosterSelection}
         />
       )}
     </div>
