@@ -27,6 +27,7 @@
     "date-fns": "^4.1.0",
     "dukascopy-node": "^1.46.4",
     "framer-motion": "^12.38.0",
+    "jszip": "^3.10.1",
     "katex": "^0.16.45",
     "lightweight-charts": "^4.2.3",
     "lucide-react": "^1.8.0",
@@ -47,6 +48,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/jszip": "^3.4.0",
     "@types/katex": "^0.16.8",
     "@types/node": "^20",
     "@types/react": "^19",

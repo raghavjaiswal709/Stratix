@@ -110,15 +110,17 @@ function parseTelegramHtml(html: string, channel: string): ParsedPage {
 }
 
 async function fetchTelegramPageOnce(channel: string, beforeId: string | undefined, timeoutMs: number): Promise<ParsedPage> {
+  const cb = Date.now();
   const url = beforeId
-    ? `https://t.me/s/${channel}?before=${beforeId}`
-    : `https://t.me/s/${channel}`;
+    ? `https://t.me/s/${channel}?before=${beforeId}&cb=${cb}`
+    : `https://t.me/s/${channel}?cb=${cb}`;
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
       Accept: "text/html",
     },
     signal: AbortSignal.timeout(timeoutMs),
+    cache: "no-store",
   });
   if (!res.ok) return { items: [], earliestId: null };
   const html = await res.text();

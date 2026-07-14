@@ -435,7 +435,7 @@ function ExpandedSidebar({
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-sidebar-border">
         <StratixMark size={36} />
-        <StratixWordmark size={18} className="flex-1 min-w-0 items-start" />
+        <StratixWordmark size={18} align="start" className="flex-1 min-w-0" />
         {/* Unpin / close button */}
         {!isMobile && onUnpin ? (
           <Tooltip>

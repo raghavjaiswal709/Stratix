@@ -36,12 +36,11 @@ interface StratixMarkProps {
 export function StratixMark({ size = 32, className = "", tone = "auto" }: StratixMarkProps) {
   const fg = toneColor(tone);
   const uid = tone; // gradient/filter ids just need to be unique per tone variant on the page
-  // Bold "ribbon" glyph: the same S centerline drawn three times — a soft
-  // dark extrusion beneath, a thick gradient ribbon on top, and a thin
-  // bright bevel highlight along its upper edge — the layering is what
-  // sells "engraved glass icon" instead of "a thin line that looks like S".
-  const ribbon = Math.max(2.6, size * 0.2);
-  const highlight = ribbon * 0.34;
+  // A crisp, confidently-weighted "S" — bold enough to read at 16px, but not
+  // so thick the curve's own humps touch and blur into a blob. A single thin
+  // highlight pass along the upper edge gives it dimension without haze.
+  const stroke = Math.max(1.9, size * 0.125);
+  const highlight = stroke * 0.32;
   const path =
     "M16.6 8C16.6 5.9 14.6 4.4 12 4.4C9.2 4.4 7 5.9 7 8C7 12.2 17 10.6 17 15.8C17 18 14.7 19.6 12 19.6C9.3 19.6 7.1 18.1 7.1 15.9";
 
@@ -106,43 +105,32 @@ export function StratixMark({ size = 32, className = "", tone = "auto" }: Strati
         <defs>
           <linearGradient id={`sx-s-${uid}`} x1="4" y1="3" x2="20" y2="21" gradientUnits="userSpaceOnUse">
             <stop offset="0" stopColor={fg} />
-            <stop offset="0.55" stopColor={fg} />
+            <stop offset="0.6" stopColor={fg} />
             <stop offset="1" stopColor="#34d399" />
           </linearGradient>
         </defs>
 
-        {/* extrusion shadow — gives the ribbon physical depth */}
-        <path
-          d={path}
-          stroke="rgba(0,0,0,0.55)"
-          strokeWidth={ribbon}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          transform="translate(0.55, 1.1)"
-        />
-        {/* the ribbon itself */}
+        {/* the glyph */}
         <path
           d={path}
           stroke={`url(#sx-s-${uid})`}
-          strokeWidth={ribbon}
+          strokeWidth={stroke}
           strokeLinecap="round"
           strokeLinejoin="round"
-          style={{ filter: "drop-shadow(0 0 6px rgba(16,185,129,0.5))" }}
         />
-        {/* bevel highlight along the upper-left edge */}
+        {/* thin bevel highlight along the upper-left edge — dimension without haze */}
         <path
           d={path}
-          stroke={`color-mix(in srgb, ${fg} 75%, white)`}
+          stroke={`color-mix(in srgb, ${fg} 80%, white)`}
           strokeWidth={highlight}
           strokeLinecap="round"
           strokeLinejoin="round"
-          opacity="0.55"
-          transform="translate(-0.45, -0.7)"
+          opacity="0.4"
+          transform="translate(-0.3, -0.45)"
         />
         {/* live node at the glyph's terminal — ties into the trading motif */}
-        <circle cx="7.1" cy="15.9" r={ribbon * 0.42} fill="#34d399" />
-        <circle cx="7.1" cy="15.9" r={ribbon * 0.42} fill="none" stroke="rgba(0,0,0,0.35)" strokeWidth="0.6" />
-        <circle cx="7.1" cy="15.9" r={ribbon * 0.85} fill="#34d399" opacity="0.2" />
+        <circle cx="7.1" cy="15.9" r={stroke * 0.9} fill="#34d399" opacity="0.16" />
+        <circle cx="7.1" cy="15.9" r={stroke * 0.46} fill="#34d399" />
       </svg>
     </span>
   );
@@ -156,9 +144,12 @@ interface StratixWordmarkProps {
   glow?: boolean;
   /** Force light/dark rendering instead of following the app theme. */
   tone?: Tone;
+  /** "center" (default, matches the glow accent line) or "start" for inline
+   *  placements next to a mark where the text should hug the left edge. */
+  align?: "center" | "start";
 }
 
-export function StratixWordmark({ size = 20, className = "", glow = false, tone = "auto" }: StratixWordmarkProps) {
+export function StratixWordmark({ size = 20, className = "", glow = false, tone = "auto", align = "center" }: StratixWordmarkProps) {
   const fg = toneColor(tone);
 
   const textStyle: CSSProperties = {
@@ -184,7 +175,7 @@ export function StratixWordmark({ size = 20, className = "", glow = false, tone 
   };
 
   return (
-    <span className={`relative inline-flex flex-col items-center select-none ${className}`}>
+    <span className={`relative inline-flex flex-col ${align === "center" ? "items-center" : "items-start"} select-none ${className}`}>
       <span style={textStyle}>
         STRATI
         <span
