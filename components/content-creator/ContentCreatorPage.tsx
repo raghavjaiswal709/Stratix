@@ -5674,27 +5674,27 @@ function ContentCalendarModal({
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between gap-2 px-5 py-3.5 border-b shrink-0"
+          className="flex items-center justify-between px-5 py-3.5 border-b shrink-0"
           style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
         >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <Calendar className="h-4 w-4 shrink-0 text-white/60" />
-            <span className="text-[13px] font-bold text-white tracking-wide uppercase whitespace-nowrap">Content Calendar</span>
-            <span className="hidden md:inline text-[9.5px] text-white/35 whitespace-nowrap truncate">30-day News / Learnings / Facts plan</span>
+          <div className="flex items-center gap-2.5">
+            <Calendar className="h-4 w-4 text-white/60" />
+            <span className="text-[13px] font-bold text-white tracking-wide uppercase">Content Calendar</span>
+            <span className="text-[9.5px] text-white/35">30-day News / Learnings / Facts plan</span>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1">
             <button
               onClick={() => setMonthIdx((i) => Math.max(0, i - 1))}
               disabled={monthIdx === 0}
-              className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer shrink-0"
+              className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="text-[11px] font-semibold text-white/80 w-20 sm:w-32 text-center whitespace-nowrap truncate">{monthLabel}</span>
+            <span className="text-[11px] font-semibold text-white/80 w-32 text-center">{monthLabel}</span>
             <button
               onClick={() => setMonthIdx((i) => Math.min(months.length - 1, i + 1))}
               disabled={monthIdx === months.length - 1}
-              className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer shrink-0"
+              className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -7007,11 +7007,7 @@ export function ContentCreatorPage() {
           <label className="text-[8.5px] font-bold uppercase tracking-widest text-[#787870] block mb-1">
             Creator Mode
           </label>
-          {/* Horizontally scrollable strip — 5 labels (incl. two-word ones like
-              "Daily Analysis") never fit evenly in a 3-wide grid on the ~300px
-              mobile panel without wrapping onto 2 lines, so each pill sizes to
-              its own text and the strip scrolls instead. */}
-          <div className="flex gap-0.5 bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex flex-wrap gap-0.5 bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg">
             {(["analysis", "news", "indicator", "facts", "learnings"] as const).map((m) => {
               const active = creatorMode === m;
               const labels: Record<CreatorMode, string> = {
@@ -7025,7 +7021,7 @@ export function ContentCreatorPage() {
                 <button
                   key={m}
                   onClick={() => setCreatorMode(m)}
-                  className={`shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-md transition-all cursor-pointer text-[9.5px] font-bold uppercase tracking-wider text-center ${
+                  className={`flex-1 basis-[32%] py-1.5 rounded-md transition-all cursor-pointer text-[9.5px] font-bold uppercase tracking-wider text-center ${
                     active
                       ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
                       : "text-[#787870] hover:text-white/60"
@@ -8724,19 +8720,18 @@ export function ContentCreatorPage() {
               <button
                 onClick={() => setShowGenerateMenu((v) => !v)}
                 disabled={generatingBatch}
-                title="Generate"
-                className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-emerald-500/[0.15] text-emerald-300 hover:bg-emerald-500/[0.22] border border-emerald-500/[0.25] disabled:opacity-60 disabled:cursor-wait whitespace-nowrap"
+                className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-emerald-500/[0.15] text-emerald-300 hover:bg-emerald-500/[0.22] border border-emerald-500/[0.25] disabled:opacity-60 disabled:cursor-wait"
               >
                 {generatingBatch ? (
                   <>
-                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                    <span className="hidden xs:inline">GENERATING…</span>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    GENERATING…
                   </>
                 ) : (
                   <>
-                    <Sparkles className="h-3.5 w-3.5 shrink-0" />
-                    <span className="hidden xs:inline">GENERATE</span>
-                    <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${showGenerateMenu ? "rotate-180" : ""}`} />
+                    <Sparkles className="h-3.5 w-3.5" />
+                    GENERATE
+                    <ChevronDown className={`h-3 w-3 transition-transform ${showGenerateMenu ? "rotate-180" : ""}`} />
                   </>
                 )}
               </button>
@@ -8744,11 +8739,10 @@ export function ContentCreatorPage() {
 
             <button
               onClick={render}
-              title="Re-render"
-              className="flex items-center justify-center gap-1.5 flex-grow py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 shadow-[0_4px_12px_rgba(255,255,255,0.1)] border border-transparent whitespace-nowrap"
+              className="flex items-center justify-center gap-1.5 flex-grow py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 shadow-[0_4px_12px_rgba(255,255,255,0.1)] border border-transparent"
             >
-              <RefreshCw className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden xs:inline">RE-RENDER</span>
+              <RefreshCw className="h-3.5 w-3.5" />
+              RE-RENDER
             </button>
 
             <button
@@ -8822,17 +8816,15 @@ export function ContentCreatorPage() {
           className="flex items-center justify-between px-4 py-1.5 border-b shrink-0 z-10"
           style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
         >
-          <div className="flex items-center gap-2 min-w-0 shrink">
+          <div className="flex items-center gap-2">
             <ImagePlus className="h-4 w-4 shrink-0 text-white/50" />
-            {/* Redundant next to the icon once space is tight — icon alone
-                reads fine at a glance, full label comes back at sm+. */}
             <span
-              className="hidden sm:inline text-[12px] font-bold uppercase tracking-wider text-white whitespace-nowrap"
+              className="text-[12px] font-bold uppercase tracking-wider text-white"
             >
               Interactive Preview
             </span>
             <span
-              className="text-[9px] px-2 py-0.5 rounded-md border font-semibold uppercase tracking-wider shrink-0"
+              className="text-[9px] px-2 py-0.5 rounded-md border font-semibold uppercase tracking-wider"
               style={{
                 background: "rgba(255, 255, 255, 0.04)",
                 border: "1px solid rgba(255, 255, 255, 0.08)",
@@ -8843,31 +8835,29 @@ export function ContentCreatorPage() {
             </span>
           </div>
           {isBatchMode ? (
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2">
               <button
                 onClick={download}
                 disabled={!rendered || newsData.length === 0}
-                title="Download current poster"
-                className="flex items-center gap-1.5 px-2.5 xs:px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer border border-white/10 bg-white/5 hover:bg-white/10 text-white whitespace-nowrap"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer border border-white/10 bg-white/5 hover:bg-white/10 text-white"
               >
-                <Download className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden xs:inline">Download Current</span>
+                <Download className="h-3.5 w-3.5" />
+                Download Current
               </button>
               <button
                 onClick={downloadAll}
                 disabled={!rendered || newsData.length === 0 || downloadingZip}
-                title="Download all posters in this batch"
-                className="flex items-center gap-1.5 px-3 xs:px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 border border-transparent shadow-[0_2px_8px_rgba(255,255,255,0.1)] whitespace-nowrap"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 border border-transparent shadow-[0_2px_8px_rgba(255,255,255,0.1)]"
               >
                 {downloadingZip ? (
                   <>
-                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                    <span className="hidden xs:inline">Packaging ZIP...</span>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Packaging ZIP...
                   </>
                 ) : (
                   <>
-                    <RefreshCw className="h-3.5 w-3.5 shrink-0" />
-                    <span className="hidden xs:inline">Download All Batch</span>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Download All Batch
                   </>
                 )}
               </button>
@@ -8876,11 +8866,10 @@ export function ContentCreatorPage() {
             <button
               onClick={download}
               disabled={!rendered}
-              title="Download PNG"
-              className="flex items-center gap-1.5 px-3 xs:px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 border border-transparent shadow-[0_2px_8px_rgba(255,255,255,0.1)] shrink-0 whitespace-nowrap"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 border border-transparent shadow-[0_2px_8px_rgba(255,255,255,0.1)]"
             >
-              <Download className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden xs:inline">Download PNG</span>
+              <Download className="h-3.5 w-3.5" />
+              Download PNG
             </button>
           )}
         </div>
@@ -8888,30 +8877,26 @@ export function ContentCreatorPage() {
         {/* Batch pagination header (News/Facts/Learnings only) */}
         {isBatchMode && newsData.length > 0 && (
           <div
-            className="flex items-center justify-between gap-2 px-5 py-2.5 border-b shrink-0 bg-white/[0.01] z-10"
+            className="flex items-center justify-between px-5 py-2.5 border-b shrink-0 bg-white/[0.01] z-10"
             style={{ borderColor: "rgba(255, 255, 255, 0.04)" }}
           >
-            <div className="text-[11px] text-[#787870] font-bold uppercase tracking-wider whitespace-nowrap truncate min-w-0">
-              POSTER <span className="text-white font-bold">{activeNewsIndex + 1}</span> OF <span className="text-white font-bold">{newsData.length}</span>
+            <div className="text-[11px] text-[#787870] font-bold uppercase tracking-wider">
+              PREVIEWING POSTER <span className="text-white font-bold">{activeNewsIndex + 1}</span> OF <span className="text-white font-bold">{newsData.length}</span>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2">
               <button
                 disabled={activeNewsIndex === 0}
                 onClick={() => setActiveNewsIndex(prev => Math.max(0, prev - 1))}
-                title="Previous poster"
-                className="flex items-center gap-1 px-2 xs:px-2.5 py-1 rounded-lg border border-white/[0.08] hover:bg-white/5 transition-all text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 cursor-pointer text-white whitespace-nowrap"
+                className="px-2.5 py-1 py-1 rounded-lg border border-white/[0.08] hover:bg-white/5 transition-all text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 cursor-pointer text-white"
               >
-                <ChevronLeft className="h-3 w-3 shrink-0 xs:hidden" />
-                <span className="hidden xs:inline">Previous</span>
+                Previous
               </button>
               <button
                 disabled={activeNewsIndex === newsData.length - 1}
                 onClick={() => setActiveNewsIndex(prev => Math.min(newsData.length - 1, prev + 1))}
-                title="Next poster"
-                className="flex items-center gap-1 px-2 xs:px-2.5 py-1 rounded-lg border border-white/[0.08] hover:bg-white/5 transition-all text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 cursor-pointer text-white whitespace-nowrap"
+                className="px-2.5 py-1 py-1 rounded-lg border border-white/[0.08] hover:bg-white/5 transition-all text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 cursor-pointer text-white"
               >
-                <ChevronRight className="h-3 w-3 shrink-0 xs:hidden" />
-                <span className="hidden xs:inline">Next</span>
+                Next
               </button>
             </div>
           </div>
