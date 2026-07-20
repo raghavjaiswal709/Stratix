@@ -15,6 +15,7 @@ import {
   Calendar,
   Check,
   ChevronDown,
+  ChevronLeft,
   X,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -90,7 +91,7 @@ function NotesSkeleton() {
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-background overflow-hidden">
       {/* Categories col */}
-      <div className="w-52 shrink-0 border-r border-border bg-card/20 flex flex-col">
+      <div className="hidden md:flex w-52 shrink-0 border-r border-border bg-card/20 flex-col">
         <div className="px-3 py-3 border-b border-border">
           <div className="h-4 w-24 bg-muted/50 rounded animate-pulse" />
         </div>
@@ -101,7 +102,7 @@ function NotesSkeleton() {
         </div>
       </div>
       {/* Notes col */}
-      <div className="w-64 shrink-0 border-r border-border bg-card/10 flex flex-col">
+      <div className="w-full md:w-64 shrink-0 border-r border-border bg-card/10 flex flex-col">
         <div className="p-2.5 border-b border-border space-y-2">
           <div className="h-4 w-20 bg-muted/50 rounded animate-pulse" />
           <div className="h-7 bg-muted/40 rounded-lg animate-pulse" />
@@ -114,7 +115,7 @@ function NotesSkeleton() {
         </div>
       </div>
       {/* Editor col */}
-      <div className="flex-1 p-6 space-y-4">
+      <div className="hidden md:block flex-1 p-6 space-y-4">
         <div className="h-10 w-1/2 bg-muted/40 rounded-lg animate-pulse" />
         <div className="h-4 w-1/4 bg-muted/30 rounded animate-pulse" />
         <div className="h-8 bg-muted/20 rounded-lg animate-pulse mt-4" />
@@ -135,6 +136,10 @@ export default function TradeNotesPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Below md, the 3 columns (categories / notes / editor) can't fit side by
+  // side — this drives a single-pane-at-a-time view with back navigation.
+  // Ignored entirely at md+, where all 3 columns render together as before.
+  const [mobileView, setMobileView] = useState<"categories" | "notes" | "editor">("categories");
 
   // Category creation state
   const [addingCat, setAddingCat] = useState(false);
@@ -302,6 +307,7 @@ export default function TradeNotesPage() {
       tradeNotes: { ...tradeNotes, notes: [newNote, ...notes] },
     });
     setSelectedNoteId(newNote.id);
+    setMobileView("editor");
   };
 
   const deleteNote = (id: string) => {
@@ -338,7 +344,10 @@ export default function TradeNotesPage() {
     <div className="flex h-[calc(100vh-3.5rem)] bg-background overflow-hidden">
 
       {/* ══ COL 1 — CATEGORIES ════════════════════════════════════════════ */}
-      <div className="w-52 shrink-0 border-r border-border bg-card/20 flex flex-col">
+      <div className={cn(
+        "w-full md:w-52 shrink-0 border-r border-border bg-card/20 flex-col",
+        mobileView === "categories" ? "flex" : "hidden md:flex"
+      )}>
         <div className="px-3 py-3 border-b border-border flex items-center justify-between shrink-0">
           <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
             Categories
@@ -375,7 +384,7 @@ export default function TradeNotesPage() {
           {/* "All" option — only show when there are categories */}
           {categories.length > 0 && (
             <button
-              onClick={() => { setSelectedCategoryId(null); setSelectedNoteId(null); }}
+              onClick={() => { setSelectedCategoryId(null); setSelectedNoteId(null); setMobileView("notes"); }}
               className={cn(
                 "w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors text-sm",
                 selectedCategoryId === null
@@ -403,7 +412,7 @@ export default function TradeNotesPage() {
                     : "hover:bg-muted/40 text-muted-foreground hover:text-foreground"
                 )}
                 style={isActive ? { color: cat.color } : {}}
-                onClick={() => { setSelectedCategoryId(cat.id); setSelectedNoteId(null); }}
+                onClick={() => { setSelectedCategoryId(cat.id); setSelectedNoteId(null); setMobileView("notes"); }}
               >
                 <div
                   className="w-2 h-2 rounded-full shrink-0"
@@ -492,10 +501,20 @@ export default function TradeNotesPage() {
       </div>
 
       {/* ══ COL 2 — NOTES LIST ═══════════════════════════════════════════ */}
-      <div className="w-64 shrink-0 border-r border-border bg-card/10 flex flex-col">
+      <div className={cn(
+        "w-full md:w-64 shrink-0 border-r border-border bg-card/10 flex-col",
+        mobileView === "notes" ? "flex" : "hidden md:flex"
+      )}>
         <div className="p-2.5 border-b border-border space-y-2 shrink-0">
           {/* Category name header */}
           <div className="flex items-center gap-2 px-1">
+            <button
+              onClick={() => setMobileView("categories")}
+              className="md:hidden -ml-1 h-6 w-6 shrink-0 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Back to categories"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
             {selectedCategoryId && (() => {
               const c = categories.find((c) => c.id === selectedCategoryId);
               if (!c) return null;
@@ -560,7 +579,7 @@ export default function TradeNotesPage() {
                 return (
                   <div
                     key={note.id}
-                    onClick={() => setSelectedNoteId(note.id)}
+                    onClick={() => { setSelectedNoteId(note.id); setMobileView("editor"); }}
                     className={cn(
                       "relative p-2.5 rounded-lg cursor-pointer group transition-colors",
                       isSel ? "bg-white/[0.06] ring-1 ring-white/20" : "hover:bg-muted/50"
@@ -626,7 +645,16 @@ export default function TradeNotesPage() {
       </div>
 
       {/* ══ COL 3 — NOTE EDITOR ══════════════════════════════════════════ */}
-      <div className="flex-1 flex flex-col bg-background overflow-hidden">
+      <div className={cn(
+        "flex-1 flex-col bg-background overflow-hidden",
+        mobileView === "editor" ? "flex" : "hidden md:flex"
+      )}>
+        <button
+          onClick={() => setMobileView("notes")}
+          className="md:hidden flex items-center gap-1.5 px-4 py-2.5 border-b border-border shrink-0 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronLeft className="h-4 w-4" /> Back to notes
+        </button>
         {!selectedNote ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
             <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -673,7 +701,7 @@ export default function TradeNotesPage() {
                 value={editTitle}
                 onChange={(e) => handleTitleChange(e.target.value)}
                 placeholder="Untitled"
-                className="w-full text-4xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/20 mb-3 leading-tight"
+                className="w-full text-2xl md:text-4xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/20 mb-3 leading-tight"
                 style={{ caretColor: "var(--foreground)" }}
               />
 

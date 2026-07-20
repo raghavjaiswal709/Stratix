@@ -30,6 +30,7 @@ import {
   BrainCircuit,
   Database,
   Layers2,
+  CalendarClock,
 } from "lucide-react";
 
 // A neutral mid-gray "accent" — selecting it makes --primary/--ring/--accent/
@@ -47,6 +48,7 @@ const sidebarOptionMeta = [
   { key: "backtesting",  label: "Backtesting",   icon: ChartCandlestick,category: "Trading" },
   { key: "data",         label: "Data",          icon: Database,        category: "Trading" },
   { key: "newsAnalysis", label: "News Analysis", icon: Newspaper,       category: "Trading" },
+  { key: "marketCalendar",label: "Market Calendar",icon: CalendarClock, category: "Trading" },
   { key: "liveData",     label: "Live Data",     icon: Radio,           category: "Trading", adminOnly: true },
   { key: "chart",        label: "Live Chart",    icon: ChartCandlestick,category: "Trading" },
   { key: "aiReport",     label: "AI Report",     icon: BrainCircuit,    category: "Trading", adminOnly: true },
@@ -111,6 +113,7 @@ export default function SettingsPage() {
       backtesting: true,
       data: true,
       newsAnalysis: true,
+      marketCalendar: true,
       liveData: true,
       chart: true,
       aiReport: true,
@@ -263,6 +266,7 @@ export default function SettingsPage() {
       backtesting: true,
       data: true,
       newsAnalysis: true,
+      marketCalendar: true,
       liveData: true,
       chart: true,
       aiReport: true,
@@ -312,6 +316,7 @@ export default function SettingsPage() {
     backtesting: true,
     data: true,
     newsAnalysis: true,
+    marketCalendar: true,
     liveData: true,
     chart: true,
     aiReport: true,
@@ -728,6 +733,7 @@ export default function SettingsPage() {
                   backtesting: true,
                   data: true,
                   newsAnalysis: true,
+                  marketCalendar: true,
                   liveData: true,
                   chart: true,
                   aiReport: true,
