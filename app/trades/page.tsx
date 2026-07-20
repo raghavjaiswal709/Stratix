@@ -441,9 +441,9 @@ export default function TradesPage() {
     <div className="p-4 md:p-6 space-y-4 md:space-y-5">
       {/* Page header */}
       <div className="flex items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-[18px] md:text-[20px] font-bold text-foreground">Trades</h1>
-          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          <div className="flex items-center gap-1.5 mt-0.5 whitespace-nowrap overflow-hidden">
             {mt5?.connected ? (
               <><Wifi className="h-3 w-3 text-emerald-400" /><span className="text-[11px] text-emerald-400">MT5 Connected</span></>
             ) : (
@@ -453,7 +453,7 @@ export default function TradesPage() {
               <>
                 <span className="text-[11px] text-white/20">·</span>
                 <span
-                  className="text-[11px] font-medium"
+                  className="text-[11px] font-medium truncate"
                   style={{ color: tradingProfiles.find((p) => p.id === activeProfileId)?.color }}
                 >
                   {tradingProfiles.find((p) => p.id === activeProfileId)?.name}

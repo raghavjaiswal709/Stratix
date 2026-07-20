@@ -433,16 +433,16 @@ export function HabitGrid({ timeFrame, referenceDate }: { timeFrame?: TimeFrame;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Habit Grid</h2>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="show-all" className="text-xs text-muted-foreground cursor-pointer leading-none m-0 pt-0.5">Show All</Label>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold whitespace-nowrap min-w-0 truncate">Habit Grid</h2>
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <Label htmlFor="show-all" className="text-xs text-muted-foreground cursor-pointer leading-none m-0 pt-0.5 whitespace-nowrap">Show All</Label>
             <Switch id="show-all" checked={showAll} onCheckedChange={setShowAll} className="scale-75 origin-right m-0" />
           </div>
-          <Button size="sm" onClick={openAdd} className="gap-1">
-            <Plus className="h-4 w-4" />
-            Add Habit
+          <Button size="sm" onClick={openAdd} className="gap-1 whitespace-nowrap" aria-label="Add Habit">
+            <Plus className="h-4 w-4 shrink-0" />
+            <span className="hidden xs:inline">Add Habit</span>
           </Button>
         </div>
       </div>
@@ -502,10 +502,11 @@ export function HabitGrid({ timeFrame, referenceDate }: { timeFrame?: TimeFrame;
               <tr style={{ background: "var(--table-header-bg)" }}>
                 <td className="p-0" style={{ border: "1px solid var(--table-border)" }} />
                 <td
-                  className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+                  className="px-1 md:px-3 py-2 text-[10px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap"
                   style={{ border: "1px solid var(--table-border)" }}
                 >
-                  Day Rating
+                  <span className="hidden md:inline">Day Rating</span>
+                  <span className="md:hidden" title="Day Rating">★</span>
                 </td>
                 {displayDates.map((date, i) => {
                   const dateStr = format(date, "yyyy-MM-dd");

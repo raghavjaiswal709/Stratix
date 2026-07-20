@@ -67,7 +67,7 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
       <div 
-        className="relative w-full max-w-lg bg-[#0f0f0f] border border-[#23262f] rounded-xl shadow-2xl p-6 flex flex-col gap-5 text-gray-200"
+        className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[#0f0f0f] border border-[#23262f] rounded-xl shadow-2xl p-4 sm:p-6 flex flex-col gap-5 text-gray-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

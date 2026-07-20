@@ -224,13 +224,13 @@ export function DataPage() {
   return (
     <div className="flex flex-col w-full h-full bg-[#0f0f0f] overflow-hidden text-white/80">
 
-      {/* ── Top controls bar ── */}
-      <div className="h-12 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center gap-2 px-3">
+      {/* ── Top controls bar — scrolls horizontally on narrow screens ── */}
+      <div className="h-12 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center gap-2 px-3 overflow-x-auto">
 
         {/* Page title */}
-        <div className="flex items-center gap-2 mr-2">
+        <div className="flex items-center gap-2 mr-2 shrink-0">
           <Database className="w-4 h-4 text-white/30 shrink-0" />
-          <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">Data Explorer</span>
+          <span className="hidden sm:inline text-[11px] font-bold text-white/60 uppercase tracking-widest whitespace-nowrap">Data Explorer</span>
         </div>
         <div className="w-px h-5 bg-white/[0.08] shrink-0" />
 
@@ -239,7 +239,7 @@ export function DataPage() {
           <select
             value={instrument}
             onChange={e => setInstrument(e.target.value as InstrumentKey)}
-            className="appearance-none bg-white/[0.05] border border-white/[0.10] text-white text-[11px] font-bold uppercase rounded-md pl-2 pr-7 py-1.5 cursor-pointer hover:border-white/[0.22] focus:outline-none focus:border-white/[0.30] transition-all"
+            className="appearance-none bg-white/[0.05] border border-white/[0.10] text-white text-[11px] font-bold uppercase rounded-md pl-2 pr-7 py-1.5 cursor-pointer hover:border-white/[0.22] focus:outline-none focus:border-white/[0.30] transition-all max-w-[46vw] sm:max-w-none truncate"
           >
             {INSTRUMENTS.map(({ key, label, description }) => (
               <option key={key} value={key}>{label} — {description}</option>
@@ -304,9 +304,10 @@ export function DataPage() {
         <button
           onClick={handleLoad}
           disabled={isLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-md bg-white/[0.07] border border-white/[0.12] text-white/70 hover:text-white hover:bg-white/[0.12] hover:border-white/[0.22] disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95 ml-1 shrink-0"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-md bg-white/[0.07] border border-white/[0.12] text-white/70 hover:text-white hover:bg-white/[0.12] hover:border-white/[0.22] disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95 ml-1 shrink-0 whitespace-nowrap"
+          aria-label="Load data"
         >
-          <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`w-3 h-3 shrink-0 ${isLoading ? "animate-spin" : ""}`} />
           {isLoading ? "Loading…" : "Load"}
         </button>
 

@@ -93,6 +93,14 @@ export function BacktestingPage() {
 
   // ── Right execution panel visibility ──────────────────────────────────────
   const [showRightPanel, setShowRightPanel] = useState(true);
+  // The panel is a fixed 256px column — on a phone that leaves almost no room
+  // for the chart itself, so start collapsed there. The existing mini trade
+  // island (chevron toggle) still lets the user expand it on demand.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setShowRightPanel(false);
+    }
+  }, []);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
   const trackerRef       = useRef(new TradeTracker());
@@ -766,10 +774,13 @@ export function BacktestingPage() {
     <div className="flex flex-col w-full h-full bg-[#0f0f0f] overflow-hidden text-white/75">
       
       {/* ── Active Session top bar — single thin row ── */}
-      <div className="h-10 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center justify-between px-3 gap-3">
+      {/* All children are shrink-0 and don't wrap — on narrow screens this
+          scrolls horizontally instead of clipping the timeframe buttons. */}
+      <div className="h-10 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center justify-between px-3 gap-3 overflow-x-auto">
 
-        {/* Left: back + symbol + meta */}
-        <div className="flex items-center gap-2 min-w-0">
+        {/* Left: back + symbol + meta — shrink-0 so the bar scrolls instead of
+            collapsing to 0 width and painting children over the center group */}
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleExitToDashboard}
             className="flex items-center gap-1 px-2 py-1 rounded border border-white/[0.08] hover:border-white/[0.20] text-white/45 hover:text-white transition-all text-[10px] font-bold active:scale-95 shrink-0"
@@ -782,7 +793,7 @@ export function BacktestingPage() {
           <span className="text-[11px] font-bold text-white uppercase tracking-tight shrink-0">{activeSession.symbol}</span>
           <span className="px-1 py-0.5 rounded text-[8px] bg-white/[0.06] text-white/55 font-bold border border-white/[0.06] shrink-0">Active</span>
           <span className="text-[9px] text-white/30 font-mono shrink-0">Lev {activeSession.leverage}</span>
-          <span className="text-[9px] text-white/20 font-mono truncate">· {activeSession.name}</span>
+          <span className="text-[9px] text-white/20 font-mono truncate max-w-[90px] whitespace-nowrap">· {activeSession.name}</span>
         </div>
 
         {/* Center: balance + P&L */}
@@ -887,7 +898,7 @@ export function BacktestingPage() {
 
           {/* ── Replay controls row — sits BELOW the chart, no overlap ── */}
           {displayCandles.length > 0 && (
-            <div className="shrink-0 border-t border-white/[0.08] bg-[#0a0a0a] flex items-center justify-center px-2 py-1">
+            <div className="shrink-0 border-t border-white/[0.08] bg-[#0a0a0a] flex items-center justify-start md:justify-center px-2 py-1 overflow-x-auto">
               <ReplayBar
                 replay={replay}
                 currentCandle={currentCandle}
@@ -908,8 +919,8 @@ export function BacktestingPage() {
 
           {/* Bottom Open Positions Panel */}
           {openTrade && (
-            <div className="h-16 bg-[#0f0f0f] border-t border-white/[0.08] px-4.5 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-4 text-xs">
+            <div className="h-16 bg-[#0f0f0f] border-t border-white/[0.08] px-3 md:px-4.5 flex items-center justify-between gap-3 shrink-0 overflow-x-auto">
+              <div className="flex items-center gap-4 text-xs shrink-0">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Active Position</span>
                 <div className="font-mono flex items-center gap-3">
                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
@@ -938,8 +949,16 @@ export function BacktestingPage() {
         </div>
 
         {/* Right Side: Execution Sidebar Panel (collapsible) */}
+        {/* Mobile: floats as a fixed overlay so it doesn't squeeze the chart
+            into a sliver; md+: original in-flow 256px column. */}
         {showRightPanel && (
-          <div className="w-64 border-l border-white/[0.08] bg-[#0f0f0f] shrink-0 h-full flex flex-col">
+          <>
+            <div
+              className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
+              onClick={() => setShowRightPanel(false)}
+              aria-hidden="true"
+            />
+            <div className="fixed md:relative inset-y-0 right-0 z-40 md:z-auto w-[80vw] max-w-[280px] md:w-64 md:max-w-none border-l border-white/[0.08] bg-[#0f0f0f] shrink-0 h-full flex flex-col">
             {/* Collapse toggle */}
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] shrink-0">
               <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">Execution</span>
@@ -974,7 +993,8 @@ export function BacktestingPage() {
                 openTrade={openTrade}
               />
             </div>
-          </div>
+            </div>
+          </>
         )}
 
         {/* Mini trade island — shown when right panel is collapsed */}

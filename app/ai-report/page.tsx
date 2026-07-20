@@ -820,15 +820,15 @@ export default function AIReportPage() {
                   <Database className="h-2.5 w-2.5" />{currentEntry.source === "db" ? "DB" : "File"}
                 </span>
               )}
-              <button onClick={() => setPromptOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition">
-                <Bot className="h-3.5 w-3.5" /> Prompt
+              <button onClick={() => setPromptOpen(true)} aria-label="Prompt" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition whitespace-nowrap shrink-0">
+                <Bot className="h-3.5 w-3.5 shrink-0" /> <span className="hidden xs:inline">Prompt</span>
               </button>
-              <button onClick={() => setEditorOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition">
-                <Pencil className="h-3.5 w-3.5" /> Edit JSON
+              <button onClick={() => setEditorOpen(true)} aria-label="Edit JSON" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.07] border border-white/[0.12] text-white/60 hover:text-white hover:bg-white/[0.10] transition whitespace-nowrap shrink-0">
+                <Pencil className="h-3.5 w-3.5 shrink-0" /> <span className="hidden xs:inline">Edit JSON</span>
               </button>
-              <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1">
-                <Clock className="h-3.5 w-3.5" />
-                <span>Live: <span className="text-white/60 font-medium">{SESSION_LABELS[currentSession]}</span></span>
+              <div className="flex items-center gap-1.5 text-[11px] text-white/30 ml-1 whitespace-nowrap shrink-0">
+                <Clock className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Live: <span className="text-white/60 font-medium">{SESSION_LABELS[currentSession]}</span></span>
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" />
               </div>
             </div>

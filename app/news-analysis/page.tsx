@@ -2660,7 +2660,7 @@ function SymbolCard({ symbol, news, isAI = false }: { symbol: string; news: Symb
           {meta.flag}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-0.5">
+          <div className="flex items-center gap-2 mb-0.5 min-w-0">
             <h3 className="text-[14px] font-bold text-white leading-none">{meta.label}</h3>
             <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded"
               style={isAI
@@ -2862,7 +2862,7 @@ function AnalyseHistoryModal({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                    <div className="flex items-center gap-2 mb-0.5 min-w-0">
                       <span className="text-[12px] font-semibold text-white/70">{entry.timeRangeLabel}</span>
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-white/[0.06] text-white/30 border border-white/[0.08]">
                         {entry.newsCount} articles
@@ -3016,7 +3016,7 @@ function AnalyseInstrumentCard({ symbol, analysis }: { symbol: string; analysis:
           {meta.flag}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-0.5">
+          <div className="flex items-center gap-2 mb-0.5 min-w-0">
             <h3 className="text-[14px] font-bold text-white leading-none">{meta.label}</h3>
             <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest bg-white/[0.05] text-white/25 border border-white/[0.07] rounded">
               {meta.assetClass}
@@ -3615,14 +3615,14 @@ function ManualModal({
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-white/[0.06] shrink-0">
+      {/* Tabs — horizontal scroll instead of wrapping "Generate with AI" onto 2 lines on narrow phones */}
+      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-white/[0.06] shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition shrink-0 whitespace-nowrap",
               tab === t.key
                 ? "bg-white/[0.10] text-white border border-white/[0.12]"
                 : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]"
@@ -3904,8 +3904,10 @@ function AIAnalysisModal({
 
       {/* Body */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Main content */}
-        <div className="flex-1 overflow-y-auto px-5 md:px-8 py-6">
+        {/* Main content — hidden on mobile while the history panel (below)
+            takes over the full width, since both can't fit side by side
+            in this modal's narrow mobile viewport. */}
+        <div className={cn("flex-1 overflow-y-auto px-5 md:px-8 py-6", historyPanelOpen ? "hidden md:block" : "block")}>
 
           {/* Loading */}
           {analysing && <AILoadingAnimation />}
@@ -4133,7 +4135,7 @@ function AIAnalysisModal({
 
         {/* History side panel */}
         {historyPanelOpen && (
-          <div className="w-72 border-l border-white/[0.07] flex flex-col overflow-hidden bg-white/[0.01]">
+          <div className="w-full md:w-72 border-l-0 md:border-l border-white/[0.07] flex flex-col overflow-hidden bg-white/[0.01]">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
               <p className="text-[11px] font-semibold text-white/50 uppercase tracking-widest">Analysis History</p>
               <button onClick={() => setHistoryPanelOpen(false)} className="text-white/25 hover:text-white/60 transition">
@@ -4862,10 +4864,11 @@ export default function NewsAnalysisPage() {
             {/* Manual */}
             <button
               onClick={() => setManualOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold border bg-white/[0.05] border-white/[0.10] text-white/60 hover:bg-white/[0.09] hover:text-white/85 hover:border-white/[0.16] transition"
+              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-[12px] font-semibold border bg-white/[0.05] border-white/[0.10] text-white/60 hover:bg-white/[0.09] hover:text-white/85 hover:border-white/[0.16] transition whitespace-nowrap shrink-0"
+              aria-label="Manual entry"
             >
-              <Pencil className="h-3.5 w-3.5" />
-              Manual
+              <Pencil className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">Manual</span>
             </button>
 
             {/* Ask AI — commented out per request; the "Ask AI" feature now
@@ -4896,12 +4899,13 @@ export default function NewsAnalysisPage() {
             <div className="relative">
               <button
                 onClick={() => setFilterTabDropdownOpen((v) => !v)}
-                className="relative flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold text-white transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]"
+                className="relative flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-[12px] font-bold text-white transition-all hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap shrink-0"
                 style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 55%, #0891b2 100%)", boxShadow: "0 0 20px rgba(124,58,237,0.25), 0 0 40px rgba(5,150,105,0.10)" }}
+                aria-label="Filter News"
               >
-                <Filter className="h-3.5 w-3.5" />
-                Filter News
-                <ChevronDown className={`h-3 w-3 transition-transform ${filterTabDropdownOpen ? "rotate-180" : ""}`} />
+                <Filter className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Filter News</span>
+                <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${filterTabDropdownOpen ? "rotate-180" : ""}`} />
               </button>
               {filterTabDropdownOpen && (
                 <>
@@ -4924,10 +4928,11 @@ export default function NewsAnalysisPage() {
             {/* History */}
             <button
               onClick={() => { refreshAnalyseHistory(); refreshSentimentHistory(); refreshFilterHistory(); setHistoryDrawerOpen(true); }}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold border bg-white/[0.04] border-white/[0.08] text-white/45 hover:bg-white/[0.07] hover:text-white/70 hover:border-white/[0.13] transition"
+              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-[12px] font-semibold border bg-white/[0.04] border-white/[0.08] text-white/45 hover:bg-white/[0.07] hover:text-white/70 hover:border-white/[0.13] transition whitespace-nowrap shrink-0"
+              aria-label="History"
             >
-              <History className="h-3.5 w-3.5" />
-              History
+              <History className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">History</span>
               {(reports.length + analyseHistory.length + sentimentHistory.length + filterHistory.length) > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.10] text-white/50">
                   {reports.length + analyseHistory.length + sentimentHistory.length + filterHistory.length}
@@ -4953,8 +4958,8 @@ export default function NewsAnalysisPage() {
                 <Sparkles className="h-4 w-4 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[12px] font-semibold text-white/70">
+                <div className="flex items-center gap-2 mb-0.5 min-w-0">
+                  <span className="text-[12px] font-semibold text-white/70 truncate min-w-0">
                     Latest: {analyseHistory[0].timeRangeLabel} AI Analysis
                   </span>
                   <AITag />
@@ -4963,7 +4968,7 @@ export default function NewsAnalysisPage() {
               </div>
               <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
                 <Eye className="h-3.5 w-3.5" />
-                View Analysis
+                <span className="hidden sm:inline">View Analysis</span>
               </div>
             </button>
           ) : latestKind === "sentiment" && sentimentHistory[0] ? (
@@ -4978,8 +4983,8 @@ export default function NewsAnalysisPage() {
                 <Sparkles className="h-4 w-4 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[12px] font-semibold text-white/70">
+                <div className="flex items-center gap-2 mb-0.5 min-w-0">
+                  <span className="text-[12px] font-semibold text-white/70 truncate min-w-0">
                     Latest: {sentimentHistory[0].timeRangeLabel} Sentiment Report
                   </span>
                   <AITag />
@@ -4988,7 +4993,7 @@ export default function NewsAnalysisPage() {
               </div>
               <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
                 <Eye className="h-3.5 w-3.5" />
-                View Report
+                <span className="hidden sm:inline">View Report</span>
               </div>
             </button>
           ) : latestKind === "filter" && filterHistory[0] ? (
@@ -5003,8 +5008,8 @@ export default function NewsAnalysisPage() {
                 <Filter className="h-4 w-4 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[12px] font-semibold text-white/70">
+                <div className="flex items-center gap-2 mb-0.5 min-w-0">
+                  <span className="text-[12px] font-semibold text-white/70 truncate min-w-0">
                     Latest: {filterHistory[0].timeRangeLabel} Filtered News
                   </span>
                   <AITag />
@@ -5013,7 +5018,7 @@ export default function NewsAnalysisPage() {
               </div>
               <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
                 <Eye className="h-3.5 w-3.5" />
-                View Report
+                <span className="hidden sm:inline">View Report</span>
               </div>
             </button>
           ) : latestReport ? (
@@ -5038,8 +5043,8 @@ export default function NewsAnalysisPage() {
                 }
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[12px] font-semibold text-white/70">
+                <div className="flex items-center gap-2 mb-0.5 min-w-0">
+                  <span className="text-[12px] font-semibold text-white/70 truncate min-w-0">
                     Latest: {SESSION_LABELS[latestReport.session]} Session · {formatDateLabel(latestReport.date)}
                   </span>
                   {latestReport.reportType === "ai" ? <AITag /> : <ManualTag />}
@@ -5050,7 +5055,7 @@ export default function NewsAnalysisPage() {
               </div>
               <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
                 <Eye className="h-3.5 w-3.5" />
-                View Report
+                <span className="hidden sm:inline">View Report</span>
               </div>
             </button>
           ) : null}

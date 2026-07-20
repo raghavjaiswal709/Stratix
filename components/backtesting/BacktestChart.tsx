@@ -19,6 +19,10 @@ import {
   computeSmc, defaultSmcConfig, isHigherTimeframe,
   type SmcResult, type SmcConfig,
 } from "./smcEngine";
+import {
+  computeTjlChochMtf, defaultTjlChochConfig, tfLabel,
+  type TjlChochMtfResult, type TjlChochConfig, type TjlZone, type TjlLine,
+} from "./tjlChochEngine";
 import type { Timeframe } from "./types";
 import {
   Trash2, Search,
@@ -26,7 +30,7 @@ import {
   Settings, X, Star, GripVertical,
   TrendingUp, BarChart2, Clock,
   ChevronDown, ChevronUp, Minus, Plus as PlusIcon,
-  Activity, Layers,
+  Activity, Layers, Waypoints,
 } from "lucide-react";
 
 interface Props {
@@ -57,6 +61,7 @@ interface Props {
   timeframe?:          string;
   lotSize?:            number;
   showSmc?:            boolean;
+  showTjlChoch?:       boolean;
   settings: {
     themeName:      string;
     upColor:        string;
@@ -113,7 +118,7 @@ export function BacktestChart({
   liveCandle, liveStatus, isInReplay, drawings, onDrawingsChange, settings, onSettingsChange,
   onBuy, onSell, onRRDrawingSelect,
   draftOrder, onDraftOrderChange, onConfirmDraft, onDiscardDraft, onFlipDraft,
-  symbol, timeframe, lotSize = 0.01, showSmc = true,
+  symbol, timeframe, lotSize = 0.01, showSmc = true, showTjlChoch = true,
 }: Props) {
   const containerRef    = useRef<HTMLDivElement>(null);
   const chartRef        = useRef<IChartApi | null>(null);
@@ -286,6 +291,46 @@ export function BacktestChart({
     try { return computeSmc(candles, cfg); } catch { return null; }
   }, [smcActive, candles, timeframe, symbol,
       smcCfg.extremeFilterPips, smcCfg.doublePatternPips, smcCfg.filterAsian]);
+
+  // ── TJL / CHoCH / QML Structure Mapper ────────────────────────────────────
+  const [tjlActive, setTjlActive]       = useState(false);
+  const [tjlPanelOpen, setTjlPanelOpen] = useState(false);
+  const [tjlCfg, setTjlCfg] = useState({
+    showLines:         true,   // TJL1 / TJL2
+    showQml:           true,
+    showRbsSbr:        true,
+    showDouble:        true,
+    showL4:            true,
+    showWave:          true,
+    showFrozen:        true,
+    zoneThicknessPips: 3,
+    bootstrapLen:      20,
+    waveLen:           5,
+    enableHtf1:        true,
+    htf1:              "15m" as Timeframe,
+    enableHtf2:        true,
+    htf2:              "1H" as Timeframe,
+  });
+
+  const tjlResult: TjlChochMtfResult | null = useMemo(() => {
+    if (!tjlActive || candles.length < 30) return null;
+    const tf = (timeframe as Timeframe) || "1H";
+    const pipSize = getLotSpec(symbol || "").pipSize;
+    const cfg: TjlChochConfig = {
+      ...defaultTjlChochConfig(pipSize),
+      zoneThicknessPips: tjlCfg.zoneThicknessPips,
+      bootstrapLen:      tjlCfg.bootstrapLen,
+      waveLen:           tjlCfg.waveLen,
+    };
+    try {
+      return computeTjlChochMtf(candles, tf, cfg, {
+        enableHtf1: tjlCfg.enableHtf1, htf1: tjlCfg.htf1,
+        enableHtf2: tjlCfg.enableHtf2, htf2: tjlCfg.htf2,
+      });
+    } catch { return null; }
+  }, [tjlActive, candles, timeframe, symbol,
+      tjlCfg.zoneThicknessPips, tjlCfg.bootstrapLen, tjlCfg.waveLen,
+      tjlCfg.enableHtf1, tjlCfg.htf1, tjlCfg.enableHtf2, tjlCfg.htf2]);
 
   // ── Hover X position for the "select start" vertical guide line ──────────
   const [selectHoverX, setSelectHoverX] = useState<number | null>(null);
@@ -3328,6 +3373,158 @@ export function BacktestChart({
               );
             })()}
 
+            {/* ── TJL / CHoCH / QML Structure Mapper overlay ── */}
+            {showTjlChoch && tjlActive && tjlResult && (() => {
+              const chart = chartRef.current;
+              const series = candleSeriesRef.current;
+              if (!chart || !series || candles.length === 0) return null;
+              const ts = chart.timeScale();
+              const tx = (t: number) => ts.timeToCoordinate(t as any) as number | null;
+              const py = (p: number) => series.priceToCoordinate(p) as number | null;
+              const rightEdge = svgW - 64;
+
+              const BULL   = "#10b981";   // emerald — bullish structure
+              const BEAR   = "#ef4444";   // red — bearish structure
+              const TJL1_C = "#9ca3af";   // neutral grey
+              const TJL2_C = "#f59e0b";   // amber
+              const L4_C   = "#fb923c";   // orange
+              const WAVE_C = "#9ca3af";
+
+              const zoneColor = (z: TjlZone) =>
+                z.type === "L4" ? L4_C : z.bias === "bullish" ? BULL : BEAR;
+              const zoneLabel = (z: TjlZone, tag: string) => {
+                switch (z.type) {
+                  case "QML":          return `${tag} QML`;
+                  case "RBS":          return `${tag} RBS`;
+                  case "SBR":          return `${tag} SBR`;
+                  case "DOUBLE_DOWN":  return `${tag} Double Down`;
+                  case "DOUBLE_TOP":   return `${tag} Double Top`;
+                  case "L4":           return `${tag} Dual CHoCH L4`;
+                }
+              };
+
+              const renderTf = (res: TjlChochMtfResult["chart"] | null, tag: string) => {
+                if (!res) return null;
+                return (
+                  <g key={`tjl-${tag}`}>
+                    {/* ── TJL1 / TJL2 lines ── */}
+                    {tjlCfg.showLines && res.lines
+                      .filter((ln: TjlLine) => ln.active || tjlCfg.showFrozen)
+                      .map((ln: TjlLine, i: number) => {
+                        const x1 = tx(ln.startTime);
+                        let x2 = tx(ln.endTime);
+                        const y = py(ln.price);
+                        if (x1 == null || y == null) return null;
+                        if (x2 == null || x2 < x1) x2 = rightEdge;
+                        const col = ln.kind === "TJL1" ? TJL1_C : TJL2_C;
+                        return (
+                          <g key={`tjl-ln-${tag}-${i}`}>
+                            <line x1={x1} y1={y} x2={Math.max(x2, x1 + 2)} y2={y}
+                              stroke={col} strokeOpacity={ln.active ? 0.85 : 0.35}
+                              strokeWidth={1} strokeDasharray="6 3" />
+                            <text x={x1 + 2} y={y - 3} fill={col} fontSize={6.5}
+                              fontFamily="monospace" fontWeight="bold" opacity={ln.active ? 0.75 : 0.35}>
+                              {tag} {ln.kind}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                    {/* ── QML / RBS / SBR / Double Down / Double Top / L4 zones ── */}
+                    {res.zones
+                      .filter((z: TjlZone) => {
+                        if (z.frozen && !tjlCfg.showFrozen) return false;
+                        if (z.type === "QML") return tjlCfg.showQml;
+                        if (z.type === "RBS" || z.type === "SBR") return tjlCfg.showRbsSbr;
+                        if (z.type === "DOUBLE_DOWN" || z.type === "DOUBLE_TOP") return tjlCfg.showDouble;
+                        if (z.type === "L4") return tjlCfg.showL4;
+                        return true;
+                      })
+                      .map((z: TjlZone, i: number) => {
+                        const x1 = tx(z.startTime);
+                        let x2 = tx(z.endTime);
+                        const yt = py(z.top);
+                        const yb = py(z.bottom);
+                        if (x1 == null || yt == null || yb == null) return null;
+                        if (x2 == null || x2 < x1) x2 = rightEdge;
+                        const col   = zoneColor(z);
+                        const topY  = Math.min(yt, yb);
+                        const h     = Math.max(3, Math.abs(yb - yt));
+                        const w     = Math.max(2, x2 - x1);
+                        return (
+                          <g key={`tjl-zn-${tag}-${i}`}>
+                            <rect x={x1} y={topY} width={w} height={h}
+                              fill={col} fillOpacity={z.frozen ? 0.08 : 0.16}
+                              stroke={col} strokeOpacity={z.frozen ? 0.35 : 0.70}
+                              strokeWidth={z.type === "L4" ? 1.1 : 0.9} />
+                            <text x={x1 + 3} y={topY - 2} fill={col}
+                              fontSize={7.5} fontWeight="bold" fontFamily="monospace"
+                              opacity={z.frozen ? 0.45 : 0.90}>
+                              {zoneLabel(z, tag)}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                    {/* ── CHoCH / Dual CHoCH events ── */}
+                    {res.events.map((ev, i) => {
+                      const x = tx(ev.time), y = py(ev.price);
+                      if (x == null || y == null) return null;
+                      const goDown = ev.kind.includes("DOWN");
+                      const isDual = ev.kind.includes("DUAL");
+                      const col    = isDual ? L4_C : goDown ? BEAR : BULL;
+                      const lbl    = `${tag} ${ev.label}`;
+                      const w      = lbl.length * 5 + 10;
+                      const ly     = goDown ? y + 9 : y - 18;
+                      return (
+                        <g key={`tjl-ev-${tag}-${i}`}>
+                          <line x1={x} y1={y} x2={x} y2={goDown ? y + 9 : y - 9}
+                            stroke={col} strokeOpacity={0.45} strokeWidth={0.8} />
+                          <rect x={x - w / 2} y={ly} width={w} height={10} rx={2}
+                            fill="#060606" stroke={col} strokeOpacity={0.75} strokeWidth={0.8} />
+                          <text x={x} y={ly + 7.5} fill={col} fontSize={7} fontWeight="bold"
+                            fontFamily="monospace" textAnchor="middle">
+                            {lbl}
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* ── 5-wave zigzag (chart timeframe only) ── */}
+                    {tag === tfLabel((timeframe as Timeframe) || "1H") && tjlCfg.showWave &&
+                      res.waves.map((wp, i) => {
+                        const x = tx(wp.time), y = py(wp.price);
+                        if (x == null || y == null) return null;
+                        const prev = res.waves[i - 1];
+                        const px = prev ? tx(prev.time) : null;
+                        const py2 = prev ? py(prev.price) : null;
+                        return (
+                          <g key={`tjl-wv-${tag}-${i}`}>
+                            {px != null && py2 != null && (
+                              <line x1={px} y1={py2} x2={x} y2={y} stroke={WAVE_C} strokeOpacity={0.5} strokeWidth={1} />
+                            )}
+                            <circle cx={x} cy={y} r={1.6} fill={WAVE_C} />
+                            <text x={x} y={wp.kind === "high" ? y - 6 : y + 12} fill={WAVE_C}
+                              fontSize={7} fontWeight="bold" fontFamily="monospace" textAnchor="middle" opacity={0.75}>
+                              {wp.wave}
+                            </text>
+                          </g>
+                        );
+                      })}
+                  </g>
+                );
+              };
+
+              const chartTag = tfLabel((timeframe as Timeframe) || "1H");
+              return (
+                <g clipPath="url(#drawing-chart-area)" pointerEvents="none">
+                  {renderTf(tjlResult.chart, chartTag)}
+                  {tjlResult.htf1Valid && renderTf(tjlResult.htf1, tfLabel(tjlCfg.htf1))}
+                  {tjlResult.htf2Valid && renderTf(tjlResult.htf2, tfLabel(tjlCfg.htf2))}
+                </g>
+              );
+            })()}
+
             <g clipPath="url(#drawing-chart-area)">
               {allDrawings.map(draw => renderDrawing(draw))}
             </g>
@@ -4065,6 +4262,22 @@ export function BacktestChart({
               </button>
             </div>
           </>}
+          {showTjlChoch && <>
+            <div className="w-px h-4 bg-white/[0.08]" />
+            {/* TJL / CHoCH / QML Toggle UI */}
+            <div className="flex">
+              <button onClick={() => setTjlActive(p => !p)}
+                className={`px-2 py-1 rounded-l font-bold transition-all flex items-center gap-1 cursor-pointer border-y border-l ${tjlActive ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+                title="Toggle TJL / CHoCH / QML structure">
+                <Waypoints className="w-3 h-3" /><span>TJL</span>
+              </button>
+              <button onClick={() => { setTjlPanelOpen(p => !p); setSessionsPanelOpen(false); setIndicatorPanelOpen(false); setSmcPanelOpen(false); }}
+                className={`px-1 py-1 rounded-r transition-all flex items-center justify-center cursor-pointer border ${tjlPanelOpen ? "bg-white/[0.10] border-white/[0.14] text-white" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white"}`}
+                title="TJL / CHoCH / QML Settings">
+                <ChevronUp className={`w-3 h-3 transition-transform ${tjlPanelOpen ? "rotate-180" : ""}`} />
+              </button>
+            </div>
+          </>}
           <div className="w-px h-4 bg-white/[0.08]" />
           <button
             onClick={() => onSettingsChange({ isYAxisLocked: !settings.isYAxisLocked })}
@@ -4233,6 +4446,118 @@ export function BacktestChart({
                   <span>2T <b className="text-red-400">{smcResult.boxes.filter(b => b.boxType === "double_top").length}</b></span>
                   <span>2B <b className="text-emerald-400">{smcResult.boxes.filter(b => b.boxType === "double_bottom").length}</b></span>
                   <span>Signals <b className="text-white/70">{smcResult.signals.filter(s => s.valid).length}</b></span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── TJL / CHoCH / QML Panel ── */}
+        {showTjlChoch && tjlPanelOpen && (
+          <div className="absolute bottom-8 right-3 z-40 bg-black/92 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl w-72 font-mono pointer-events-auto select-none overflow-hidden"
+            onMouseDown={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Waypoints className="w-3.5 h-3.5 text-emerald-400/70" />
+                <span className="text-[10px] font-bold text-white/80 uppercase tracking-wider">TJL / CHoCH / QML</span>
+              </div>
+              <button onClick={() => setTjlPanelOpen(false)} className="p-1 rounded text-white/30 hover:text-white cursor-pointer"><X className="w-3.5 h-3.5" /></button>
+            </div>
+            <div className="p-3 flex flex-col gap-2 max-h-[70vh] overflow-y-auto">
+              {!tjlActive && (
+                <div className="text-[9px] text-white/35 bg-white/[0.03] border border-white/[0.06] rounded-lg px-2.5 py-1.5">
+                  Enable the <b className="text-emerald-300/80">TJL</b> button to render structure.
+                </div>
+              )}
+              {([
+                ["showLines",  "TJL1 / TJL2 lines"],
+                ["showQml",    "QML zones"],
+                ["showRbsSbr", "RBS / SBR zones"],
+                ["showDouble", "Double Down / Double Top zones"],
+                ["showL4",     "Dual CHoCH L4 zones"],
+                ["showWave",   "5-wave labels (chart TF only)"],
+                ["showFrozen", "Show frozen / broken zones"],
+              ] as [keyof typeof tjlCfg, string][]).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                  <span className="text-[10px] font-bold text-white/70">{label}</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" checked={tjlCfg[key] as boolean}
+                      onChange={e => setTjlCfg(prev => ({ ...prev, [key]: e.target.checked }))}
+                      className="sr-only peer" />
+                    <div className="w-8 h-4 bg-white/[0.08] rounded-full peer peer-checked:bg-emerald-600/70 peer-checked:after:translate-x-4 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white/60 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-white" />
+                  </label>
+                </div>
+              ))}
+              {/* Zone thickness */}
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                <span className="text-[10px] font-bold text-white/70">Zone thickness</span>
+                <div className="flex items-center gap-1">
+                  <input type="number" min={1} max={100} value={tjlCfg.zoneThicknessPips}
+                    onChange={e => setTjlCfg(prev => ({ ...prev, zoneThicknessPips: Math.max(1, +e.target.value) }))}
+                    className="w-14 bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]" />
+                  <span className="text-[8px] text-white/30 uppercase">pips</span>
+                </div>
+              </div>
+              {/* Bootstrap lookback */}
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                <span className="text-[10px] font-bold text-white/70">Initial trend bootstrap</span>
+                <input type="number" min={5} max={200} value={tjlCfg.bootstrapLen}
+                  onChange={e => setTjlCfg(prev => ({ ...prev, bootstrapLen: Math.max(5, +e.target.value) }))}
+                  className="w-14 bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]" />
+              </div>
+              {/* 5-wave pivot length */}
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                <span className="text-[10px] font-bold text-white/70">5-wave pivot length</span>
+                <input type="number" min={2} max={50} value={tjlCfg.waveLen}
+                  onChange={e => setTjlCfg(prev => ({ ...prev, waveLen: Math.max(2, +e.target.value) }))}
+                  className="w-14 bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]" />
+              </div>
+              {/* Higher timeframe 1 */}
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                <span className="text-[10px] font-bold text-white/70">Higher timeframe 1</span>
+                <div className="flex items-center gap-1.5">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" checked={tjlCfg.enableHtf1}
+                      onChange={e => setTjlCfg(prev => ({ ...prev, enableHtf1: e.target.checked }))}
+                      className="sr-only peer" />
+                    <div className="w-8 h-4 bg-white/[0.08] rounded-full peer peer-checked:bg-emerald-600/70 peer-checked:after:translate-x-4 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white/60 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-white" />
+                  </label>
+                  <select value={tjlCfg.htf1}
+                    onChange={e => setTjlCfg(prev => ({ ...prev, htf1: e.target.value as Timeframe }))}
+                    className="bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]">
+                    {(["1m", "5m", "15m", "1H", "4H", "1D"] as Timeframe[]).map(t => (
+                      <option key={t} value={t}>{tfLabel(t)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {/* Higher timeframe 2 */}
+              <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                <span className="text-[10px] font-bold text-white/70">Higher timeframe 2</span>
+                <div className="flex items-center gap-1.5">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" checked={tjlCfg.enableHtf2}
+                      onChange={e => setTjlCfg(prev => ({ ...prev, enableHtf2: e.target.checked }))}
+                      className="sr-only peer" />
+                    <div className="w-8 h-4 bg-white/[0.08] rounded-full peer peer-checked:bg-emerald-600/70 peer-checked:after:translate-x-4 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white/60 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:bg-white" />
+                  </label>
+                  <select value={tjlCfg.htf2}
+                    onChange={e => setTjlCfg(prev => ({ ...prev, htf2: e.target.value as Timeframe }))}
+                    className="bg-black/60 border border-white/[0.08] rounded px-1.5 py-0.5 text-[9px] text-white focus:outline-none focus:border-white/[0.25]">
+                    {(["1m", "5m", "15m", "1H", "4H", "1D"] as Timeframe[]).map(t => (
+                      <option key={t} value={t}>{tfLabel(t)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {tjlResult && (
+                <div className="text-[9px] text-white/40 bg-white/[0.03] border border-white/[0.06] rounded-lg px-2.5 py-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                  <span>Trend <b className={tjlResult.chart.trend === "up" ? "text-emerald-400" : tjlResult.chart.trend === "down" ? "text-red-400" : "text-white/50"}>{tjlResult.chart.trend.toUpperCase()}</b></span>
+                  <span>QML <b className="text-white/70">{tjlResult.chart.zones.filter(z => z.type === "QML").length}</b></span>
+                  <span>RBS <b className="text-emerald-400">{tjlResult.chart.zones.filter(z => z.type === "RBS").length}</b></span>
+                  <span>SBR <b className="text-amber-400">{tjlResult.chart.zones.filter(z => z.type === "SBR").length}</b></span>
+                  <span>Double <b className="text-white/70">{tjlResult.chart.zones.filter(z => z.type === "DOUBLE_DOWN" || z.type === "DOUBLE_TOP").length}</b></span>
+                  <span>L4 <b className="text-orange-400">{tjlResult.chart.zones.filter(z => z.type === "L4").length}</b></span>
                 </div>
               )}
             </div>

@@ -5,6 +5,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Extra breakpoint below `sm` (640px) — lets toolbars/buttons show an
+     icon-only state on the narrowest phones and reveal text labels once
+     there's a bit more room, without waiting all the way until tablet. */
+  --breakpoint-xs: 26rem;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);

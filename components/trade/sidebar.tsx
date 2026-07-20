@@ -32,6 +32,7 @@ import {
   Settings,
   Database,
   Layers2,
+  CalendarClock,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -55,6 +56,7 @@ const tradeItems: NavItem[] = [
   { href: "/backtesting",      label: "Backtesting",      icon: ChartCandlestick, beta: true },
   { href: "/data",             label: "Data",             icon: Database },
   { href: "/news-analysis",    label: "News Analysis",    icon: Newspaper },
+  { href: "/market-calendar",  label: "Market Calendar",  icon: CalendarClock },
 ];
 
 const adminTradeItems: NavItem[] = [
@@ -87,6 +89,7 @@ function getActiveSidebarItems(preferences: any): {
     if (item.href === "/backtesting") return items.backtesting !== false;
     if (item.href === "/data") return items.data !== false;
     if (item.href === "/news-analysis") return items.newsAnalysis !== false;
+    if (item.href === "/market-calendar") return items.marketCalendar !== false;
     return true;
   });
 
@@ -152,8 +155,24 @@ function CollapsedSidebar({
   return (
     <aside className="flex flex-col w-14 h-full bg-sidebar border-r border-sidebar-border">
       {/* Logo + pin button */}
+      {/* The logo itself is a hover/tooltip target too (matching every other
+          icon in this rail) — clicking it expands the sidebar to reveal the
+          "STRATIX" wordmark, same as tapping the mobile top bar's logo. */}
       <div className="flex flex-col items-center gap-2.5 py-4 border-b border-sidebar-border">
-        <StratixMark size={32} />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                onClick={onPin}
+                className="flex items-center justify-center rounded-lg hover:bg-white/[0.06] transition-all p-0.5 -m-0.5"
+                aria-label="Expand sidebar"
+              />
+            }
+          >
+            <StratixMark size={32} />
+          </TooltipTrigger>
+          <TooltipContent side="right">Stratix — click to expand</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger
             render={
