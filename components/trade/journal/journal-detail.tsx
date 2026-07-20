@@ -1016,7 +1016,7 @@ Please analyze this data and generate a detailed report:
 
       {/* Sticky header */}
       <div className="sticky top-0 z-10 border-b border-white/7 bg-[#0c0e14]/95 backdrop-blur-sm">
-        <div className="flex items-center justify-between flex-wrap gap-y-2 px-6 py-3.5">
+        <div className="flex items-center justify-between px-6 py-3.5">
         <div className="flex items-center gap-3">
           <div className={cn(
             "h-9 w-9 rounded-xl flex items-center justify-center text-[10px] font-bold shrink-0",
@@ -1085,8 +1085,8 @@ Please analyze this data and generate a detailed report:
                 : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
             )}
           >
-            <LineChart className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline whitespace-nowrap">{showChart ? "Hide Chart" : "Show Chart"}</span>
+            <LineChart className="h-3.5 w-3.5" />
+            {showChart ? "Hide Chart" : "Show Chart"}
           </button>
           <button
             onClick={() => setEditOpen((o) => !o)}
