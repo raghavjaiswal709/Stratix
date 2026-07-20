@@ -337,7 +337,6 @@ export interface UserPreferences {
     backtesting: boolean;
     data?: boolean;
     newsAnalysis: boolean;
-    marketCalendar?: boolean;
     liveData?: boolean;
     chart?: boolean;
     aiReport?: boolean;

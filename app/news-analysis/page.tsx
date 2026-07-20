@@ -3904,10 +3904,8 @@ function AIAnalysisModal({
 
       {/* Body */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Main content — hidden on mobile while the history panel (below)
-            takes over the full width, since both can't fit side by side
-            in this modal's narrow mobile viewport. */}
-        <div className={cn("flex-1 overflow-y-auto px-5 md:px-8 py-6", historyPanelOpen ? "hidden md:block" : "block")}>
+        {/* Main content */}
+        <div className="flex-1 overflow-y-auto px-5 md:px-8 py-6">
 
           {/* Loading */}
           {analysing && <AILoadingAnimation />}
@@ -4135,7 +4133,7 @@ function AIAnalysisModal({
 
         {/* History side panel */}
         {historyPanelOpen && (
-          <div className="w-full md:w-72 border-l-0 md:border-l border-white/[0.07] flex flex-col overflow-hidden bg-white/[0.01]">
+          <div className="w-72 border-l border-white/[0.07] flex flex-col overflow-hidden bg-white/[0.01]">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
               <p className="text-[11px] font-semibold text-white/50 uppercase tracking-widest">Analysis History</p>
               <button onClick={() => setHistoryPanelOpen(false)} className="text-white/25 hover:text-white/60 transition">

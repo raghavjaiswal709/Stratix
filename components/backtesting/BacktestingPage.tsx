@@ -93,14 +93,6 @@ export function BacktestingPage() {
 
   // ── Right execution panel visibility ──────────────────────────────────────
   const [showRightPanel, setShowRightPanel] = useState(true);
-  // The panel is a fixed 256px column — on a phone that leaves almost no room
-  // for the chart itself, so start collapsed there. The existing mini trade
-  // island (chevron toggle) still lets the user expand it on demand.
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth < 768) {
-      setShowRightPanel(false);
-    }
-  }, []);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
   const trackerRef       = useRef(new TradeTracker());
@@ -774,9 +766,7 @@ export function BacktestingPage() {
     <div className="flex flex-col w-full h-full bg-[#0f0f0f] overflow-hidden text-white/75">
       
       {/* ── Active Session top bar — single thin row ── */}
-      {/* All children are shrink-0 and don't wrap — on narrow screens this
-          scrolls horizontally instead of clipping the timeframe buttons. */}
-      <div className="h-10 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center justify-between px-3 gap-3 overflow-x-auto">
+      <div className="h-10 shrink-0 bg-[#0f0f0f] border-b border-white/[0.08] flex items-center justify-between px-3 gap-3">
 
         {/* Left: back + symbol + meta */}
         <div className="flex items-center gap-2 min-w-0">
@@ -948,16 +938,8 @@ export function BacktestingPage() {
         </div>
 
         {/* Right Side: Execution Sidebar Panel (collapsible) */}
-        {/* Mobile: floats as a fixed overlay so it doesn't squeeze the chart
-            into a sliver; md+: original in-flow 256px column. */}
         {showRightPanel && (
-          <>
-            <div
-              className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
-              onClick={() => setShowRightPanel(false)}
-              aria-hidden="true"
-            />
-            <div className="fixed md:relative inset-y-0 right-0 z-40 md:z-auto w-[80vw] max-w-[280px] md:w-64 md:max-w-none border-l border-white/[0.08] bg-[#0f0f0f] shrink-0 h-full flex flex-col">
+          <div className="w-64 border-l border-white/[0.08] bg-[#0f0f0f] shrink-0 h-full flex flex-col">
             {/* Collapse toggle */}
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] shrink-0">
               <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">Execution</span>
@@ -992,8 +974,7 @@ export function BacktestingPage() {
                 openTrade={openTrade}
               />
             </div>
-            </div>
-          </>
+          </div>
         )}
 
         {/* Mini trade island — shown when right panel is collapsed */}

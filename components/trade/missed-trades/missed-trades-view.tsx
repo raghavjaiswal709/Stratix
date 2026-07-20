@@ -576,7 +576,7 @@ function MissedTradeDetail({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-[10px] uppercase tracking-wider text-white/35 font-semibold mb-1.5">Timeframe</label>
                 <div className="flex gap-1.5 flex-wrap">

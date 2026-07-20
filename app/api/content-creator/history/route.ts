@@ -5,7 +5,7 @@ import { ContentCreatorGenerationModel } from "@/lib/models/ContentCreatorGenera
 
 export const dynamic = "force-dynamic";
 
-const VALID_CATEGORIES = new Set(["news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch"]);
+const VALID_CATEGORIES = new Set(["news-batch", "daily-analysis", "indicator"]);
 
 // GET /api/content-creator/history — list every saved generation for this
 // user, newest first. Payload is excluded so the list stays light even with
