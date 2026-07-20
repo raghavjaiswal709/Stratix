@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
 import { cn } from "@/lib/utils";
-import { CALENDAR_PLAN } from "@/lib/content-creator/calendar-plan";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
   Download,
@@ -36,11 +35,6 @@ import {
   ListChecks,
   Move,
   ZoomIn,
-  Lightbulb,
-  BookOpen,
-  Calendar,
-  ClipboardCopy,
-  Eye,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -108,39 +102,13 @@ interface NewsItem {
   isCover?: boolean;
   topAssets?: { symbol: string; sentiment: "Bullish" | "Bearish" | "Neutral" }[];
   bulletHeadlines?: string[];
-  /** True only for the batch's final slide — the calm brand sign-off. */
-  isOutro?: boolean;
-  /** Outro-only: the single rotating action phrase (e.g. "Follow for daily market briefings"). */
-  cta?: string;
-  /** Facts cards only: internal-use verification note, not rendered on the poster. */
-  sourceNote?: string;
-  /** Learnings batches only: the single concept the whole batch teaches, e.g. "Fair Value Gap (FVG)". */
-  concept?: string;
-  /** Learnings batches only: progress label for a slide, e.g. "Step 2 of 6". */
-  stepLabel?: string;
-  /** True only for a synthesized "explain it simply" companion card, inserted right after its parent story. */
-  isBento?: boolean;
-  /** Bento card: the story's headline in the title of the story this card explains (for continuity/context). */
-  relatedTitle?: string;
-  /** Bento card: kid-simple headline. */
-  simpleHeadline?: string;
-  /** Bento card: exact substring of simpleHeadline to highlight. */
-  simpleHeadlineHighlight?: string;
-  /** Bento card: plain-language "what happened". */
-  whatHappened?: string;
-  /** Bento card: plain-language "why it matters". */
-  whyItMatters?: string;
-  /** Bento card: plain-language per-market effect chips. */
-  simpleImpacts?: { market: string; effect: string; direction: "up" | "down" | "neutral" }[];
 }
 
 interface AspectRatio { id: string; label: string; w: number; h: number; desc: string; }
 
-type CreatorMode = "analysis" | "news" | "indicator" | "facts" | "learnings";
-
 interface HistoryListItem {
   _id: string;
-  category: "news-batch" | "daily-analysis" | "indicator" | "facts-batch" | "learnings-batch";
+  category: "news-batch" | "daily-analysis" | "indicator";
   title: string;
   itemCount: number;
   createdAt: string;
@@ -467,38 +435,6 @@ const COLOR_PRESETS: (PosterColors & { name: string })[] = [
   },
 ];
 
-// ─── Gradient presets — "Bold & Trending" poster style ─────────────────────
-// Full-bleed moody two-stop gradients for the alternate News/Facts/Learnings
-// look (dark background, huge condensed headline). `accent` drives the pill
-// badge text and the headline's highlighted phrase for that gradient.
-// `isLight` flips all foreground text/pill colors to dark (for light-toned
-// gradients like Pure White) — see the `fg`/`pillBg`/`pillFg` derivation in
-// drawBoldPoster/drawOutroCard. `pillAccent` overrides the eyebrow/logo pill
-// TEXT color specifically, for the two monochrome presets where the plain
-// `accent` (used for headline highlights) wouldn't contrast against the pill.
-interface GradientPreset { id: string; name: string; stops: [string, string]; accent: string; isLight?: boolean; pillAccent?: string; monochrome?: boolean; }
-
-const GRADIENT_PRESETS: GradientPreset[] = [
-  // "Electric Blue" is the default — tuned to the Coingrams reference: a rich
-  // royal-blue rising out of near-black, with a bright electric-blue accent
-  // glow behind the headline (the glow is painted in drawBoldPoster).
-  { id: "electric-blue", name: "Electric Blue", stops: ["#1746c8", "#03071c"], accent: "#4c8dff" },
-  { id: "midnight-navy", name: "Midnight Navy", stops: ["#0a2a6e", "#01040f"], accent: "#5b9bff" },
-  { id: "cosmic-purple", name: "Cosmic Purple", stops: ["#5b1aa8", "#0a0212"], accent: "#c084fc" },
-  { id: "emerald-noir",  name: "Emerald Noir",  stops: ["#0a6b42", "#010a06"], accent: "#34d399" },
-  { id: "crimson-alert", name: "Crimson Alert", stops: ["#a01327", "#0d0203"], accent: "#fb7185" },
-  { id: "sunset-amber",  name: "Sunset Amber",  stops: ["#b45309", "#160902"], accent: "#fbbf24" },
-  { id: "cyber-teal",    name: "Cyber Teal",    stops: ["#0a6b7a", "#01090b"], accent: "#2dd4bf" },
-  { id: "rose-gold",     name: "Rose Gold",     stops: ["#a81665", "#12030c"], accent: "#f472b6" },
-  { id: "golden-hour",   name: "Golden Hour",   stops: ["#c2790a", "#1a0f02"], accent: "#fde047" },
-  { id: "berry-punch",   name: "Berry Punch",   stops: ["#9d174d", "#0a0308"], accent: "#fb7185" },
-  { id: "monochrome",    name: "Slate Gray",    stops: ["#3a3a40", "#050505"], accent: "#e5e5e5" },
-  // The two dedicated strict black/white themes — grayscale only, headline
-  // highlight distinguished by brightness (pure white/black) rather than hue.
-  { id: "jet-black",     name: "Jet Black",     stops: ["#0a0a0a", "#000000"], accent: "#ffffff", pillAccent: "#111111", monochrome: true },
-  { id: "pure-white",    name: "Pure White",    stops: ["#ffffff", "#e5e5e5"], accent: "#000000", isLight: true, pillAccent: "#ffffff", monochrome: true },
-];
-
 const EMPTY_ANALYSIS: AnalysisData = {
   category: "DAILY ANALYSIS",
   instrument: "",
@@ -597,26 +533,6 @@ const SAMPLE_NEWS: NewsItem[] = [
     sentiment: "Bullish",
     affectedAssets: "ETHUSD, BTCUSDT, Crypto",
     keyTakeaway: "DeFi protocols saw a lockup surge. Layer 2 networks are gaining strong volume momentum.",
-  },
-];
-
-const SAMPLE_FACTS: NewsItem[] = [
-  {
-    title: "Why Gold Is Measured In Troy Ounces, Not Regular Ounces",
-    highlightPhrase: "Troy Ounces",
-    description: "A troy ounce (**31.1035g**) is about **10% heavier** than a standard avoirdupois ounce (28.35g) — a unit inherited from medieval European bullion trading that stuck for precious metals worldwide.",
-    sourceNote: "Verified against LBMA/COMEX contract specifications.",
-    imageUrl: "https://images.unsplash.com/photo-1610375461369-d613b564f4c4?w=800",
-  },
-];
-
-const SAMPLE_LEARNINGS: NewsItem[] = [
-  {
-    title: "Understanding Fair Value Gaps (FVG)",
-    concept: "Fair Value Gap (FVG)",
-    stepLabel: "Step 1 of 4",
-    description: "A Fair Value Gap is a three-candle imbalance where price moves so fast it leaves a gap between the first candle's wick and the third candle's wick — a zone the market often returns to fill.",
-    imageUrl: "https://images.unsplash.com/photo-1642790551116-18e150f248e5?w=800",
   },
 ];
 
@@ -1886,337 +1802,6 @@ function drawChaseStylePoster(
 // numbered/brand/dot carousel chrome, and a dedicated wide "cover" layout for
 // slide #1 — the "what moved markets in the last 24h" briefing.
 
-// Synthesizes a companion "explain it simply" bento card from a News story's
-// AI-generated ELI5 fields (simpleHeadline/whatHappened/whyItMatters/
-// simpleImpacts, written by the same news-batch generation call) — inserted
-// right after its parent story in the final batch, never a standalone
-// generation of its own.
-function buildBentoCard(story: NewsItem): NewsItem {
-  return {
-    title: story.simpleHeadline || story.title,
-    description: story.whatHappened || story.description,
-    isBento: true,
-    relatedTitle: story.title,
-    simpleHeadline: story.simpleHeadline,
-    simpleHeadlineHighlight: story.simpleHeadlineHighlight,
-    whatHappened: story.whatHappened,
-    whyItMatters: story.whyItMatters,
-    simpleImpacts: story.simpleImpacts,
-    sentiment: story.sentiment,
-  };
-}
-
-// ─── External-AI JSON import ────────────────────────────────────────────────
-// The "Copy Prompt" / "Show Prompt" flows hand the user a system prompt that
-// asks the AI to reply with a NESTED wrapper object — {summary,posters,outro}
-// for News, {cover,facts,outro} for Facts, {concept,cover,slides,recap,outro}
-// for Learnings — because that's the exact shape each batch route's own
-// server-side OpenAI call parses. But the poster renderer only ever consumes
-// a FLAT NewsItem[] array (that's what setNewsData/the JSON tab expect), so a
-// pasted AI reply in the "correct" (per the prompt) nested shape used to
-// silently fail to render. These functions convert the nested reply into the
-// same flat, clamped/resolved shape each route already produces server-side,
-// so a pasted external-AI JSON renders exactly like a normal generation.
-
-function importClampStr(v: unknown, max: number, fallback = ""): string {
-  return typeof v === "string" ? v.trim().slice(0, max) : fallback;
-}
-
-function importResolveHighlight(title: string, candidate: unknown): string {
-  const c = typeof candidate === "string" ? candidate : "";
-  if (c && title.includes(c)) return c;
-  const words = title.split(" ").filter(Boolean);
-  return words.slice(0, Math.min(3, words.length)).join(" ");
-}
-
-// Mirrors each route's resolveDescriptionHighlights — only keeps candidates
-// that are genuine exact substrings of `text`, so nothing highlights text
-// that was paraphrased instead of copy-pasted.
-function importResolveHighlightTerms(text: string, candidates: unknown, max = 5, maxLen = 60): string[] {
-  if (!Array.isArray(candidates)) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const c of candidates) {
-    if (typeof c !== "string") continue;
-    const term = c.trim();
-    if (!term || term.length > maxLen || !text.includes(term) || seen.has(term)) continue;
-    seen.add(term);
-    out.push(term);
-    if (out.length >= max) break;
-  }
-  return out;
-}
-
-function importResolveStringArray(v: unknown, max: number, itemMax = 120): string[] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .filter((s): s is string => typeof s === "string" && !!s.trim())
-    .slice(0, max)
-    .map((s) => s.trim().slice(0, itemMax));
-}
-
-const IMPORT_VALID_SENTIMENT = new Set(["Bullish", "Bearish", "Neutral"]);
-const IMPORT_VALID_DIRECTION = new Set(["up", "down", "neutral"]);
-const IMPORT_VALID_CATEGORY = new Set(["Macro", "Geopolitical", "Corporate", "Sentiment", "Systemic"]);
-const IMPORT_VALID_IMPACT = new Set(["High", "Medium", "Low"]);
-
-function importResolveInstrumentImpacts(v: unknown): { symbol: string; sentiment: "Bullish" | "Bearish" | "Neutral" }[] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .filter((a): a is Record<string, unknown> => !!a && typeof a === "object")
-    .map((a) => ({
-      symbol: importClampStr(a.symbol, 12).toUpperCase(),
-      sentiment: (IMPORT_VALID_SENTIMENT.has(a.sentiment as string) ? a.sentiment : "Neutral") as "Bullish" | "Bearish" | "Neutral",
-    }))
-    .filter((a) => a.symbol)
-    .slice(0, 4);
-}
-
-function importResolveSimpleImpacts(v: unknown): { market: string; effect: string; direction: "up" | "down" | "neutral" }[] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .filter((a): a is Record<string, unknown> => !!a && typeof a === "object")
-    .map((a) => ({
-      market: importClampStr(a.market, 40),
-      effect: importClampStr(a.effect, 80),
-      direction: (IMPORT_VALID_DIRECTION.has(a.direction as string) ? a.direction : "neutral") as "up" | "down" | "neutral",
-    }))
-    .filter((a) => a.market && a.effect)
-    .slice(0, 4);
-}
-
-/** Strips a ```json fence if present, then parses — throws a user-facing message on failure. */
-function parsePastedAiJson(text: string): unknown {
-  const trimmed = text.trim();
-  if (!trimmed) throw new Error("Paste the AI's JSON reply first.");
-  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fence ? fence[1].trim() : trimmed;
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    throw new Error("That doesn't look like valid JSON — check for a missing comma/quote, or that you copied the AI's entire reply.");
-  }
-}
-
-function importNewsJson(raw: unknown): NewsItem[] {
-  if (Array.isArray(raw)) {
-    const items = raw.filter((p): p is NewsItem => !!p && typeof p === "object" && typeof (p as Record<string, unknown>).title === "string");
-    if (items.length === 0) throw new Error('That array has no valid poster objects — each needs at least a "title".');
-    return items;
-  }
-  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const rawPosters = Array.isArray(obj.posters) ? obj.posters : [];
-  if (rawPosters.length === 0) {
-    throw new Error('Expected an object with a "posters" array (the shape the News prompt asks for) — or a plain array of poster objects.');
-  }
-
-  const posters: NewsItem[] = rawPosters
-    .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
-    .map((p) => {
-      const title = importClampStr(p.title, 90);
-      const description = importClampStr(p.description, 400);
-      const sentiment = (IMPORT_VALID_SENTIMENT.has(p.sentiment as string) ? p.sentiment : "Neutral") as "Bullish" | "Bearish" | "Neutral";
-      const simpleHeadline = importClampStr(p.simpleHeadline, 70) || title;
-      const keyTakeaway = importClampStr(p.keyTakeaway, 240);
-      return {
-        title,
-        highlightPhrase: importResolveHighlight(title, p.highlightPhrase),
-        description,
-        descriptionHighlights: importResolveHighlightTerms(description, p.descriptionHighlights),
-        keyTakeaway,
-        affectedAssets: importClampStr(p.affectedAssets, 80),
-        instrumentImpacts: importResolveInstrumentImpacts(p.instrumentImpacts),
-        impact: (IMPORT_VALID_IMPACT.has(p.impact as string) ? p.impact : "Medium") as "High" | "Medium" | "Low",
-        sentiment,
-        category: (IMPORT_VALID_CATEGORY.has(p.category as string) ? p.category : "Macro") as NewsItem["category"],
-        source: importClampStr(p.source, 60, "Wire"),
-        date: importClampStr(p.date, 30, new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })),
-        imagePrompt: importClampStr(p.imagePrompt, 1200),
-        imageUrl: "",
-        simpleHeadline,
-        simpleHeadlineHighlight: importResolveHighlight(simpleHeadline, p.simpleHeadlineHighlight),
-        whatHappened: importClampStr(p.whatHappened, 400) || description,
-        whyItMatters: importClampStr(p.whyItMatters, 240) || keyTakeaway,
-        simpleImpacts: importResolveSimpleImpacts(p.simpleImpacts),
-      } as NewsItem;
-    })
-    .filter((p) => p.title && p.description);
-
-  if (posters.length === 0) throw new Error("No usable posters found in the pasted JSON.");
-
-  const rawSummary = (obj.summary && typeof obj.summary === "object" ? obj.summary : {}) as Record<string, unknown>;
-  const coverOverview = importClampStr(rawSummary.overview, 420) ||
-    "Top stories that matter for active traders — see the full breakdown in this carousel.";
-  const coverAssets = importResolveInstrumentImpacts(rawSummary.topAssets);
-  const topAssets = coverAssets.length > 0 ? coverAssets : Array.from(
-    new Map(
-      posters.flatMap((p) =>
-        (p.affectedAssets || "").split(",").map((s) => s.trim()).filter(Boolean).map((symbol) => [symbol, p.sentiment ?? "Neutral"] as const)
-      )
-    ).entries()
-  ).slice(0, 4).map(([symbol, sentiment]) => ({ symbol, sentiment }));
-  const coverTitle = "News That Can Impact Your Trades";
-
-  const cover: NewsItem = {
-    title: coverTitle,
-    highlightPhrase: importResolveHighlight(coverTitle, rawSummary.highlightPhrase),
-    description: coverOverview,
-    descriptionHighlights: importResolveHighlightTerms(coverOverview, rawSummary.overviewHighlights),
-    keyTakeaway: importClampStr(rawSummary.marketBias, 240) || "Mixed cross-asset signals — check each story's affected instruments before positioning.",
-    affectedAssets: topAssets.map((a) => a.symbol).join(", "),
-    instrumentImpacts: topAssets,
-    impact: "High",
-    sentiment: topAssets[0]?.sentiment ?? "Neutral",
-    source: "Stratix Desk",
-    date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-    imagePrompt: importClampStr(rawSummary.imagePrompt, 1200),
-    imageUrl: "",
-    isCover: true,
-    topAssets,
-    bulletHeadlines: importResolveStringArray(rawSummary.bulletHeadlines, 5).concat(posters.map((p) => p.title)).slice(0, 5),
-  };
-
-  const rawOutro = (obj.outro && typeof obj.outro === "object" ? obj.outro : {}) as Record<string, unknown>;
-  const outro: NewsItem = {
-    title: importClampStr(rawOutro.headline, 60) || "We're Always Watching The Markets",
-    description: importClampStr(rawOutro.subtext, 260) ||
-      "We share real-time market news before every trading session. You might not find this page again — follow now to stay ahead.",
-    cta: importClampStr(rawOutro.cta, 60) || "Follow for daily market briefings",
-    imagePrompt: importClampStr(rawOutro.imagePrompt, 1200),
-    imageUrl: "",
-    isOutro: true,
-  };
-
-  const withBento = posters.flatMap((story) => [story, buildBentoCard(story)]);
-  return [cover, ...withBento, outro];
-}
-
-function importFactsJson(raw: unknown): NewsItem[] {
-  if (Array.isArray(raw)) {
-    const items = raw.filter((p): p is NewsItem => !!p && typeof p === "object" && typeof (p as Record<string, unknown>).title === "string");
-    if (items.length === 0) throw new Error('That array has no valid fact card objects — each needs at least a "title".');
-    return items;
-  }
-  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const rawFacts = Array.isArray(obj.facts) ? obj.facts : [];
-  if (rawFacts.length === 0) {
-    throw new Error('Expected an object with a "facts" array (the shape the Facts prompt asks for) — or a plain array of fact objects.');
-  }
-
-  const facts: NewsItem[] = rawFacts
-    .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
-    .map((f) => {
-      const title = importClampStr(f.title, 90);
-      return {
-        title,
-        highlightPhrase: importResolveHighlight(title, f.highlightPhrase),
-        description: importClampStr(f.fact ?? f.description, 400),
-        sourceNote: importClampStr(f.sourceNote, 160),
-        imagePrompt: importClampStr(f.imagePrompt, 1200),
-        imageUrl: "",
-      } as NewsItem;
-    })
-    .filter((f) => f.title && f.description);
-
-  if (facts.length === 0) throw new Error("No usable facts found in the pasted JSON.");
-
-  const rawCover = (obj.cover && typeof obj.cover === "object" ? obj.cover : {}) as Record<string, unknown>;
-  const coverOverview = importClampStr(rawCover.overview, 300) || "A quick round of verified facts about the instruments you trade.";
-  const coverTitle = importClampStr(rawCover.title, 70) || `${facts.length} Things Every Trader Should Know Today`;
-  const cover: NewsItem = {
-    title: coverTitle,
-    highlightPhrase: importResolveHighlight(coverTitle, rawCover.highlightPhrase),
-    description: coverOverview,
-    descriptionHighlights: importResolveHighlightTerms(coverOverview, rawCover.overviewHighlights, 3),
-    bulletHeadlines: importResolveStringArray(rawCover.bulletHeadlines, 8).concat(facts.map((f) => f.title)).slice(0, 8),
-    imagePrompt: importClampStr(rawCover.imagePrompt, 1200),
-    imageUrl: "",
-    isCover: true,
-  };
-
-  const rawOutro = (obj.outro && typeof obj.outro === "object" ? obj.outro : {}) as Record<string, unknown>;
-  const outro: NewsItem = {
-    title: importClampStr(rawOutro.headline, 60) || "We're Always Teaching The Markets",
-    description: importClampStr(rawOutro.subtext, 200) || "Real, verified trading facts across Gold, Forex and Crypto — a little sharper every day.",
-    cta: importClampStr(rawOutro.cta, 60) || "Follow for daily trading facts",
-    imagePrompt: importClampStr(rawOutro.imagePrompt, 1200),
-    imageUrl: "",
-    isOutro: true,
-  };
-
-  return [cover, ...facts, outro];
-}
-
-function importLearningsJson(raw: unknown): NewsItem[] {
-  if (Array.isArray(raw)) {
-    const items = raw.filter((p): p is NewsItem => !!p && typeof p === "object" && typeof (p as Record<string, unknown>).title === "string");
-    if (items.length === 0) throw new Error('That array has no valid slide objects — each needs at least a "title".');
-    return items;
-  }
-  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const rawSlides = Array.isArray(obj.slides) ? obj.slides : [];
-  if (rawSlides.length === 0) {
-    throw new Error('Expected an object with a "slides" array (the shape the Learnings prompt asks for) — or a plain array of slide objects.');
-  }
-  const concept = importClampStr(obj.concept, 80) || "Trading Concept";
-
-  const stepSlides = rawSlides
-    .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
-    .map((s) => ({ heading: importClampStr(s.heading, 70), body: importClampStr(s.body, 360), imagePrompt: importClampStr(s.imagePrompt, 1200) }))
-    .filter((s) => s.heading && s.body);
-
-  if (stepSlides.length === 0) throw new Error("No usable slides found in the pasted JSON.");
-
-  const rawRecap = (obj.recap && typeof obj.recap === "object" ? obj.recap : {}) as Record<string, unknown>;
-  const recapBody = importClampStr(rawRecap.body, 360) || `${concept} — reviewed step by step. Save this slide as your quick-reference recap.`;
-  const allSlides = [
-    ...stepSlides,
-    { heading: "Recap", body: recapBody, imagePrompt: importClampStr(rawRecap.imagePrompt, 1200) || stepSlides[stepSlides.length - 1]?.imagePrompt || "" },
-  ];
-
-  const slides: NewsItem[] = allSlides.map((s, i) => ({
-    title: s.heading,
-    description: s.body,
-    concept,
-    stepLabel: `Step ${i + 1} of ${allSlides.length}`,
-    imagePrompt: s.imagePrompt,
-    imageUrl: "",
-  }));
-
-  const rawCover = (obj.cover && typeof obj.cover === "object" ? obj.cover : {}) as Record<string, unknown>;
-  const coverOverview = importClampStr(rawCover.overview, 300) || `A step-by-step walkthrough of ${concept}, explained the way a desk would teach it.`;
-  const coverTitle = importClampStr(rawCover.title, 70) || `What You'll Learn: ${concept}`;
-  const cover: NewsItem = {
-    title: coverTitle,
-    highlightPhrase: importResolveHighlight(coverTitle, rawCover.highlightPhrase),
-    description: coverOverview,
-    descriptionHighlights: importResolveHighlightTerms(coverOverview, rawCover.overviewHighlights, 3),
-    concept,
-    imagePrompt: importClampStr(rawCover.imagePrompt, 1200),
-    imageUrl: "",
-    isCover: true,
-  };
-
-  const rawOutro = (obj.outro && typeof obj.outro === "object" ? obj.outro : {}) as Record<string, unknown>;
-  const outro: NewsItem = {
-    title: importClampStr(rawOutro.headline, 60) || "We're Always Teaching The Markets",
-    description: importClampStr(rawOutro.subtext, 200) || "Real trading concepts, taught clearly, across Gold, Forex and Crypto.",
-    cta: importClampStr(rawOutro.cta, 60) || "Follow for daily lessons",
-    imagePrompt: importClampStr(rawOutro.imagePrompt, 1200),
-    imageUrl: "",
-    isOutro: true,
-  };
-
-  return [cover, ...slides, outro];
-}
-
-/** Dispatches a pasted external-AI JSON payload (already `JSON.parse`d) to the right category transform. */
-function importAiJson(category: "news" | "facts" | "learnings", raw: unknown): NewsItem[] {
-  if (category === "news") return importNewsJson(raw);
-  if (category === "facts") return importFactsJson(raw);
-  return importLearningsJson(raw);
-}
-
 function sentimentPalette(sentiment?: string): { bg: string; fg: string } {
   if (sentiment === "Bullish") return { bg: "#10b981", fg: "#ffffff" };
   if (sentiment === "Bearish") return { bg: "#ef4444", fg: "#ffffff" };
@@ -2282,21 +1867,18 @@ function fitHighlightTitle(
   maxW: number,
   maxH: number,
   minSize: number,
-  maxSize: number,
-  fontFamily: string = '"Inter", "Arial Black", sans-serif',
-  fontWeight: string = "900",
-  lineHeightMult: number = 1.16
+  maxSize: number
 ): { lines: HLToken[][]; fontSize: number; lineH: number; font: string } {
   for (let sz = maxSize; sz >= minSize; sz -= 1) {
-    const font = `${fontWeight} ${sz}px ${fontFamily}`;
+    const font = `900 ${sz}px "Inter", "Arial Black", sans-serif`;
     const lines = wrapHighlightLine(ctx, tokens, maxW, font, sz * 0.26);
-    const lineH = sz * lineHeightMult;
+    const lineH = sz * 1.16;
     if (lines.length * lineH <= maxH) {
       return { lines, fontSize: sz, lineH, font };
     }
   }
-  const font = `${fontWeight} ${minSize}px ${fontFamily}`;
-  return { lines: wrapHighlightLine(ctx, tokens, maxW, font, minSize * 0.26), fontSize: minSize, lineH: minSize * lineHeightMult, font };
+  const font = `900 ${minSize}px "Inter", "Arial Black", sans-serif`;
+  return { lines: wrapHighlightLine(ctx, tokens, maxW, font, minSize * 0.26), fontSize: minSize, lineH: minSize * 1.16, font };
 }
 
 // Draws center-aligned headline lines, rendering the highlighted token as a
@@ -2461,23 +2043,6 @@ function computeCoverFitSlack(imgAspect: number, frameW: number, frameH: number,
   return { slackX: baseW * z - frameW, slackY: baseH * z - frameH };
 }
 
-// Shared headline sizing — the SAME min/max font-size range (in unscaled px,
-// multiply by `r()` at each call site) is used by every poster renderer
-// (editorial story/cover, Facts/Learnings, Bold) so a given headline length
-// lands at the same visual size regardless of which style generated it.
-const HEADLINE_MIN_PX = 24;
-const HEADLINE_MAX_PX = 52;
-
-// Editorial "paper band" palette — light (default cream paper) or dark
-// (near-black card). Drives band fill, text/muted/divider colors, and the
-// rgb the photo seam fades into so the dissolve matches the band in both.
-type EditorialTheme = "light" | "dark";
-function editorialPalette(theme: EditorialTheme) {
-  return theme === "dark"
-    ? { band: "#000000", bandRgb: "0,0,0", text: "#ffffff", textSoft: "rgba(255,255,255,0.82)", muted: "rgba(255,255,255,0.5)", divider: "rgba(255,255,255,0.14)", bullet: "#f5f5f5" }
-    : { band: "#FAFAF7", bandRgb: "250,250,247", text: "#111111", textSoft: "rgba(17,17,17,0.76)", muted: "rgba(17,17,17,0.5)", divider: "rgba(17,17,17,0.12)", bullet: "#1a1a1a" };
-}
-
 function drawTradingNewsPoster(
   ctx: CanvasRenderingContext2D,
   data: any,
@@ -2486,15 +2051,11 @@ function drawTradingNewsPoster(
   H: number,
   r: Rfn,
   activeNewsIndex: number,
-  totalNewsCount: number,
-  theme: EditorialTheme = "light",
-  fadeIntensity: number = 100
+  totalNewsCount: number
 ): PosterElement[] {
   const bounds: PosterElement[] = [];
   const isCover = !!data.isCover;
-  const fadeMult = Math.max(0, Math.min(200, fadeIntensity)) / 100;
   const pal = sentimentPalette(data.sentiment);
-  const th = editorialPalette(theme);
 
   ctx.fillStyle = "#0a0a0a";
   ctx.fillRect(0, 0, W, H);
@@ -2507,7 +2068,7 @@ function drawTradingNewsPoster(
   const photoH = H - photoY;
 
   // ── Top band (paper) ──────────────────────────────────────────────────
-  ctx.fillStyle = th.band;
+  ctx.fillStyle = "#FAFAF7";
   ctx.fillRect(0, 0, W, topBandH);
 
   // Top accent bar — instant sentiment signal before reading a word: red for
@@ -2535,7 +2096,7 @@ function drawTradingNewsPoster(
     Y += bh + r(18);
   } else {
     ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
-    ctx.fillStyle = th.muted;
+    ctx.fillStyle = "rgba(17,17,17,0.5)";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const eyebrow = `${(data.source || "WIRE").toUpperCase()}  ·  ${(data.date || "").toUpperCase()}`;
@@ -2551,33 +2112,21 @@ function drawTradingNewsPoster(
   const tokens = tokenizeHighlight(rawTitle, data.highlightPhrase || "");
   const afterEyebrowH = topBandH - Y;
   const headlineMaxH = isCover ? afterEyebrowH - r(20) : Math.round(afterEyebrowH * 0.5);
-  const minFont = r(HEADLINE_MIN_PX);
-  const maxFont = r(HEADLINE_MAX_PX);
-  const fit = fitHighlightTitle(ctx, tokens, CW, Math.max(headlineMaxH, minFont * 1.2), minFont, maxFont, getAntonFontFamily(), "400", 1.04);
-  drawHighlightLines(ctx, fit.lines, fit.font, fit.fontSize, fit.lineH, W / 2, Y, fit.fontSize * 0.26, pal, th.text);
+  const maxFont = isCover ? r(46) : r(46);
+  const minFont = r(20);
+  const fit = fitHighlightTitle(ctx, tokens, CW, Math.max(headlineMaxH, minFont * 1.2), minFont, maxFont);
+  drawHighlightLines(ctx, fit.lines, fit.font, fit.fontSize, fit.lineH, W / 2, Y, fit.fontSize * 0.26, pal, "#111111");
   bounds.push({ id: "title", label: "Headline", x: CX, y: Y, w: CW, h: fit.lines.length * fit.lineH });
   Y += fit.lines.length * fit.lineH + r(12);
-
-  // Masthead date — cover only, sits directly beneath the fixed "News That
-  // Can Impact Your Trades" title so the cover reads like a magazine issue
-  // dated today, not a generic social graphic.
-  if (isCover && data.date) {
-    ctx.font = `700 ${r(12)}px "Inter", sans-serif`;
-    ctx.fillStyle = th.muted;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(String(data.date).toUpperCase(), W / 2, Y + r(7));
-    Y += r(22);
-  }
 
   if (!isCover) {
     // Trader-relevant explanation, with key numbers/entities highlighted —
     // renders directly below the headline, exactly like a news app.
     const descText = (data.description || "").trim();
     if (descText) {
-      const descNormalFont = `600 ${r(16)}px "Inter", sans-serif`;
-      const descBoldFont = `800 ${r(16)}px "Inter", sans-serif`;
-      const descLineH = r(21);
+      const descNormalFont = `500 ${r(14)}px "Inter", sans-serif`;
+      const descBoldFont = `800 ${r(14)}px "Inter", sans-serif`;
+      const descLineH = r(18.5);
       const descTokens = tokenizeParagraphHighlights(descText, Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []);
       const allDescLines = wrapParagraphTokens(ctx, descTokens, CW, descNormalFont, descBoldFont);
       const maxDescLines = Math.max(2, Math.floor((topBandH - Y - r(14)) / descLineH));
@@ -2589,7 +2138,7 @@ function drawTradingNewsPoster(
         lastLine[lastLine.length - 1] = lastTok;
         descLines = [...descLines.slice(0, -1), lastLine];
       }
-      drawParagraphLines(ctx, descLines, descNormalFont, descBoldFont, descLineH, CX, Y, th.textSoft, pal.bg, "left");
+      drawParagraphLines(ctx, descLines, descNormalFont, descBoldFont, descLineH, CX, Y, "rgba(17,17,17,0.76)", pal.bg, "left");
       bounds.push({ id: "description", label: "Explanation", x: CX, y: Y, w: CW, h: descLines.length * descLineH });
       Y += descLines.length * descLineH + r(6);
     }
@@ -2602,12 +2151,12 @@ function drawTradingNewsPoster(
     const ovLineH = r(20);
     const ovTokens = tokenizeParagraphHighlights(data.description || "", Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []);
     const overviewLines = wrapParagraphTokens(ctx, ovTokens, CW * 0.92, ovNormalFont, ovBoldFont).slice(0, 3);
-    drawParagraphLines(ctx, overviewLines, ovNormalFont, ovBoldFont, ovLineH, CX, Y, th.textSoft, pal.bg, "center", W / 2);
+    drawParagraphLines(ctx, overviewLines, ovNormalFont, ovBoldFont, ovLineH, CX, Y, "rgba(17,17,17,0.72)", pal.bg, "center", W / 2);
     bounds.push({ id: "description", label: "Overview", x: CX, y: Y, w: CW, h: overviewLines.length * ovLineH });
     Y += overviewLines.length * ovLineH + r(16);
 
     // Divider
-    ctx.strokeStyle = th.divider;
+    ctx.strokeStyle = "rgba(17,17,17,0.12)";
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(CX, Y); ctx.lineTo(CXR, Y); ctx.stroke();
     Y += r(16);
@@ -2623,7 +2172,7 @@ function drawTradingNewsPoster(
       ctx.fillStyle = "#10b981";
       ctx.beginPath(); ctx.arc(CX + r(4), Y + r(11), r(3.5), 0, Math.PI * 2); ctx.fill();
       ctx.font = bulletFont;
-      ctx.fillStyle = th.bullet;
+      ctx.fillStyle = "#1a1a1a";
       let text = headline;
       while (ctx.measureText(text).width > CW - r(20) && text.length > 4) text = text.slice(0, -1);
       if (text !== headline) text = text.slice(0, -1) + "…";
@@ -2655,19 +2204,14 @@ function drawTradingNewsPoster(
 
     // Broad, eased fade at the seam — dissolves the paper band into the
     // photo over a wide span (not a thin edge line) so the transition reads
-    // as a gradual dissolve from top to bottom, not a hard cut. Fades into the
-    // band color so light and dark themes both blend seamlessly.
-    // Long, slow dissolve — spans most of the photo height so the band color
-    // bleeds gradually all the way down, never reading as a hard-edged cut.
-    const fadeH = Math.round(photoH * 0.82);
+    // as a gradual dissolve from top to bottom, not a hard cut.
+    const fadeH = Math.round(photoH * 0.45);
     const fade = ctx.createLinearGradient(0, photoY, 0, photoY + fadeH);
-    fade.addColorStop(0,    `rgba(${th.bandRgb},${1 * fadeMult})`);
-    fade.addColorStop(0.14, `rgba(${th.bandRgb},${0.92 * fadeMult})`);
-    fade.addColorStop(0.32, `rgba(${th.bandRgb},${0.68 * fadeMult})`);
-    fade.addColorStop(0.52, `rgba(${th.bandRgb},${0.42 * fadeMult})`);
-    fade.addColorStop(0.72, `rgba(${th.bandRgb},${0.22 * fadeMult})`);
-    fade.addColorStop(0.88, `rgba(${th.bandRgb},${0.08 * fadeMult})`);
-    fade.addColorStop(1,    `rgba(${th.bandRgb},0)`);
+    fade.addColorStop(0,    "rgba(250,250,247,1)");
+    fade.addColorStop(0.22, "rgba(250,250,247,0.82)");
+    fade.addColorStop(0.5,  "rgba(250,250,247,0.48)");
+    fade.addColorStop(0.78, "rgba(250,250,247,0.16)");
+    fade.addColorStop(1,    "rgba(250,250,247,0)");
     ctx.fillStyle = fade;
     ctx.fillRect(0, photoY, W, fadeH);
   } else {
@@ -2787,1016 +2331,6 @@ function drawTradingNewsPoster(
   return bounds;
 }
 
-// Facts and Learnings share this one renderer — a Fact card and a Learning
-// slide are the same shape (headline + body + image), just with different
-// chrome text. Deliberately mirrors drawTradingNewsPoster's paper-band/photo
-// composition for visual-family consistency across every Stratix carousel,
-// but drops the impact badge and instrument ticker chips since neither
-// category carries per-story market sentiment.
-function drawEducationalCard(
-  ctx: CanvasRenderingContext2D,
-  data: any,
-  img: HTMLImageElement | null | undefined,
-  W: number,
-  H: number,
-  r: Rfn,
-  activeIndex: number,
-  totalCount: number,
-  kind: "facts" | "learnings",
-  theme: EditorialTheme = "light",
-  fadeIntensity: number = 100
-): PosterElement[] {
-  const bounds: PosterElement[] = [];
-  const isCover = !!data.isCover;
-  const pal = { bg: "#10b981", fg: "#ffffff" };
-  const th = editorialPalette(theme);
-  const fadeMult = Math.max(0, Math.min(200, fadeIntensity)) / 100;
-
-  ctx.fillStyle = "#0a0a0a";
-  ctx.fillRect(0, 0, W, H);
-
-  const PAD = r(30);
-  const CX = PAD, CXR = W - PAD, CW = CXR - CX;
-
-  const topBandH = Math.round(H * (isCover ? 0.58 : 0.44));
-  const photoY = topBandH;
-  const photoH = H - photoY;
-
-  ctx.fillStyle = th.band;
-  ctx.fillRect(0, 0, W, topBandH);
-
-  ctx.fillStyle = pal.bg;
-  ctx.fillRect(0, 0, W, r(5));
-
-  let Y = r(34);
-
-  // Eyebrow row
-  const brandLabel = kind === "facts" ? "STRATIX FACTS" : "STRATIX LEARNINGS";
-  if (isCover) {
-    const label = kind === "facts" ? "TODAY'S FACTS" : "WHAT YOU'LL LEARN TODAY";
-    ctx.font = `900 ${r(12)}px "Inter", sans-serif`;
-    const tw = ctx.measureText(label).width;
-    const bw = tw + r(20), bh = r(26);
-    ctx.fillStyle = pal.bg;
-    rrect(ctx, CX, Y, bw, bh, bh / 2);
-    ctx.fill();
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, CX + r(10), Y + bh / 2 + r(0.5));
-    bounds.push({ id: "category", label: "Eyebrow", x: CX, y: Y, w: bw, h: bh });
-    Y += bh + r(18);
-  } else {
-    ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
-    ctx.fillStyle = th.muted;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    const eyebrow = data.stepLabel ? `${brandLabel}  ·  ${String(data.stepLabel).toUpperCase()}` : brandLabel;
-    ctx.fillText(eyebrow, CX, Y + r(6));
-    bounds.push({ id: "source", label: "Eyebrow", x: CX, y: Y - r(8), w: CW, h: r(20) });
-    Y += r(24);
-  }
-
-  // Headline with highlighted phrase
-  const rawTitle = (data.title || "Untitled").trim();
-  const tokens = tokenizeHighlight(rawTitle, data.highlightPhrase || "");
-  const afterEyebrowH = topBandH - Y;
-  const headlineMaxH = isCover ? afterEyebrowH - r(20) : Math.round(afterEyebrowH * 0.5);
-  const minFont = r(HEADLINE_MIN_PX);
-  const maxFont = r(HEADLINE_MAX_PX);
-  const fit = fitHighlightTitle(ctx, tokens, CW, Math.max(headlineMaxH, minFont * 1.2), minFont, maxFont, getAntonFontFamily(), "400", 1.04);
-  drawHighlightLines(ctx, fit.lines, fit.font, fit.fontSize, fit.lineH, W / 2, Y, fit.fontSize * 0.26, pal, th.text);
-  bounds.push({ id: "title", label: "Headline", x: CX, y: Y, w: CW, h: fit.lines.length * fit.lineH });
-  Y += fit.lines.length * fit.lineH + r(12);
-
-  if (!isCover) {
-    const descText = (data.description || "").trim();
-    if (descText) {
-      const descNormalFont = `600 ${r(16)}px "Inter", sans-serif`;
-      const descBoldFont = `800 ${r(16)}px "Inter", sans-serif`;
-      const descLineH = r(21);
-      const descTokens = tokenizeParagraphHighlights(descText, Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []);
-      const allDescLines = wrapParagraphTokens(ctx, descTokens, CW, descNormalFont, descBoldFont);
-      const maxDescLines = Math.max(2, Math.floor((topBandH - Y - r(14)) / descLineH));
-      let descLines = allDescLines.slice(0, maxDescLines);
-      if (allDescLines.length > maxDescLines && descLines.length > 0) {
-        const lastLine = [...descLines[descLines.length - 1]];
-        const lastTok = { ...lastLine[lastLine.length - 1] };
-        lastTok.text = lastTok.text.replace(/[.,;:]+$/, "") + "…";
-        lastLine[lastLine.length - 1] = lastTok;
-        descLines = [...descLines.slice(0, -1), lastLine];
-      }
-      drawParagraphLines(ctx, descLines, descNormalFont, descBoldFont, descLineH, CX, Y, th.textSoft, pal.bg, "left");
-      bounds.push({ id: "description", label: kind === "facts" ? "The Fact" : "Explanation", x: CX, y: Y, w: CW, h: descLines.length * descLineH });
-      Y += descLines.length * descLineH + r(6);
-    }
-  }
-
-  if (isCover) {
-    const ovNormalFont = `600 ${r(15.5)}px "Inter", sans-serif`;
-    const ovBoldFont = `800 ${r(15.5)}px "Inter", sans-serif`;
-    const ovLineH = r(20);
-    const ovTokens = tokenizeParagraphHighlights(data.description || "", Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []);
-    const overviewLines = wrapParagraphTokens(ctx, ovTokens, CW * 0.92, ovNormalFont, ovBoldFont).slice(0, 3);
-    drawParagraphLines(ctx, overviewLines, ovNormalFont, ovBoldFont, ovLineH, CX, Y, th.textSoft, pal.bg, "center", W / 2);
-    bounds.push({ id: "description", label: "Overview", x: CX, y: Y, w: CW, h: overviewLines.length * ovLineH });
-    Y += overviewLines.length * ovLineH + r(16);
-
-    ctx.strokeStyle = th.divider;
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(CX, Y); ctx.lineTo(CXR, Y); ctx.stroke();
-    Y += r(16);
-
-    const bullets: string[] = Array.isArray(data.bulletHeadlines) ? data.bulletHeadlines.slice(0, 6) : [];
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    const bulletFont = `700 ${r(13.5)}px "Inter", sans-serif`;
-    const bulletMaxY = topBandH - r(14);
-    for (const headline of bullets) {
-      if (Y + r(22) > bulletMaxY) break;
-      ctx.fillStyle = pal.bg;
-      ctx.beginPath(); ctx.arc(CX + r(4), Y + r(11), r(3.5), 0, Math.PI * 2); ctx.fill();
-      ctx.font = bulletFont;
-      ctx.fillStyle = th.bullet;
-      let text = headline;
-      while (ctx.measureText(text).width > CW - r(20) && text.length > 4) text = text.slice(0, -1);
-      if (text !== headline) text = text.slice(0, -1) + "…";
-      ctx.fillText(text, CX + r(14), Y + r(11));
-      Y += r(24);
-    }
-  }
-
-  // ── Photo area ───────────────────────────────────────────────────────
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, photoY, W, photoH);
-  ctx.clip();
-
-  if (img) {
-    const iAR = img.naturalWidth / img.naturalHeight;
-    const zoom = Math.max(1, Math.min(2.5, data.imageZoom || 1));
-    const { slackX, slackY } = computeCoverFitSlack(iAR, W, photoH, zoom);
-    const fAR = W / photoH;
-    let baseW = W, baseH = photoH;
-    if (iAR > fAR) { baseH = photoH; baseW = photoH * iAR; }
-    else { baseW = W; baseH = W / iAR; }
-    const dw = baseW * zoom, dh = baseH * zoom;
-    const focusX = Math.max(0, Math.min(1, data.imageFocusX ?? 0.5));
-    const focusY = Math.max(0, Math.min(1, data.imageFocusY ?? 0.5));
-    const dx = -slackX * focusX;
-    const dy = photoY - slackY * focusY;
-    ctx.drawImage(img, dx, dy, dw, dh);
-
-    // Long, slow dissolve — spans most of the photo height so the band color
-    // bleeds gradually all the way down, never reading as a hard-edged cut.
-    const fadeH = Math.round(photoH * 0.82);
-    const fade = ctx.createLinearGradient(0, photoY, 0, photoY + fadeH);
-    fade.addColorStop(0,    `rgba(${th.bandRgb},${1 * fadeMult})`);
-    fade.addColorStop(0.14, `rgba(${th.bandRgb},${0.92 * fadeMult})`);
-    fade.addColorStop(0.32, `rgba(${th.bandRgb},${0.68 * fadeMult})`);
-    fade.addColorStop(0.52, `rgba(${th.bandRgb},${0.42 * fadeMult})`);
-    fade.addColorStop(0.72, `rgba(${th.bandRgb},${0.22 * fadeMult})`);
-    fade.addColorStop(0.88, `rgba(${th.bandRgb},${0.08 * fadeMult})`);
-    fade.addColorStop(1,    `rgba(${th.bandRgb},0)`);
-    ctx.fillStyle = fade;
-    ctx.fillRect(0, photoY, W, fadeH);
-  } else {
-    ctx.fillStyle = "#161616";
-    ctx.fillRect(0, photoY, W, photoH);
-    ctx.font = `700 ${r(13)}px "Inter", sans-serif`;
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("[ PLACE IMAGE HERE — see Grok prompt ]", W / 2, photoY + photoH / 2);
-  }
-
-  const scrim = ctx.createLinearGradient(0, H - photoH * 0.42, 0, H);
-  scrim.addColorStop(0, "rgba(0,0,0,0)");
-  scrim.addColorStop(1, "rgba(0,0,0,0.72)");
-  ctx.fillStyle = scrim;
-  ctx.fillRect(0, H - photoH * 0.42, W, photoH * 0.42);
-
-  // Related-instrument chips (Facts only, optional) — plain, no sentiment
-  // arrows, since these are structural facts, not directional calls.
-  if (!isCover && kind === "facts" && Array.isArray(data.relatedInstruments) && data.relatedInstruments.length > 0) {
-    let chipX = CX;
-    const chipY = photoY + r(16);
-    const chipH = r(24);
-    ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
-    for (const symbol of (data.relatedInstruments as string[]).slice(0, 4)) {
-      if (!symbol) continue;
-      const tw = ctx.measureText(symbol).width;
-      const chipW = tw + r(18);
-      ctx.fillStyle = "rgba(16,185,129,0.85)";
-      rrect(ctx, chipX, chipY, chipW, chipH, chipH / 2);
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      ctx.fillText(symbol, chipX + r(9), chipY + chipH / 2 + r(0.5));
-      chipX += chipW + r(8);
-    }
-  }
-
-  ctx.restore();
-  bounds.push({ id: "imageUrl", label: kind === "facts" ? "Fact Image" : "Slide Image", x: 0, y: photoY, w: W, h: photoH });
-
-  // ── Carousel chrome over the photo ──────────────────────────────────
-  const chromeY = H - r(30);
-
-  const badgeText = isCover
-    ? (kind === "facts" ? "TODAY'S FACTS" : "TODAY'S LESSON")
-    : (data.stepLabel || `#${Math.max(1, activeIndex)}`);
-  ctx.font = `900 ${r(13)}px "Inter", sans-serif`;
-  const badgeTw = ctx.measureText(badgeText).width;
-  const badgeW = badgeTw + r(20), badgeH = r(28);
-  ctx.fillStyle = pal.bg;
-  rrect(ctx, CX, chromeY - badgeH / 2, badgeW, badgeH, r(6));
-  ctx.fill();
-  ctx.fillStyle = pal.fg;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText(badgeText, CX + r(10), chromeY + r(0.5));
-
-  ctx.font = `900 ${r(13)}px "Inter", sans-serif`;
-  const xW = ctx.measureText("X").width;
-  ctx.textAlign = "right";
-  ctx.fillStyle = "#10b981";
-  ctx.fillText("X", CXR, chromeY + r(0.5));
-  ctx.fillStyle = "rgba(255,255,255,0.92)";
-  ctx.fillText("STRATI", CXR - xW, chromeY + r(0.5));
-
-  if (totalCount > 1) {
-    const dotSpacing = r(11);
-    const totalDotsW = (totalCount - 1) * dotSpacing;
-    const startDotX = (W - totalDotsW) / 2;
-    for (let i = 0; i < totalCount; i++) {
-      ctx.beginPath();
-      ctx.arc(startDotX + i * dotSpacing, chromeY, r(2.6), 0, Math.PI * 2);
-      ctx.fillStyle = i === activeIndex ? "#FFFFFF" : "rgba(255,255,255,0.32)";
-      ctx.fill();
-    }
-  }
-
-  return bounds;
-}
-
-// Resolves the actual (possibly hashed) font-family string next/font/google
-// assigned to the Anton display face, via the `--font-display` CSS variable
-// set on <html> in app/layout.tsx. Canvas can't read CSS custom properties
-// inside a font shorthand string, so this reads the computed value once and
-// falls back to a heavy condensed system stack if it's ever unavailable
-// (e.g. during SSR — this file is client-only, but defensive regardless).
-let cachedAntonFamily: string | null = null;
-function getAntonFontFamily(): string {
-  if (cachedAntonFamily) return cachedAntonFamily;
-  const fallback = '"Arial Narrow Bold", "Arial Black", sans-serif';
-  if (typeof document === "undefined") return fallback;
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--font-display").trim();
-  cachedAntonFamily = raw ? `${raw}, ${fallback}` : fallback;
-  return cachedAntonFamily;
-}
-
-// "Bold & Trending" style — an alternate look for News/Facts/Learnings,
-// selectable from the Colors tab (default stays the editorial paper-band
-// renderers above). Full-bleed moody gradient, huge condensed uppercase
-// headline, white pill badges — one shared renderer for all three
-// categories (same pattern as drawEducationalCard for facts/learnings),
-// differing only in eyebrow copy.
-function drawBoldPoster(
-  ctx: CanvasRenderingContext2D,
-  data: any,
-  img: HTMLImageElement | null | undefined,
-  W: number,
-  H: number,
-  r: Rfn,
-  activeIndex: number,
-  totalCount: number,
-  kind: "news" | "facts" | "learnings",
-  gradient: GradientPreset,
-  fadeIntensity: number = 100
-): PosterElement[] {
-  const bounds: PosterElement[] = [];
-  const fadeMult = Math.max(0, Math.min(200, fadeIntensity)) / 100;
-  const isCover = !!data.isCover;
-  const [stopA, stopB] = gradient.stops;
-
-  // Theme-aware foreground colors — flipped to dark for light-toned presets
-  // (Pure White) so text/pills/dots stay legible against any gradient.
-  const isLight = !!gradient.isLight;
-  const fg = isLight ? "#0a0a0a" : "#ffffff";
-  const fgSoft = isLight ? "rgba(10,10,10,0.78)" : "rgba(255,255,255,0.82)";
-  const fgMuted = isLight ? "rgba(10,10,10,0.68)" : "rgba(255,255,255,0.7)";
-  const fgFaint = isLight ? "rgba(10,10,10,0.32)" : "rgba(255,255,255,0.3)";
-  const pillBg = isLight ? "#111111" : "#ffffff";
-  const pillFg = gradient.pillAccent ?? gradient.accent;
-  const dotActive = isLight ? "#0a0a0a" : "#ffffff";
-  const dotInactive = isLight ? "rgba(10,10,10,0.32)" : "rgba(255,255,255,0.32)";
-  const scrimBase = isLight ? "255,255,255" : "0,0,0";
-
-  // Full-bleed diagonal gradient base — everything else layers on top.
-  const bgGrad = ctx.createLinearGradient(0, 0, W, H);
-  bgGrad.addColorStop(0, stopA);
-  bgGrad.addColorStop(1, stopB);
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, W, H);
-
-  // Accent glow rising behind the lower content — this is what gives the
-  // reference poster its rich "perfect shade" depth instead of a flat wash.
-  const glow = ctx.createRadialGradient(W * 0.5, H * 0.7, 0, W * 0.5, H * 0.7, W * 0.85);
-  glow.addColorStop(0, hexToRgba(gradient.accent, (isLight ? 0.14 : 0.28) * fadeMult));
-  glow.addColorStop(0.55, hexToRgba(gradient.accent, (isLight ? 0.05 : 0.1) * fadeMult));
-  glow.addColorStop(1, hexToRgba(gradient.accent, 0));
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, H);
-
-  const PAD = r(30);
-  const CX = PAD, CXR = W - PAD, CW = CXR - CX;
-  // contentZoneH still anchors where the eyebrow/headline block starts — the
-  // image itself now bleeds the FULL poster height (below), decoupled from
-  // this, so it stays faintly visible behind the text all the way to the
-  // bottom edge instead of hard-cutting into a separate "text zone".
-  const contentZoneH = Math.round(H * 0.56);
-
-  if (img) {
-    // Seamless, slow dissolve: draw the photo on an offscreen layer spanning
-    // the ENTIRE poster height, fade ITS OWN alpha out gradually across that
-    // whole span (never fully to zero — a faint trace survives to the very
-    // bottom edge), then composite over the gradient+glow. Because the photo
-    // melts into transparency rather than a fixed color, the gradient shows
-    // straight through underneath — no hard band anywhere.
-    const off = document.createElement("canvas");
-    off.width = W; off.height = H;
-    const octx = off.getContext("2d");
-    if (octx) {
-      const iAR = img.naturalWidth / img.naturalHeight;
-      const zoom = Math.max(1, Math.min(2.5, data.imageZoom || 1));
-      const { slackX, slackY } = computeCoverFitSlack(iAR, W, H, zoom);
-      const fAR = W / H;
-      let baseW = W, baseH = H;
-      if (iAR > fAR) { baseH = H; baseW = H * iAR; }
-      else { baseW = W; baseH = W / iAR; }
-      const dw = baseW * zoom, dh = baseH * zoom;
-      const focusX = Math.max(0, Math.min(1, data.imageFocusX ?? 0.5));
-      const focusY = Math.max(0, Math.min(1, data.imageFocusY ?? 0.5));
-      octx.drawImage(img, -slackX * focusX, -slackY * focusY, dw, dh);
-
-      octx.globalCompositeOperation = "destination-in";
-      const mask = octx.createLinearGradient(0, 0, 0, H);
-      mask.addColorStop(0,    "rgba(0,0,0,1)");
-      mask.addColorStop(0.38, "rgba(0,0,0,1)");
-      mask.addColorStop(0.6,  "rgba(0,0,0,0.62)");
-      mask.addColorStop(0.8,  "rgba(0,0,0,0.28)");
-      mask.addColorStop(1,    "rgba(0,0,0,0.06)");
-      octx.fillStyle = mask;
-      octx.fillRect(0, 0, W, H);
-
-      ctx.drawImage(off, 0, 0);
-    }
-    bounds.push({ id: "imageUrl", label: "Background Image", x: 0, y: 0, w: W, h: H });
-
-    // Content-contrast scrim — ramps up toward the bottom, tinted with this
-    // gradient's own far stop, so the copy stays legible even though the
-    // (now very faint) image remains visible underneath all the way down.
-    const contentScrim = ctx.createLinearGradient(0, contentZoneH * 0.7, 0, H);
-    contentScrim.addColorStop(0,   `rgba(${scrimBase},0)`);
-    contentScrim.addColorStop(0.4, `rgba(${scrimBase},${0.35 * fadeMult})`);
-    contentScrim.addColorStop(0.7, `rgba(${scrimBase},${0.62 * fadeMult})`);
-    contentScrim.addColorStop(1,   `rgba(${scrimBase},${0.86 * fadeMult})`);
-    ctx.fillStyle = contentScrim;
-    ctx.fillRect(0, contentZoneH * 0.7, W, H - contentZoneH * 0.7);
-
-    // Faint top scrim so the logo badge reads over bright photos too.
-    const topScrim = ctx.createLinearGradient(0, 0, 0, r(90));
-    topScrim.addColorStop(0, `rgba(${scrimBase},${0.35 * fadeMult})`);
-    topScrim.addColorStop(1, `rgba(${scrimBase},0)`);
-    ctx.fillStyle = topScrim;
-    ctx.fillRect(0, 0, W, r(90));
-  } else {
-    bounds.push({ id: "imageUrl", label: "Background Image", x: 0, y: 0, w: W, h: contentZoneH });
-    ctx.font = `700 ${r(12)}px "Inter", sans-serif`;
-    ctx.fillStyle = fgFaint;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("[ ATTACH IMAGE — see Grok prompt ]", W / 2, contentZoneH * 0.5);
-  }
-
-  // Logo badge — top-left pill with the brand wordmark. Deliberately FIXED
-  // colors (white pill, near-black "STRATI", emerald "X") regardless of
-  // gradient or theme — this is the brand mark, not themed content, so it
-  // must read identically on every poster. Only the eyebrow pill below
-  // adapts to the theme; the logo never does.
-  {
-    const badgeH = r(30);
-    ctx.font = `800 ${r(13)}px "Inter", sans-serif`;
-    const stratiW = ctx.measureText("STRATI").width;
-    const xGlyphW = ctx.measureText("X").width;
-    const badgeW = stratiW + xGlyphW + r(24);
-    ctx.fillStyle = "#ffffff";
-    rrect(ctx, CX, r(24), badgeW, badgeH, badgeH / 2);
-    ctx.fill();
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#111111";
-    ctx.fillText("STRATI", CX + r(12), r(24) + badgeH / 2 + r(0.5));
-    ctx.fillStyle = "#10b981";
-    ctx.fillText("X", CX + r(12) + stratiW, r(24) + badgeH / 2 + r(0.5));
-  }
-
-  // Eyebrow pill — same theme-flipped pill treatment as the logo badge.
-  const eyebrowLabel = kind === "news"
-    ? (isCover ? "TODAY'S BRIEFING" : "TRENDING")
-    : kind === "facts"
-    ? (isCover ? "TODAY'S FACTS" : "FACT")
-    : (isCover ? "TODAY'S LESSON" : (data.stepLabel ? String(data.stepLabel).toUpperCase() : "LESSON"));
-
-  let Y = contentZoneH + r(28);
-  {
-    ctx.font = `900 ${r(12.5)}px "Inter", sans-serif`;
-    const tw = ctx.measureText(eyebrowLabel).width;
-    const bw = tw + r(24), bh = r(30);
-    ctx.fillStyle = pillBg;
-    rrect(ctx, CX, Y, bw, bh, bh / 2);
-    ctx.fill();
-    ctx.fillStyle = pillFg;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillText(eyebrowLabel, CX + r(12), Y + bh / 2 + r(0.5));
-    bounds.push({ id: "category", label: "Eyebrow", x: CX, y: Y, w: bw, h: bh });
-    Y += bh + r(16);
-  }
-
-  // The highlighted phrase carries the pop of color. For news story cards it
-  // takes the sentiment color — emerald when the story is bullish, red when
-  // bearish — so the deck reads green/red at a glance like the editorial
-  // style; covers and Facts/Learnings (no sentiment) use the gradient accent.
-  const sentiment = data.sentiment;
-  const newsHighlightColor = sentiment === "Bullish" ? "#34d399" : sentiment === "Bearish" ? "#fb7185" : gradient.accent;
-  const highlightColor = (kind === "news" && !isCover) ? newsHighlightColor : gradient.accent;
-  // On the two strict monochrome themes, the accent highlight is the SAME
-  // brightness extreme as the base text color (pure white on Jet Black, pure
-  // black on Pure White) — hue can't separate them, so give the base text a
-  // real brightness cut (not a token one) to keep the highlight unmistakable.
-  // Every colored gradient keeps full-strength base text — hue alone already
-  // separates the highlight there, no dimming needed.
-  const headlineBase = !gradient.monochrome
-    ? fg
-    : isLight ? "rgba(10,10,10,0.55)" : "rgba(255,255,255,0.58)";
-
-  // Headline — huge, condensed, ALL CAPS, center-aligned, set in Anton (the
-  // dedicated poster/display face, not Inter) with a dark stroke behind the
-  // fill on colored gradients — matches the reference poster's exact type
-  // treatment instead of approximating it with a heavy system weight.
-  const rawTitle = (data.title || "Untitled").trim().toUpperCase();
-  const highlight = (data.highlightPhrase || "").trim().toUpperCase();
-  const tokens = tokenizeHighlight(rawTitle, highlight);
-  const instrumentImpacts: { symbol: string; sentiment?: string }[] =
-    (kind === "news" && !isCover && Array.isArray(data.instrumentImpacts)) ? data.instrumentImpacts : [];
-  const chipReserve = instrumentImpacts.length > 0 ? r(34) : 0;
-  const bottomReserve = r(70) + chipReserve; // swipe hint + pagination + chip row
-  const descLineH = r(20);
-  const descBudget = data.description ? r(20) * 3 + r(10) : 0;
-  const headlineMaxH = Math.max(H - Y - bottomReserve - descBudget, r(40));
-  const antonFamily = getAntonFontFamily();
-  const fit = fitHighlightTitle(ctx, tokens, CW, headlineMaxH, r(HEADLINE_MIN_PX), r(HEADLINE_MAX_PX), antonFamily, "400", 1.04);
-  ctx.textBaseline = "alphabetic";
-  ctx.textAlign = "left";
-  // Skip the stroke on the two monochrome themes — the highlight there is
-  // already carried by a brightness cut (see headlineBase above), and a
-  // same-tone stroke behind a translucent fill just muddies the edge.
-  const useStroke = !gradient.monochrome;
-  fit.lines.forEach((line, li) => {
-    ctx.font = fit.font;
-    const widths = line.map((tok) => ctx.measureText(tok.text).width);
-    const spaceW = ctx.measureText(" ").width;
-    const totalW = widths.reduce((a, b) => a + b, 0) + spaceW * Math.max(0, line.length - 1);
-    let x = W / 2 - totalW / 2;
-    const baseline = Y + li * fit.lineH + fit.fontSize * 0.86;
-    line.forEach((tok, ti) => {
-      ctx.font = fit.font;
-      if (useStroke) {
-        ctx.lineJoin = "round";
-        ctx.miterLimit = 2;
-        ctx.lineWidth = fit.fontSize * 0.1;
-        ctx.strokeStyle = "rgba(0,0,0,0.55)";
-        ctx.strokeText(tok.text, x, baseline);
-      }
-      ctx.fillStyle = tok.isHL ? highlightColor : headlineBase;
-      ctx.fillText(tok.text, x, baseline);
-      x += widths[ti] + spaceW;
-    });
-  });
-  bounds.push({ id: "title", label: "Headline", x: CX, y: Y, w: CW, h: fit.lines.length * fit.lineH });
-  Y += fit.lines.length * fit.lineH + r(10);
-
-  // Masthead date — News cover only, same "magazine issue dated today"
-  // treatment as the editorial style's cover.
-  if (isCover && kind === "news" && data.date) {
-    ctx.font = `700 ${r(12)}px "Inter", sans-serif`;
-    ctx.fillStyle = fgSoft;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(String(data.date).toUpperCase(), W / 2, Y + r(7));
-    Y += r(22);
-  }
-
-  // Description — kept and made clearly legible rather than dropped (the
-  // explanation still has to carry real information, not just a teaser
-  // headline), with the same key-term highlighting the editorial style uses.
-  const descText = (data.description || "").trim();
-  if (descText) {
-    const descNormalFont = `600 ${r(15.5)}px "Inter", sans-serif`;
-    const descBoldFont = `800 ${r(15.5)}px "Inter", sans-serif`;
-    const descTokens = tokenizeParagraphHighlights(descText, Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []);
-    const allDescLines = wrapParagraphTokens(ctx, descTokens, CW, descNormalFont, descBoldFont);
-    const maxDescLines = Math.max(0, Math.floor((H - r(30) - bottomReserve - Y) / descLineH));
-    let descLines = allDescLines.slice(0, maxDescLines);
-    if (allDescLines.length > maxDescLines && descLines.length > 0) {
-      const lastLine = [...descLines[descLines.length - 1]];
-      const lastTok = { ...lastLine[lastLine.length - 1] };
-      lastTok.text = lastTok.text.replace(/[.,;:]+$/, "") + "…";
-      lastLine[lastLine.length - 1] = lastTok;
-      descLines = [...descLines.slice(0, -1), lastLine];
-    }
-    drawParagraphLines(ctx, descLines, descNormalFont, descBoldFont, descLineH, CX, Y, fgSoft, highlightColor, "left");
-    bounds.push({ id: "description", label: "Explanation", x: CX, y: Y, w: CW, h: descLines.length * descLineH });
-    Y += descLines.length * descLineH + r(12);
-  }
-
-  // Bottom chrome — swipe hint (hidden on the last card) + dot pagination.
-  const chromeY = H - r(30);
-
-  // Instrument-impact chips (news story cards) — green ▲ bullish, red ▼
-  // bearish, accent • neutral. This is where the green/red reads on the
-  // Bold card; placed below the copy, clear of the swipe row.
-  if (instrumentImpacts.length > 0) {
-    const chipH = r(26);
-    const chipY = Math.min(Y, chromeY - r(18) - chipH);
-    let chipX = CX;
-    ctx.font = `800 ${r(11.5)}px "Inter", sans-serif`;
-    for (const inst of instrumentImpacts.slice(0, 4)) {
-      if (!inst?.symbol) continue;
-      const arrow = inst.sentiment === "Bullish" ? "▲" : inst.sentiment === "Bearish" ? "▼" : "•";
-      const label = `${arrow} ${inst.symbol}`;
-      const tw = ctx.measureText(label).width;
-      const chipW = tw + r(18);
-      if (chipX + chipW > CXR && chipX > CX) break;
-      const pal = sentimentPalette(inst.sentiment);
-      ctx.fillStyle = pal.bg;
-      rrect(ctx, chipX, chipY, chipW, chipH, chipH / 2);
-      ctx.fill();
-      ctx.fillStyle = pal.fg;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      ctx.fillText(label, chipX + r(9), chipY + chipH / 2 + r(0.5));
-      chipX += chipW + r(8);
-    }
-  }
-  if (activeIndex < totalCount - 1) {
-    ctx.font = `700 italic ${r(12)}px "Inter", sans-serif`;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = fgMuted;
-    ctx.fillText("SWIPE FOR MORE →", CX, chromeY);
-  }
-  if (totalCount > 1) {
-    const dotSpacing = r(11);
-    const totalDotsW = (totalCount - 1) * dotSpacing;
-    const startDotX = (W - totalDotsW) / 2;
-    for (let i = 0; i < totalCount; i++) {
-      ctx.beginPath();
-      ctx.arc(startDotX + i * dotSpacing, chromeY, r(2.6), 0, Math.PI * 2);
-      ctx.fillStyle = i === activeIndex ? dotActive : dotInactive;
-      ctx.fill();
-    }
-  }
-
-  return bounds;
-}
-
-// The batch's final slide — a calm, brand-forward sign-off, deliberately the
-// opposite mood of the story cards: no impact badge, no ticker chips, no
-// eyebrow, just the wordmark, the sign-off line, and one CTA. Shared by
-// every category (News/Facts/Learnings) so the batch always closes the same
-// way regardless of what generated it — dispatched mode-agnostically from
-// drawPoster via `data.isOutro`.
-// #RRGGBB -> "rgba(r,g,b,alpha)" — used to tint the outro's Bold-style CTA
-// pill with whichever gradient accent is active, without a full color lib.
-function hexToRgba(hex: string, alpha: number): string {
-  const clean = hex.replace("#", "");
-  const bigint = parseInt(clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean, 16);
-  const rr = (bigint >> 16) & 255, gg = (bigint >> 8) & 255, bb = bigint & 255;
-  return `rgba(${rr}, ${gg}, ${bb}, ${alpha})`;
-}
-
-// Picks a guaranteed-legible text color for text painted on top of an
-// arbitrary fill color — needed anywhere a gradient preset's `accent` (which
-// can be near-white on light/monochrome presets) is used as a pill/chip
-// background, so the label on top never goes white-on-white or black-on-black.
-function contrastTextColor(hex: string): string {
-  const clean = hex.replace("#", "");
-  const bigint = parseInt(clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean, 16);
-  const rr = (bigint >> 16) & 255, gg = (bigint >> 8) & 255, bb = bigint & 255;
-  const luminance = (0.299 * rr + 0.587 * gg + 0.114 * bb) / 255;
-  return luminance > 0.6 ? "#0a0a0a" : "#ffffff";
-}
-
-function drawOutroCard(
-  ctx: CanvasRenderingContext2D,
-  data: any,
-  img: HTMLImageElement | null | undefined,
-  W: number,
-  H: number,
-  r: Rfn,
-  activeIndex: number,
-  totalCount: number,
-  gradient?: GradientPreset
-): PosterElement[] {
-  const bounds: PosterElement[] = [];
-  const accentColor = gradient?.accent ?? "#10b981";
-  const isLight = !!gradient?.isLight;
-  const fg = isLight ? "#0a0a0a" : "#ffffff";
-  const fgWordmark = isLight ? "rgba(10,10,10,0.88)" : "rgba(255,255,255,0.92)";
-  const fgSubtext = isLight ? "rgba(10,10,10,0.6)" : "rgba(255,255,255,0.62)";
-  const dotActive = isLight ? "#0a0a0a" : "#ffffff";
-  const dotInactive = isLight ? "rgba(10,10,10,0.32)" : "rgba(255,255,255,0.32)";
-  const scrimRgb = isLight ? "250,250,250" : "6,8,7";
-
-  // Background: full-bleed cover-fit image, darkened, if one's attached —
-  // otherwise a calm wash (the Bold style's gradient preset when active,
-  // else the default charcoal-to-emerald look). Either way this reads as
-  // "settled", not "breaking news".
-  ctx.fillStyle = "#0a0a0a";
-  ctx.fillRect(0, 0, W, H);
-
-  if (img) {
-    const iAR = img.naturalWidth / img.naturalHeight;
-    const zoom = Math.max(1, Math.min(2.5, data.imageZoom || 1));
-    const { slackX, slackY } = computeCoverFitSlack(iAR, W, H, zoom);
-    const fAR = W / H;
-    let baseW = W, baseH = H;
-    if (iAR > fAR) { baseH = H; baseW = H * iAR; }
-    else { baseW = W; baseH = W / iAR; }
-    const dw = baseW * zoom, dh = baseH * zoom;
-    const focusX = Math.max(0, Math.min(1, data.imageFocusX ?? 0.5));
-    const focusY = Math.max(0, Math.min(1, data.imageFocusY ?? 0.5));
-    ctx.drawImage(img, -slackX * focusX, -slackY * focusY, dw, dh);
-    bounds.push({ id: "imageUrl", label: "Background Image", x: 0, y: 0, w: W, h: H });
-  } else if (gradient) {
-    const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, gradient.stops[0]);
-    bg.addColorStop(1, gradient.stops[1]);
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-  } else {
-    const bg = ctx.createRadialGradient(W / 2, H * 0.38, 0, W / 2, H * 0.38, W * 0.9);
-    bg.addColorStop(0, "#132520");
-    bg.addColorStop(1, "#0a0a0a");
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // Scrim over the whole frame (heavier than the story-card photo scrim) so
-  // the sign-off text sits calmly on top regardless of what's underneath.
-  // Tinted light instead of dark on the Pure White theme so it stays a wash,
-  // not a muddy overlay, under the now-dark text.
-  const scrim = ctx.createLinearGradient(0, 0, 0, H);
-  scrim.addColorStop(0, `rgba(${scrimRgb},0.72)`);
-  scrim.addColorStop(0.45, `rgba(${scrimRgb},0.55)`);
-  scrim.addColorStop(1, `rgba(${scrimRgb},0.86)`);
-  ctx.fillStyle = scrim;
-  ctx.fillRect(0, 0, W, H);
-
-  const CX = r(40), CXR = W - r(40), CW = CXR - CX;
-  ctx.textAlign = "center";
-
-  // Wordmark — the same "STRATI" + emerald "X" treatment used as the small
-  // brand handle on story cards, sized up as the centerpiece here.
-  const markY = H * 0.3;
-  ctx.font = `800 ${r(22)}px "Inter", sans-serif`;
-  ctx.textBaseline = "alphabetic";
-  const stratiW = ctx.measureText("STRATI").width;
-  const xW = ctx.measureText("X").width;
-  const wordmarkW = stratiW + xW;
-  ctx.fillStyle = fgWordmark;
-  ctx.textAlign = "left";
-  ctx.fillText("STRATI", W / 2 - wordmarkW / 2, markY);
-  ctx.fillStyle = accentColor;
-  ctx.fillText("X", W / 2 - wordmarkW / 2 + stratiW, markY);
-  ctx.textAlign = "center";
-
-  // Headline
-  const headline = (data.title || "We're Always Watching The Markets").trim();
-  const headlineFit = fitText(ctx, headline, CW, H * 0.16, r(24), r(38));
-  let Y = markY + r(46);
-  ctx.font = `800 ${headlineFit.fontSize}px "Inter", sans-serif`;
-  ctx.fillStyle = fg;
-  ctx.textBaseline = "middle";
-  headlineFit.lines.forEach((line, i) => {
-    ctx.fillText(line, W / 2, Y + i * headlineFit.lineSpacing + headlineFit.lineSpacing / 2);
-  });
-  bounds.push({ id: "title", label: "Headline", x: CX, y: Y, w: CW, h: headlineFit.lines.length * headlineFit.lineSpacing });
-  Y += headlineFit.lines.length * headlineFit.lineSpacing + r(14);
-
-  // Subtext
-  const subtext = (data.description || "").trim();
-  if (subtext) {
-    ctx.font = `500 ${r(14)}px "Inter", sans-serif`;
-    const subLines = wrap(ctx, subtext, CW * 0.82).slice(0, 4);
-    const subLineH = r(20);
-    ctx.fillStyle = fgSubtext;
-    subLines.forEach((line, i) => {
-      ctx.fillText(line, W / 2, Y + i * subLineH + subLineH / 2);
-    });
-    bounds.push({ id: "description", label: "Subtext", x: CX, y: Y, w: CW, h: subLines.length * subLineH });
-    Y += subLines.length * subLineH + r(24);
-  }
-
-  // CTA pill
-  const cta = (data.cta || "Follow for daily market briefings").trim();
-  ctx.font = `700 ${r(12.5)}px "Inter", sans-serif`;
-  const ctaW = ctx.measureText(cta).width + r(44);
-  const ctaH = r(38);
-  const ctaX = W / 2 - ctaW / 2;
-  ctx.strokeStyle = hexToRgba(accentColor, 0.55);
-  ctx.lineWidth = 1.5;
-  ctx.fillStyle = hexToRgba(accentColor, 0.12);
-  rrect(ctx, ctaX, Y, ctaW, ctaH, ctaH / 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = accentColor;
-  ctx.fillText(cta, W / 2, Y + ctaH / 2 + r(0.5));
-  bounds.push({ id: "cta", label: "Call To Action", x: ctaX, y: Y, w: ctaW, h: ctaH });
-
-  // Dot pagination — kept for carousel-position continuity with every other
-  // card in the batch, even though the badge/ticker chrome is dropped.
-  if (totalCount > 1) {
-    const chromeY = H - r(30);
-    const dotSpacing = r(11);
-    const totalDotsW = (totalCount - 1) * dotSpacing;
-    const startDotX = (W - totalDotsW) / 2;
-    for (let i = 0; i < totalCount; i++) {
-      ctx.beginPath();
-      ctx.arc(startDotX + i * dotSpacing, chromeY, r(2.6), 0, Math.PI * 2);
-      ctx.fillStyle = i === activeIndex ? dotActive : dotInactive;
-      ctx.fill();
-    }
-  }
-
-  return bounds;
-}
-
-// A News story's plain-language companion card — a bento grid of "What
-// Happened", "Why It Matters", and per-market impact chips, all written for
-// a reader who has never heard of this story before today. Deliberately a
-// different visual language from the trader-facing story card it follows:
-// light, warm, rounded cells rather than a dark editorial/bold treatment —
-// this is the one card in the batch meant to feel approachable, not urgent.
-// Takes no image (bento cards never carry a photo) — `gradient` is optional
-// purely for accent-color continuity with the batch's Bold gradient choice,
-// same "only when Bold is active" convention as drawOutroCard.
-function drawBentoExplainerCard(
-  ctx: CanvasRenderingContext2D,
-  data: any,
-  W: number,
-  H: number,
-  r: Rfn,
-  activeIndex: number,
-  totalCount: number,
-  gradient?: GradientPreset
-): PosterElement[] {
-  const bounds: PosterElement[] = [];
-  const accent = gradient?.accent ?? "#10b981";
-  const isLight = gradient ? !!gradient.isLight : true;
-  const bg = isLight ? "#fbfaf7" : "#111412";
-  const cardBg = isLight ? "#ffffff" : "rgba(255,255,255,0.05)";
-  const cardBorder = isLight ? "rgba(10,10,10,0.08)" : "rgba(255,255,255,0.08)";
-  const textPrimary = isLight ? "#161613" : "rgba(255,255,255,0.92)";
-  const textMuted = isLight ? "rgba(22,22,19,0.55)" : "rgba(255,255,255,0.55)";
-  const dotActive = isLight ? "#161613" : "#ffffff";
-  const dotInactive = isLight ? "rgba(22,22,19,0.28)" : "rgba(255,255,255,0.28)";
-  // Section labels are painted in `accent` directly on the (near-)white card
-  // background in light mode — if accent is itself very light (some
-  // monochrome presets), that text would vanish too, so fall back to the
-  // primary text color whenever accent can't carry its own contrast here.
-  const accentReadableOnCard = !(isLight && contrastTextColor(accent) === "#0a0a0a");
-  const labelColor = accentReadableOnCard ? accent : textPrimary;
-
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-
-  const glow = ctx.createRadialGradient(W * 0.18, H * 0.06, 0, W * 0.18, H * 0.06, W * 0.75);
-  glow.addColorStop(0, hexToRgba(accent, isLight ? 0.1 : 0.18));
-  glow.addColorStop(1, hexToRgba(accent, 0));
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = accent;
-  ctx.fillRect(0, 0, W, r(6));
-
-  const PAD = r(28);
-  const CX = PAD, CXR = W - PAD, CW = CXR - CX;
-  let Y = r(24);
-
-  // Logo badge — same fixed brand colors as every other card, top-left.
-  {
-    const badgeH = r(30);
-    ctx.font = `800 ${r(13)}px "Inter", sans-serif`;
-    const stratiW = ctx.measureText("STRATI").width;
-    const xGlyphW = ctx.measureText("X").width;
-    const badgeW = stratiW + xGlyphW + r(24);
-    ctx.fillStyle = "#ffffff";
-    rrect(ctx, CX, Y, badgeW, badgeH, badgeH / 2);
-    ctx.fill();
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#111111";
-    ctx.fillText("STRATI", CX + r(12), Y + badgeH / 2 + r(0.5));
-    ctx.fillStyle = "#10b981";
-    ctx.fillText("X", CX + r(12) + stratiW, Y + badgeH / 2 + r(0.5));
-
-    // Eyebrow pill, right-aligned on the same row. Text color is computed
-    // against the actual pill fill (not hardcoded white) — on light/
-    // monochrome gradient presets `accent` can itself be near-white, and
-    // white-on-white silently renders as an empty pill.
-    const eyebrowText = "EXPLAINED SIMPLY";
-    ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
-    const eyebrowW = ctx.measureText(eyebrowText).width + r(24);
-    const eyebrowH = r(28);
-    const eyebrowX = CXR - eyebrowW;
-    const eyebrowY = Y + (badgeH - eyebrowH) / 2;
-    ctx.fillStyle = accent;
-    rrect(ctx, eyebrowX, eyebrowY, eyebrowW, eyebrowH, eyebrowH / 2);
-    ctx.fill();
-    ctx.fillStyle = contrastTextColor(accent);
-    ctx.fillText(eyebrowText, eyebrowX + r(12), eyebrowY + eyebrowH / 2 + r(0.5));
-
-    Y += badgeH + r(22);
-  }
-
-  // Everything below is measured BEFORE anything is drawn: each section's
-  // box is sized to the actual wrapped text it holds (not a guessed
-  // fraction of canvas height), and whatever vertical space is left over —
-  // common on tall aspect ratios like Story — becomes extra breathing room
-  // between sections instead of a dead gap after the last one or a
-  // half-empty box in the middle.
-  const impacts: { market: string; effect: string; direction: string }[] = Array.isArray(data.simpleImpacts) ? data.simpleImpacts.slice(0, 4) : [];
-  const chipGap = r(12);
-  const chipH = r(68);
-  const chipRows = impacts.length > 0 ? Math.ceil(impacts.length / 2) : 0;
-  const impactsSectionH = impacts.length > 0 ? r(30) + chipRows * chipH + Math.max(0, chipRows - 1) * chipGap : 0;
-  const footerReserve = totalCount > 1 ? r(36) : r(16);
-
-  // Headline — measure the fitted block first, box hugs it with fixed padding.
-  const headline = String(data.simpleHeadline || data.title || "").trim();
-  const tokens = tokenizeHighlight(headline, String(data.simpleHeadlineHighlight || ""));
-  const headlinePadX = r(24), headlinePadY = r(28);
-  const fit = fitHighlightTitle(ctx, tokens, CW - headlinePadX * 2, H * 0.32, r(24), r(42), '"Inter", "Arial Black", sans-serif', "900", 1.14);
-  const headlineBlockH = fit.lines.length * fit.lineH;
-  const zoneH = Math.max(headlineBlockH + headlinePadY * 2, r(120));
-
-  // Two-cell row — measure both cells' wrapped content at their real font
-  // sizes so the shared row height matches whichever cell needs more room.
-  const rowGap = r(14);
-  const leftW = Math.round(CW * 0.56);
-  const rightX = CX + leftW + rowGap;
-  const rightW = CW - leftW - rowGap;
-
-  const whPadX = r(18), whPadTop = r(50), whPadBottom = r(26);
-  const whatHappened = String(data.whatHappened || data.description || "").trim();
-  ctx.font = `600 ${r(17)}px "Inter", sans-serif`;
-  const whLineH = r(23);
-  const whLines = wrap(ctx, whatHappened, leftW - whPadX * 2).slice(0, 9);
-  const leftContentH = whPadTop + whLines.length * whLineH + whPadBottom;
-
-  const wmPadX = r(16), wmPadBottom = r(24);
-  ctx.font = `800 ${r(12)}px "Inter", sans-serif`;
-  const whyLabelLines = wrap(ctx, "WHY IT MATTERS", rightW - wmPadX * 2);
-  const whyItMatters = String(data.whyItMatters || "").trim();
-  ctx.font = `600 ${r(15.5)}px "Inter", sans-serif`;
-  const wmLineH = r(21);
-  const wmLines = wrap(ctx, whyItMatters, rightW - wmPadX * 2).slice(0, 9);
-  const wmTextStartOffset = r(28) + whyLabelLines.length * r(15) + r(14);
-  const rightContentH = wmTextStartOffset + wmLines.length * wmLineH + wmPadBottom;
-
-  const rowH = Math.max(leftContentH, rightContentH, r(150));
-
-  // Distribute leftover vertical space as extra gap between sections.
-  const baseGap = r(20);
-  const gapCount = 2 + (impacts.length > 0 ? 1 : 0);
-  const minUsedH = Y + zoneH + baseGap + rowH + (impacts.length > 0 ? baseGap + impactsSectionH : 0) + baseGap + footerReserve;
-  const leftover = Math.max(0, H - minUsedH);
-  const sectionGap = baseGap + Math.min(leftover / gapCount, r(160));
-
-  // ---- Draw headline ----
-  ctx.fillStyle = cardBg;
-  rrect(ctx, CX, Y, CW, zoneH, r(20));
-  ctx.fill();
-  ctx.strokeStyle = cardBorder;
-  ctx.lineWidth = 1;
-  rrect(ctx, CX, Y, CW, zoneH, r(20));
-  ctx.stroke();
-  const headlineStartY = Y + (zoneH - headlineBlockH) / 2;
-  // Same white-on-white guard as the eyebrow pill above.
-  drawHighlightLines(ctx, fit.lines, fit.font, fit.fontSize, fit.lineH, W / 2, headlineStartY, r(8), { bg: accent, fg: contrastTextColor(accent) }, textPrimary);
-  bounds.push({ id: "simpleHeadline", label: "Simple Headline", x: CX, y: Y, w: CW, h: zoneH });
-  Y += zoneH + sectionGap;
-
-  // ---- Draw two-cell row ----
-  ctx.fillStyle = cardBg;
-  rrect(ctx, CX, Y, leftW, rowH, r(18));
-  ctx.fill();
-  ctx.strokeStyle = cardBorder;
-  ctx.lineWidth = 1;
-  rrect(ctx, CX, Y, leftW, rowH, r(18));
-  ctx.stroke();
-
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  ctx.font = `800 ${r(12)}px "Inter", sans-serif`;
-  ctx.fillStyle = labelColor;
-  ctx.fillText("WHAT HAPPENED", CX + whPadX, Y + r(28));
-
-  ctx.font = `600 ${r(17)}px "Inter", sans-serif`;
-  ctx.fillStyle = textPrimary;
-  ctx.textBaseline = "middle";
-  whLines.forEach((line, i) => ctx.fillText(line, CX + whPadX, Y + whPadTop + i * whLineH + whLineH / 2));
-  bounds.push({ id: "whatHappened", label: "What Happened", x: CX, y: Y, w: leftW, h: rowH });
-
-  ctx.fillStyle = hexToRgba(accent, isLight ? 0.08 : 0.14);
-  rrect(ctx, rightX, Y, rightW, rowH, r(18));
-  ctx.fill();
-
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  ctx.font = `800 ${r(12)}px "Inter", sans-serif`;
-  ctx.fillStyle = labelColor;
-  whyLabelLines.forEach((line, i) => ctx.fillText(line, rightX + wmPadX, Y + r(28) + i * r(15)));
-
-  ctx.font = `600 ${r(15.5)}px "Inter", sans-serif`;
-  ctx.fillStyle = textPrimary;
-  ctx.textBaseline = "middle";
-  const wmStartY = Y + wmTextStartOffset;
-  wmLines.forEach((line, i) => ctx.fillText(line, rightX + wmPadX, wmStartY + i * wmLineH + wmLineH / 2));
-  bounds.push({ id: "whyItMatters", label: "Why It Matters", x: rightX, y: Y, w: rightW, h: rowH });
-
-  Y += rowH + (impacts.length > 0 ? sectionGap : 0);
-
-  // ---- Draw impact chips — plain-language per-market effect, 2 per row ----
-  if (impacts.length > 0) {
-    ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
-    ctx.font = `800 ${r(12)}px "Inter", sans-serif`;
-    ctx.fillStyle = textMuted;
-    ctx.fillText("WHO THIS AFFECTS", CX, Y);
-    Y += r(18);
-
-    const chipW = Math.floor((CW - chipGap) / 2);
-    impacts.forEach((imp, i) => {
-      const col = i % 2, row = Math.floor(i / 2);
-      const cx = CX + col * (chipW + chipGap);
-      const cy = Y + row * (chipH + chipGap);
-      const dirColor = imp.direction === "up" ? "#10b981" : imp.direction === "down" ? "#ef4444" : "#f59e0b";
-      const arrow = imp.direction === "up" ? "▲" : imp.direction === "down" ? "▼" : "●";
-      ctx.fillStyle = hexToRgba(dirColor, isLight ? 0.1 : 0.16);
-      rrect(ctx, cx, cy, chipW, chipH, r(16));
-      ctx.fill();
-      ctx.strokeStyle = hexToRgba(dirColor, 0.32);
-      ctx.lineWidth = 1;
-      rrect(ctx, cx, cy, chipW, chipH, r(16));
-      ctx.stroke();
-
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
-      ctx.font = `800 ${r(14.5)}px "Inter", sans-serif`;
-      ctx.fillStyle = dirColor;
-      ctx.fillText(`${arrow} ${imp.market}`, cx + r(14), cy + r(26));
-
-      ctx.font = `600 ${r(12.5)}px "Inter", sans-serif`;
-      ctx.fillStyle = textMuted;
-      const effLines = wrap(ctx, imp.effect, chipW - r(28)).slice(0, 2);
-      effLines.forEach((line, li) => ctx.fillText(line, cx + r(14), cy + r(46) + li * r(15)));
-    });
-    Y += impactsSectionH - r(30);
-  }
-
-  // Footer — dot pagination, same continuity treatment as every other card.
-  if (totalCount > 1) {
-    const chromeY = H - r(24);
-    const dotSpacing = r(11);
-    const totalDotsW = (totalCount - 1) * dotSpacing;
-    const startDotX = (W - totalDotsW) / 2;
-    for (let i = 0; i < totalCount; i++) {
-      ctx.beginPath();
-      ctx.arc(startDotX + i * dotSpacing, chromeY, r(2.6), 0, Math.PI * 2);
-      ctx.fillStyle = i === activeIndex ? dotActive : dotInactive;
-      ctx.fill();
-    }
-  }
-
-  return bounds;
-}
-
 function drawPoster(
   canvas: HTMLCanvasElement,
   data: any,
@@ -3804,13 +2338,9 @@ function drawPoster(
   colors: PosterColors,
   config: PosterConfig,
   img: HTMLImageElement | null | undefined,
-  mode: CreatorMode = "analysis",
+  mode: "analysis" | "news" | "indicator" = "analysis",
   activeNewsIndex: number = 0,
-  totalNewsCount: number = 1,
-  posterStyle: "editorial" | "bold" = "editorial",
-  gradient: GradientPreset = GRADIENT_PRESETS[0],
-  editorialTheme: EditorialTheme = "light",
-  fadeIntensity: number = 100
+  totalNewsCount: number = 1
 ): PosterElement[] {
   const W = ar.w, H = ar.h;
   canvas.width = W; canvas.height = H;
@@ -3829,29 +2359,8 @@ function drawPoster(
   const GUT = r(24);
   const CX = PAD + GUT, CXR = W - PAD - GUT, CW = CXR - CX;
 
-  // Outro is a batch-level card kind, not a creator mode — check it first so
-  // News/Facts/Learnings all close on the exact same brand sign-off.
-  if (data?.isOutro) {
-    return drawOutroCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, posterStyle === "bold" ? gradient : undefined);
-  }
-
-  // Same idea as isOutro — a bento explainer is a card kind, not a style, so
-  // it always renders in its own plain-language grid regardless of whether
-  // the batch is Editorial or Bold.
-  if (data?.isBento) {
-    return drawBentoExplainerCard(ctx, data, W, H, r, activeNewsIndex, totalNewsCount, posterStyle === "bold" ? gradient : undefined);
-  }
-
   if (mode === "news") {
-    return posterStyle === "bold"
-      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, "news", gradient, fadeIntensity)
-      : drawTradingNewsPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, editorialTheme, fadeIntensity);
-  }
-
-  if (mode === "facts" || mode === "learnings") {
-    return posterStyle === "bold"
-      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, gradient, fadeIntensity)
-      : drawEducationalCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, editorialTheme, fadeIntensity);
+    return drawTradingNewsPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount);
   }
 
   return drawChaseStylePoster(
@@ -4325,16 +2834,14 @@ function SampleJsonModal({
   onClose,
   onApply,
 }: {
-  mode: CreatorMode;
+  mode: "analysis" | "news" | "indicator";
   onClose: () => void;
   onApply: (json: string) => void;
 }) {
-  const sampleData: Record<CreatorMode, unknown> = {
+  const sampleData = {
     analysis: SAMPLE_ANALYSIS,
     news: SAMPLE_NEWS,
     indicator: SAMPLE,
-    facts: SAMPLE_FACTS,
-    learnings: SAMPLE_LEARNINGS,
   };
   const json = JSON.stringify(sampleData[mode], null, 2);
   const [copied, setCopied] = useState(false);
@@ -4344,10 +2851,6 @@ function SampleJsonModal({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
-
-  const modeLabels: Record<CreatorMode, string> = {
-    analysis: "Analysis", news: "News Batch", indicator: "Indicator", facts: "Facts", learnings: "Learnings",
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -4364,7 +2867,7 @@ function SampleJsonModal({
           <div className="flex items-center gap-2.5">
             <Code2 className="h-4 w-4 text-white/60" />
             <span className="text-[13px] font-bold text-white tracking-wide uppercase">
-              Sample JSON Schema ({modeLabels[mode]})
+              Sample JSON Schema ({mode === "analysis" ? "Analysis" : mode === "news" ? "News Batch" : "Indicator"})
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -4408,193 +2911,6 @@ function SampleJsonModal({
           >
             Use Sample <ChevronRight className="h-3.5 w-3.5" />
           </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Shows the EXACT system prompt + user message the app sends to the AI for a
-// given batch category, plus the JSON shape the response must match — the
-// same `previewOnly` mechanism the Content Calendar's "Copy Prompt" uses,
-// surfaced directly from the main Generate menu so nothing about what the
-// model is told (curation rules, voice, image-prompt formula, output schema)
-// is hidden behind a black box.
-function ShowPromptModal({
-  category,
-  onClose,
-  onImport,
-}: {
-  category: "news" | "facts" | "learnings";
-  onClose: () => void;
-  onImport: (category: "news" | "facts" | "learnings", rawText: string) => Promise<void>;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [systemPrompt, setSystemPrompt] = useState("");
-  const [userMessage, setUserMessage] = useState("");
-  const [copiedSection, setCopiedSection] = useState<string | null>(null);
-  const [pasteText, setPasteText] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const endpoint = category === "news" ? "news-batch" : category === "facts" ? "facts-batch" : "learnings-batch";
-    setLoading(true);
-    setError(null);
-    fetch(`/api/content-creator/${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ previewOnly: true }),
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) throw new Error(d.error);
-        setSystemPrompt(d.systemPrompt || "");
-        setUserMessage(d.userMessage || "");
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load prompt"))
-      .finally(() => setLoading(false));
-  }, [category]);
-
-  const categoryLabel = category === "news" ? "News Batch" : category === "facts" ? "Facts" : "Learnings";
-
-  const fullText = `=== SYSTEM PROMPT (sent to the AI) ===\n${systemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE (sent to the AI) ===\n${userMessage}\n\n${"─".repeat(60)}\n\nPaste this whole thing into ChatGPT, Claude, Grok, or any capable AI. Copy its reply and paste it into the "Paste The AI's Reply" box in Stratix to render the poster batch.`;
-
-  function copy(text: string, section: string) {
-    navigator.clipboard.writeText(text);
-    setCopiedSection(section);
-    setTimeout(() => setCopiedSection((s) => (s === section ? null : s)), 2000);
-  }
-
-  async function handleImport() {
-    setImporting(true);
-    setImportError(null);
-    try {
-      await onImport(category, pasteText);
-      onClose();
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : "Import failed");
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div
-        className="relative z-10 w-full max-w-3xl max-h-[85vh] flex flex-col rounded-2xl border overflow-hidden"
-        style={{ background: "#0f0f0f", borderColor: "rgba(255, 255, 255, 0.08)" }}
-      >
-        <div
-          className="flex items-center justify-between px-5 py-3.5 border-b shrink-0"
-          style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
-        >
-          <div className="flex items-center gap-2.5">
-            <Eye className="h-4 w-4 text-white/60" />
-            <span className="text-[13px] font-bold text-white tracking-wide uppercase">
-              Full Generation Prompt ({categoryLabel})
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => copy(fullText, "all")}
-              disabled={loading || !!error}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-white/[0.08] bg-white/5 hover:bg-white/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {copiedSection === "all" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-              {copiedSection === "all" ? "Copied" : "Copy Everything"}
-            </button>
-            <button
-              onClick={onClose}
-              className="flex items-center justify-center h-7 w-7 rounded-lg hover:bg-white/5 transition-all text-white/40 hover:text-white/80 cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        <p className="px-5 py-2.5 text-[10.5px] text-white/40 border-b shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
-          This is exactly what the app sends the AI when you click Generate — curation rules, voice, the image-prompt formula, and the JSON shape the poster renderer expects back. Nothing hidden.
-        </p>
-
-        <div className="overflow-y-auto flex-1 p-5 space-y-5">
-          {loading && (
-            <div className="flex items-center justify-center gap-2 py-16 text-white/40 text-[12px]">
-              <Loader2 className="h-4 w-4 animate-spin" /> Building the live prompt…
-            </div>
-          )}
-          {error && (
-            <div className="flex items-center gap-2 p-3 rounded-xl border border-red-500/20 bg-red-500/5 text-red-300 text-[11px]">
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
-            </div>
-          )}
-          {!loading && !error && (
-            <>
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-bold text-white/50 uppercase tracking-wider">System Prompt</span>
-                  <button
-                    onClick={() => copy(systemPrompt, "system")}
-                    className="flex items-center gap-1 text-[9.5px] font-bold text-white/40 hover:text-white/80 transition cursor-pointer"
-                  >
-                    {copiedSection === "system" ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
-                    {copiedSection === "system" ? "Copied" : "Copy"}
-                  </button>
-                </div>
-                <pre className="text-[10.5px] leading-relaxed whitespace-pre-wrap text-white/75 bg-white/[0.02] border border-white/[0.06] rounded-xl p-3 max-h-64 overflow-y-auto" style={{ fontFamily: "ui-monospace, monospace" }}>
-                  {systemPrompt}
-                </pre>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-bold text-white/50 uppercase tracking-wider">User Message</span>
-                  <button
-                    onClick={() => copy(userMessage, "user")}
-                    className="flex items-center gap-1 text-[9.5px] font-bold text-white/40 hover:text-white/80 transition cursor-pointer"
-                  >
-                    {copiedSection === "user" ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
-                    {copiedSection === "user" ? "Copied" : "Copy"}
-                  </button>
-                </div>
-                <pre className="text-[10.5px] leading-relaxed whitespace-pre-wrap text-white/75 bg-white/[0.02] border border-white/[0.06] rounded-xl p-3 max-h-40 overflow-y-auto" style={{ fontFamily: "ui-monospace, monospace" }}>
-                  {userMessage}
-                </pre>
-              </div>
-
-              <div className="pt-1 border-t border-white/[0.06]">
-                <div className="flex items-center justify-between mb-1.5 pt-4">
-                  <span className="text-[10px] font-bold text-white/50 uppercase tracking-wider">Paste The AI&apos;s Reply</span>
-                </div>
-                <p className="text-[10px] text-white/35 mb-2">
-                  Ran the prompt above in ChatGPT, Claude, Grok, or anywhere else? Paste its JSON reply below — it&apos;ll be converted and rendered as the poster batch automatically.
-                </p>
-                <textarea
-                  value={pasteText}
-                  onChange={(e) => { setPasteText(e.target.value); setImportError(null); }}
-                  placeholder="Paste the AI's JSON reply here…"
-                  spellCheck={false}
-                  className="w-full h-32 resize-none rounded-xl p-3 text-[10.5px] leading-relaxed outline-none transition-all bg-white/[0.02] border border-white/[0.08] text-white/80 focus:border-white/[0.20]"
-                  style={{ fontFamily: "ui-monospace, monospace" }}
-                />
-                {importError && (
-                  <div className="flex items-center gap-2 mt-2 p-2.5 rounded-lg border border-red-500/20 bg-red-500/5 text-red-300 text-[10.5px]">
-                    <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {importError}
-                  </div>
-                )}
-                <button
-                  onClick={handleImport}
-                  disabled={importing || !pasteText.trim()}
-                  className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-[11px] font-bold transition-all border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                  {importing ? "Rendering…" : "Render Poster"}
-                </button>
-              </div>
-            </>
-          )}
         </div>
       </div>
     </div>
@@ -5225,11 +3541,9 @@ function mapNewsReportToItems(parsed: any): NewsItem[] {
 // ─── History modal ────────────────────────────────────────────────────────────
 
 const HISTORY_CATEGORY_META: Record<HistoryListItem["category"], { label: string; icon: typeof Newspaper; color: string }> = {
-  "news-batch":       { label: "News Batch",     icon: Newspaper,  color: "#10b981" },
-  "daily-analysis":   { label: "Daily Analysis", icon: LineChart,  color: "#f59e0b" },
-  "indicator":        { label: "Indicator",      icon: Layers2,    color: "#8b93a1" },
-  "facts-batch":      { label: "Facts",          icon: Lightbulb,  color: "#10b981" },
-  "learnings-batch":  { label: "Learnings",      icon: BookOpen,   color: "#10b981" },
+  "news-batch":     { label: "News Batch",     icon: Newspaper,  color: "#10b981" },
+  "daily-analysis": { label: "Daily Analysis", icon: LineChart,  color: "#f59e0b" },
+  "indicator":      { label: "Indicator",      icon: Layers2,    color: "#8b93a1" },
 };
 
 function relativeTime(iso: string): string {
@@ -5283,7 +3597,7 @@ function HistoryModal({
 
         {/* Category filter */}
         <div className="flex items-center gap-1.5 px-5 py-3 border-b border-white/[0.06] shrink-0 flex-wrap">
-          {(["all", "news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch"] as const).map((cat) => {
+          {(["all", "news-batch", "daily-analysis", "indicator"] as const).map((cat) => {
             const active = filter === cat;
             const label = cat === "all" ? "All" : HISTORY_CATEGORY_META[cat].label;
             const count = cat === "all" ? items.length : (counts[cat] || 0);
@@ -5549,245 +3863,6 @@ function PosterSelectionModal({
   );
 }
 
-const PILLAR_COLORS: Record<string, { bg: string; fg: string }> = {
-  SMC: { bg: "rgba(16,185,129,0.14)", fg: "#34d399" },
-  Crypto: { bg: "rgba(245,158,11,0.14)", fg: "#fbbf24" },
-  PF: { bg: "rgba(96,165,250,0.14)", fg: "#60a5fa" },
-  Recap: { bg: "rgba(244,114,182,0.14)", fg: "#f472b6" },
-};
-
-type CalendarPromptState = { key: string; status: "idle" | "loading" | "copied" | "error" };
-
-function ContentCalendarModal({
-  onClose,
-  onGenerateNews,
-  onGenerateFacts,
-  onGenerateLearnings,
-}: {
-  onClose: () => void;
-  onGenerateNews: () => void;
-  onGenerateFacts: (topicHint: string) => void;
-  onGenerateLearnings: (topicHint: string) => void;
-}) {
-  const months = Array.from(new Set(CALENDAR_PLAN.map((d) => d.date.slice(0, 7)))).sort();
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const defaultMonth = months.includes(todayIso.slice(0, 7)) ? todayIso.slice(0, 7) : months[0];
-  const [monthIdx, setMonthIdx] = useState(Math.max(0, months.indexOf(defaultMonth)));
-  const activeMonth = months[monthIdx];
-  const [promptState, setPromptState] = useState<CalendarPromptState>({ key: "", status: "idle" });
-
-  const [y, m] = activeMonth.split("-").map(Number);
-  const firstOfMonth = new Date(y, m - 1, 1);
-  const startWeekday = firstOfMonth.getDay(); // 0=Sun
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const monthLabel = firstOfMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-
-  const dayByDate = new Map(CALENDAR_PLAN.map((d) => [d.date, d]));
-
-  async function copyPrompt(category: "news" | "facts" | "learnings", topicHint: string | undefined, key: string) {
-    setPromptState({ key, status: "loading" });
-    try {
-      const endpoint = category === "news" ? "news-batch" : category === "facts" ? "facts-batch" : "learnings-batch";
-      const res = await fetch(`/api/content-creator/${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(topicHint ? { previewOnly: true, topicHint } : { previewOnly: true }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
-
-      const text = `=== SYSTEM PROMPT ===\n${data.systemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${data.userMessage}\n\n${"─".repeat(60)}\n\nINSTRUCTIONS: Paste this entire prompt (system + user message) into ChatGPT, Claude, or any capable AI. It replies with ONLY a JSON object in the exact shape spelled out at the end of the system prompt above — no markdown fences, no commentary. Back in Stratix Content Creator, switch to ${category === "news" ? "News Batch" : category === "facts" ? "Facts" : "Learnings"} mode and either paste that reply into the "Paste The AI's Reply" box in the eye-icon prompt panel, or straight into the JSON tab — either one converts it and renders the poster batch automatically.`;
-
-      await navigator.clipboard.writeText(text);
-      setPromptState({ key, status: "copied" });
-      setTimeout(() => setPromptState((s) => (s.key === key ? { key: "", status: "idle" } : s)), 2000);
-    } catch {
-      setPromptState({ key, status: "error" });
-      setTimeout(() => setPromptState((s) => (s.key === key ? { key: "", status: "idle" } : s)), 2500);
-    }
-  }
-
-  function PillarRow({
-    dayKey,
-    label,
-    accent,
-    topic,
-    onGenerate,
-    onCopy,
-  }: {
-    dayKey: string;
-    label: string;
-    accent: string;
-    topic: string;
-    onGenerate: () => void;
-    onCopy: () => void;
-  }) {
-    const state = promptState.key === dayKey ? promptState.status : "idle";
-    return (
-      <div className="group/row relative rounded-md px-1.5 py-1 hover:bg-white/[0.06] transition-colors">
-        <div className="flex items-start gap-1">
-          <span
-            className="shrink-0 mt-[1px] text-[7.5px] font-bold uppercase tracking-wider px-1 py-[1px] rounded"
-            style={{ background: accent === "#e5e5e5" ? "rgba(255,255,255,0.08)" : `${accent}22`, color: accent }}
-          >
-            {label}
-          </span>
-          <span className="text-[9px] leading-snug text-white/70 line-clamp-2" title={topic}>
-            {topic}
-          </span>
-        </div>
-        <div className="absolute right-1 top-1 hidden group-hover/row:flex items-center gap-1 bg-[#161616] rounded-md shadow-lg border border-white/10 p-0.5">
-          <button
-            onClick={onGenerate}
-            title="Generate this poster now"
-            className="flex items-center gap-1 px-1.5 py-1 rounded text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/15 cursor-pointer"
-          >
-            <Sparkles className="h-2.5 w-2.5" /> Generate
-          </button>
-          <button
-            onClick={onCopy}
-            title="Copy an AI-ready prompt for this topic"
-            className="flex items-center gap-1 px-1.5 py-1 rounded text-[9px] font-bold text-white/70 hover:bg-white/10 cursor-pointer"
-          >
-            {state === "loading" ? (
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
-            ) : state === "copied" ? (
-              <Check className="h-2.5 w-2.5 text-emerald-400" />
-            ) : state === "error" ? (
-              <X className="h-2.5 w-2.5 text-red-400" />
-            ) : (
-              <ClipboardCopy className="h-2.5 w-2.5" />
-            )}
-            {state === "copied" ? "Copied" : state === "error" ? "Failed" : "Prompt"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div
-        className="relative z-10 w-full max-w-5xl max-h-[90vh] flex flex-col rounded-2xl border overflow-hidden"
-        style={{ background: "#0f0f0f", borderColor: "rgba(255, 255, 255, 0.08)" }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-5 py-3.5 border-b shrink-0"
-          style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}
-        >
-          <div className="flex items-center gap-2.5">
-            <Calendar className="h-4 w-4 text-white/60" />
-            <span className="text-[13px] font-bold text-white tracking-wide uppercase">Content Calendar</span>
-            <span className="text-[9.5px] text-white/35">30-day News / Learnings / Facts plan</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setMonthIdx((i) => Math.max(0, i - 1))}
-              disabled={monthIdx === 0}
-              className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <span className="text-[11px] font-semibold text-white/80 w-32 text-center">{monthLabel}</span>
-            <button
-              onClick={() => setMonthIdx((i) => Math.min(months.length - 1, i + 1))}
-              disabled={monthIdx === months.length - 1}
-              className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-            <button
-              onClick={onClose}
-              className="ml-2 flex items-center justify-center h-7 w-7 rounded-lg hover:bg-white/5 transition-all text-white/40 hover:text-white/80 cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Legend */}
-        <div className="flex items-center gap-3 px-5 py-2 border-b shrink-0 flex-wrap" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
-          <span className="text-[9px] text-white/30 uppercase tracking-wider">Hover a topic for Generate / Copy Prompt</span>
-          <span className="flex items-center gap-1 text-[9px] text-white/50"><span className="w-2 h-2 rounded-sm" style={{ background: "#e5e5e5" }} /> News</span>
-          <span className="flex items-center gap-1 text-[9px] text-white/50"><span className="w-2 h-2 rounded-sm" style={{ background: PILLAR_COLORS.SMC.fg }} /> SMC</span>
-          <span className="flex items-center gap-1 text-[9px] text-white/50"><span className="w-2 h-2 rounded-sm" style={{ background: PILLAR_COLORS.Crypto.fg }} /> Crypto</span>
-          <span className="flex items-center gap-1 text-[9px] text-white/50"><span className="w-2 h-2 rounded-sm" style={{ background: PILLAR_COLORS.PF.fg }} /> Personal Finance</span>
-        </div>
-
-        {/* Grid */}
-        <div className="overflow-y-auto flex-1 p-4">
-          <div className="grid grid-cols-7 gap-1.5 mb-1.5">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-              <div key={d} className="text-[9px] font-bold text-white/30 uppercase tracking-wider text-center py-1">
-                {d}
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-1.5">
-            {Array.from({ length: startWeekday }).map((_, i) => (
-              <div key={`empty-${i}`} />
-            ))}
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const dateIso = `${activeMonth}-${String(i + 1).padStart(2, "0")}`;
-              const plan = dayByDate.get(dateIso);
-              const isToday = dateIso === todayIso;
-              return (
-                <div
-                  key={dateIso}
-                  className="min-h-[132px] rounded-lg border p-1.5 flex flex-col gap-1"
-                  style={{
-                    borderColor: isToday ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.06)",
-                    background: plan ? "rgba(255,255,255,0.02)" : "transparent",
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[10px] font-bold ${isToday ? "text-emerald-400" : "text-white/50"}`}>{i + 1}</span>
-                    {plan?.note && (
-                      <span className="text-[7px] font-bold uppercase tracking-wider px-1 py-[1px] rounded bg-amber-500/15 text-amber-300" title={plan.note}>
-                        {plan.note.length > 14 ? `${plan.note.slice(0, 13)}…` : plan.note}
-                      </span>
-                    )}
-                  </div>
-                  {plan && (
-                    <div className="flex-1 flex flex-col gap-0.5 -mx-1">
-                      <PillarRow
-                        dayKey={`${plan.date}-news`}
-                        label="News"
-                        accent="#e5e5e5"
-                        topic={plan.news.topic}
-                        onGenerate={onGenerateNews}
-                        onCopy={() => copyPrompt("news", undefined, `${plan.date}-news`)}
-                      />
-                      <PillarRow
-                        dayKey={`${plan.date}-learnings`}
-                        label={plan.learnings.pillar}
-                        accent={PILLAR_COLORS[plan.learnings.pillar]?.fg ?? "#e5e5e5"}
-                        topic={plan.learnings.topic}
-                        onGenerate={() => onGenerateLearnings(plan.learnings.topic)}
-                        onCopy={() => copyPrompt("learnings", plan.learnings.topic, `${plan.date}-learnings`)}
-                      />
-                      <PillarRow
-                        dayKey={`${plan.date}-facts`}
-                        label="Facts"
-                        accent="#e5e5e5"
-                        topic={plan.facts.topic}
-                        onGenerate={() => onGenerateFacts(plan.facts.topic)}
-                        onCopy={() => copyPrompt("facts", plan.facts.topic, `${plan.date}-facts`)}
-                      />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function compressImage(dataUrl: string, maxDim = 1200): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -5823,11 +3898,7 @@ function compressImage(dataUrl: string, maxDim = 1200): Promise<string> {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ContentCreatorPage() {
-  const [creatorMode, setCreatorMode] = useState<CreatorMode>("analysis");
-  // News/Facts/Learnings all store their batch as an array in `newsData` and
-  // share the carousel/download/editor plumbing below — "indicator" and
-  // "analysis" are the odd ones out, each with a single object.
-  const isBatchMode = creatorMode === "news" || creatorMode === "facts" || creatorMode === "learnings";
+  const [creatorMode, setCreatorMode] = useState<"analysis" | "news" | "indicator">("analysis");
   const [ratioId, setRatioId] = useState("square");
 
   // Keep track of JSON states independently so switching modes doesn't lose modifications
@@ -5837,14 +3908,6 @@ export function ContentCreatorPage() {
   const [activeNewsIndex, setActiveNewsIndex] = useState(0);
 
   const [panelCollapsed, setPanelCollapsed] = useState(false);
-  // On phones the 350px editor panel would eat the entire viewport and leave
-  // no room for the canvas preview — start collapsed there so the poster is
-  // visible first; desktop/tablet keep the panel open by default.
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth < 768) {
-      setPanelCollapsed(true);
-    }
-  }, []);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [downloadingZip, setDownloadingZip] = useState(false);
@@ -5861,7 +3924,6 @@ export function ContentCreatorPage() {
 
   // ── AI Generate (niche dropdown) ──────────────────────────────────────────
   const [showGenerateMenu, setShowGenerateMenu] = useState(false);
-  const [showPromptForCategory, setShowPromptForCategory] = useState<"news" | "facts" | "learnings" | null>(null);
   const [generatingBatch, setGeneratingBatch] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [batchMeta, setBatchMeta] = useState<{ timeRangeLabel: string; reportGeneratedAt: string | null } | null>(null);
@@ -5871,7 +3933,6 @@ export function ContentCreatorPage() {
   // re-calling the AI.
   const [rawBatchCandidates, setRawBatchCandidates] = useState<NewsItem[]>([]);
   const [rawBatchCover, setRawBatchCover] = useState<NewsItem | null>(null);
-  const [rawBatchOutro, setRawBatchOutro] = useState<NewsItem | null>(null);
   const [selectedPosterIndices, setSelectedPosterIndices] = useState<Set<number>>(new Set());
   const [showSelectionModal, setShowSelectionModal] = useState(false);
 
@@ -5880,9 +3941,6 @@ export function ContentCreatorPage() {
   // the OS file picker; the chosen file is inlined as a data URL so the
   // canvas can draw it without any CORS/taint issues.
   const imageFileRef = useRef<HTMLInputElement>(null);
-
-  // ── Content Calendar (30-day News/Learnings/Facts plan) ───────────────────
-  const [showCalendarModal, setShowCalendarModal] = useState(false);
 
   // ── History (saved generations) ───────────────────────────────────────────
   const [showHistory, setShowHistory] = useState(false);
@@ -5914,7 +3972,7 @@ export function ContentCreatorPage() {
   // Fire-and-forget save — a failed save should never block the creator flow,
   // so errors are swallowed (surfaced only via a console warning).
   const saveToHistory = async (
-    category: HistoryListItem["category"],
+    category: "news-batch" | "daily-analysis" | "indicator",
     title: string,
     itemCount: number,
     payload: unknown,
@@ -5947,22 +4005,15 @@ export function ContentCreatorPage() {
         const title = newsData.length > 1
           ? `News Batch · ${newsData.length} stories${first?.date ? ` · ${first.date}` : ""}`
           : (first?.title || "News Batch");
-        createdId = await saveToHistory("news-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
-      } else if (creatorMode === "facts") {
-        const title = `Facts · ${newsData.length} ${newsData.length === 1 ? "card" : "cards"}`;
-        createdId = await saveToHistory("facts-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
-      } else if (creatorMode === "learnings") {
-        const concept = newsData.find((d) => d.concept)?.concept;
-        const title = concept ? `Learnings · ${concept}` : "Learnings Batch";
-        createdId = await saveToHistory("learnings-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
+        createdId = await saveToHistory("news-batch", title, newsData.length, { posters: newsData, ratioId, colors, config }, activeHistoryId);
       } else if (creatorMode === "analysis") {
         const title = analysisData.instrument
           ? `${analysisData.instrument} · ${analysisData.levelName || "Daily Analysis"}`
           : "Daily Analysis";
-        createdId = await saveToHistory("daily-analysis", title, 1, { analysisData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
+        createdId = await saveToHistory("daily-analysis", title, 1, { analysisData, ratioId, colors, config }, activeHistoryId);
       } else {
         const title = parsedData.title || parsedData.category || "Indicator Poster";
-        createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
+        createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config }, activeHistoryId);
       }
       if (createdId) {
         setActiveHistoryId(createdId);
@@ -5993,16 +4044,6 @@ export function ContentCreatorPage() {
         setNewsData(payload.posters);
         setActiveNewsIndex(0);
         setJsonText(JSON.stringify(payload.posters, null, 2));
-      } else if (doc.category === "facts-batch" && Array.isArray(payload.posters)) {
-        setCreatorMode("facts");
-        setNewsData(payload.posters);
-        setActiveNewsIndex(0);
-        setJsonText(JSON.stringify(payload.posters, null, 2));
-      } else if (doc.category === "learnings-batch" && Array.isArray(payload.posters)) {
-        setCreatorMode("learnings");
-        setNewsData(payload.posters);
-        setActiveNewsIndex(0);
-        setJsonText(JSON.stringify(payload.posters, null, 2));
       } else if (doc.category === "daily-analysis" && payload.analysisData) {
         setCreatorMode("analysis");
         setAnalysisData(payload.analysisData);
@@ -6015,10 +4056,6 @@ export function ContentCreatorPage() {
       if (payload.ratioId) setRatioId(payload.ratioId);
       if (payload.colors) setColors(payload.colors);
       if (payload.config) setConfig(payload.config);
-      setPosterStyle(payload.posterStyle === "bold" ? "bold" : "editorial");
-      if (payload.gradientPresetId) setGradientPresetId(payload.gradientPresetId);
-      setEditorialTheme(payload.editorialTheme === "dark" ? "dark" : "light");
-      setGradientFade(typeof payload.gradientFade === "number" ? payload.gradientFade : 100);
       setJsonError(null);
       setActiveTab("content");
       setShowHistory(false);
@@ -6062,14 +4099,10 @@ export function ContentCreatorPage() {
       const items: NewsItem[] = Array.isArray(data.posters) ? data.posters : [];
       if (items.length === 0) throw new Error("AI returned no posters — try again.");
 
-      // items[0] is always the cover slide (isCover: true); the last item is
-      // always the outro slide (isOutro: true) if present; everything between
-      // is the 8-12 curated candidates. Don't commit to newsData yet — open
-      // the selection modal so the user picks which stories make the batch.
-      // The outro is never a selectable candidate — it's always re-appended.
-      const outro = items.length > 1 && items[items.length - 1]?.isOutro ? items[items.length - 1] : null;
-      const body = outro ? items.slice(0, -1) : items;
-      const [cover, ...candidates] = body;
+      // items[0] is always the cover slide (isCover: true); the rest are the
+      // 20-30 curated candidates. Don't commit to newsData yet — open the
+      // selection modal so the user picks which stories make the final batch.
+      const [cover, ...candidates] = items;
       setCreatorMode("news");
       setActiveTab("content");
       setBatchMeta({
@@ -6077,86 +4110,9 @@ export function ContentCreatorPage() {
         reportGeneratedAt: data.reportGeneratedAt ?? null,
       });
       setRawBatchCover(cover ?? null);
-      setRawBatchOutro(outro);
       setRawBatchCandidates(candidates);
       setSelectedPosterIndices(new Set(candidates.map((_, i) => i))); // default: everything selected
       setShowSelectionModal(true);
-    } catch (e) {
-      setGenerateError(e instanceof Error ? e.message : "Generation failed");
-    } finally {
-      setGeneratingBatch(false);
-    }
-  };
-
-  // Facts/Learnings are fully automatic and prompt-capped (no oversized raw
-  // pool like News's old 20-30), so there's no selection-review step here —
-  // generate, commit straight to newsData, and save to History immediately.
-  const generateFactsBatch = async (topicHint?: string) => {
-    setShowGenerateMenu(false);
-    setGeneratingBatch(true);
-    setGenerateError(null);
-    setActiveHistoryId(null);
-    try {
-      const res = await fetch("/api/content-creator/facts-batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(topicHint ? { topicHint } : {}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
-
-      const items: NewsItem[] = Array.isArray(data.cards) ? data.cards : [];
-      if (items.length === 0) throw new Error("AI returned no facts — try again.");
-
-      setCreatorMode("facts");
-      setActiveTab("content");
-      setNewsData(items);
-      setActiveNewsIndex(0);
-      setJsonText(JSON.stringify(items, null, 2));
-      setJsonError(null);
-
-      const factCount = Math.max(0, items.length - 2);
-      const createdId = await saveToHistory(
-        "facts-batch",
-        `Facts · ${factCount} ${factCount === 1 ? "card" : "cards"}`,
-        items.length,
-        { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }
-      );
-      if (createdId) setActiveHistoryId(createdId);
-    } catch (e) {
-      setGenerateError(e instanceof Error ? e.message : "Generation failed");
-    } finally {
-      setGeneratingBatch(false);
-    }
-  };
-
-  const generateLearningsBatch = async (topicHint?: string) => {
-    setShowGenerateMenu(false);
-    setGeneratingBatch(true);
-    setGenerateError(null);
-    setActiveHistoryId(null);
-    try {
-      const res = await fetch("/api/content-creator/learnings-batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(topicHint ? { topicHint } : {}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
-
-      const items: NewsItem[] = Array.isArray(data.cards) ? data.cards : [];
-      if (items.length === 0) throw new Error("AI returned no slides — try again.");
-
-      setCreatorMode("learnings");
-      setActiveTab("content");
-      setNewsData(items);
-      setActiveNewsIndex(0);
-      setJsonText(JSON.stringify(items, null, 2));
-      setJsonError(null);
-
-      const title = data.concept ? `Learnings · ${data.concept}` : "Learnings Batch";
-      const createdId = await saveToHistory("learnings-batch", title, items.length, { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade });
-      if (createdId) setActiveHistoryId(createdId);
     } catch (e) {
       setGenerateError(e instanceof Error ? e.message : "Generation failed");
     } finally {
@@ -6180,14 +4136,7 @@ export function ContentCreatorPage() {
   // chose to keep, not the full raw AI candidate pool.
   const applyPosterSelection = async () => {
     const chosen = rawBatchCandidates.filter((_, idx) => selectedPosterIndices.has(idx));
-    // Every chosen story is immediately followed by its "explain it simply"
-    // bento companion card — same story, plain-language rewrite.
-    const chosenWithBento = chosen.flatMap((story) => [story, buildBentoCard(story)]);
-    const items: NewsItem[] = [
-      ...(rawBatchCover ? [rawBatchCover] : []),
-      ...chosenWithBento,
-      ...(rawBatchOutro ? [rawBatchOutro] : []),
-    ];
+    const items: NewsItem[] = rawBatchCover ? [rawBatchCover, ...chosen] : chosen;
     if (items.length === 0) return;
 
     setNewsData(items);
@@ -6201,45 +4150,11 @@ export function ContentCreatorPage() {
       "news-batch",
       `News Batch · ${chosen.length} ${chosen.length === 1 ? "story" : "stories"} · ${batchMeta?.timeRangeLabel ?? "curated"}`,
       items.length,
-      { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, timeRangeLabel: batchMeta?.timeRangeLabel, reportGeneratedAt: batchMeta?.reportGeneratedAt }
+      { posters: items, ratioId, colors, config, timeRangeLabel: batchMeta?.timeRangeLabel, reportGeneratedAt: batchMeta?.reportGeneratedAt }
     );
     if (createdId) {
       setActiveHistoryId(createdId);
     }
-  };
-
-  // Converts a pasted external-AI JSON reply (the nested {posters}/{facts}/
-  // {slides} wrapper shape the "Copy Prompt" system prompt asks for, or a
-  // plain flat array) into the same NewsItem[] shape a normal generation
-  // produces, then commits and saves it exactly like applyPosterSelection/
-  // generateFactsBatch/generateLearningsBatch do. Throws a user-facing
-  // message on any failure — the caller (ShowPromptModal) surfaces it.
-  const importAiBatch = async (category: "news" | "facts" | "learnings", rawText: string) => {
-    const parsed = parsePastedAiJson(rawText);
-    const items = importAiJson(category, parsed);
-
-    setCreatorMode(category);
-    setActiveTab("content");
-    setNewsData(items);
-    setActiveNewsIndex(0);
-    setJsonText(JSON.stringify(items, null, 2));
-    setJsonError(null);
-    setActiveHistoryId(null);
-
-    const categoryKey: "news-batch" | "facts-batch" | "learnings-batch" =
-      category === "news" ? "news-batch" : category === "facts" ? "facts-batch" : "learnings-batch";
-    const title = category === "news"
-      ? `News Batch · ${Math.max(0, items.length - 2)} stories · pasted`
-      : category === "facts"
-      ? `Facts · ${Math.max(0, items.length - 2)} cards · pasted`
-      : `Learnings · ${items.find((d) => d.concept)?.concept || "pasted"}`;
-    const createdId = await saveToHistory(
-      categoryKey,
-      title,
-      items.length,
-      { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }
-    );
-    if (createdId) setActiveHistoryId(createdId);
   };
 
   useEffect(() => {
@@ -6275,20 +4190,6 @@ export function ContentCreatorPage() {
     crossSize: 10,
     fontScale: 1.0,
   });
-
-  // Poster visual style — "editorial" (default, existing look) or "bold"
-  // (full-bleed gradient + huge condensed headline). Only News/Facts/Learnings
-  // read this; Daily Analysis/Indicator keep their own separate styling.
-  const [posterStyle, setPosterStyle] = useState<"editorial" | "bold">("editorial");
-  const [gradientPresetId, setGradientPresetId] = useState<string>(GRADIENT_PRESETS[0].id);
-  const activeGradient = GRADIENT_PRESETS.find((g) => g.id === gradientPresetId) ?? GRADIENT_PRESETS[0];
-  // Editorial paper-band theme — light (cream) or dark (near-black card).
-  const [editorialTheme, setEditorialTheme] = useState<"light" | "dark">("light");
-  // How strongly the color fade (paper-band bleed in editorial, gradient
-  // scrim in Bold) washes over the photo — 0 = photo almost fully visible,
-  // 100 = the fully-tuned default look. User-adjustable per the request to
-  // control "visibility of the color fade background".
-  const [gradientFade, setGradientFade] = useState<number>(100);
 
   const [elementBounds, setElementBounds] = useState<PosterElement[]>([]);
   const [highlightedField, setHighlightedField] = useState<string | null>(null);
@@ -6334,7 +4235,7 @@ export function ContentCreatorPage() {
   useEffect(() => {
     if (creatorMode === "analysis") {
       setJsonText(JSON.stringify(analysisData, null, 2));
-    } else if (isBatchMode) {
+    } else if (creatorMode === "news") {
       setJsonText(JSON.stringify(newsData, null, 2));
     } else {
       setJsonText(JSON.stringify(parsedData, null, 2));
@@ -6352,23 +4253,11 @@ export function ContentCreatorPage() {
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           setAnalysisData(parsed);
         }
-      } else if (isBatchMode) {
+      } else if (creatorMode === "news") {
         if (Array.isArray(parsed)) {
           setNewsData(parsed);
           if (activeNewsIndex >= parsed.length) {
             setActiveNewsIndex(Math.max(0, parsed.length - 1));
-          }
-        } else if (parsed && typeof parsed === "object") {
-          // A pasted external-AI reply usually comes back as the nested
-          // {posters}/{facts}/{slides} wrapper the system prompt asked for,
-          // not the flat array the renderer needs — convert instead of
-          // silently doing nothing.
-          try {
-            const items = importAiJson(creatorMode as "news" | "facts" | "learnings", parsed);
-            setNewsData(items);
-            setActiveNewsIndex(0);
-          } catch (convErr) {
-            setJsonError(convErr instanceof Error ? convErr.message : "Unrecognized JSON shape for this mode.");
           }
         }
       } else {
@@ -6388,7 +4277,7 @@ export function ContentCreatorPage() {
       const updated = { ...analysisData, [key]: val } as AnalysisData;
       setAnalysisData(updated);
       setJsonText(JSON.stringify(updated, null, 2));
-    } else if (isBatchMode) {
+    } else if (creatorMode === "news") {
       const updatedList = [...newsData];
       if (updatedList[activeNewsIndex]) {
         updatedList[activeNewsIndex] = { ...updatedList[activeNewsIndex], [key]: val };
@@ -6408,7 +4297,7 @@ export function ContentCreatorPage() {
     // to attach the first image. Once an image exists, plain clicks on it do
     // nothing — drag pans it, scroll zooms it, and the dedicated "Change
     // Image" button (rendered on the box itself) handles replacement.
-    if (fieldId === "imageUrl" && isBatchMode) {
+    if (fieldId === "imageUrl" && creatorMode === "news") {
       if (!newsData[activeNewsIndex]?.imageUrl) imageFileRef.current?.click();
       return;
     }
@@ -6431,7 +4320,7 @@ export function ContentCreatorPage() {
   // would be expensive when a poster's imageUrl is a multi-MB base64 data
   // URL. State (and jsonText) is committed once, on mouseup.
   const handleImageMouseDown = (e: React.MouseEvent, box: PosterElement) => {
-    if (!isBatchMode) return;
+    if (creatorMode !== "news") return;
     const item = newsData[activeNewsIndex];
     if (!item?.imageUrl) return; // no image yet — let the click-to-upload flow handle it
     e.preventDefault();
@@ -6474,7 +4363,7 @@ export function ContentCreatorPage() {
       const item = newsData[activeNewsIndex];
       if (item && canvasRef.current) {
         const liveData = { ...item, imageFocusX: ds.liveFocusX, imageFocusY: ds.liveFocusY };
-        const bounds = drawPoster(canvasRef.current, liveData, ar, colors, config, img, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+        const bounds = drawPoster(canvasRef.current, liveData, ar, colors, config, img, creatorMode, activeNewsIndex, newsData.length);
         setElementBounds(bounds);
       }
     };
@@ -6497,7 +4386,7 @@ export function ContentCreatorPage() {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-  }, [isDraggingImage, scale, ar, colors, config, creatorMode, activeNewsIndex, newsData, posterStyle, activeGradient, editorialTheme, gradientFade]);
+  }, [isDraggingImage, scale, ar, colors, config, creatorMode, activeNewsIndex, newsData]);
 
   // Scroll-to-zoom on the news poster image. React 19 attaches the delegated
   // "wheel" listener as passive by default, so preventDefault() inside a
@@ -6530,10 +4419,12 @@ export function ContentCreatorPage() {
     }
   }, [handleImageWheelNative]);
 
-  // File → data URL → active poster's imageUrl. Shared by the hidden file
-  // input (click-to-upload) and every drag-and-drop zone below.
-  const processImageFile = (file: File) => {
-    if (!file.type.startsWith("image/")) return;
+  // File → data URL → active poster's imageUrl
+  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again still fires onChange
+    e.target.value = "";
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = async () => {
       if (typeof reader.result === "string") {
@@ -6542,39 +4433,6 @@ export function ContentCreatorPage() {
       }
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Reset so picking the same file again still fires onChange
-    e.target.value = "";
-    if (file) processImageFile(file);
-  };
-
-  // Dragging a file anywhere over an image drop zone — highlight it exactly
-  // like the existing hover treatment so drag feels like an extension of
-  // click-to-upload, not a separate feature.
-  const handleImageDragOver = (e: React.DragEvent<HTMLElement>, accentColor: string) => {
-    if (!e.dataTransfer.types.includes("Files")) return;
-    e.preventDefault();
-    e.currentTarget.style.borderColor = accentColor;
-    e.currentTarget.style.backgroundColor = `${accentColor}25`;
-    e.currentTarget.style.borderStyle = "solid";
-  };
-
-  const handleImageDragLeave = (e: React.DragEvent<HTMLElement>) => {
-    e.currentTarget.style.borderColor = "transparent";
-    e.currentTarget.style.backgroundColor = "transparent";
-    e.currentTarget.style.borderStyle = "dashed";
-  };
-
-  const handleImageDrop = (e: React.DragEvent<HTMLElement>) => {
-    e.preventDefault();
-    e.currentTarget.style.borderColor = "transparent";
-    e.currentTarget.style.backgroundColor = "transparent";
-    e.currentTarget.style.borderStyle = "dashed";
-    const file = e.dataTransfer.files?.[0];
-    if (file) processImageFile(file);
   };
 
   // Clear highlighted field styling after 2 seconds
@@ -6675,7 +4533,7 @@ export function ContentCreatorPage() {
     let activeData: any;
     try {
       const parsed = JSON.parse(jsonText);
-      if (isBatchMode) {
+      if (creatorMode === "news") {
         if (Array.isArray(parsed) && parsed.length > 0) {
           activeData = parsed[activeNewsIndex] || parsed[0];
         } else {
@@ -6698,7 +4556,7 @@ export function ContentCreatorPage() {
         const imgEl = loadedImagesRef.current[imageUrl];
         activeImgRef.current = imgEl;
         if (canvasRef.current) {
-          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length);
           setElementBounds(bounds);
           setRendered(true);
         }
@@ -6709,7 +4567,7 @@ export function ContentCreatorPage() {
           loadedImagesRef.current[imageUrl] = imgEl;
           activeImgRef.current = imgEl;
           if (canvasRef.current) {
-            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length);
             setElementBounds(bounds);
             setRendered(true);
           }
@@ -6717,7 +4575,7 @@ export function ContentCreatorPage() {
         imgEl.onerror = () => {
           activeImgRef.current = null;
           if (canvasRef.current) {
-            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length);
             setElementBounds(bounds);
             setRendered(true);
           }
@@ -6727,63 +4585,17 @@ export function ContentCreatorPage() {
     } else {
       activeImgRef.current = null;
       if (canvasRef.current) {
-        const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+        const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length);
         setElementBounds(bounds);
         setRendered(true);
       }
     }
-  }, [jsonText, ar, colors, config, creatorMode, isBatchMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade]);
+  }, [jsonText, ar, colors, config, creatorMode, activeNewsIndex, newsData.length]);
 
   // Re-render when dependencies change
   useEffect(() => {
     render();
   }, [render]);
-
-  // The Bold headline is set in Anton, a self-hosted display font — canvas
-  // text doesn't wait for webfonts the way DOM text does, so a render that
-  // fires before the font finishes downloading silently falls back to the
-  // system stack and never self-corrects. Force one re-paint once it's ready.
-  useEffect(() => {
-    if (typeof document === "undefined" || !("fonts" in document)) return;
-    document.fonts.load(`400 100px ${getAntonFontFamily()}`).then(() => render()).catch(() => {});
-  }, [render]);
-
-  // Auto-persist an already-saved batch to the DB whenever it changes — most
-  // importantly the moment an image is attached, so the image lands in the DB
-  // for that news/facts/learnings entry without a manual re-save. Debounced,
-  // PUT-only (never creates a new entry), and skips no-op saves via a cheap
-  // signature (image byte-length, not the megabytes of base64 themselves).
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastAutoSaveSigRef = useRef<string>("");
-  useEffect(() => {
-    if (!activeHistoryId || !isBatchMode || newsData.length === 0) return;
-
-    const sig = [
-      activeHistoryId, posterStyle, gradientPresetId, editorialTheme, gradientFade, ratioId,
-      JSON.stringify(colors), JSON.stringify(config),
-      newsData.map((d: any) => `${d.title || ""}~${d.description || ""}~${d.imageUrl?.length || 0}~${d.imageFocusX ?? ""}~${d.imageFocusY ?? ""}~${d.imageZoom ?? ""}~${d.impact || ""}~${d.sentiment || ""}`).join("#"),
-    ].join("|");
-    if (sig === lastAutoSaveSigRef.current) return;
-
-    const payload: Record<string, unknown> = { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade };
-    if (creatorMode === "news" && batchMeta) {
-      payload.timeRangeLabel = batchMeta.timeRangeLabel;
-      payload.reportGeneratedAt = batchMeta.reportGeneratedAt;
-    }
-
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      lastAutoSaveSigRef.current = sig;
-      fetch(`/api/content-creator/history/${activeHistoryId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemCount: newsData.length, payload }),
-      }).catch((e) => console.warn("Auto-save failed:", e));
-    }, 500);
-
-    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newsData, activeHistoryId, isBatchMode, creatorMode, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, batchMeta]);
 
   function download() {
     if (!rendered) return;
@@ -6799,7 +4611,7 @@ export function ContentCreatorPage() {
     let activeData: any;
     try {
       const parsed = JSON.parse(jsonText);
-      if (isBatchMode) {
+      if (creatorMode === "news") {
         if (Array.isArray(parsed) && parsed.length > 0) {
           activeData = parsed[activeNewsIndex] || parsed[0];
         } else {
@@ -6823,20 +4635,16 @@ export function ContentCreatorPage() {
       activeImgRef.current,
       creatorMode,
       activeNewsIndex,
-      newsData.length,
-      posterStyle,
-      activeGradient,
-      editorialTheme,
-      gradientFade
+      newsData.length
     );
 
     let fileName = `stratix-poster-${ratioId}-${Date.now()}.png`;
     if (creatorMode === "analysis") {
       const symbol = (analysisData.instrument || "analysis").toLowerCase().replace(/[^a-z0-9]+/g, "-");
       fileName = `stratix-analysis-${symbol}-${ratioId}-${Date.now()}.png`;
-    } else if (isBatchMode && newsData[activeNewsIndex]) {
-      const titleSlug = (newsData[activeNewsIndex].title || creatorMode).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 20);
-      fileName = `stratix-${creatorMode}-${activeNewsIndex + 1}-${titleSlug}-${ratioId}-${Date.now()}.png`;
+    } else if (creatorMode === "news" && newsData[activeNewsIndex]) {
+      const titleSlug = (newsData[activeNewsIndex].title || "news").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 20);
+      fileName = `stratix-news-${activeNewsIndex + 1}-${titleSlug}-${ratioId}-${Date.now()}.png`;
     }
 
     const a = document.createElement("a");
@@ -6845,9 +4653,9 @@ export function ContentCreatorPage() {
     a.click();
   }
 
-  // Preloads images in parallel and packages all batch cards into a high-res ZIP
+  // Preloads images in parallel and packages all news cards into a high-res ZIP
   const downloadAll = async () => {
-    if (!isBatchMode || newsData.length === 0) return;
+    if (creatorMode !== "news" || newsData.length === 0) return;
     setDownloadingZip(true);
     
     try {
@@ -6891,24 +4699,20 @@ export function ContentCreatorPage() {
           colors,
           config,
           cachedImg,
-          creatorMode,
+          "news",
           i,
-          newsData.length,
-          posterStyle,
-          activeGradient,
-          editorialTheme,
-          gradientFade
+          newsData.length
         );
 
         const dataUrl = tempCanvas.toDataURL("image/png");
         const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
-
-        const titleSlug = (item.title || creatorMode)
+        
+        const titleSlug = (item.title || "news")
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .slice(0, 20);
-
-        const fileName = `stratix-${creatorMode}-${i + 1}-${titleSlug}.png`;
+        
+        const fileName = `stratix-news-${i + 1}-${titleSlug}.png`;
         zip.file(fileName, base64Data, { base64: true });
       }
 
@@ -6917,7 +4721,7 @@ export function ContentCreatorPage() {
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `stratix-${creatorMode}-batch-${ratioId}-${Date.now()}.zip`;
+      a.download = `stratix-news-batch-${ratioId}-${Date.now()}.zip`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -6952,26 +4756,15 @@ export function ContentCreatorPage() {
 
   return (
     <div className="flex h-full overflow-hidden text-white/80 font-sans selection:bg-white/10 selection:text-white relative">
-      {/* Backdrop — mobile only, closes the panel when it's shown as an overlay drawer */}
-      {!panelCollapsed && (
-        <div
-          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
-          onClick={() => setPanelCollapsed(true)}
-          aria-hidden="true"
-        />
-      )}
       {/* ── Left Panel ─────────────────────────────────────────────────────── */}
-      {/* On mobile this floats as a full-height overlay drawer over the canvas
-          (fixed + z-40) instead of squeezing a 350px column out of a ~375px
-          viewport; md+ keeps the original in-flow collapse/expand behavior. */}
       <div
-        className={`flex flex-col shrink-0 overflow-hidden glass-liquid transition-all duration-300 ease-in-out fixed md:relative inset-y-0 left-0 z-40 md:z-auto ${
-          panelCollapsed ? "w-0 border-r-0 opacity-0 pointer-events-none" : "w-[85vw] max-w-[350px] md:w-[350px] border-r opacity-100"
+        className={`flex flex-col shrink-0 overflow-hidden glass-liquid transition-all duration-300 ease-in-out relative ${
+          panelCollapsed ? "w-0 border-r-0 opacity-0" : "w-[350px] border-r opacity-100"
         }`}
         style={{ borderColor: "rgba(255, 255, 255, 0.08)" }}
       >
-        {/* Static content container to avoid squishing during collapse transition — matches the expanded outer width exactly */}
-        <div className="w-[85vw] max-w-[350px] md:w-[350px] flex flex-col h-full flex-grow">
+        {/* Static content container to avoid squishing during collapse transition */}
+        <div className="w-[350px] flex flex-col h-full flex-grow">
           {/* Panel header */}
           <div
             className="flex items-center justify-between px-4 py-2 border-b shrink-0"
@@ -7007,21 +4800,19 @@ export function ContentCreatorPage() {
           <label className="text-[8.5px] font-bold uppercase tracking-widest text-[#787870] block mb-1">
             Creator Mode
           </label>
-          <div className="flex flex-wrap gap-0.5 bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg">
-            {(["analysis", "news", "indicator", "facts", "learnings"] as const).map((m) => {
+          <div className="flex bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg">
+            {(["analysis", "news", "indicator"] as const).map((m) => {
               const active = creatorMode === m;
-              const labels: Record<CreatorMode, string> = {
+              const labels = {
                 analysis: "Daily Analysis",
                 news: "News Batch",
-                indicator: "Indicator",
-                facts: "Facts",
-                learnings: "Learnings",
+                indicator: "Indicator / Classic",
               };
               return (
                 <button
                   key={m}
                   onClick={() => setCreatorMode(m)}
-                  className={`flex-1 basis-[32%] py-1.5 rounded-md transition-all cursor-pointer text-[9.5px] font-bold uppercase tracking-wider text-center ${
+                  className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer text-[9.5px] font-bold uppercase tracking-wider text-center ${
                     active
                       ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
                       : "text-[#787870] hover:text-white/60"
@@ -7194,33 +4985,18 @@ export function ContentCreatorPage() {
                     />
                   </div>
 
-                  {/* Image URL — also a drag-and-drop zone */}
-                  <div
-                    className="rounded-xl border border-dashed border-transparent transition-colors p-1 -m-1"
-                    onDragOver={(e) => handleImageDragOver(e, colors.accent)}
-                    onDragLeave={handleImageDragLeave}
-                    onDrop={handleImageDrop}
-                  >
-                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Chart Image URL (or drag &amp; drop)</label>
-                    <div className="flex gap-2">
-                      <input
-                        id="input-imageUrl"
-                        type="text"
-                        placeholder="https://example.com/chart.png"
-                        className={getFieldClassName("imageUrl")}
-                        style={inputStyle}
-                        value={analysisData.imageUrl || ""}
-                        onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
-                      />
-                      <button
-                        onClick={() => imageFileRef.current?.click()}
-                        title="Choose an image from your PC"
-                        className="flex items-center gap-1.5 px-3 rounded-xl text-[10px] font-bold shrink-0 transition-all cursor-pointer border border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white"
-                      >
-                        <Upload className="h-3 w-3" />
-                        Upload
-                      </button>
-                    </div>
+                  {/* Image URL */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Chart Image URL</label>
+                    <input
+                      id="input-imageUrl"
+                      type="text"
+                      placeholder="https://example.com/chart.png"
+                      className={getFieldClassName("imageUrl")}
+                      style={inputStyle}
+                      value={analysisData.imageUrl || ""}
+                      onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
+                    />
                   </div>
 
                   {/* Footer Brand */}
@@ -7242,121 +5018,7 @@ export function ContentCreatorPage() {
                 <>
                   {newsData.length > 0 && newsData[activeNewsIndex] ? (
                     <div className="space-y-3.5">
-                      {/* Bento explainer companion card — a distinct, simpler field set */}
-                      {newsData[activeNewsIndex].isBento && (
-                        <div className="space-y-3.5">
-                          <div className="rounded-xl border border-emerald-500/[0.18] bg-emerald-500/[0.05] px-3 py-2">
-                            <p className="text-[10px] text-emerald-300/80 leading-relaxed">
-                              Explains <span className="font-semibold">&ldquo;{newsData[activeNewsIndex].relatedTitle || "this story"}&rdquo;</span> in plain language — this card renders as a bento grid, no photo needed.
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Simple Headline</label>
-                            <input
-                              id="input-simpleHeadline"
-                              type="text"
-                              className={getFieldClassName("simpleHeadline")}
-                              style={inputStyle}
-                              value={newsData[activeNewsIndex].simpleHeadline || ""}
-                              onChange={(e) => handleUpdateField("simpleHeadline", e.target.value)}
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">What Happened</label>
-                            <textarea
-                              id="input-whatHappened"
-                              className={getFieldClassName("whatHappened")}
-                              style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
-                              value={newsData[activeNewsIndex].whatHappened || ""}
-                              onChange={(e) => handleUpdateField("whatHappened", e.target.value)}
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Why It Matters</label>
-                            <textarea
-                              id="input-whyItMatters"
-                              className={getFieldClassName("whyItMatters")}
-                              style={{ ...inputStyle, minHeight: "60px", resize: "vertical" }}
-                              value={newsData[activeNewsIndex].whyItMatters || ""}
-                              onChange={(e) => handleUpdateField("whyItMatters", e.target.value)}
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-2">
-                              Who This Affects
-                            </label>
-                            <div className="space-y-2">
-                              {(newsData[activeNewsIndex].simpleImpacts || []).map((imp, idx) => (
-                                <div key={idx} className="flex gap-1.5">
-                                  <input
-                                    type="text"
-                                    placeholder="Market"
-                                    className={getFieldClassName("simpleImpacts")}
-                                    style={{ ...inputStyle, flex: "0 0 30%" }}
-                                    value={imp.market}
-                                    onChange={(e) => {
-                                      const next = [...(newsData[activeNewsIndex].simpleImpacts || [])];
-                                      next[idx] = { ...next[idx], market: e.target.value };
-                                      handleUpdateField("simpleImpacts", next);
-                                    }}
-                                  />
-                                  <input
-                                    type="text"
-                                    placeholder="Effect, in plain words"
-                                    className={getFieldClassName("simpleImpacts")}
-                                    style={{ ...inputStyle, flex: "1" }}
-                                    value={imp.effect}
-                                    onChange={(e) => {
-                                      const next = [...(newsData[activeNewsIndex].simpleImpacts || [])];
-                                      next[idx] = { ...next[idx], effect: e.target.value };
-                                      handleUpdateField("simpleImpacts", next);
-                                    }}
-                                  />
-                                  <select
-                                    className={getFieldClassName("simpleImpacts")}
-                                    style={{ ...inputStyle, flex: "0 0 76px", background: "#181614", color: "#F0EBE3" }}
-                                    value={imp.direction}
-                                    onChange={(e) => {
-                                      const next = [...(newsData[activeNewsIndex].simpleImpacts || [])];
-                                      next[idx] = { ...next[idx], direction: e.target.value as "up" | "down" | "neutral" };
-                                      handleUpdateField("simpleImpacts", next);
-                                    }}
-                                  >
-                                    <option value="up">Up</option>
-                                    <option value="down">Down</option>
-                                    <option value="neutral">Same</option>
-                                  </select>
-                                  <button
-                                    onClick={() => {
-                                      const next = (newsData[activeNewsIndex].simpleImpacts || []).filter((_, i) => i !== idx);
-                                      handleUpdateField("simpleImpacts", next);
-                                    }}
-                                    className="shrink-0 flex items-center justify-center w-7 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              ))}
-                              <button
-                                onClick={() => {
-                                  const next = [...(newsData[activeNewsIndex].simpleImpacts || []), { market: "", effect: "", direction: "neutral" as const }];
-                                  handleUpdateField("simpleImpacts", next);
-                                }}
-                                className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 hover:text-white/70 transition cursor-pointer"
-                              >
-                                <Plus className="h-3 w-3" /> Add market
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
                       {/* Title / Headline */}
-                      {!newsData[activeNewsIndex].isBento && (
                       <div>
                         <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Headline</label>
                         <input
@@ -7368,10 +5030,8 @@ export function ContentCreatorPage() {
                           onChange={(e) => handleUpdateField("title", e.target.value)}
                         />
                       </div>
-                      )}
 
                       {/* Description */}
-                      {!newsData[activeNewsIndex].isBento && (
                       <div>
                         <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Summary</label>
                         <textarea
@@ -7382,11 +5042,8 @@ export function ContentCreatorPage() {
                           onChange={(e) => handleUpdateField("description", e.target.value)}
                         />
                       </div>
-                      )}
 
                       {/* Impact & Sentiment Biases */}
-                      {!newsData[activeNewsIndex].isBento && (
-                      <div className="space-y-3.5">
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Impact Level</label>
@@ -7464,14 +5121,9 @@ export function ContentCreatorPage() {
                         </div>
                       )}
 
-                      {/* Image URL + local file upload — also a drag-and-drop zone */}
-                      <div
-                        className="rounded-xl border border-dashed border-transparent transition-colors p-1 -m-1"
-                        onDragOver={(e) => handleImageDragOver(e, colors.accent)}
-                        onDragLeave={handleImageDragLeave}
-                        onDrop={handleImageDrop}
-                      >
-                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">News Image (or drag &amp; drop)</label>
+                      {/* Image URL + local file upload */}
+                      <div>
+                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">News Image</label>
                         <div className="flex gap-2">
                           <input
                             id="input-imageUrl"
@@ -7591,8 +5243,6 @@ export function ContentCreatorPage() {
                           />
                         </div>
                       </div>
-                      </div>
-                      )}
 
                       {/* Quick Item List */}
                       <div className="border-t pt-3.5" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
@@ -7631,212 +5281,6 @@ export function ContentCreatorPage() {
                   ) : (
                     <div className="text-center py-6 text-white/40 text-xs">
                       No news items found. Paste news JSON in the JSON tab.
-                    </div>
-                  )}
-                </>
-              )}
-
-              {(creatorMode === "facts" || creatorMode === "learnings") && (
-                <>
-                  {newsData.length > 0 && newsData[activeNewsIndex] ? (
-                    <div className="space-y-3.5">
-                      {creatorMode === "learnings" && newsData[activeNewsIndex].concept && (
-                        <div className="rounded-xl border border-emerald-500/[0.18] bg-emerald-500/[0.04] px-3 py-2 flex items-center justify-between gap-2">
-                          <span className="text-[9.5px] font-bold text-emerald-300/80 uppercase tracking-wider">Concept</span>
-                          <span className="text-[11px] font-semibold text-white/85 truncate">{newsData[activeNewsIndex].concept}</span>
-                        </div>
-                      )}
-
-                      {/* Headline */}
-                      <div>
-                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">
-                          {creatorMode === "learnings" ? "Slide Heading" : "Headline"}
-                        </label>
-                        <input
-                          id="input-title"
-                          type="text"
-                          className={getFieldClassName("title")}
-                          style={inputStyle}
-                          value={newsData[activeNewsIndex].title || ""}
-                          onChange={(e) => handleUpdateField("title", e.target.value)}
-                        />
-                      </div>
-
-                      {/* Body */}
-                      <div>
-                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">
-                          {creatorMode === "facts" ? "The Fact" : "Body"}
-                        </label>
-                        <textarea
-                          id="input-description"
-                          className={getFieldClassName("description")}
-                          style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
-                          value={newsData[activeNewsIndex].description || ""}
-                          onChange={(e) => handleUpdateField("description", e.target.value)}
-                        />
-                      </div>
-
-                      {creatorMode === "facts" && newsData[activeNewsIndex].sourceNote && (
-                        <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] px-3 py-2">
-                          <span className="text-[9px] font-bold text-white/35 uppercase tracking-wider block mb-0.5">Source Note (internal)</span>
-                          <span className="text-[10.5px] text-white/55">{newsData[activeNewsIndex].sourceNote}</span>
-                        </div>
-                      )}
-
-                      {/* Image generation prompt */}
-                      {newsData[activeNewsIndex].imagePrompt && (
-                        <div className="rounded-xl border border-emerald-500/[0.18] bg-emerald-500/[0.04] p-3 space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5">
-                              <Sparkles className="h-3 w-3 text-emerald-400/80" />
-                              <span className="text-[10px] font-bold text-emerald-300/90 uppercase tracking-wider">
-                                Grok Image Prompt
-                              </span>
-                            </div>
-                            <CopyButton text={newsData[activeNewsIndex].imagePrompt!} label="Copy" />
-                          </div>
-                          <p className="text-[10.5px] text-white/55 leading-relaxed max-h-32 overflow-y-auto select-text whitespace-pre-wrap">
-                            {newsData[activeNewsIndex].imagePrompt}
-                          </p>
-                          <p className="text-[9px] text-white/30 leading-snug">
-                            Paste into Grok Imagine → save the image → click the poster&apos;s image area (or Upload) to attach it.
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Image URL + local file upload — also a drag-and-drop zone */}
-                      <div
-                        className="rounded-xl border border-dashed border-transparent transition-colors p-1 -m-1"
-                        onDragOver={(e) => handleImageDragOver(e, colors.accent)}
-                        onDragLeave={handleImageDragLeave}
-                        onDrop={handleImageDrop}
-                      >
-                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Image (or drag &amp; drop)</label>
-                        <div className="flex gap-2">
-                          <input
-                            id="input-imageUrl"
-                            type="text"
-                            placeholder="Paste URL or upload from PC →"
-                            className={getFieldClassName("imageUrl")}
-                            style={inputStyle}
-                            value={newsData[activeNewsIndex].imageUrl || ""}
-                            onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
-                          />
-                          <button
-                            onClick={() => imageFileRef.current?.click()}
-                            title="Choose an image from your PC"
-                            className="flex items-center gap-1.5 px-3 rounded-xl text-[10px] font-bold shrink-0 transition-all cursor-pointer border border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white"
-                          >
-                            <Upload className="h-3 w-3" />
-                            Upload
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Pan & zoom — adjusts how the image fills its frame */}
-                      {newsData[activeNewsIndex].imageUrl && (
-                        <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <Move className="h-3 w-3 text-white/40" />
-                              <span className="text-[10px] font-bold text-white/60 uppercase tracking-wider">Adjust Image</span>
-                            </div>
-                            <button
-                              onClick={() => {
-                                handleUpdateField("imageFocusX", 0.5);
-                                handleUpdateField("imageFocusY", 0.5);
-                                handleUpdateField("imageZoom", 1);
-                              }}
-                              className="text-[9.5px] font-bold text-white/35 hover:text-white/70 transition cursor-pointer"
-                            >
-                              Reset
-                            </button>
-                          </div>
-
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
-                              <span className="flex items-center gap-1"><ZoomIn className="h-2.5 w-2.5" /> Zoom</span>
-                              <span>{Math.round((newsData[activeNewsIndex].imageZoom ?? 1) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="1"
-                              max="2.5"
-                              step="0.05"
-                              value={newsData[activeNewsIndex].imageZoom ?? 1}
-                              onChange={(e) => handleUpdateField("imageZoom", parseFloat(e.target.value))}
-                              className="w-full cursor-pointer"
-                              style={{ accentColor: "#ffffff" }}
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
-                              <span>Pan Horizontal</span>
-                              <span>{Math.round((newsData[activeNewsIndex].imageFocusX ?? 0.5) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="1"
-                              step="0.02"
-                              value={newsData[activeNewsIndex].imageFocusX ?? 0.5}
-                              onChange={(e) => handleUpdateField("imageFocusX", parseFloat(e.target.value))}
-                              className="w-full cursor-pointer"
-                              style={{ accentColor: "#ffffff" }}
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
-                              <span>Pan Vertical</span>
-                              <span>{Math.round((newsData[activeNewsIndex].imageFocusY ?? 0.5) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="1"
-                              step="0.02"
-                              value={newsData[activeNewsIndex].imageFocusY ?? 0.5}
-                              onChange={(e) => handleUpdateField("imageFocusY", parseFloat(e.target.value))}
-                              className="w-full cursor-pointer"
-                              style={{ accentColor: "#ffffff" }}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Quick Item List */}
-                      <div className="border-t pt-3.5" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
-                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-2">
-                          {creatorMode === "facts" ? "Facts In Batch" : "Slides In Batch"}
-                        </label>
-                        <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                          {newsData.map((item, idx) => {
-                            const isCurrent = idx === activeNewsIndex;
-                            return (
-                              <button
-                                key={idx}
-                                onClick={() => setActiveNewsIndex(idx)}
-                                className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-[11px] transition-all border cursor-pointer ${
-                                  isCurrent
-                                    ? "bg-white/[0.06] border-white/20 text-white font-bold"
-                                    : "bg-white/[0.01] border-white/[0.04] text-white/50 hover:bg-white/[0.03] hover:text-white/80"
-                                }`}
-                              >
-                                <span className="truncate flex-1 pr-2">{item.title || `#${idx + 1}`}</span>
-                                {item.stepLabel && (
-                                  <span className="text-[8.5px] uppercase tracking-wider opacity-60 shrink-0">{item.stepLabel}</span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-white/40 text-xs">
-                      No {creatorMode} items yet. Click Generate to create a batch.
                     </div>
                   )}
                 </>
@@ -7967,33 +5411,18 @@ export function ContentCreatorPage() {
                     />
                   </div>
 
-                  {/* Image URL — also a drag-and-drop zone */}
-                  <div
-                    className="rounded-xl border border-dashed border-transparent transition-colors p-1 -m-1"
-                    onDragOver={(e) => handleImageDragOver(e, colors.accent)}
-                    onDragLeave={handleImageDragLeave}
-                    onDrop={handleImageDrop}
-                  >
-                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Image URL (or drag &amp; drop)</label>
-                    <div className="flex gap-2">
-                      <input
-                        id="input-imageUrl"
-                        type="text"
-                        placeholder="https://example.com/image.jpg"
-                        className={getFieldClassName("imageUrl")}
-                        style={inputStyle}
-                        value={parsedData.imageUrl || ""}
-                        onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
-                      />
-                      <button
-                        onClick={() => imageFileRef.current?.click()}
-                        title="Choose an image from your PC"
-                        className="flex items-center gap-1.5 px-3 rounded-xl text-[10px] font-bold shrink-0 transition-all cursor-pointer border border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white"
-                      >
-                        <Upload className="h-3 w-3" />
-                        Upload
-                      </button>
-                    </div>
+                  {/* Image URL */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-1">Image URL</label>
+                    <input
+                      id="input-imageUrl"
+                      type="text"
+                      placeholder="https://example.com/image.jpg"
+                      className={getFieldClassName("imageUrl")}
+                      style={inputStyle}
+                      value={parsedData.imageUrl || ""}
+                      onChange={(e) => handleUpdateField("imageUrl", e.target.value)}
+                    />
                   </div>
 
                   {/* Footer & Date */}
@@ -8117,119 +5546,6 @@ export function ContentCreatorPage() {
           {/* COLORS & THEMES TAB */}
           {activeTab === "colors" && (
             <div className="space-y-4">
-            {isBatchMode ? (
-              <div className="space-y-4">
-                <div>
-                  <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
-                    Poster Style
-                  </p>
-                  <div className="flex bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg">
-                    {(["editorial", "bold"] as const).map((s) => {
-                      const active = posterStyle === s;
-                      return (
-                        <button
-                          key={s}
-                          onClick={() => setPosterStyle(s)}
-                          className={`flex-1 py-2 rounded-md transition-all cursor-pointer text-[10px] font-bold uppercase tracking-wider text-center ${
-                            active
-                              ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
-                              : "text-[#787870] hover:text-white/60"
-                          }`}
-                        >
-                          {s === "editorial" ? "Editorial" : "Bold & Trending"}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[9px] text-[#787870] mt-1.5 leading-relaxed">
-                    {posterStyle === "editorial"
-                      ? "The classic paper-band + photo layout — pick a theme below."
-                      : "Full-bleed gradient, huge headline, swipe-to-read — pick a gradient below."}
-                  </p>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider">
-                      Color Fade Intensity
-                    </p>
-                    <span className="text-[10px] font-mono text-white/50">{gradientFade}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="200"
-                    step="1"
-                    value={gradientFade}
-                    onChange={(e) => setGradientFade(parseInt(e.target.value, 10))}
-                    className="w-full cursor-pointer"
-                    style={{ accentColor: "#10b981" }}
-                  />
-                  <p className="text-[9px] text-[#787870] mt-1 leading-relaxed">
-                    How much the {posterStyle === "editorial" ? "paper-band color bleeds into" : "gradient washes over"} the photo — lower shows more of the image, 100% matches the tuned default, higher pushes past it for a heavier wash.
-                  </p>
-                </div>
-
-                {posterStyle === "editorial" && (
-                  <div>
-                    <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
-                      Theme
-                    </p>
-                    <div className="flex bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg">
-                      {(["light", "dark"] as const).map((t) => {
-                        const active = editorialTheme === t;
-                        return (
-                          <button
-                            key={t}
-                            onClick={() => setEditorialTheme(t)}
-                            className={`flex-1 py-2 rounded-md transition-all cursor-pointer text-[10px] font-bold uppercase tracking-wider text-center ${
-                              active
-                                ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
-                                : "text-[#787870] hover:text-white/60"
-                            }`}
-                          >
-                            {t === "light" ? "Light Paper" : "Dark"}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {posterStyle === "bold" && (
-                  <div>
-                    <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
-                      Gradient Color
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {GRADIENT_PRESETS.map((g) => {
-                        const isActive = gradientPresetId === g.id;
-                        return (
-                          <button
-                            key={g.id}
-                            onClick={() => setGradientPresetId(g.id)}
-                            className="flex flex-col items-start p-2 rounded-xl transition-all border text-left cursor-pointer"
-                            style={{
-                              background: isActive ? "rgba(255, 255, 255, 0.06)" : "rgba(255, 255, 255, 0.02)",
-                              borderColor: isActive ? "rgba(255, 255, 255, 0.2)" : "rgba(255, 255, 255, 0.06)",
-                            }}
-                          >
-                            <span className="text-[10px] font-bold text-white mb-1.5">
-                              {g.name}
-                            </span>
-                            <div
-                              className="h-7 w-full rounded-md border border-white/10"
-                              style={{ background: `linear-gradient(135deg, ${g.stops[0]}, ${g.stops[1]})` }}
-                            />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
               <div>
                 <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
                   Color Presets
@@ -8306,9 +5622,7 @@ export function ContentCreatorPage() {
                   ))}
                 </div>
               </div>
-              </div>
-            )}
-          </div>
+            </div>
           )}
 
           {/* LAYOUT TAB */}
@@ -8611,78 +5925,21 @@ export function ContentCreatorPage() {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowGenerateMenu(false)} />
                   <div className="absolute bottom-full mb-2 left-0 w-[318px] z-50 rounded-xl border border-white/[0.08] bg-[#121210] shadow-[0_10px_35px_rgba(0,0,0,0.85)] backdrop-blur-xl overflow-hidden p-1 space-y-0.5 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                    <div className="w-full flex items-start gap-1 rounded-lg hover:bg-white/[0.05] transition">
-                      <button
-                        onClick={generateNewsBatch}
-                        className="flex-1 min-w-0 flex items-start gap-3 px-3 py-2.5 text-left active:scale-[0.99] transition cursor-pointer"
-                      >
-                        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shrink-0 mt-0.5">
-                          <Sparkles className="h-4 w-4 text-emerald-400" />
-                        </div>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[11.5px] font-bold text-white tracking-wide">AI News Batch</span>
-                          <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
-                            Curate 8-12 distinct high-impact stories, deduped, with cover + outro. Select which slides to include.
-                          </span>
+                    <button
+                      onClick={generateNewsBatch}
+                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-white/[0.05] active:scale-[0.99] transition cursor-pointer"
+                    >
+                      <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shrink-0 mt-0.5">
+                        <Sparkles className="h-4 w-4 text-emerald-400" />
+                      </div>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[11.5px] font-bold text-white tracking-wide">AI News Batch</span>
+                        <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
+                          Curate 20-30 high-impact geopolitical/macro news stories. Select which slides to include.
                         </span>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShowGenerateMenu(false); setShowPromptForCategory("news"); }}
-                        title="Show the full generation prompt"
-                        className="shrink-0 mt-2 mr-1.5 p-1.5 rounded-lg text-white/30 hover:text-white/80 hover:bg-white/10 transition cursor-pointer"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="w-full flex items-start gap-1 rounded-lg hover:bg-white/[0.05] transition border-t border-white/[0.03]">
-                      <button
-                        onClick={() => generateFactsBatch()}
-                        className="flex-1 min-w-0 flex items-start gap-3 px-3 py-2.5 text-left active:scale-[0.99] transition cursor-pointer"
-                      >
-                        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shrink-0 mt-0.5">
-                          <Lightbulb className="h-4 w-4 text-emerald-400" />
-                        </div>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[11.5px] font-bold text-white tracking-wide">AI Facts Batch</span>
-                          <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
-                            Auto-generate 5-8 verified, punchy trading/market facts with cover + outro.
-                          </span>
-                        </span>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShowGenerateMenu(false); setShowPromptForCategory("facts"); }}
-                        title="Show the full generation prompt"
-                        className="shrink-0 mt-2 mr-1.5 p-1.5 rounded-lg text-white/30 hover:text-white/80 hover:bg-white/10 transition cursor-pointer"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="w-full flex items-start gap-1 rounded-lg hover:bg-white/[0.05] transition border-t border-white/[0.03]">
-                      <button
-                        onClick={() => generateLearningsBatch()}
-                        className="flex-1 min-w-0 flex items-start gap-3 px-3 py-2.5 text-left active:scale-[0.99] transition cursor-pointer"
-                      >
-                        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shrink-0 mt-0.5">
-                          <BookOpen className="h-4 w-4 text-emerald-400" />
-                        </div>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[11.5px] font-bold text-white tracking-wide">AI Learnings Batch</span>
-                          <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
-                            Auto-picks one concept and teaches it step by step, with cover + recap + outro.
-                          </span>
-                        </span>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShowGenerateMenu(false); setShowPromptForCategory("learnings"); }}
-                        title="Show the full generation prompt"
-                        className="shrink-0 mt-2 mr-1.5 p-1.5 rounded-lg text-white/30 hover:text-white/80 hover:bg-white/10 transition cursor-pointer"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
+                      </span>
+                    </button>
+                    
                     <button
                       onClick={() => {
                         setShowGenerateMenu(false);
@@ -8725,7 +5982,7 @@ export function ContentCreatorPage() {
                 {generatingBatch ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    GENERATING…
+                    CURATING NEWS…
                   </>
                 ) : (
                   <>
@@ -8774,14 +6031,6 @@ export function ContentCreatorPage() {
               className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-95 cursor-pointer border border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white"
             >
               <History className="h-3.5 w-3.5" />
-            </button>
-
-            <button
-              onClick={() => setShowCalendarModal(true)}
-              title="Content Calendar — 30-day plan"
-              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-95 cursor-pointer border border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white"
-            >
-              <Calendar className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -8834,7 +6083,7 @@ export function ContentCreatorPage() {
               {Math.round(scale * 100)}%
             </span>
           </div>
-          {isBatchMode ? (
+          {creatorMode === "news" ? (
             <div className="flex items-center gap-2">
               <button
                 onClick={download}
@@ -8874,8 +6123,8 @@ export function ContentCreatorPage() {
           )}
         </div>
 
-        {/* Batch pagination header (News/Facts/Learnings only) */}
-        {isBatchMode && newsData.length > 0 && (
+        {/* News pagination header (Only in News Batch mode) */}
+        {creatorMode === "news" && newsData.length > 0 && (
           <div
             className="flex items-center justify-between px-5 py-2.5 border-b shrink-0 bg-white/[0.01] z-10"
             style={{ borderColor: "rgba(255, 255, 255, 0.04)" }}
@@ -8909,7 +6158,7 @@ export function ContentCreatorPage() {
         >
           {/* Carousel nav — real app buttons, not baked into the poster image.
               Changes which poster is being previewed/edited/exported. */}
-          {isBatchMode && newsData.length > 1 && (
+          {creatorMode === "news" && newsData.length > 1 && (
             <>
               <button
                 onClick={() => setActiveNewsIndex((i) => Math.max(0, i - 1))}
@@ -8964,7 +6213,7 @@ export function ContentCreatorPage() {
               }}
             >
               {elementBounds.map((box, i) => {
-                const isNewsImage = box.id === "imageUrl" && isBatchMode;
+                const isNewsImage = box.id === "imageUrl" && creatorMode === "news";
                 const hasImage = isNewsImage && !!newsData[activeNewsIndex]?.imageUrl;
 
                 return (
@@ -8989,9 +6238,6 @@ export function ContentCreatorPage() {
                       e.currentTarget.style.borderColor = "transparent";
                       e.currentTarget.style.backgroundColor = "transparent";
                     }}
-                    onDragOver={box.id === "imageUrl" ? (e) => handleImageDragOver(e, colors.accent) : undefined}
-                    onDragLeave={box.id === "imageUrl" ? handleImageDragLeave : undefined}
-                    onDrop={box.id === "imageUrl" ? handleImageDrop : undefined}
                   >
                     {/* Floating badge tooltip on hover */}
                     <div
@@ -9046,8 +6292,8 @@ export function ContentCreatorPage() {
           <span
             className="text-[9px] uppercase tracking-[0.15em] text-[#787870]"
           >
-            {isBatchMode
-              ? "Click Next/Previous or select items in the sidebar to cycle through the batch"
+            {creatorMode === "news" 
+              ? "Click Next/Previous or select items in the sidebar to cycle through the news batch"
               : "Click any element on the poster to customize it in the sidebar"
             }
           </span>
@@ -9092,25 +6338,6 @@ export function ContentCreatorPage() {
           onClose={() => setShowHistory(false)}
           onLoad={loadHistoryEntry}
           onDelete={deleteHistoryEntry}
-        />
-      )}
-
-      {/* Content Calendar modal — 30-day News/Learnings/Facts plan */}
-      {showCalendarModal && (
-        <ContentCalendarModal
-          onClose={() => setShowCalendarModal(false)}
-          onGenerateNews={() => { setShowCalendarModal(false); generateNewsBatch(); }}
-          onGenerateFacts={(topicHint) => { setShowCalendarModal(false); generateFactsBatch(topicHint); }}
-          onGenerateLearnings={(topicHint) => { setShowCalendarModal(false); generateLearningsBatch(topicHint); }}
-        />
-      )}
-
-      {/* Full generation prompt viewer — the exact system prompt, user message, and required output JSON shape for a batch category */}
-      {showPromptForCategory && (
-        <ShowPromptModal
-          category={showPromptForCategory}
-          onClose={() => setShowPromptForCategory(null)}
-          onImport={importAiBatch}
         />
       )}
 

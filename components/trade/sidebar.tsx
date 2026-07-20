@@ -32,7 +32,6 @@ import {
   Settings,
   Database,
   Layers2,
-  CalendarClock,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -56,7 +55,6 @@ const tradeItems: NavItem[] = [
   { href: "/backtesting",      label: "Backtesting",      icon: ChartCandlestick, beta: true },
   { href: "/data",             label: "Data",             icon: Database },
   { href: "/news-analysis",    label: "News Analysis",    icon: Newspaper },
-  { href: "/market-calendar",  label: "Market Calendar",  icon: CalendarClock },
 ];
 
 const adminTradeItems: NavItem[] = [
@@ -89,7 +87,6 @@ function getActiveSidebarItems(preferences: any): {
     if (item.href === "/backtesting") return items.backtesting !== false;
     if (item.href === "/data") return items.data !== false;
     if (item.href === "/news-analysis") return items.newsAnalysis !== false;
-    if (item.href === "/market-calendar") return items.marketCalendar !== false;
     return true;
   });
 
