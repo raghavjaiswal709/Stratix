@@ -635,11 +635,12 @@ export function TodoList() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-base font-semibold flex items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-white/65" />
-            {format(selectedDate, "EEEE, MMMM d, yyyy")}
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold flex items-center gap-2 whitespace-nowrap">
+            <CalendarDays className="h-4 w-4 text-white/65 shrink-0" />
+            <span className="sm:hidden">{format(selectedDate, "EEE, MMM d")}</span>
+            <span className="hidden sm:inline">{format(selectedDate, "EEEE, MMMM d, yyyy")}</span>
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {activeDayTodos.length} task{activeDayTodos.length !== 1 ? "s" : ""}
@@ -650,7 +651,7 @@ export function TodoList() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Filter button */}
           <button
             className={cn(
@@ -667,8 +668,8 @@ export function TodoList() {
           >
             <CalendarDays className="h-4 w-4" />
           </button>
-          <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="gap-1">
-            <Plus className="h-4 w-4" /> Add Task
+          <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="gap-1 whitespace-nowrap" aria-label="Add Task">
+            <Plus className="h-4 w-4 shrink-0" /> <span className="hidden xs:inline">Add Task</span>
           </Button>
         </div>
       </div>

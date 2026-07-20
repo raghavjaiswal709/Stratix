@@ -151,36 +151,37 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
   return (
     <div className="flex-1 w-full h-full bg-[#0f0f0f] overflow-hidden flex flex-col text-[#d1d5db] font-sans selection:bg-emerald-500/30 selection:text-white">
       {/* Upper Navigation Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-[#0f0f0f] shrink-0">
-        <div className="flex flex-col gap-0.5">
+      <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-3 md:py-4 border-b border-white/[0.06] bg-[#0f0f0f] shrink-0">
+        <div className="flex flex-col gap-0.5 min-w-0">
           <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Overview</span>
-          <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-white/80 shrink-0" /> Backtesting Sessions {selectedSession && <span className="text-sm font-semibold text-white/60">({selectedSession.name})</span>}
+          <h1 className="text-base md:text-xl font-bold tracking-tight text-white flex items-center gap-2 min-w-0 whitespace-nowrap">
+            <BarChart3 className="w-5 h-5 text-white/80 shrink-0" /> <span className="truncate">Backtesting Sessions</span> {selectedSession && <span className="hidden lg:inline text-sm font-semibold text-white/60 truncate">({selectedSession.name})</span>}
           </h1>
         </div>
         <button
           onClick={onOpenNewSessionModal}
-          className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-white text-black hover:bg-white/90 active:scale-95 transition-all shadow-[0_4px_12px_rgba(255,255,255,0.1)] hover:shadow-[0_6px_16px_rgba(255,255,255,0.2)] border border-transparent"
+          className="flex items-center gap-1.5 px-3 md:px-4 py-2 text-xs font-bold rounded-xl bg-white text-black hover:bg-white/90 active:scale-95 transition-all shadow-[0_4px_12px_rgba(255,255,255,0.1)] hover:shadow-[0_6px_16px_rgba(255,255,255,0.2)] border border-transparent shrink-0 whitespace-nowrap"
+          aria-label="New Session"
         >
-          <Plus className="w-3.5 h-3.5" />
-          New Session
+          <Plus className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden xs:inline">New Session</span>
         </button>
       </div>
 
       {/* Main Split Layout Container */}
-      <div className="flex-1 min-h-0 w-full flex items-stretch overflow-hidden">
-        
-        {/* Left Column: Saved Sessions (30% width) - flush to left edge */}
-        <div className="w-[30%] border-r border-white/[0.06] bg-[#080808]/40 flex flex-col shrink-0 p-6 overflow-hidden">
+      <div className="flex-1 min-h-0 w-full flex flex-col md:flex-row items-stretch overflow-y-auto md:overflow-hidden">
+
+        {/* Left Column: Saved Sessions — full-width stacked on mobile, 30% column on md+ */}
+        <div className="w-full md:w-[30%] md:border-r border-b md:border-b-0 border-white/[0.06] bg-[#080808]/40 flex flex-col shrink-0 p-4 md:p-6 md:overflow-hidden">
           <div className="flex flex-col gap-1.5 mb-4 shrink-0">
             <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Saved Sessions</span>
-            <h2 className="text-sm font-bold text-white flex items-center gap-1.5">
+            <h2 className="text-sm font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
               <FolderOpen className="w-4 h-4 text-white/40 shrink-0" /> Total Sessions <span className="px-1.5 py-0.5 rounded-md text-[9px] bg-white/[0.06] text-white/60 font-bold border border-white/[0.08] font-mono">{sessions.length}</span>
             </h2>
           </div>
-          
+
           {/* Scrollable list container */}
-          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 pr-1 pb-10">
+          <div className="max-h-[340px] md:max-h-none md:flex-1 md:min-h-0 overflow-y-auto flex flex-col gap-3 pr-1 pb-4 md:pb-10">
             {sessions.length > 0 ? (
               sessions.map((s) => {
                 const isSelectedForAnalysis = selectedSession && s.id === selectedSession.id;
@@ -277,8 +278,8 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
           </div>
         </div>
 
-        {/* Right Column: Analysis Segment (70% width) - flush to right edge */}
-        <div className="w-[70%] overflow-y-auto p-6 flex flex-col gap-6">
+        {/* Right Column: Analysis Segment — stacked on mobile, 70% column on md+ */}
+        <div className="w-full md:w-[70%] md:overflow-y-auto p-4 md:p-6 flex flex-col gap-6">
           <div className="flex flex-col gap-1.5 shrink-0">
             <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Analysis dashboard</span>
             <h2 className="text-sm font-bold text-white flex items-center gap-1.5">
@@ -341,7 +342,7 @@ export function SessionDashboard({ sessions, onSelectSession, onDeleteSession, o
               <div className="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent pointer-events-none rounded-2xl" />
               <div className="flex items-center justify-between text-white/40 z-10 relative">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Total Trades</span>
-                <RefreshCw className="w-3.5 h-3.5 text-purple-400/60" />
+                <RefreshCw className="w-3.5 h-3.5 text-white/30" />
               </div>
               <div className="flex flex-col mt-3.5 z-10 relative">
                 <span className="text-2xl font-bold font-mono text-white tracking-tight">

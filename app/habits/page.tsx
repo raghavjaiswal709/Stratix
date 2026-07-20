@@ -66,8 +66,8 @@ export default function HabitsPage() {
   }
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-start justify-between gap-4">
+    <div className="p-4 md:p-6 space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
         {/* Left: title + inline today stats */}
         <div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -88,7 +88,7 @@ export default function HabitsPage() {
         </div>
 
         {/* Right: dropdown stacked above week nav */}
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-1.5 shrink-0">
           <Select value={timeFrame} onValueChange={handleTimeFrameChange}>
             <SelectTrigger className="w-40 h-8 text-[13px]">
               <SelectValue />

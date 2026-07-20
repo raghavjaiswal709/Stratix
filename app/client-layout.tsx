@@ -39,11 +39,16 @@ function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         <Menu className="h-5 w-5" />
       </button>
 
-      {/* Logo */}
-      <div className="flex items-center gap-2 ml-2 flex-1 min-w-0">
+      {/* Logo — also opens the nav drawer, mirroring the desktop collapsed
+          rail's logo (click to expand and reveal the full branded nav). */}
+      <button
+        onClick={onMenuOpen}
+        className="flex items-center gap-2 ml-2 flex-1 min-w-0 rounded-lg hover:bg-sidebar-accent transition p-1 -m-1"
+        aria-label="Open navigation"
+      >
         <StratixMark size={24} />
         <StratixWordmark size={11} />
-      </div>
+      </button>
 
       {/* User avatar + dropdown — always visible */}
       <div className="relative shrink-0">

@@ -79,6 +79,7 @@ const defaultPreferences: UserPreferences = {
     backtesting: true,
     data: true,
     newsAnalysis: true,
+    marketCalendar: true,
     liveData: true,
     chart: true,
     aiReport: true,

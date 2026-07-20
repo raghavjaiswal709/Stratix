@@ -91,17 +91,18 @@ export function Diary() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-base font-semibold flex items-center gap-2">
-            <BookOpen className="h-4 w-4 text-white/65" />
-            {format(selectedDate, "EEEE, MMMM d, yyyy")}
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold flex items-center gap-2 whitespace-nowrap">
+            <BookOpen className="h-4 w-4 text-white/65 shrink-0" />
+            <span className="sm:hidden">{format(selectedDate, "EEE, MMM d")}</span>
+            <span className="hidden sm:inline">{format(selectedDate, "EEEE, MMMM d, yyyy")}</span>
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {wordCount > 0 ? `${wordCount} words` : "No entry yet"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             className="md:hidden h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted transition-colors text-muted-foreground"
             onClick={() => setShowMobileCalendar(true)}

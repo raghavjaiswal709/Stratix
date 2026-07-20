@@ -39,7 +39,7 @@ export function ReplayBar({
   const revealed = active ? currentIdx - startIdx : 0;
 
   return (
-    <div className={`flex items-center gap-3 px-4 py-1.5 bg-black/20 backdrop-blur-[20px] border rounded-full font-mono text-[9px] pointer-events-auto select-none transition-all duration-300 ${
+    <div className={`flex items-center gap-3 px-4 py-1.5 bg-black/20 backdrop-blur-[20px] border rounded-full font-mono text-[9px] pointer-events-auto select-none transition-all duration-300 shrink-0 whitespace-nowrap ${
       selectingStart ? "border-[#F0B90B] bg-[#F0B90B]/10" : "border-white/[0.10]"
     }`}>
 
