@@ -3615,14 +3615,14 @@ function ManualModal({
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-white/[0.06] shrink-0">
+      {/* Tabs — horizontal scroll instead of wrapping "Generate with AI" onto 2 lines on narrow phones */}
+      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-white/[0.06] shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition shrink-0 whitespace-nowrap",
               tab === t.key
                 ? "bg-white/[0.10] text-white border border-white/[0.12]"
                 : "text-white/35 hover:text-white/65 hover:bg-white/[0.04]"

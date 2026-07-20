@@ -292,20 +292,20 @@ export default function JournalPage() {
       )}
 
       <div className="flex flex-col h-full">
-        {/* Top tab bar */}
-        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/7 shrink-0 bg-[#0c0e14]">
+        {/* Top tab bar — scrolls horizontally instead of wrapping/overlapping on narrow phones */}
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/7 shrink-0 bg-[#0c0e14] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TABS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => handleViewChange(key)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition",
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition shrink-0 whitespace-nowrap",
                 view === key
                   ? "bg-white/[0.09] text-white border border-white/[0.12]"
                   : "text-white/40 hover:text-white/70 hover:bg-white/[0.05] border border-transparent"
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
+              <Icon className="h-3.5 w-3.5 shrink-0" />
               {label}
             </button>
           ))}
