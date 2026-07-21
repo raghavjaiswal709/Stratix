@@ -206,6 +206,7 @@ export function JournalDetail({
   const [aPlusLevel, setAPlusLevel] = useState(false);
   const [otherLevels, setOtherLevels] = useState(false);
   const [otherLevelsValue, setOtherLevelsValue] = useState("");
+  const [otherLevelsTimeframe, setOtherLevelsTimeframe] = useState("");
   const [confirmation, setConfirmation] = useState(false);
   const [confirmationValues, setConfirmationValues] = useState<string[]>([]);
   const [riskFree, setRiskFree] = useState(false);
@@ -315,6 +316,7 @@ export function JournalDetail({
     rawChecklist.forEach(c => {
       if (standardKeys.includes(c.item)) return;
       if (c.item.startsWith("Level: ") || c.item.startsWith("Other Level: ")) return;
+      if (c.item.startsWith("Level Timeframe: ") || c.item.startsWith("Other Level Timeframe: ")) return;
       if (c.item.startsWith("Confirmation: ")) return;
 
       active.push(c.item);
@@ -331,6 +333,16 @@ export function JournalDetail({
     if (hasAPlus && !otherVal) {
       otherVal = "A+";
     }
+
+    const otherTfItem = rawChecklist.find(c => (c.item.startsWith("Level Timeframe: ") || c.item.startsWith("Other Level Timeframe: ")) && c.checked);
+    let otherTf = otherTfItem ? otherTfItem.item.replace("Level Timeframe: ", "").replace("Other Level Timeframe: ", "") : "";
+    if (!otherTf && otherVal && otherVal.includes("(") && otherVal.endsWith(")")) {
+      const match = otherVal.match(/^(.*?)\s*\((.*?)\)$/);
+      if (match) {
+        otherVal = match[1].trim();
+        otherTf = match[2].trim();
+      }
+    }
     
     const hasConfVal = rawChecklist.find(c => c.item === "Confirmation" || c.item === "confirnation")?.checked ?? false;
     const confVals = rawChecklist
@@ -345,6 +357,7 @@ export function JournalDetail({
     setAPlusLevel(hasAPlus);
     setOtherLevels(hasOther);
     setOtherLevelsValue(otherVal);
+    setOtherLevelsTimeframe(otherTf);
     setConfirmation(hasConfVal);
     setConfirmationValues(confVals);
     setRiskFree(hasRiskFreeVal);
@@ -475,12 +488,21 @@ export function JournalDetail({
     setOtherLevels(next);
     if (!next) {
       setOtherLevelsValue("");
+      setOtherLevelsTimeframe("");
     }
     markDirty();
   };
   
   const selectOtherLevelValue = (val: string) => {
     setOtherLevelsValue(val);
+    if (!val) {
+      setOtherLevelsTimeframe("");
+    }
+    markDirty();
+  };
+
+  const selectOtherLevelTimeframe = (tf: string) => {
+    setOtherLevelsTimeframe(tf);
     markDirty();
   };
 
@@ -558,6 +580,7 @@ export function JournalDetail({
     if (id === "levels") {
       setOtherLevels(false);
       setOtherLevelsValue("");
+      setOtherLevelsTimeframe("");
     } else if (id === "confirmation") {
       setConfirmation(false);
       setConfirmationValues([]);
@@ -850,6 +873,10 @@ Please analyze this data and generate a detailed report:
       if (otherLevels && otherLevelsValue) {
         compiledChecklist.push({ item: `Level: ${otherLevelsValue}`, checked: true });
         compiledChecklist.push({ item: `Other Level: ${otherLevelsValue}`, checked: true });
+        if (otherLevelsTimeframe) {
+          compiledChecklist.push({ item: `Level Timeframe: ${otherLevelsTimeframe}`, checked: true });
+          compiledChecklist.push({ item: `Other Level Timeframe: ${otherLevelsTimeframe}`, checked: true });
+        }
       }
       compiledChecklist.push({ item: "A+ level", checked: otherLevels && otherLevelsValue === "A+" });
     }
@@ -1399,32 +1426,61 @@ Please analyze this data and generate a detailed report:
                       markDirty();
                     };
                     subOptionsContent = otherLevels && (
-                      <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 mt-2">
-                        <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Levels:</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {["A+", "SBR/RBS", "DB/DT", "Level 3", "Level 4", "TJL1"].map((lvl) => (
-                            <button
-                              key={lvl}
-                              type="button"
-                              onClick={() => {
-                                selectOtherLevelValue(otherLevelsValue === lvl ? "" : lvl);
-                                if (otherLevelsValue !== lvl) {
-                                  setOtherLevels(true);
-                                }
-                              }}
-                              className={cn(
-                                "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
-                                otherLevelsValue === lvl
-                                  ? lvl === "A+"
-                                    ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-400 font-bold shadow-md shadow-yellow-500/10"
-                                    : "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
-                                  : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
-                              )}
-                            >
-                              {lvl}
-                            </button>
-                          ))}
+                      <div className="flex flex-col gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 mt-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase shrink-0">Levels:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {["A+", "SBR/RBS", "DB/DT", "Level 1", "Level 2", "Level 3", "Level 4", "TJL1", "TJL 2", "TJL 3", "TJL 4"].map((lvl) => (
+                              <button
+                                key={lvl}
+                                type="button"
+                                onClick={() => {
+                                  const nextVal = otherLevelsValue === lvl ? "" : lvl;
+                                  selectOtherLevelValue(nextVal);
+                                  if (nextVal) {
+                                    setOtherLevels(true);
+                                  }
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                                  otherLevelsValue === lvl
+                                    ? lvl === "A+"
+                                      ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-400 font-bold shadow-md shadow-yellow-500/10"
+                                      : "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
+                                    : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                                )}
+                              >
+                                {lvl}
+                              </button>
+                            ))}
+                          </div>
                         </div>
+
+                        {/* Timeframe option box - shown when a level tag is selected */}
+                        {otherLevelsValue && (
+                          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/5">
+                            <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase shrink-0">Timeframe:</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {["m1", "m5", "m15", "m30", "h1", "h4", "d1"].map((tf) => (
+                                <button
+                                  key={tf}
+                                  type="button"
+                                  onClick={() => {
+                                    selectOtherLevelTimeframe(otherLevelsTimeframe === tf ? "" : tf);
+                                  }}
+                                  className={cn(
+                                    "px-2 py-0.5 rounded text-[10px] font-medium transition-all border uppercase",
+                                    otherLevelsTimeframe === tf
+                                      ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 font-bold shadow-md shadow-emerald-500/10"
+                                      : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                                  )}
+                                >
+                                  {tf}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   } else if (itemId === "confirmation") {
@@ -1540,7 +1596,7 @@ Please analyze this data and generate a detailed report:
                           )}
                         >
                           {label}
-                          {isChecked && itemId === "levels" && ` (${otherLevelsValue})`}
+                          {isChecked && itemId === "levels" && ` (${otherLevelsValue}${otherLevelsTimeframe ? ` - ${otherLevelsTimeframe.toUpperCase()}` : ""})`}
                         </span>
                         
                         {/* Remove button */}
