@@ -69,6 +69,10 @@ interface PosterCopy {
   whyItMatters: string;
   /** ELI5 companion card — which markets are affected and how, in plain language. */
   simpleImpacts: SimpleImpact[];
+  /** Instagram-ready caption for THIS story posted on its own — distinct voice from the on-poster "description". */
+  caption: string;
+  /** 25+ hashtags: a fixed brand set (appended in code, not model-authored) plus deeply-researched, story-specific trending/relevant tags. */
+  hashtags: string[];
 }
 
 interface CoverCopy {
@@ -88,6 +92,10 @@ interface CoverCopy {
   isCover: true;
   topAssets: InstrumentImpact[];
   bulletHeadlines: string[];
+  /** Instagram-ready caption for the WHOLE carousel (this is slide 1). */
+  caption: string;
+  /** 25+ hashtags for the whole carousel — same brand-set + researched-tags composition as each story's. */
+  hashtags: string[];
 }
 
 interface OutroCopy {
@@ -172,6 +180,23 @@ RULES: no jargon left unexplained (if you must use a term like "interest rate" o
 - "whyItMatters": 1-3 short sentences on why this is a big deal, in real-world terms (jobs, prices, savings, everyday money) rather than trader terms.
 - "simpleImpacts": array of 2-4 {"market": plain-English name of a market or thing people know, e.g. "Gold", "The US Dollar", "Stock Prices", "Bitcoin" — not a ticker symbol; "effect": one short plain-language phrase of what this means for it, e.g. "may become more expensive to buy"; "direction": "up"|"down"|"neutral"} — must be consistent with the story's real instrumentImpacts/sentiment above, just re-explained in plain words.
 
+━━━ PART 2.6 — INSTAGRAM CAPTION + HASHTAGS (per selected story) ━━━
+Every story ALSO ships a ready-to-post Instagram package — a caption and a hashtag set — written for the caption field of an actual Instagram post, NOT a repeat of the on-poster "description" (that one is wire-service tone for the image itself; this one is social-voice for the text underneath it).
+
+"caption" — write like a trader who actually has followers, not a press release:
+- Open with a hook in the first 1-2 lines. Instagram truncates captions after roughly 125 characters before showing "more" — the hook must land before that cut, so front-load the single most interesting fact or question, never a throat-clearing intro.
+- 2-4 short sentences, conversational, first-or-second-person voice ("Here's what just happened...", "This is why your gold trades might move today") — not the same formal tone as the poster copy above.
+- Reference the concrete fact or number from the story so the caption stands on its own without needing the image.
+- At most 2-3 well-placed emoji, and only if they genuinely fit the story's tone — omit them entirely for a serious or bearish story rather than forcing one in.
+- End with exactly ONE soft engagement line — a question, a "save this for later", a light opinion prompt — never a hard sales pitch, never guaranteed-outcome language.
+- Do NOT put hashtags inside "caption" — they belong only in the separate "hashtags" field below.
+
+"hashtags" — do a genuine deep-research pass, like a social-media growth strategist planning reach for a finance/trading account posting about this exact story right now, not a lazy copy-paste of #trading #crypto #forex on every card. Produce 18-22 hashtags for THIS story specifically, thinking through three tiers and blending all three (never just dump 20 broad tags):
+1. BROAD reach tags (4-6) — high-volume, high-competition finance/trading tags relevant to the story's asset class (e.g. #Trading, #StockMarket, #Crypto, #Forex, #Gold, #Investing) — pick whichever actually fit THIS story's instruments, not a fixed list repeated every time.
+2. NICHE/MID tags (8-10) — more targeted, lower-competition tags a real trader account would reach for on this specific theme (e.g. #ForexTrader, #GoldTrading, #CryptoNews, #DayTrading, #SwingTrading, #MacroEconomics) — matched to the story's actual category and instruments.
+3. STORY-SPECIFIC / TRENDING-NOW tags (4-6) — tied to the exact event, instrument, or entity named in this story (e.g. #FOMC, #CPIReport, #XAUUSD, #BTC, #FederalReserve, #NFP, #OOTT — whatever this headline is actually about). These are what separate a real hashtag strategy from a template — they must change story to story, never reused verbatim across cards.
+Formatting rules: every tag starts with "#", no spaces inside a tag, no punctuation besides the tag text itself, CamelCase or lowercase (whichever reads cleanest), no duplicates, and never a spammy engagement-bait tag (#follow4follow, #likeforlike, #f4f and equivalents are forbidden). Do not invent a fixed brand hashtag block yourself — a consistent brand hashtag set is appended automatically outside your output, so spend the full 18-22 on tags that are genuinely researched and specific to this story.
+
 ━━━ PART 3 — "imagePrompt" (THE MOST IMPORTANT FIELD) ━━━
 Write a self-contained prompt for an AI image generator (Grok Imagine) that produces a BOLD, scroll-stopping, high-energy social poster background for THIS story — think viral finance-Instagram thumbnail, not a moody corporate-thriller still. The single biggest failure mode is a desaturated, tucked-in-the-corner, "premium editorial photography" image that reads as calm stock photography — that is WRONG. Every image must be immediately, unmistakably about THIS story's actual subject, rendered BIG, CENTERED, VIVID, and SATURATED. Build every prompt with this exact formula, as ONE flowing paragraph of 60-90 words:
 1. SUBJECT — one concrete, instantly recognizable visual anchor for the STORY ITSELF, filling the frame as the hero, not a small prop in a corner. Prefer a bold physical object or symbol over an establishing shot: for crypto → a giant photorealistic Bitcoin/Ethereum coin catching hard light, rendered like a 3D product shot, not a distant object on a table; for gold/metals → a massive stack of gold bars or a single bar filling most of the frame, light blazing off the edges; for forex/currency → a dramatic close-up of banknotes fanned or torn, or a national flag rendered bold and graphic; for oil → a supertanker or rig shot from a dramatic low angle filling the frame, or a barrel with liquid catching hard light; for central-bank/policy stories → the institution's building shot dramatically from below with bold sky contrast, or its official seal/currency rendered large and graphic; for a company story → that company's real product or logo-bearing storefront, shot big and bold. NEVER a real, named, identifiable public figure's face or likeness (no depicting Fed officials, politicians, CEOs, or any specific real person) — use the institution, object, or symbol instead, every time.
@@ -194,6 +219,8 @@ This is the FIRST slide of the carousel — a masthead, not a social graphic. It
 - "topAssets": array of up to 4 {"symbol": one of the affectedAssets symbols used across your selected posters, "sentiment": "Bullish"|"Bearish"|"Neutral"} — the instruments most in play right now, ranked by relevance, independently tagged (not all the same sentiment unless genuinely true).
 - "bulletHeadlines": 3-5 bullets MAXIMUM (never more), framed as "key moments to watch before you trade today" — each a genuinely distinct catalyst (no two near-duplicates of each other), ranked by how much it could move price today. This is a curated shortlist, not a restatement of every card in the batch.
 - "imagePrompt": follow the same bold formula as Part 3 — one single, huge, striking global-markets symbol filling most of the frame: a giant glowing 3D globe with financial-hub cities connected by bold light-trails, a massive stack of gold bars and banknotes fanned dramatically, or an oversized glowing stock-chart ribbon arcing across the frame. Vivid and saturated, not a calm skyline photo — this is the masthead's visual hook, so it must hit as hard as any story card. Same "no real people" rule, color grade tied to the overall marketBias (bullish emerald glow / bearish red glow / neutral bold amber), NOT tied to any single story.
+- "caption": the Instagram caption for the WHOLE carousel (this cover is slide 1 of the post) — same voice/hook/length/emoji/engagement-line rules as PART 2.6's "caption", but synthesizing the batch's overall throughline instead of one story, e.g. "Five stories moved markets in the last 24 hours — here's what actually matters before the next session." No hashtags inside it.
+- "hashtags": 18-22 hashtags for the WHOLE carousel, same three-tier deep-research method and formatting rules as PART 2.6 — broad market-wide tags plus the batch's dominant themes/instruments, not any single story's niche tags. Same "no fixed brand block, no spammy tags" rules apply.
 
 ━━━ PART 5 — OUTRO SLIDE ("outro") ━━━
 This is the LAST slide of the carousel, after every story card — a calm, confident sign-off, not another news item. It must NOT continue the tense/crisis mood of the story cards. Tone: professional, trustworthy, confident — not salesy, no exclamation-mark energy, no guaranteed-outcome language. Write:
@@ -205,8 +232,8 @@ This is the LAST slide of the carousel, after every story card — a calm, confi
 ━━━ OUTPUT ━━━
 Return STRICTLY a JSON object of this exact shape — no markdown fences, no commentary, no extra keys:
 {
-  "summary": { "title": "...", "highlightPhrase": "...", "overview": "...", "overviewHighlights": ["..."], "marketBias": "...", "topAssets": [{"symbol":"...","sentiment":"..."}], "bulletHeadlines": ["..."], "imagePrompt": "..." },
-  "posters": [ { "title": "...", "highlightPhrase": "...", "description": "...", "descriptionHighlights": ["..."], "keyTakeaway": "...", "affectedAssets": "...", "instrumentImpacts": [{"symbol":"...","sentiment":"..."}], "impact": "...", "sentiment": "...", "source": "...", "date": "...", "imagePrompt": "...", "category": "...", "simpleHeadline": "...", "simpleHeadlineHighlight": "...", "whatHappened": "...", "whyItMatters": "...", "simpleImpacts": [{"market":"...","effect":"...","direction":"..."}] } ],
+  "summary": { "title": "...", "highlightPhrase": "...", "overview": "...", "overviewHighlights": ["..."], "marketBias": "...", "topAssets": [{"symbol":"...","sentiment":"..."}], "bulletHeadlines": ["..."], "imagePrompt": "...", "caption": "...", "hashtags": ["#...", "#..."] },
+  "posters": [ { "title": "...", "highlightPhrase": "...", "description": "...", "descriptionHighlights": ["..."], "keyTakeaway": "...", "affectedAssets": "...", "instrumentImpacts": [{"symbol":"...","sentiment":"..."}], "impact": "...", "sentiment": "...", "source": "...", "date": "...", "imagePrompt": "...", "category": "...", "simpleHeadline": "...", "simpleHeadlineHighlight": "...", "whatHappened": "...", "whyItMatters": "...", "simpleImpacts": [{"market":"...","effect":"...","direction":"..."}], "caption": "...", "hashtags": ["#...", "#..."] } ],
   "outro": { "headline": "...", "subtext": "...", "cta": "...", "imagePrompt": "..." }
 }`;
 }
@@ -292,6 +319,70 @@ function resolveSimpleImpacts(candidates: unknown, fallbackAssets: string, fallb
     .filter(Boolean)
     .slice(0, 3)
     .map((symbol) => ({ market: symbol, effect, direction }));
+}
+
+// Fixed, always-included brand hashtags — guarantees every poster's set
+// stays brand-consistent even though the model's own 18-22 tags are
+// researched fresh per story (see PART 2.6 of the system prompt above).
+const COMMON_HASHTAGS = ["#Stratix", "#Trading", "#ForexTrading", "#TradingSignals", "#FinancialMarkets", "#MarketNews", "#TradingCommunity"];
+
+// Pads a story up to the 25+ hashtag floor if the model's own count came in
+// short — keyed by the same 5-category taxonomy PART 1 uses, so even the
+// fallback path stays topically relevant rather than generic filler.
+const CATEGORY_HASHTAG_POOL: Record<PosterCategory, string[]> = {
+  Macro: ["#Inflation", "#InterestRates", "#FederalReserve", "#Economy", "#USD", "#Gold", "#XAUUSD", "#Forex", "#CentralBank", "#Recession"],
+  Geopolitical: ["#Geopolitics", "#OilPrices", "#Sanctions", "#GlobalMarkets", "#Crude", "#SafeHaven", "#RiskOff", "#EnergyMarkets", "#WarRisk", "#GoldPrice"],
+  Corporate: ["#Earnings", "#StockMarket", "#WallStreet", "#Stocks", "#Investing", "#CorporateNews", "#EquityMarkets", "#NYSE", "#Nasdaq", "#MarketMovers"],
+  Sentiment: ["#RiskSentiment", "#MarketSentiment", "#TraderPsychology", "#BullMarket", "#BearMarket", "#RetailTraders", "#MarketMood", "#FearAndGreed", "#SmartMoney", "#PriceAction"],
+  Systemic: ["#Volatility", "#Liquidity", "#Options", "#Derivatives", "#MarketRisk", "#FlashCrash", "#AlgoTrading", "#SystemicRisk", "#MarketStructure", "#TradingRisk"],
+};
+const GENERIC_HASHTAG_POOL = ["#Trading", "#Crypto", "#Forex", "#Investing", "#StockMarket", "#Bitcoin", "#Gold", "#FinancialNews", "#TradingLife", "#MoneyMoves"];
+
+const HASHTAG_TARGET = 25;
+const HASHTAG_MAX = 30;
+
+// A model-provided tag must start with "#", contain no internal whitespace
+// or stray punctuation, and be a sane length — anything else is dropped
+// rather than rendered broken.
+function isValidHashtag(v: unknown): v is string {
+  return typeof v === "string" && /^#[A-Za-z0-9_]{2,40}$/.test(v.trim());
+}
+
+// Merges the model's researched, story-specific hashtags with the fixed
+// brand set, dedupes case-insensitively, and pads with topically-relevant
+// fallbacks if the model came in short of the 25+ floor — a guarantee the
+// prompt's instructions alone can't make reliably across a whole batch.
+function resolveHashtags(candidates: unknown, category?: PosterCategory): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (tag: string) => {
+    const key = tag.toLowerCase();
+    if (seen.has(key) || out.length >= HASHTAG_MAX) return;
+    seen.add(key);
+    out.push(tag);
+  };
+
+  for (const tag of COMMON_HASHTAGS) add(tag);
+
+  if (Array.isArray(candidates)) {
+    for (const c of candidates) {
+      const raw = typeof c === "string" ? c.trim() : "";
+      const normalized = raw && !raw.startsWith("#") ? `#${raw}` : raw;
+      if (isValidHashtag(normalized)) add(normalized);
+    }
+  }
+
+  const pool = (category && CATEGORY_HASHTAG_POOL[category]) || GENERIC_HASHTAG_POOL;
+  for (const tag of [...pool, ...GENERIC_HASHTAG_POOL]) {
+    if (out.length >= HASHTAG_TARGET) break;
+    add(tag);
+  }
+
+  return out;
+}
+
+function resolveCaption(candidate: unknown, fallback: string): string {
+  return clampStr(candidate, 500) || fallback;
 }
 
 export async function POST(req: NextRequest) {
@@ -402,6 +493,7 @@ export async function POST(req: NextRequest) {
       const affectedAssets = clampStr(p.affectedAssets, 80);
       const keyTakeaway = clampStr(p.keyTakeaway, 240);
       const simpleHeadline = clampStr(p.simpleHeadline, 70) || title;
+      const category: PosterCategory = VALID_CATEGORIES.has(p.category as PosterCategory) ? (p.category as PosterCategory) : "Macro";
       return {
         title,
         highlightPhrase: resolveHighlight(title, clampStr(p.highlightPhrase, 60)),
@@ -412,7 +504,7 @@ export async function POST(req: NextRequest) {
         instrumentImpacts: resolveInstrumentImpacts(p.instrumentImpacts, VALID_SENTIMENT, affectedAssets, sentiment),
         impact: VALID_IMPACT.has(p.impact as string) ? (p.impact as PosterCopy["impact"]) : "Medium",
         sentiment,
-        category: VALID_CATEGORIES.has(p.category as PosterCategory) ? (p.category as PosterCategory) : "Macro",
+        category,
         source: clampStr(p.source, 60, "Wire"),
         date: clampStr(p.date, 30, todayLabel),
         imagePrompt: clampStr(p.imagePrompt, 1200),
@@ -424,6 +516,8 @@ export async function POST(req: NextRequest) {
         whatHappened: clampStr(p.whatHappened, 400) || description,
         whyItMatters: clampStr(p.whyItMatters, 240) || keyTakeaway,
         simpleImpacts: resolveSimpleImpacts(p.simpleImpacts, affectedAssets, sentiment),
+        caption: resolveCaption(p.caption, `${title} — here's what it means for your trades. ${keyTakeaway}`.slice(0, 400)),
+        hashtags: resolveHashtags(p.hashtags, category),
       } as PosterCopy;
     })
     .filter((p) => p.title && p.description)
@@ -481,6 +575,8 @@ export async function POST(req: NextRequest) {
       ? (rawSummary.bulletHeadlines as unknown[]).filter((h): h is string => typeof h === "string" && !!h.trim()).slice(0, 5)
       : []
     ).concat(posters.map((p) => p.title)).slice(0, 5),
+    caption: resolveCaption(rawSummary.caption, `${coverTitle} — ${coverOverview}`.slice(0, 400)),
+    hashtags: resolveHashtags(rawSummary.hashtags),
   };
 
   // Build the outro slide — same "model output, else local fallback" pattern
