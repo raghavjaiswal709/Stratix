@@ -133,6 +133,10 @@ interface NewsItem {
   whyItMatters?: string;
   /** Bento card: plain-language per-market effect chips. */
   simpleImpacts?: { market: string; effect: string; direction: "up" | "down" | "neutral" }[];
+  /** Instagram-ready caption for this story (or, on the cover, the whole carousel) — distinct voice from the on-poster "description". Not rendered on the poster itself. */
+  caption?: string;
+  /** 25+ hashtags: a fixed brand set plus deeply-researched, trending/relevant tags for this story. Not rendered on the poster itself. */
+  hashtags?: string[];
 }
 
 interface AspectRatio { id: string; label: string; w: number; h: number; desc: string; }
@@ -587,6 +591,8 @@ const SAMPLE_NEWS: NewsItem[] = [
     sentiment: "Bearish",
     affectedAssets: "USD, XAUUSD, US Equities",
     keyTakeaway: "Treasury yields dropped immediately, weakening the DXY and providing a **massive safety bid** to Gold prices.",
+    caption: "Inflation just came in cooler than expected — 2.8% vs the 3.0% everyone was bracing for. That's the kind of print that gets rate-cut bets moving fast. Gold already caught a bid on the yield drop. Are you positioning for more cuts this year? 👇",
+    hashtags: ["#Stratix", "#Trading", "#ForexTrading", "#TradingSignals", "#FinancialMarkets", "#MarketNews", "#TradingCommunity", "#Inflation", "#InterestRates", "#FederalReserve", "#CPI", "#USD", "#Gold", "#XAUUSD", "#Forex", "#DXY", "#RateCuts", "#Economy", "#MacroTrading", "#BondMarket", "#TreasuryYields", "#FedWatch", "#TradingView", "#GoldTrading", "#SafeHaven"],
   },
   {
     title: "ethereum spot etfs / record inflows",
@@ -598,6 +604,8 @@ const SAMPLE_NEWS: NewsItem[] = [
     sentiment: "Bullish",
     affectedAssets: "ETHUSD, BTCUSDT, Crypto",
     keyTakeaway: "DeFi protocols saw a lockup surge. Layer 2 networks are gaining strong volume momentum.",
+    caption: "Ethereum ETFs just posted their biggest inflow day since launch 👀 Institutions aren't just dipping a toe in anymore — they're building real custody positions. This is the kind of flow data that tends to show up in price a few weeks later. Watching ETH closely this week.",
+    hashtags: ["#Stratix", "#Trading", "#ForexTrading", "#TradingSignals", "#FinancialMarkets", "#MarketNews", "#TradingCommunity", "#Ethereum", "#ETH", "#Crypto", "#CryptoNews", "#ETFs", "#Bitcoin", "#BTC", "#DeFi", "#Layer2", "#CryptoTrading", "#DigitalAssets", "#InstitutionalInvesting", "#CryptoMarket", "#Blockchain", "#Altcoins", "#CryptoInvestor", "#Web3"],
   },
 ];
 
@@ -5285,6 +5293,19 @@ function buildNewsUserMessage(date: string, session: string, candles: any, timeR
   return buildNewsUserMessageV5(date, session, candles, timeRange, selectedSymbols);
 }
 
+// Assembles a caption + hashtag list into one paste-ready Instagram block —
+// blank "." lines between them is the standard creator trick that pushes
+// the hashtag block below the "...more" fold instead of cluttering the
+// caption's visible preview.
+function buildInstagramCopyText(caption: string, hashtags: string[]): string {
+  const cap = caption.trim();
+  const tags = hashtags.map((h) => h.trim()).filter(Boolean).join(" ");
+  if (!cap && !tags) return "";
+  if (!tags) return cap;
+  if (!cap) return tags;
+  return `${cap}\n.\n.\n.\n.\n.\n${tags}`;
+}
+
 function CopyButton({ text, label = "Copy", disabled = false }: { text: string; label?: string; disabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -7961,6 +7982,53 @@ export function ContentCreatorPage() {
                           value={newsData[activeNewsIndex].keyTakeaway || ""}
                           onChange={(e) => handleUpdateField("keyTakeaway", e.target.value)}
                         />
+                      </div>
+
+                      {/* Instagram Caption + Hashtags — editable, plus a single
+                          button that copies both together, spaced with the
+                          standard creator "dot trick" so hashtags land below
+                          the caption's "...more" fold instead of cluttering it. */}
+                      <div className="rounded-xl border border-emerald-500/[0.18] bg-emerald-500/[0.04] p-3 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <ClipboardCopy className="h-3 w-3 text-emerald-400/80" />
+                            <span className="text-[10px] font-bold text-emerald-300/90 uppercase tracking-wider">
+                              {newsData[activeNewsIndex].isCover ? "Instagram Caption (Whole Carousel)" : "Instagram Caption + Hashtags"}
+                            </span>
+                          </div>
+                          <CopyButton
+                            text={buildInstagramCopyText(newsData[activeNewsIndex].caption || "", newsData[activeNewsIndex].hashtags || [])}
+                            label="Copy All"
+                            disabled={!newsData[activeNewsIndex].caption && !(newsData[activeNewsIndex].hashtags || []).length}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-semibold text-white/40 uppercase tracking-wider block mb-1">Caption</label>
+                          <textarea
+                            id="input-caption"
+                            className={getFieldClassName("caption")}
+                            style={{ ...inputStyle, minHeight: "70px", resize: "vertical" }}
+                            placeholder="E.g. Inflation just cooled to 2.8%... here's what it means for your trades."
+                            value={newsData[activeNewsIndex].caption || ""}
+                            onChange={(e) => handleUpdateField("caption", e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-semibold text-white/40 uppercase tracking-wider block mb-1">
+                            Hashtags ({(newsData[activeNewsIndex].hashtags || []).length})
+                          </label>
+                          <textarea
+                            id="input-hashtags"
+                            className={getFieldClassName("hashtags")}
+                            style={{ ...inputStyle, minHeight: "60px", resize: "vertical", fontFamily: "var(--font-mono), monospace", fontSize: "10.5px" }}
+                            placeholder="#Trading #Forex #Gold ..."
+                            value={(newsData[activeNewsIndex].hashtags || []).join(" ")}
+                            onChange={(e) => handleUpdateField("hashtags", e.target.value.split(/\s+/).map((s) => s.trim()).filter(Boolean))}
+                          />
+                        </div>
+                        <p className="text-[9px] text-white/30 leading-snug">
+                          &quot;Copy All&quot; pastes the caption and hashtags together in one go, ready to paste straight into Instagram.
+                        </p>
                       </div>
 
                       {/* Grok Imagine prompt for this poster's image */}

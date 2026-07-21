@@ -368,8 +368,9 @@ export function JournalDetail({
     setScreenshots(trade.screenshots ?? []);
     setPreTradeAnalysis(trade.preTradeAnalysis ?? "");
     setPostTradeReview(trade.postTradeReview ?? "");
-    setRiskRatio(trade.riskRatio ?? 1);
-    setRewardRatio(trade.rewardRatio ?? 2);
+    const autoRR = calculateAutoRR(trade.entryPrice, trade.stopLoss, trade.takeProfit, trade.exitPrice, trade.direction);
+    setRiskRatio(trade.riskRatio ?? autoRR?.riskRatio ?? 1);
+    setRewardRatio(trade.rewardRatio ?? autoRR?.rewardRatio ?? 2);
     setEmotions(trade.emotions ?? "");
     setLessonsLearned(trade.lessonsLearned ?? "");
     setTags(trade.tags ?? []);
@@ -477,6 +478,50 @@ export function JournalDetail({
     setScreenshots((prev) => [...prev, dataUrl]);
     markDirty();
   }, [markDirty]);
+
+  // Auto R:R Calculation helper
+  const calculateAutoRR = useCallback((
+    customEntry?: number,
+    customSL?: number,
+    customTP?: number,
+    customExit?: number,
+    customDir?: "buy" | "sell"
+  ) => {
+    const entry = customEntry ?? displayEntryPrice;
+    const sl = customSL ?? displaySL;
+    const tp = customTP ?? displayTP ?? displayExitPrice;
+    const dir = customDir ?? trade.direction;
+
+    if (!entry || !sl || !tp || entry === sl) return null;
+
+    let risk = 0;
+    let reward = 0;
+
+    if (dir === "buy") {
+      risk = Math.abs(entry - sl);
+      reward = Math.abs(tp - entry);
+    } else {
+      risk = Math.abs(sl - entry);
+      reward = Math.abs(entry - tp);
+    }
+
+    if (risk <= 0 || reward <= 0) return null;
+
+    const ratio = reward / risk;
+    return {
+      riskRatio: 1,
+      rewardRatio: Number(ratio.toFixed(2)),
+    };
+  }, [displayEntryPrice, displaySL, displayTP, displayExitPrice, trade.direction]);
+
+  const handleAutoDetectRR = () => {
+    const auto = calculateAutoRR();
+    if (auto) {
+      setRiskRatio(auto.riskRatio);
+      setRewardRatio(auto.rewardRatio);
+      markDirty();
+    }
+  };
 
   const toggleAPlus = () => {
     setAPlusLevel(!aPlusLevel);
@@ -942,6 +987,7 @@ Please analyze this data and generate a detailed report:
         onSaved(updated);
         clearDirty();
         setSaved(true);
+        window.dispatchEvent(new CustomEvent("refresh-trades"));
         setTimeout(() => setSaved(false), 2500);
       }
     } finally {
@@ -975,6 +1021,7 @@ Please analyze this data and generate a detailed report:
         const updated = await res.json();
         onSaved(updated);
         setEditOpen(false);
+        window.dispatchEvent(new CustomEvent("refresh-trades"));
       }
     } finally {
       setEditSaving(false);
@@ -1335,9 +1382,20 @@ Please analyze this data and generate a detailed report:
                       {trade.direction === "buy" ? "LONG" : "SHORT"}
                     </span>
                     {isAggregatedView && (
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-                        COMPILED
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          COMPILED
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setMergeOpen(true)}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-semibold transition"
+                          title="Edit Main Trade & Compilation Settings"
+                        >
+                          <Edit2 className="h-3 w-3" />
+                          <span>Edit Main Trade</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                   <p className="text-[11px] text-white/30 mt-0.5">{format(parseISO(displayEntryTime), "MMM d, yyyy · HH:mm")}</p>
@@ -1430,7 +1488,7 @@ Please analyze this data and generate a detailed report:
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase shrink-0">Levels:</span>
                           <div className="flex flex-wrap gap-1.5">
-                            {["A+", "SBR/RBS", "DB/DT", "Level 1", "Level 2", "Level 3", "Level 4", "TJL1", "TJL 2", "TJL 3", "TJL 4"].map((lvl) => (
+                            {["A+", "SBR/RBS", "DB/DT", "Level 1", "Level 2", "Level 3", "Level 4", "TJL1", "TJL 2"].map((lvl) => (
                               <button
                                 key={lvl}
                                 type="button"
@@ -1797,48 +1855,59 @@ Please analyze this data and generate a detailed report:
         </div>
 
         {/* Risk : Reward */}
-        <div className="rounded-xl border border-white/7 p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-white/55" />
-              <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Risk : Reward</span>
+        {displayProfit >= 0 && (
+          <div className="rounded-xl border border-white/7 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-white/55" />
+                <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Risk : Reward</span>
+                <button
+                  type="button"
+                  onClick={handleAutoDetectRR}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 text-[10px] font-medium transition ml-1"
+                  title="Auto-calculate R:R from Entry, SL, and TP/Exit prices"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  <span>Auto-detect</span>
+                </button>
+              </div>
+              <span className={cn(
+                "text-[12px] font-bold tabular-nums",
+                rewardRatio / riskRatio >= 2 ? "text-emerald-400" : rewardRatio / riskRatio >= 1 ? "text-amber-400" : "text-red-400"
+              )}>
+                1 : {(rewardRatio / riskRatio).toFixed(1)}
+              </span>
             </div>
-            <span className={cn(
-              "text-[12px] font-bold tabular-nums",
-              rewardRatio / riskRatio >= 2 ? "text-emerald-400" : rewardRatio / riskRatio >= 1 ? "text-amber-400" : "text-red-400"
-            )}>
-              1 : {(rewardRatio / riskRatio).toFixed(1)}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex-1">
-              <p className="text-[9px] text-red-400/60 uppercase tracking-wider font-semibold mb-1">Risk</p>
-              <input
-                type="number"
-                value={riskRatio}
-                onChange={(e) => { setRiskRatio(parseFloat(e.target.value) || 1); markDirty(); }}
-                min="0.1" step="0.1"
-                className="w-full rounded-lg bg-red-500/5 border border-red-500/15 px-3 py-2 text-[14px] font-bold text-white text-center focus:outline-none focus:border-red-500/40 transition"
-              />
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex-1">
+                <p className="text-[9px] text-red-400/60 uppercase tracking-wider font-semibold mb-1">Risk</p>
+                <input
+                  type="number"
+                  value={riskRatio}
+                  onChange={(e) => { setRiskRatio(parseFloat(e.target.value) || 1); markDirty(); }}
+                  min="0.1" step="0.1"
+                  className="w-full rounded-lg bg-red-500/5 border border-red-500/15 px-3 py-2 text-[14px] font-bold text-white text-center focus:outline-none focus:border-red-500/40 transition"
+                />
+              </div>
+              <span className="text-[20px] font-bold text-white/20 mt-4">:</span>
+              <div className="flex-1">
+                <p className="text-[9px] text-emerald-400/60 uppercase tracking-wider font-semibold mb-1">Reward</p>
+                <input
+                  type="number"
+                  value={rewardRatio}
+                  onChange={(e) => { setRewardRatio(parseFloat(e.target.value) || 2); markDirty(); }}
+                  min="0.1" step="0.1"
+                  className="w-full rounded-lg bg-emerald-500/5 border border-emerald-500/15 px-3 py-2 text-[14px] font-bold text-emerald-400/80 text-center focus:outline-none focus:border-emerald-500/40 transition"
+                />
+              </div>
             </div>
-            <span className="text-[20px] font-bold text-white/20 mt-4">:</span>
-            <div className="flex-1">
-              <p className="text-[9px] text-emerald-400/60 uppercase tracking-wider font-semibold mb-1">Reward</p>
-              <input
-                type="number"
-                value={rewardRatio}
-                onChange={(e) => { setRewardRatio(parseFloat(e.target.value) || 2); markDirty(); }}
-                min="0.1" step="0.1"
-                className="w-full rounded-lg bg-emerald-500/5 border border-emerald-500/15 px-3 py-2 text-[14px] font-bold text-emerald-400/80 text-center focus:outline-none focus:border-emerald-500/40 transition"
-              />
+            {/* Visual R:R bar */}
+            <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
+              <div className="bg-red-500/40 rounded-l-full" style={{ flex: riskRatio }} />
+              <div className="bg-emerald-500/50 rounded-r-full" style={{ flex: rewardRatio }} />
             </div>
           </div>
-          {/* Visual R:R bar */}
-          <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
-            <div className="bg-red-500/40 rounded-l-full" style={{ flex: riskRatio }} />
-            <div className="bg-emerald-500/50 rounded-r-full" style={{ flex: rewardRatio }} />
-          </div>
-        </div>
+        )}
 
         {/* Emotions + Lessons Learned */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
