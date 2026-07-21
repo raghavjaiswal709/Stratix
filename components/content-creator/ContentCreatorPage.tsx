@@ -41,6 +41,7 @@ import {
   Calendar,
   ClipboardCopy,
   Eye,
+  Star,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -492,7 +493,7 @@ const GRADIENT_PRESETS: GradientPreset[] = [
   { id: "rose-gold",     name: "Rose Gold",     stops: ["#a81665", "#12030c"], accent: "#f472b6" },
   { id: "golden-hour",   name: "Golden Hour",   stops: ["#c2790a", "#1a0f02"], accent: "#fde047" },
   { id: "berry-punch",   name: "Berry Punch",   stops: ["#9d174d", "#0a0308"], accent: "#fb7185" },
-  { id: "monochrome",    name: "Slate Gray",    stops: ["#3a3a40", "#050505"], accent: "#e5e5e5" },
+  { id: "monochrome",    name: "Slate Gray",    stops: ["#3a3a40", "#050505"], accent: "#e5e5e5", pillAccent: "#111111" },
   // The two dedicated strict black/white themes — grayscale only, headline
   // highlight distinguished by brightness (pure white/black) rather than hue.
   { id: "jet-black",     name: "Jet Black",     stops: ["#0a0a0a", "#000000"], accent: "#ffffff", pillAccent: "#111111", monochrome: true },
@@ -723,6 +724,142 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string
   }
   if (cur) lines.push(cur);
   return lines;
+}
+
+// ─── Extreme-poster visual system ──────────────────────────────────────────
+// Shared decorative primitives for the Bold and Bento carousel cards: film
+// grain, corner crop-marks, icon badges, and a segmented pagination rail —
+// one shared visual language so the two card kinds read as a single system
+// instead of two unrelated templates. Grain uses a deterministic PRNG (not
+// Math.random) so re-rendering the same data during live editing never
+// makes the texture visibly "crawl" between frames.
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const grainTileCache = new Map<number, HTMLCanvasElement>();
+function getGrainTile(size: number): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  const cached = grainTileCache.get(size);
+  if (cached) return cached;
+  const tile = document.createElement("canvas");
+  tile.width = size; tile.height = size;
+  const tctx = tile.getContext("2d");
+  if (!tctx) return null;
+  const rand = mulberry32(1337);
+  const dots = Math.round(size * size * 0.16);
+  for (let i = 0; i < dots; i++) {
+    const x = Math.floor(rand() * size), y = Math.floor(rand() * size);
+    const a = rand() * 0.5;
+    tctx.fillStyle = rand() > 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`;
+    tctx.fillRect(x, y, 1, 1);
+  }
+  grainTileCache.set(size, tile);
+  return tile;
+}
+
+// Full-bleed film-grain pass — the cheapest way to turn a flat gradient into
+// a textured, "printed" surface instead of a CSS-flat background.
+function paintGrain(ctx: CanvasRenderingContext2D, W: number, H: number, alpha: number) {
+  const tile = getGrainTile(128);
+  if (!tile) return;
+  const pattern = ctx.createPattern(tile, "repeat");
+  if (!pattern) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = "overlay";
+  ctx.fillStyle = pattern;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+// Small filled circle + centered glyph — the shared icon-badge primitive
+// fused to chips and section labels across the Bold and Bento cards.
+function drawIconBadge(ctx: CanvasRenderingContext2D, cx: number, cy: number, d: number, bg: string, fg: string, glyph: string, glyphSize: number) {
+  ctx.beginPath();
+  ctx.arc(cx, cy, d / 2, 0, Math.PI * 2);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.font = `800 ${glyphSize}px "Inter", sans-serif`;
+  ctx.fillStyle = fg;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(glyph, cx, cy + glyphSize * 0.04);
+}
+
+// Plain "STRATI" + accent-colored "X" wordmark — the brand mark, themed to
+// whichever gradient/theme is active instead of a fixed badge, matching the
+// treatment the Outro card always used. Shared by every card kind (Bold
+// story, Bento, Outro) so the batch reads as one consistent brand across
+// the whole carousel. Returns the total rendered width.
+function drawWordmark(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  fontSize: number,
+  fgColor: string,
+  accentColor: string,
+  align: "left" | "center" = "left",
+  baseline: CanvasTextBaseline = "alphabetic"
+): number {
+  ctx.font = `800 ${fontSize}px "Inter", sans-serif`;
+  ctx.textBaseline = baseline;
+  const stratiW = ctx.measureText("STRATI").width;
+  const xW = ctx.measureText("X").width;
+  const totalW = stratiW + xW;
+  const startX = align === "center" ? x - totalW / 2 : x;
+  ctx.textAlign = "left";
+  ctx.fillStyle = fgColor;
+  ctx.fillText("STRATI", startX, y);
+  ctx.fillStyle = accentColor;
+  ctx.fillText("X", startX + stratiW, y);
+  return totalW;
+}
+
+// "JUL 21 · 2:47 PM" — the render-time timestamp stamped opposite the logo
+// on every card. Always "now" (the moment the poster is drawn/exported),
+// not a field from the data, so every export is naturally dated.
+function formatPosterTimestamp(d: Date = new Date()): string {
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const hours24 = d.getHours();
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const ampm = hours24 >= 12 ? "PM" : "AM";
+  return `${months[d.getMonth()]} ${d.getDate()} · ${hours12}:${minutes} ${ampm}`;
+}
+
+// Segmented "story progress" rail — replaces a loose row of dots with the
+// wide-rail convention from Stories UIs; reads as one continuous strip and
+// makes the active slide unmistakable at a glance, at any slide count.
+function drawSegmentedPagination(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  count: number, activeIndex: number,
+  activeColor: string, inactiveColor: string
+) {
+  if (count <= 1) return;
+  const gap = h * 0.9;
+  const segW = (w - gap * (count - 1)) / count;
+  let cx = x;
+  for (let i = 0; i < count; i++) {
+    ctx.fillStyle = i === activeIndex ? activeColor : inactiveColor;
+    rrect(ctx, cx, y, Math.max(1, segW), h, h / 2);
+    ctx.fill();
+    cx += segW + gap;
+  }
+}
+
+// Best-effort letter tracking — Canvas2D's `letterSpacing` shipped in
+// Chromium ~2022 and Safari 17.4; on older engines the assignment is simply
+// ignored (no throw), so this is safe progressive enhancement, not a
+// dependency the layout math relies on.
+function setTracking(ctx: CanvasRenderingContext2D, px: number) {
+  try { (ctx as unknown as { letterSpacing: string }).letterSpacing = `${px}px`; } catch { /* unsupported */ }
 }
 
 function fitText(
@@ -1903,7 +2040,28 @@ function buildBentoCard(story: NewsItem): NewsItem {
     whyItMatters: story.whyItMatters,
     simpleImpacts: story.simpleImpacts,
     sentiment: story.sentiment,
+    // Carried over so the card can render the parent story's own photo as a
+    // faint background echo — see drawBentoExplainerCard.
+    imageUrl: story.imageUrl,
+    imageFocusX: story.imageFocusX,
+    imageFocusY: story.imageFocusY,
+    imageZoom: story.imageZoom,
   };
+}
+
+// A Bento explainer card borrows its parent story's photo for its faint
+// background (see drawBentoExplainerCard). buildBentoCard above copies that
+// URL at construction time, but batches built before that existed — or
+// hand-edited/pasted JSON — may still have a bento item with no imageUrl of
+// its own. Fall back to the immediately preceding item (always the parent,
+// per buildBentoCard's insertion order) at RENDER time instead, so the
+// background shows up regardless of when/how the data was created.
+function withBentoImageFallback(activeData: any, items: unknown[]): any {
+  if (!activeData?.isBento || activeData.imageUrl || !Array.isArray(items)) return activeData;
+  const idx = items.indexOf(activeData);
+  const parent = idx > 0 ? (items[idx - 1] as any) : null;
+  if (!parent?.imageUrl) return activeData;
+  return { ...activeData, imageUrl: parent.imageUrl, imageFocusX: parent.imageFocusX, imageFocusY: parent.imageFocusY, imageZoom: parent.imageZoom };
 }
 
 // ─── External-AI JSON import ────────────────────────────────────────────────
@@ -2217,8 +2375,13 @@ function importAiJson(category: "news" | "facts" | "learnings", raw: unknown): N
   return importLearningsJson(raw);
 }
 
-function sentimentPalette(sentiment?: string): { bg: string; fg: string } {
-  if (sentiment === "Bullish") return { bg: "#10b981", fg: "#ffffff" };
+// The selectable "poster text color" combination — only the positive/
+// bullish tint actually changes between the two; negative/bearish stays red
+// and neutral body text stays white in both, per the user's request.
+type SentimentScheme = "emerald" | "skyblue";
+
+function sentimentPalette(sentiment?: string, scheme: SentimentScheme = "emerald"): { bg: string; fg: string } {
+  if (sentiment === "Bullish") return { bg: scheme === "skyblue" ? "#0284c7" : "#10b981", fg: "#ffffff" };
   if (sentiment === "Bearish") return { bg: "#ef4444", fg: "#ffffff" };
   return { bg: "#f59e0b", fg: "#111111" };
 }
@@ -2488,12 +2651,13 @@ function drawTradingNewsPoster(
   activeNewsIndex: number,
   totalNewsCount: number,
   theme: EditorialTheme = "light",
-  fadeIntensity: number = 100
+  fadeIntensity: number = 100,
+  sentimentScheme: SentimentScheme = "emerald"
 ): PosterElement[] {
   const bounds: PosterElement[] = [];
   const isCover = !!data.isCover;
   const fadeMult = Math.max(0, Math.min(200, fadeIntensity)) / 100;
-  const pal = sentimentPalette(data.sentiment);
+  const pal = sentimentPalette(data.sentiment, sentimentScheme);
   const th = editorialPalette(theme);
 
   ctx.fillStyle = "#0a0a0a";
@@ -2727,7 +2891,7 @@ function drawTradingNewsPoster(
         chipX = CX;
         chipRowY += chipH + r(6);
       }
-      const instPal = sentimentPalette(inst.sentiment);
+      const instPal = sentimentPalette(inst.sentiment, sentimentScheme);
       ctx.fillStyle = instPal.bg;
       rrect(ctx, chipX, chipRowY, chipW, chipH, chipH / 2);
       ctx.fill();
@@ -3074,7 +3238,8 @@ function drawBoldPoster(
   totalCount: number,
   kind: "news" | "facts" | "learnings",
   gradient: GradientPreset,
-  fadeIntensity: number = 100
+  fadeIntensity: number = 100,
+  sentimentScheme: SentimentScheme = "emerald"
 ): PosterElement[] {
   const bounds: PosterElement[] = [];
   const fadeMult = Math.max(0, Math.min(200, fadeIntensity)) / 100;
@@ -3094,6 +3259,110 @@ function drawBoldPoster(
   const dotInactive = isLight ? "rgba(10,10,10,0.32)" : "rgba(255,255,255,0.32)";
   const scrimBase = isLight ? "255,255,255" : "0,0,0";
 
+  const PAD = r(30);
+  const CX = PAD, CXR = W - PAD, CW = CXR - CX;
+
+  // ── Measurement pre-pass ────────────────────────────────────────────────
+  // Everything below the photo (eyebrow, headline, description, chips,
+  // chrome) is measured BEFORE the photo is drawn, so the photo's share of
+  // the frame (`contentZoneH`) can shrink to guarantee the description
+  // always renders in FULL — never truncated with an ellipsis — instead of
+  // a fixed 56/44 split that clips longer descriptions.
+  const idealContentZoneH = Math.round(H * 0.56);
+  const floorContentZoneH = Math.round(H * 0.3);
+
+  const eyebrowLabel = kind === "news"
+    ? (isCover ? "TODAY'S BRIEFING" : "TRENDING")
+    : kind === "facts"
+    ? (isCover ? "TODAY'S FACTS" : "FACT")
+    : (isCover ? "TODAY'S LESSON" : (data.stepLabel ? String(data.stepLabel).toUpperCase() : "LESSON"));
+  const eyebrowBH = r(30);
+  const eyebrowGapAfter = r(18);
+
+  // The highlighted phrase carries the pop of color. For news story cards it
+  // takes the sentiment color — positive tint (emerald or sky blue, per the
+  // user-selectable scheme) when bullish, red when bearish — so the deck
+  // reads at a glance like the editorial style; covers and Facts/Learnings
+  // (no sentiment) use the gradient accent.
+  const sentiment = data.sentiment;
+  const newsHighlightColor = sentiment === "Bullish" ? (sentimentScheme === "skyblue" ? "#0ea5e9" : "#34d399") : sentiment === "Bearish" ? "#fb7185" : gradient.accent;
+  const highlightColor = (kind === "news" && !isCover) ? newsHighlightColor : gradient.accent;
+  // On the two strict monochrome themes, the accent highlight is the SAME
+  // brightness extreme as the base text color (pure white on Jet Black, pure
+  // black on Pure White) — hue can't separate them, so give the base text a
+  // real brightness cut (not a token one) to keep the highlight unmistakable.
+  // Every colored gradient keeps full-strength base text — hue alone already
+  // separates the highlight there, no dimming needed.
+  const headlineBase = !gradient.monochrome
+    ? fg
+    : isLight ? "rgba(10,10,10,0.55)" : "rgba(255,255,255,0.58)";
+
+  const rawTitle = (data.title || "Untitled").trim().toUpperCase();
+  const highlight = (data.highlightPhrase || "").trim().toUpperCase();
+  const tokens = tokenizeHighlight(rawTitle, highlight);
+  const instrumentImpacts: { symbol: string; sentiment?: string }[] =
+    (kind === "news" && !isCover && Array.isArray(data.instrumentImpacts)) ? data.instrumentImpacts : [];
+  const chipReserve = instrumentImpacts.length > 0 ? r(34) : 0;
+  const bottomReserve = r(70) + chipReserve; // swipe hint + pagination + chip row
+  const descLineH = r(20);
+  const descBudget = data.description ? descLineH * 3 + r(10) : 0;
+
+  const YafterEyebrow_ideal = idealContentZoneH + r(28) + eyebrowBH + eyebrowGapAfter;
+  const headlineMaxH = Math.max(H - YafterEyebrow_ideal - bottomReserve - descBudget, r(40));
+  const antonFamily = getAntonFontFamily();
+  setTracking(ctx, -r(0.4));
+  const fit = fitHighlightTitle(ctx, tokens, CW, headlineMaxH, r(HEADLINE_MIN_PX), r(HEADLINE_MAX_PX), antonFamily, "400", 1.04);
+  setTracking(ctx, 0);
+  let YafterHeadline_ideal = YafterEyebrow_ideal + fit.lines.length * fit.lineH + r(10);
+  if (isCover && kind === "news" && data.date) YafterHeadline_ideal += r(22);
+
+  // Description — full text, auto-fit rather than truncated. First choice
+  // is to reclaim room from the photo (text stays full-size, the image just
+  // gives up some of its share of the frame, down to a floor); only if the
+  // photo is already at that floor and it's still not enough does the type
+  // itself shrink, as an absolute last resort — it never drops words.
+  const descText = (data.description || "").trim();
+  const barW = r(3), barGap = r(14);
+  const descX = CX + barW + barGap;
+  const descW = CW - barW - barGap;
+  const descTokens = descText ? tokenizeParagraphHighlights(descText, Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []) : [];
+
+  let contentZoneH = idealContentZoneH;
+  let descLines: HLToken[][] = [];
+  let descNormalFont = `600 ${r(15.5)}px "Inter", sans-serif`;
+  let descBoldFont = `800 ${r(15.5)}px "Inter", sans-serif`;
+  let descLineHFinal = descLineH;
+
+  if (descText) {
+    const wrapAt = (size: number) => {
+      const nf = `600 ${r(size)}px "Inter", sans-serif`;
+      const bf = `800 ${r(size)}px "Inter", sans-serif`;
+      return { lines: wrapParagraphTokens(ctx, descTokens, descW, nf, bf), lineH: r(size * 1.29), nf, bf };
+    };
+    let attempt = wrapAt(15.5);
+    let neededH = attempt.lines.length * attempt.lineH;
+    let availH = H - r(30) - bottomReserve - YafterHeadline_ideal;
+
+    if (neededH > availH) {
+      const shortfall = neededH - availH;
+      contentZoneH = Math.max(floorContentZoneH, idealContentZoneH - shortfall);
+      availH += idealContentZoneH - contentZoneH;
+
+      if (neededH > availH) {
+        for (let size = 14.5; size >= 11; size -= 0.5) {
+          attempt = wrapAt(size);
+          neededH = attempt.lines.length * attempt.lineH;
+          if (neededH <= availH) break;
+        }
+      }
+    }
+    descLines = attempt.lines;
+    descNormalFont = attempt.nf;
+    descBoldFont = attempt.bf;
+    descLineHFinal = attempt.lineH;
+  }
+
+  // ── Background ───────────────────────────────────────────────────────
   // Full-bleed diagonal gradient base — everything else layers on top.
   const bgGrad = ctx.createLinearGradient(0, 0, W, H);
   bgGrad.addColorStop(0, stopA);
@@ -3110,13 +3379,25 @@ function drawBoldPoster(
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
-  const PAD = r(30);
-  const CX = PAD, CXR = W - PAD, CW = CXR - CX;
-  // contentZoneH still anchors where the eyebrow/headline block starts — the
-  // image itself now bleeds the FULL poster height (below), decoupled from
-  // this, so it stays faintly visible behind the text all the way to the
-  // bottom edge instead of hard-cutting into a separate "text zone".
-  const contentZoneH = Math.round(H * 0.56);
+  // Secondary tight glow behind the masthead — gives the logo a lit "stage"
+  // instead of floating flat on a corner of the gradient.
+  const glow2 = ctx.createRadialGradient(W * 0.08, H * 0.05, 0, W * 0.08, H * 0.05, W * 0.55);
+  glow2.addColorStop(0, hexToRgba(gradient.accent, (isLight ? 0.08 : 0.16) * fadeMult));
+  glow2.addColorStop(1, hexToRgba(gradient.accent, 0));
+  ctx.fillStyle = glow2;
+  ctx.fillRect(0, 0, W, H);
+
+  // Vignette — darkens the four edges so the eye is pulled back toward the
+  // center content column instead of drifting off the frame.
+  const vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+  vignette.addColorStop(0, "rgba(0,0,0,0)");
+  vignette.addColorStop(1, `rgba(0,0,0,${isLight ? 0.1 : 0.32})`);
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, W, H);
+
+  // Film grain — the cheapest way to turn a flat gradient into a textured,
+  // printed surface instead of a screenshot-flat wash.
+  paintGrain(ctx, W, H, isLight ? 0.035 : 0.05);
 
   if (img) {
     // Seamless, slow dissolve: draw the photo on an offscreen layer spanning
@@ -3181,90 +3462,80 @@ function drawBoldPoster(
     ctx.fillText("[ ATTACH IMAGE — see Grok prompt ]", W / 2, contentZoneH * 0.5);
   }
 
-  // Logo badge — top-left pill with the brand wordmark. Deliberately FIXED
-  // colors (white pill, near-black "STRATI", emerald "X") regardless of
-  // gradient or theme — this is the brand mark, not themed content, so it
-  // must read identically on every poster. Only the eyebrow pill below
-  // adapts to the theme; the logo never does.
+  // Logo — the plain themed wordmark (same treatment as the Outro card),
+  // sized up from the old pill badge, "X" tinted with this gradient's own
+  // accent so the brand mark matches whichever color is currently selected.
   {
-    const badgeH = r(30);
-    ctx.font = `800 ${r(13)}px "Inter", sans-serif`;
-    const stratiW = ctx.measureText("STRATI").width;
-    const xGlyphW = ctx.measureText("X").width;
-    const badgeW = stratiW + xGlyphW + r(24);
-    ctx.fillStyle = "#ffffff";
-    rrect(ctx, CX, r(24), badgeW, badgeH, badgeH / 2);
-    ctx.fill();
+    const logoFontSize = r(23);
+    const logoY = r(24) + r(16);
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = r(12);
+    ctx.shadowOffsetY = r(2);
+    drawWordmark(ctx, CX, logoY, logoFontSize, fg, gradient.accent, "left", "middle");
+    ctx.restore();
+
+    // Render-time date/time — top-right, mirroring the logo on the opposite
+    // side at the exact same vertical position.
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = r(8);
+    ctx.shadowOffsetY = r(1);
+    ctx.font = `700 ${r(11)}px "Inter", sans-serif`;
+    setTracking(ctx, r(0.4));
+    ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#111111";
-    ctx.fillText("STRATI", CX + r(12), r(24) + badgeH / 2 + r(0.5));
-    ctx.fillStyle = "#10b981";
-    ctx.fillText("X", CX + r(12) + stratiW, r(24) + badgeH / 2 + r(0.5));
+    ctx.fillStyle = fgMuted;
+    ctx.fillText(formatPosterTimestamp(), CXR, logoY);
+    setTracking(ctx, 0);
+    ctx.restore();
   }
 
   // Eyebrow pill — same theme-flipped pill treatment as the logo badge.
-  const eyebrowLabel = kind === "news"
-    ? (isCover ? "TODAY'S BRIEFING" : "TRENDING")
-    : kind === "facts"
-    ? (isCover ? "TODAY'S FACTS" : "FACT")
-    : (isCover ? "TODAY'S LESSON" : (data.stepLabel ? String(data.stepLabel).toUpperCase() : "LESSON"));
-
+  // Centered horizontally on the cover/intro slide only (its own dedicated
+  // moment); every other slide keeps it left-aligned with the rest of the copy.
   let Y = contentZoneH + r(28);
   {
     ctx.font = `900 ${r(12.5)}px "Inter", sans-serif`;
+    setTracking(ctx, r(0.6));
     const tw = ctx.measureText(eyebrowLabel).width;
-    const bw = tw + r(24), bh = r(30);
+    const dotGap = r(16);
+    const bw = tw + r(20) + dotGap, bh = eyebrowBH;
+    const pillX = isCover ? (W - bw) / 2 : CX;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.3)";
+    ctx.shadowBlur = r(10);
+    ctx.shadowOffsetY = r(3);
     ctx.fillStyle = pillBg;
-    rrect(ctx, CX, Y, bw, bh, bh / 2);
+    rrect(ctx, pillX, Y, bw, bh, bh / 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(pillX + r(14), Y + bh / 2, r(3), 0, Math.PI * 2);
+    ctx.fillStyle = pillFg;
     ctx.fill();
     ctx.fillStyle = pillFg;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(eyebrowLabel, CX + r(12), Y + bh / 2 + r(0.5));
-    bounds.push({ id: "category", label: "Eyebrow", x: CX, y: Y, w: bw, h: bh });
-    Y += bh + r(16);
+    ctx.fillText(eyebrowLabel, pillX + r(10) + dotGap, Y + bh / 2 + r(0.5));
+    setTracking(ctx, 0);
+    bounds.push({ id: "category", label: "Eyebrow", x: pillX, y: Y, w: bw, h: bh });
+    Y += bh + eyebrowGapAfter;
   }
-
-  // The highlighted phrase carries the pop of color. For news story cards it
-  // takes the sentiment color — emerald when the story is bullish, red when
-  // bearish — so the deck reads green/red at a glance like the editorial
-  // style; covers and Facts/Learnings (no sentiment) use the gradient accent.
-  const sentiment = data.sentiment;
-  const newsHighlightColor = sentiment === "Bullish" ? "#34d399" : sentiment === "Bearish" ? "#fb7185" : gradient.accent;
-  const highlightColor = (kind === "news" && !isCover) ? newsHighlightColor : gradient.accent;
-  // On the two strict monochrome themes, the accent highlight is the SAME
-  // brightness extreme as the base text color (pure white on Jet Black, pure
-  // black on Pure White) — hue can't separate them, so give the base text a
-  // real brightness cut (not a token one) to keep the highlight unmistakable.
-  // Every colored gradient keeps full-strength base text — hue alone already
-  // separates the highlight there, no dimming needed.
-  const headlineBase = !gradient.monochrome
-    ? fg
-    : isLight ? "rgba(10,10,10,0.55)" : "rgba(255,255,255,0.58)";
 
   // Headline — huge, condensed, ALL CAPS, center-aligned, set in Anton (the
   // dedicated poster/display face, not Inter) with a dark stroke behind the
   // fill on colored gradients — matches the reference poster's exact type
   // treatment instead of approximating it with a heavy system weight.
-  const rawTitle = (data.title || "Untitled").trim().toUpperCase();
-  const highlight = (data.highlightPhrase || "").trim().toUpperCase();
-  const tokens = tokenizeHighlight(rawTitle, highlight);
-  const instrumentImpacts: { symbol: string; sentiment?: string }[] =
-    (kind === "news" && !isCover && Array.isArray(data.instrumentImpacts)) ? data.instrumentImpacts : [];
-  const chipReserve = instrumentImpacts.length > 0 ? r(34) : 0;
-  const bottomReserve = r(70) + chipReserve; // swipe hint + pagination + chip row
-  const descLineH = r(20);
-  const descBudget = data.description ? r(20) * 3 + r(10) : 0;
-  const headlineMaxH = Math.max(H - Y - bottomReserve - descBudget, r(40));
-  const antonFamily = getAntonFontFamily();
-  const fit = fitHighlightTitle(ctx, tokens, CW, headlineMaxH, r(HEADLINE_MIN_PX), r(HEADLINE_MAX_PX), antonFamily, "400", 1.04);
+  // `fit` was already computed in the measurement pre-pass above — reused
+  // as-is so the headline's size never depends on where the photo ended up.
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "left";
   // Skip the stroke on the two monochrome themes — the highlight there is
   // already carried by a brightness cut (see headlineBase above), and a
   // same-tone stroke behind a translucent fill just muddies the edge.
   const useStroke = !gradient.monochrome;
+  setTracking(ctx, -r(0.4));
   fit.lines.forEach((line, li) => {
     ctx.font = fit.font;
     const widths = line.map((tok) => ctx.measureText(tok.text).width);
@@ -3278,7 +3549,7 @@ function drawBoldPoster(
         ctx.lineJoin = "round";
         ctx.miterLimit = 2;
         ctx.lineWidth = fit.fontSize * 0.1;
-        ctx.strokeStyle = "rgba(0,0,0,0.55)";
+        ctx.strokeStyle = "rgba(0,0,0,0.6)";
         ctx.strokeText(tok.text, x, baseline);
       }
       ctx.fillStyle = tok.isHL ? highlightColor : headlineBase;
@@ -3286,6 +3557,7 @@ function drawBoldPoster(
       x += widths[ti] + spaceW;
     });
   });
+  setTracking(ctx, 0);
   bounds.push({ id: "title", label: "Headline", x: CX, y: Y, w: CW, h: fit.lines.length * fit.lineH });
   Y += fit.lines.length * fit.lineH + r(10);
 
@@ -3300,76 +3572,98 @@ function drawBoldPoster(
     Y += r(22);
   }
 
-  // Description — kept and made clearly legible rather than dropped (the
-  // explanation still has to carry real information, not just a teaser
-  // headline), with the same key-term highlighting the editorial style uses.
-  const descText = (data.description || "").trim();
-  if (descText) {
-    const descNormalFont = `600 ${r(15.5)}px "Inter", sans-serif`;
-    const descBoldFont = `800 ${r(15.5)}px "Inter", sans-serif`;
-    const descTokens = tokenizeParagraphHighlights(descText, Array.isArray(data.descriptionHighlights) ? data.descriptionHighlights : []);
-    const allDescLines = wrapParagraphTokens(ctx, descTokens, CW, descNormalFont, descBoldFont);
-    const maxDescLines = Math.max(0, Math.floor((H - r(30) - bottomReserve - Y) / descLineH));
-    let descLines = allDescLines.slice(0, maxDescLines);
-    if (allDescLines.length > maxDescLines && descLines.length > 0) {
-      const lastLine = [...descLines[descLines.length - 1]];
-      const lastTok = { ...lastLine[lastLine.length - 1] };
-      lastTok.text = lastTok.text.replace(/[.,;:]+$/, "") + "…";
-      lastLine[lastLine.length - 1] = lastTok;
-      descLines = [...descLines.slice(0, -1), lastLine];
-    }
-    drawParagraphLines(ctx, descLines, descNormalFont, descBoldFont, descLineH, CX, Y, fgSoft, highlightColor, "left");
-    bounds.push({ id: "description", label: "Explanation", x: CX, y: Y, w: CW, h: descLines.length * descLineH });
-    Y += descLines.length * descLineH + r(12);
+  // Description — always shown IN FULL, never truncated with an ellipsis
+  // (see the measurement pre-pass above: `descLines` and its font were
+  // already sized to fit completely, reclaiming room from the photo and,
+  // as a last resort, shrinking the type itself).
+  if (descText && descLines.length > 0) {
+    const descBlockH = descLines.length * descLineHFinal;
+    ctx.fillStyle = highlightColor;
+    rrect(ctx, CX, Y + r(2), barW, descBlockH - r(4), barW / 2);
+    ctx.fill();
+    drawParagraphLines(ctx, descLines, descNormalFont, descBoldFont, descLineHFinal, descX, Y, fgSoft, highlightColor, "left");
+    bounds.push({ id: "description", label: "Explanation", x: CX, y: Y, w: CW, h: descBlockH });
+    Y += descBlockH + r(12);
   }
 
-  // Bottom chrome — swipe hint (hidden on the last card) + dot pagination.
+  // Bottom chrome — swipe hint (hidden on the last card) + segmented
+  // pagination rail, stacked as two rows so the rail can run the card's
+  // full content width instead of competing with the swipe text for space.
   const chromeY = H - r(30);
+  const swipeY = chromeY - r(5);
+  const railY = chromeY + r(11);
 
   // Instrument-impact chips (news story cards) — green ▲ bullish, red ▼
-  // bearish, accent • neutral. This is where the green/red reads on the
-  // Bold card; placed below the copy, clear of the swipe row.
+  // bearish, amber ● neutral, each fused to a solid icon badge. This is
+  // where the green/red reads on the Bold card; placed below the copy,
+  // clear of the swipe row.
   if (instrumentImpacts.length > 0) {
-    const chipH = r(26);
-    const chipY = Math.min(Y, chromeY - r(18) - chipH);
+    const chipH = r(30);
+    const chipY = Math.min(Y, chromeY - r(20) - chipH);
     let chipX = CX;
-    ctx.font = `800 ${r(11.5)}px "Inter", sans-serif`;
+    const labelFont = `800 ${r(12)}px "Inter", sans-serif`;
+    ctx.font = labelFont;
     for (const inst of instrumentImpacts.slice(0, 4)) {
       if (!inst?.symbol) continue;
-      const arrow = inst.sentiment === "Bullish" ? "▲" : inst.sentiment === "Bearish" ? "▼" : "•";
-      const label = `${arrow} ${inst.symbol}`;
+      const arrow = inst.sentiment === "Bullish" ? "▲" : inst.sentiment === "Bearish" ? "▼" : "●";
+      const label = inst.symbol.toUpperCase();
       const tw = ctx.measureText(label).width;
-      const chipW = tw + r(18);
+      const badgeD = chipH - r(6);
+      const chipW = badgeD + r(10) + tw + r(16);
       if (chipX + chipW > CXR && chipX > CX) break;
-      const pal = sentimentPalette(inst.sentiment);
+      const pal = sentimentPalette(inst.sentiment, sentimentScheme);
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.35)";
+      ctx.shadowBlur = r(10);
+      ctx.shadowOffsetY = r(3);
       ctx.fillStyle = pal.bg;
       rrect(ctx, chipX, chipY, chipW, chipH, chipH / 2);
       ctx.fill();
+      ctx.restore();
+      drawIconBadge(ctx, chipX + r(3) + badgeD / 2, chipY + chipH / 2, badgeD, "rgba(0,0,0,0.18)", pal.fg, arrow, r(11));
+      ctx.font = labelFont;
       ctx.fillStyle = pal.fg;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(label, chipX + r(9), chipY + chipH / 2 + r(0.5));
-      chipX += chipW + r(8);
+      ctx.fillText(label, chipX + badgeD + r(13), chipY + chipH / 2 + r(0.5));
+      chipX += chipW + r(10);
     }
   }
   if (activeIndex < totalCount - 1) {
-    ctx.font = `700 italic ${r(12)}px "Inter", sans-serif`;
+    ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
+    setTracking(ctx, r(1));
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = fgMuted;
-    ctx.fillText("SWIPE FOR MORE →", CX, chromeY);
-  }
-  if (totalCount > 1) {
-    const dotSpacing = r(11);
-    const totalDotsW = (totalCount - 1) * dotSpacing;
-    const startDotX = (W - totalDotsW) / 2;
-    for (let i = 0; i < totalCount; i++) {
+    ctx.fillText("SWIPE", CX, swipeY);
+    const swipeW = ctx.measureText("SWIPE").width;
+    setTracking(ctx, 0);
+    const chevX = CX + swipeW + r(10);
+    ctx.strokeStyle = fgMuted;
+    ctx.lineWidth = r(1.6);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (let i = 0; i < 2; i++) {
+      const ox = chevX + i * r(6);
       ctx.beginPath();
-      ctx.arc(startDotX + i * dotSpacing, chromeY, r(2.6), 0, Math.PI * 2);
-      ctx.fillStyle = i === activeIndex ? dotActive : dotInactive;
-      ctx.fill();
+      ctx.moveTo(ox, swipeY - r(4));
+      ctx.lineTo(ox + r(4), swipeY);
+      ctx.lineTo(ox, swipeY + r(4));
+      ctx.stroke();
     }
   }
+  if (totalCount > 1) {
+    drawSegmentedPagination(ctx, CX, railY, CW, r(3), totalCount, activeIndex, dotActive, dotInactive);
+  }
+
+  // Top hairline — a thin gradient bar across the very top edge, the kind of
+  // masthead touch that separates a poster from a plain screenshot.
+  const hairline = ctx.createLinearGradient(0, 0, W, 0);
+  hairline.addColorStop(0, hexToRgba(gradient.accent, 0));
+  hairline.addColorStop(0.5, hexToRgba(gradient.accent, isLight ? 0.55 : 0.85));
+  hairline.addColorStop(1, hexToRgba(gradient.accent, 0));
+  ctx.fillStyle = hairline;
+  ctx.fillRect(0, 0, W, r(2.5));
 
   return bounds;
 }
@@ -3470,19 +3764,9 @@ function drawOutroCard(
   const CX = r(40), CXR = W - r(40), CW = CXR - CX;
   ctx.textAlign = "center";
 
-  // Wordmark — the same "STRATI" + emerald "X" treatment used as the small
-  // brand handle on story cards, sized up as the centerpiece here.
+  // Wordmark — the shared themed wordmark, sized up as the centerpiece here.
   const markY = H * 0.3;
-  ctx.font = `800 ${r(22)}px "Inter", sans-serif`;
-  ctx.textBaseline = "alphabetic";
-  const stratiW = ctx.measureText("STRATI").width;
-  const xW = ctx.measureText("X").width;
-  const wordmarkW = stratiW + xW;
-  ctx.fillStyle = fgWordmark;
-  ctx.textAlign = "left";
-  ctx.fillText("STRATI", W / 2 - wordmarkW / 2, markY);
-  ctx.fillStyle = accentColor;
-  ctx.fillText("X", W / 2 - wordmarkW / 2 + stratiW, markY);
+  drawWordmark(ctx, W / 2, markY, r(22), fgWordmark, accentColor, "center", "alphabetic");
   ctx.textAlign = "center";
 
   // Headline
@@ -3558,12 +3842,14 @@ function drawOutroCard(
 function drawBentoExplainerCard(
   ctx: CanvasRenderingContext2D,
   data: any,
+  img: HTMLImageElement | null | undefined,
   W: number,
   H: number,
   r: Rfn,
   activeIndex: number,
   totalCount: number,
-  gradient?: GradientPreset
+  gradient?: GradientPreset,
+  sentimentScheme: SentimentScheme = "emerald"
 ): PosterElement[] {
   const bounds: PosterElement[] = [];
   const accent = gradient?.accent ?? "#10b981";
@@ -3585,35 +3871,68 @@ function drawBentoExplainerCard(
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
+  // The parent story's own photo, bled in at very low visibility — a faint
+  // echo that ties this explainer card back to the story it's unpacking,
+  // without competing with the (approachable, text-first) content on top.
+  if (img) {
+    const iAR = img.naturalWidth / img.naturalHeight;
+    const zoom = Math.max(1, Math.min(2.5, data.imageZoom || 1));
+    const { slackX, slackY } = computeCoverFitSlack(iAR, W, H, zoom);
+    const fAR = W / H;
+    let baseW = W, baseH = H;
+    if (iAR > fAR) { baseH = H; baseW = H * iAR; }
+    else { baseW = W; baseH = W / iAR; }
+    const dw = baseW * zoom, dh = baseH * zoom;
+    const focusX = Math.max(0, Math.min(1, data.imageFocusX ?? 0.5));
+    const focusY = Math.max(0, Math.min(1, data.imageFocusY ?? 0.5));
+    ctx.save();
+    ctx.globalAlpha = isLight ? 0.07 : 0.12;
+    ctx.drawImage(img, -slackX * focusX, -slackY * focusY, dw, dh);
+    ctx.restore();
+  }
+
   const glow = ctx.createRadialGradient(W * 0.18, H * 0.06, 0, W * 0.18, H * 0.06, W * 0.75);
   glow.addColorStop(0, hexToRgba(accent, isLight ? 0.1 : 0.18));
   glow.addColorStop(1, hexToRgba(accent, 0));
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
-  ctx.fillStyle = accent;
+  // Second, tighter glow low-right — balances the frame so it doesn't read
+  // as lit from a single corner only.
+  const glow2 = ctx.createRadialGradient(W * 0.86, H * 0.92, 0, W * 0.86, H * 0.92, W * 0.6);
+  glow2.addColorStop(0, hexToRgba(accent, isLight ? 0.06 : 0.12));
+  glow2.addColorStop(1, hexToRgba(accent, 0));
+  ctx.fillStyle = glow2;
+  ctx.fillRect(0, 0, W, H);
+
+  // Film grain — same treatment as the Bold card, so a viewer swiping
+  // between card kinds feels one continuous printed system, not two apps.
+  paintGrain(ctx, W, H, isLight ? 0.03 : 0.045);
+
+  const topBar = ctx.createLinearGradient(0, 0, W, 0);
+  topBar.addColorStop(0, hexToRgba(accent, 0.5));
+  topBar.addColorStop(0.5, accent);
+  topBar.addColorStop(1, hexToRgba(accent, 0.5));
+  ctx.fillStyle = topBar;
   ctx.fillRect(0, 0, W, r(6));
 
   const PAD = r(28);
   const CX = PAD, CXR = W - PAD, CW = CXR - CX;
   let Y = r(24);
 
-  // Logo badge — same fixed brand colors as every other card, top-left.
+  // Logo — the plain themed wordmark (same treatment as the Outro/Bold
+  // cards), sized up from the old pill badge, "X" tinted with this
+  // gradient's own accent. `badgeH` stays as the row-height reference the
+  // eyebrow pill below centers itself against.
   {
     const badgeH = r(30);
-    ctx.font = `800 ${r(13)}px "Inter", sans-serif`;
-    const stratiW = ctx.measureText("STRATI").width;
-    const xGlyphW = ctx.measureText("X").width;
-    const badgeW = stratiW + xGlyphW + r(24);
-    ctx.fillStyle = "#ffffff";
-    rrect(ctx, CX, Y, badgeW, badgeH, badgeH / 2);
-    ctx.fill();
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#111111";
-    ctx.fillText("STRATI", CX + r(12), Y + badgeH / 2 + r(0.5));
-    ctx.fillStyle = "#10b981";
-    ctx.fillText("X", CX + r(12) + stratiW, Y + badgeH / 2 + r(0.5));
+    const logoFontSize = r(21);
+    ctx.save();
+    ctx.shadowColor = isLight ? "rgba(20,20,15,0.22)" : "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = r(10);
+    ctx.shadowOffsetY = r(2);
+    drawWordmark(ctx, CX, Y + badgeH / 2, logoFontSize, textPrimary, accent, "left", "middle");
+    ctx.restore();
 
     // Eyebrow pill, right-aligned on the same row. Text color is computed
     // against the actual pill fill (not hardcoded white) — on light/
@@ -3621,15 +3940,45 @@ function drawBentoExplainerCard(
     // white-on-white silently renders as an empty pill.
     const eyebrowText = "EXPLAINED SIMPLY";
     ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
-    const eyebrowW = ctx.measureText(eyebrowText).width + r(24);
+    setTracking(ctx, r(0.5));
+    const dotGap = r(14);
+    const eyebrowW = ctx.measureText(eyebrowText).width + r(20) + dotGap;
     const eyebrowH = r(28);
     const eyebrowX = CXR - eyebrowW;
     const eyebrowY = Y + (badgeH - eyebrowH) / 2;
+    const eyebrowFg = contrastTextColor(accent);
+    ctx.save();
+    ctx.shadowColor = isLight ? "rgba(20,20,15,0.14)" : "rgba(0,0,0,0.3)";
+    ctx.shadowBlur = r(10);
+    ctx.shadowOffsetY = r(3);
     ctx.fillStyle = accent;
     rrect(ctx, eyebrowX, eyebrowY, eyebrowW, eyebrowH, eyebrowH / 2);
     ctx.fill();
-    ctx.fillStyle = contrastTextColor(accent);
-    ctx.fillText(eyebrowText, eyebrowX + r(12), eyebrowY + eyebrowH / 2 + r(0.5));
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(eyebrowX + r(13), eyebrowY + eyebrowH / 2, r(2.8), 0, Math.PI * 2);
+    ctx.fillStyle = eyebrowFg;
+    ctx.fill();
+    // `drawWordmark` above set textAlign/textBaseline INSIDE its own
+    // save/restore, so both reverted to canvas defaults ("start"/
+    // "alphabetic") when it restored — set them explicitly here rather
+    // than relying on leftover state, or this text silently drifts off
+    // true vertical center within the pill.
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = eyebrowFg;
+    ctx.fillText(eyebrowText, eyebrowX + r(11) + dotGap, eyebrowY + eyebrowH / 2 + r(0.5));
+    setTracking(ctx, 0);
+
+    // Render-time date/time — sits just left of the eyebrow pill, same row
+    // and same vertical position as the logo on the opposite side.
+    ctx.font = `700 ${r(10.5)}px "Inter", sans-serif`;
+    setTracking(ctx, r(0.4));
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = textMuted;
+    ctx.fillText(formatPosterTimestamp(), eyebrowX - r(12), Y + badgeH / 2);
+    setTracking(ctx, 0);
 
     Y += badgeH + r(22);
   }
@@ -3645,7 +3994,10 @@ function drawBentoExplainerCard(
   const chipH = r(68);
   const chipRows = impacts.length > 0 ? Math.ceil(impacts.length / 2) : 0;
   const impactsSectionH = impacts.length > 0 ? r(30) + chipRows * chipH + Math.max(0, chipRows - 1) * chipGap : 0;
-  const footerReserve = totalCount > 1 ? r(36) : r(16);
+  // Matches the Bold card's own bottom-chrome reserve now that the footer
+  // sits at that same fixed chromeY-based position (swipe row + rail row),
+  // so content never crowds into it.
+  const footerReserve = r(70);
 
   // Headline — measure the fitted block first, box hugs it with fixed padding.
   const headline = String(data.simpleHeadline || data.title || "").trim();
@@ -3686,15 +4038,28 @@ function drawBentoExplainerCard(
   const gapCount = 2 + (impacts.length > 0 ? 1 : 0);
   const minUsedH = Y + zoneH + baseGap + rowH + (impacts.length > 0 ? baseGap + impactsSectionH : 0) + baseGap + footerReserve;
   const leftover = Math.max(0, H - minUsedH);
-  const sectionGap = baseGap + Math.min(leftover / gapCount, r(160));
+  const sectionGap = baseGap + Math.min(leftover / gapCount, r(180));
 
   // ---- Draw headline ----
+  ctx.save();
+  ctx.shadowColor = isLight ? "rgba(20,20,15,0.14)" : "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = r(22);
+  ctx.shadowOffsetY = r(8);
   ctx.fillStyle = cardBg;
-  rrect(ctx, CX, Y, CW, zoneH, r(20));
+  rrect(ctx, CX, Y, CW, zoneH, r(22));
   ctx.fill();
+  ctx.restore();
   ctx.strokeStyle = cardBorder;
   ctx.lineWidth = 1;
-  rrect(ctx, CX, Y, CW, zoneH, r(20));
+  rrect(ctx, CX, Y, CW, zoneH, r(22));
+  ctx.stroke();
+  // Glossy inner top edge — a thin highlight along the flat span between
+  // the rounded corners, the detail that reads as "glass" rather than flat.
+  ctx.strokeStyle = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(CX + r(22), Y + 1);
+  ctx.lineTo(CX + CW - r(22), Y + 1);
   ctx.stroke();
   const headlineStartY = Y + (zoneH - headlineBlockH) / 2;
   // Same white-on-white guard as the eyebrow pill above.
@@ -3703,19 +4068,33 @@ function drawBentoExplainerCard(
   Y += zoneH + sectionGap;
 
   // ---- Draw two-cell row ----
+  ctx.save();
+  ctx.shadowColor = isLight ? "rgba(20,20,15,0.12)" : "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = r(18);
+  ctx.shadowOffsetY = r(6);
   ctx.fillStyle = cardBg;
   rrect(ctx, CX, Y, leftW, rowH, r(18));
   ctx.fill();
+  ctx.restore();
   ctx.strokeStyle = cardBorder;
   ctx.lineWidth = 1;
   rrect(ctx, CX, Y, leftW, rowH, r(18));
   ctx.stroke();
+  ctx.strokeStyle = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)";
+  ctx.beginPath();
+  ctx.moveTo(CX + r(18), Y + 1);
+  ctx.lineTo(CX + leftW - r(18), Y + 1);
+  ctx.stroke();
 
+  const labelBadgeD = r(18);
+  drawIconBadge(ctx, CX + whPadX + labelBadgeD / 2, Y + r(24), labelBadgeD, hexToRgba(accent, isLight ? 0.14 : 0.2), labelColor, "▸", r(9.5));
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.font = `800 ${r(12)}px "Inter", sans-serif`;
+  setTracking(ctx, r(0.3));
   ctx.fillStyle = labelColor;
-  ctx.fillText("WHAT HAPPENED", CX + whPadX, Y + r(28));
+  ctx.fillText("WHAT HAPPENED", CX + whPadX + labelBadgeD + r(8), Y + r(28));
+  setTracking(ctx, 0);
 
   ctx.font = `600 ${r(17)}px "Inter", sans-serif`;
   ctx.fillStyle = textPrimary;
@@ -3723,15 +4102,30 @@ function drawBentoExplainerCard(
   whLines.forEach((line, i) => ctx.fillText(line, CX + whPadX, Y + whPadTop + i * whLineH + whLineH / 2));
   bounds.push({ id: "whatHappened", label: "What Happened", x: CX, y: Y, w: leftW, h: rowH });
 
-  ctx.fillStyle = hexToRgba(accent, isLight ? 0.08 : 0.14);
+  ctx.save();
+  ctx.shadowColor = isLight ? "rgba(20,20,15,0.1)" : "rgba(0,0,0,0.4)";
+  ctx.shadowBlur = r(16);
+  ctx.shadowOffsetY = r(5);
+  ctx.fillStyle = hexToRgba(accent, isLight ? 0.09 : 0.16);
   rrect(ctx, rightX, Y, rightW, rowH, r(18));
   ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = hexToRgba(accent, isLight ? 0.35 : 0.4);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(rightX + r(18), Y + 1);
+  ctx.lineTo(rightX + rightW - r(18), Y + 1);
+  ctx.stroke();
 
+  const wmBadgeD = r(18);
+  drawIconBadge(ctx, rightX + wmPadX + wmBadgeD / 2, Y + r(24), wmBadgeD, hexToRgba(accent, isLight ? 0.22 : 0.3), labelColor, "!", r(10.5));
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.font = `800 ${r(12)}px "Inter", sans-serif`;
+  setTracking(ctx, r(0.3));
   ctx.fillStyle = labelColor;
-  whyLabelLines.forEach((line, i) => ctx.fillText(line, rightX + wmPadX, Y + r(28) + i * r(15)));
+  whyLabelLines.forEach((line, i) => ctx.fillText(line, rightX + wmPadX + wmBadgeD + r(8), Y + r(28) + i * r(15)));
+  setTracking(ctx, 0);
 
   ctx.font = `600 ${r(15.5)}px "Inter", sans-serif`;
   ctx.fillStyle = textPrimary;
@@ -3740,58 +4134,101 @@ function drawBentoExplainerCard(
   wmLines.forEach((line, i) => ctx.fillText(line, rightX + wmPadX, wmStartY + i * wmLineH + wmLineH / 2));
   bounds.push({ id: "whyItMatters", label: "Why It Matters", x: rightX, y: Y, w: rightW, h: rowH });
 
-  Y += rowH + (impacts.length > 0 ? sectionGap : 0);
+  Y += rowH;
 
-  // ---- Draw impact chips — plain-language per-market effect, 2 per row ----
+  // ---- Draw impact chips — plain-language per-market effect, 2 per row.
+  // An odd count's last card spans the full width instead of leaving an
+  // empty cell beside it. ----
   if (impacts.length > 0) {
+    Y += sectionGap;
+    // Small accent bar, matching the Bold card's description marker — ties
+    // this label to the same visual language as the other section labels'
+    // icon badges instead of sitting there as plain, unmarked text.
+    ctx.fillStyle = accent;
+    rrect(ctx, CX, Y - r(9), r(3), r(11), r(1.5));
+    ctx.fill();
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.font = `800 ${r(12)}px "Inter", sans-serif`;
+    setTracking(ctx, r(0.5));
     ctx.fillStyle = textMuted;
-    ctx.fillText("WHO THIS AFFECTS", CX, Y);
+    ctx.fillText("WHO THIS AFFECTS", CX + r(10), Y);
+    setTracking(ctx, 0);
     Y += r(18);
 
     const chipW = Math.floor((CW - chipGap) / 2);
+    const impactBadgeD = r(22);
+    const oddLast = impacts.length % 2 === 1;
     impacts.forEach((imp, i) => {
+      const isFullWidth = oddLast && i === impacts.length - 1;
       const col = i % 2, row = Math.floor(i / 2);
-      const cx = CX + col * (chipW + chipGap);
+      const cx = isFullWidth ? CX : CX + col * (chipW + chipGap);
       const cy = Y + row * (chipH + chipGap);
-      const dirColor = imp.direction === "up" ? "#10b981" : imp.direction === "down" ? "#ef4444" : "#f59e0b";
+      const w = isFullWidth ? CW : chipW;
+      const dirColor = imp.direction === "up" ? (sentimentScheme === "skyblue" ? "#0284c7" : "#10b981") : imp.direction === "down" ? "#ef4444" : "#f59e0b";
       const arrow = imp.direction === "up" ? "▲" : imp.direction === "down" ? "▼" : "●";
+      ctx.save();
+      ctx.shadowColor = isLight ? "rgba(20,20,15,0.1)" : "rgba(0,0,0,0.4)";
+      ctx.shadowBlur = r(12);
+      ctx.shadowOffsetY = r(4);
       ctx.fillStyle = hexToRgba(dirColor, isLight ? 0.1 : 0.16);
-      rrect(ctx, cx, cy, chipW, chipH, r(16));
+      rrect(ctx, cx, cy, w, chipH, r(16));
       ctx.fill();
+      ctx.restore();
       ctx.strokeStyle = hexToRgba(dirColor, 0.32);
       ctx.lineWidth = 1;
-      rrect(ctx, cx, cy, chipW, chipH, r(16));
+      rrect(ctx, cx, cy, w, chipH, r(16));
       ctx.stroke();
 
+      drawIconBadge(ctx, cx + r(13) + impactBadgeD / 2, cy + r(19), impactBadgeD, dirColor, "#ffffff", arrow, r(11));
+
       ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
-      ctx.font = `800 ${r(14.5)}px "Inter", sans-serif`;
+      ctx.textBaseline = "middle";
+      ctx.font = `800 ${r(14)}px "Inter", sans-serif`;
       ctx.fillStyle = dirColor;
-      ctx.fillText(`${arrow} ${imp.market}`, cx + r(14), cy + r(26));
+      ctx.fillText(imp.market, cx + r(13) + impactBadgeD + r(9), cy + r(19) + r(0.5));
 
       ctx.font = `600 ${r(12.5)}px "Inter", sans-serif`;
       ctx.fillStyle = textMuted;
-      const effLines = wrap(ctx, imp.effect, chipW - r(28)).slice(0, 2);
+      ctx.textBaseline = "alphabetic";
+      const effLines = wrap(ctx, imp.effect, w - r(28)).slice(0, 2);
       effLines.forEach((line, li) => ctx.fillText(line, cx + r(14), cy + r(46) + li * r(15)));
     });
     Y += impactsSectionH - r(30);
   }
 
-  // Footer — dot pagination, same continuity treatment as every other card.
-  if (totalCount > 1) {
-    const chromeY = H - r(24);
-    const dotSpacing = r(11);
-    const totalDotsW = (totalCount - 1) * dotSpacing;
-    const startDotX = (W - totalDotsW) / 2;
-    for (let i = 0; i < totalCount; i++) {
+  // Footer — swipe hint + segmented progress rail, at the EXACT same fixed
+  // position as the Bold card's (chromeY/swipeY/railY below are copied
+  // constants, not derived from content height) so the carousel's bottom
+  // chrome never jumps between card kinds as the viewer swipes through.
+  const chromeY = H - r(30);
+  const swipeY = chromeY - r(5);
+  const railY = chromeY + r(11);
+  if (activeIndex < totalCount - 1) {
+    ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
+    setTracking(ctx, r(1));
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = textMuted;
+    ctx.fillText("SWIPE", CX, swipeY);
+    const swipeW = ctx.measureText("SWIPE").width;
+    setTracking(ctx, 0);
+    const chevX = CX + swipeW + r(10);
+    ctx.strokeStyle = textMuted;
+    ctx.lineWidth = r(1.6);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (let i = 0; i < 2; i++) {
+      const ox = chevX + i * r(6);
       ctx.beginPath();
-      ctx.arc(startDotX + i * dotSpacing, chromeY, r(2.6), 0, Math.PI * 2);
-      ctx.fillStyle = i === activeIndex ? dotActive : dotInactive;
-      ctx.fill();
+      ctx.moveTo(ox, swipeY - r(4));
+      ctx.lineTo(ox + r(4), swipeY);
+      ctx.lineTo(ox, swipeY + r(4));
+      ctx.stroke();
     }
+  }
+  if (totalCount > 1) {
+    drawSegmentedPagination(ctx, CX, railY, CW, r(3), totalCount, activeIndex, dotActive, dotInactive);
   }
 
   return bounds;
@@ -3810,7 +4247,8 @@ function drawPoster(
   posterStyle: "editorial" | "bold" = "editorial",
   gradient: GradientPreset = GRADIENT_PRESETS[0],
   editorialTheme: EditorialTheme = "light",
-  fadeIntensity: number = 100
+  fadeIntensity: number = 100,
+  sentimentScheme: SentimentScheme = "emerald"
 ): PosterElement[] {
   const W = ar.w, H = ar.h;
   canvas.width = W; canvas.height = H;
@@ -3839,18 +4277,18 @@ function drawPoster(
   // it always renders in its own plain-language grid regardless of whether
   // the batch is Editorial or Bold.
   if (data?.isBento) {
-    return drawBentoExplainerCard(ctx, data, W, H, r, activeNewsIndex, totalNewsCount, posterStyle === "bold" ? gradient : undefined);
+    return drawBentoExplainerCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, posterStyle === "bold" ? gradient : undefined, sentimentScheme);
   }
 
   if (mode === "news") {
     return posterStyle === "bold"
-      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, "news", gradient, fadeIntensity)
-      : drawTradingNewsPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, editorialTheme, fadeIntensity);
+      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, "news", gradient, fadeIntensity, sentimentScheme)
+      : drawTradingNewsPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, editorialTheme, fadeIntensity, sentimentScheme);
   }
 
   if (mode === "facts" || mode === "learnings") {
     return posterStyle === "bold"
-      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, gradient, fadeIntensity)
+      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, gradient, fadeIntensity, sentimentScheme)
       : drawEducationalCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, editorialTheme, fadeIntensity);
   }
 
@@ -5938,6 +6376,30 @@ export function ContentCreatorPage() {
     return null;
   };
 
+  // Saves the CURRENT style settings (ratio, colors, config, poster style,
+  // gradient, theme, fade intensity, highlight-color scheme) as this user's
+  // starting point for every future visit — deliberately excludes the
+  // poster content itself (newsData/analysisData/etc.), which is what
+  // "Save to History" is for.
+  const handleSetAsDefault = async () => {
+    setDefaultSaveStatus("saving");
+    try {
+      const settings = { ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme };
+      const res = await fetch("/api/content-creator/defaults", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings }),
+      });
+      if (!res.ok) throw new Error("Failed to save defaults");
+      setDefaultSaveStatus("saved");
+    } catch (e) {
+      console.warn("Failed to save content-creator defaults:", e);
+      setDefaultSaveStatus("error");
+    } finally {
+      setTimeout(() => setDefaultSaveStatus("idle"), 2000);
+    }
+  };
+
   const handleSaveCurrentToHistory = async () => {
     setSaveStatus("saving");
     try {
@@ -5947,22 +6409,22 @@ export function ContentCreatorPage() {
         const title = newsData.length > 1
           ? `News Batch · ${newsData.length} stories${first?.date ? ` · ${first.date}` : ""}`
           : (first?.title || "News Batch");
-        createdId = await saveToHistory("news-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
+        createdId = await saveToHistory("news-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
       } else if (creatorMode === "facts") {
         const title = `Facts · ${newsData.length} ${newsData.length === 1 ? "card" : "cards"}`;
-        createdId = await saveToHistory("facts-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
+        createdId = await saveToHistory("facts-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
       } else if (creatorMode === "learnings") {
         const concept = newsData.find((d) => d.concept)?.concept;
         const title = concept ? `Learnings · ${concept}` : "Learnings Batch";
-        createdId = await saveToHistory("learnings-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
+        createdId = await saveToHistory("learnings-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
       } else if (creatorMode === "analysis") {
         const title = analysisData.instrument
           ? `${analysisData.instrument} · ${analysisData.levelName || "Daily Analysis"}`
           : "Daily Analysis";
-        createdId = await saveToHistory("daily-analysis", title, 1, { analysisData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
+        createdId = await saveToHistory("daily-analysis", title, 1, { analysisData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
       } else {
         const title = parsedData.title || parsedData.category || "Indicator Poster";
-        createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }, activeHistoryId);
+        createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
       }
       if (createdId) {
         setActiveHistoryId(createdId);
@@ -6019,6 +6481,7 @@ export function ContentCreatorPage() {
       if (payload.gradientPresetId) setGradientPresetId(payload.gradientPresetId);
       setEditorialTheme(payload.editorialTheme === "dark" ? "dark" : "light");
       setGradientFade(typeof payload.gradientFade === "number" ? payload.gradientFade : 100);
+      setSentimentScheme(payload.sentimentScheme === "skyblue" ? "skyblue" : "emerald");
       setJsonError(null);
       setActiveTab("content");
       setShowHistory(false);
@@ -6120,7 +6583,7 @@ export function ContentCreatorPage() {
         "facts-batch",
         `Facts · ${factCount} ${factCount === 1 ? "card" : "cards"}`,
         items.length,
-        { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }
+        { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }
       );
       if (createdId) setActiveHistoryId(createdId);
     } catch (e) {
@@ -6155,7 +6618,7 @@ export function ContentCreatorPage() {
       setJsonError(null);
 
       const title = data.concept ? `Learnings · ${data.concept}` : "Learnings Batch";
-      const createdId = await saveToHistory("learnings-batch", title, items.length, { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade });
+      const createdId = await saveToHistory("learnings-batch", title, items.length, { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme });
       if (createdId) setActiveHistoryId(createdId);
     } catch (e) {
       setGenerateError(e instanceof Error ? e.message : "Generation failed");
@@ -6201,7 +6664,7 @@ export function ContentCreatorPage() {
       "news-batch",
       `News Batch · ${chosen.length} ${chosen.length === 1 ? "story" : "stories"} · ${batchMeta?.timeRangeLabel ?? "curated"}`,
       items.length,
-      { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, timeRangeLabel: batchMeta?.timeRangeLabel, reportGeneratedAt: batchMeta?.reportGeneratedAt }
+      { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme, timeRangeLabel: batchMeta?.timeRangeLabel, reportGeneratedAt: batchMeta?.reportGeneratedAt }
     );
     if (createdId) {
       setActiveHistoryId(createdId);
@@ -6237,7 +6700,7 @@ export function ContentCreatorPage() {
       categoryKey,
       title,
       items.length,
-      { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade }
+      { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }
     );
     if (createdId) setActiveHistoryId(createdId);
   };
@@ -6286,9 +6749,17 @@ export function ContentCreatorPage() {
   const [editorialTheme, setEditorialTheme] = useState<"light" | "dark">("light");
   // How strongly the color fade (paper-band bleed in editorial, gradient
   // scrim in Bold) washes over the photo — 0 = photo almost fully visible,
-  // 100 = the fully-tuned default look. User-adjustable per the request to
-  // control "visibility of the color fade background".
-  const [gradientFade, setGradientFade] = useState<number>(100);
+  // 100 = the fully-tuned default look, up to 200 = heaviest wash. Defaults
+  // to 200 (heaviest) per user preference.
+  const [gradientFade, setGradientFade] = useState<number>(200);
+  // Poster "positive" sentiment tint — emerald (default) or sky blue.
+  // Negative/bearish stays red and neutral text stays white in both; only
+  // the bullish highlight color swaps between the two options.
+  const [sentimentScheme, setSentimentScheme] = useState<SentimentScheme>("emerald");
+  // "Set as Default" — saves the settings above (not the poster content) to
+  // the user's account so every future visit starts from this look instead
+  // of the factory defaults. Loaded once on mount, below.
+  const [defaultSaveStatus, setDefaultSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const [elementBounds, setElementBounds] = useState<PosterElement[]>([]);
   const [highlightedField, setHighlightedField] = useState<string | null>(null);
@@ -6319,6 +6790,32 @@ export function ContentCreatorPage() {
   const ar = RATIOS.find((r) => r.id === ratioId)!;
 
   // Compute CSS scale so canvas fits preview area
+  // Load the user's saved "default settings" once on mount, if they've ever
+  // saved one — overrides the hardcoded factory defaults above. Silently
+  // keeps the factory defaults on any failure (logged-out, network error,
+  // or simply never saved one yet).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/content-creator/defaults");
+        if (!res.ok) return;
+        const data = await res.json();
+        const s = data?.settings;
+        if (!s || typeof s !== "object") return;
+        if (s.ratioId) setRatioId(s.ratioId);
+        if (s.colors) setColors(s.colors);
+        if (s.config) setConfig(s.config);
+        if (s.posterStyle === "editorial" || s.posterStyle === "bold") setPosterStyle(s.posterStyle);
+        if (s.gradientPresetId) setGradientPresetId(s.gradientPresetId);
+        if (s.editorialTheme === "light" || s.editorialTheme === "dark") setEditorialTheme(s.editorialTheme);
+        if (typeof s.gradientFade === "number") setGradientFade(s.gradientFade);
+        if (s.sentimentScheme === "emerald" || s.sentimentScheme === "skyblue") setSentimentScheme(s.sentimentScheme);
+      } catch {
+        // Factory defaults already in state — nothing to do.
+      }
+    })();
+  }, []);
+
   useEffect(() => {
     if (!previewRef.current) return;
     const obs = new ResizeObserver(([entry]) => {
@@ -6474,7 +6971,7 @@ export function ContentCreatorPage() {
       const item = newsData[activeNewsIndex];
       if (item && canvasRef.current) {
         const liveData = { ...item, imageFocusX: ds.liveFocusX, imageFocusY: ds.liveFocusY };
-        const bounds = drawPoster(canvasRef.current, liveData, ar, colors, config, img, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+        const bounds = drawPoster(canvasRef.current, liveData, ar, colors, config, img, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
         setElementBounds(bounds);
       }
     };
@@ -6497,7 +6994,7 @@ export function ContentCreatorPage() {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-  }, [isDraggingImage, scale, ar, colors, config, creatorMode, activeNewsIndex, newsData, posterStyle, activeGradient, editorialTheme, gradientFade]);
+  }, [isDraggingImage, scale, ar, colors, config, creatorMode, activeNewsIndex, newsData, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme]);
 
   // Scroll-to-zoom on the news poster image. React 19 attaches the delegated
   // "wheel" listener as passive by default, so preventDefault() inside a
@@ -6677,7 +7174,7 @@ export function ContentCreatorPage() {
       const parsed = JSON.parse(jsonText);
       if (isBatchMode) {
         if (Array.isArray(parsed) && parsed.length > 0) {
-          activeData = parsed[activeNewsIndex] || parsed[0];
+          activeData = withBentoImageFallback(parsed[activeNewsIndex] || parsed[0], parsed);
         } else {
           activeData = parsed;
         }
@@ -6698,7 +7195,7 @@ export function ContentCreatorPage() {
         const imgEl = loadedImagesRef.current[imageUrl];
         activeImgRef.current = imgEl;
         if (canvasRef.current) {
-          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
           setElementBounds(bounds);
           setRendered(true);
         }
@@ -6709,7 +7206,7 @@ export function ContentCreatorPage() {
           loadedImagesRef.current[imageUrl] = imgEl;
           activeImgRef.current = imgEl;
           if (canvasRef.current) {
-            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
             setElementBounds(bounds);
             setRendered(true);
           }
@@ -6717,7 +7214,7 @@ export function ContentCreatorPage() {
         imgEl.onerror = () => {
           activeImgRef.current = null;
           if (canvasRef.current) {
-            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
             setElementBounds(bounds);
             setRendered(true);
           }
@@ -6727,12 +7224,12 @@ export function ContentCreatorPage() {
     } else {
       activeImgRef.current = null;
       if (canvasRef.current) {
-        const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade);
+        const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
         setElementBounds(bounds);
         setRendered(true);
       }
     }
-  }, [jsonText, ar, colors, config, creatorMode, isBatchMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade]);
+  }, [jsonText, ar, colors, config, creatorMode, isBatchMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme]);
 
   // Re-render when dependencies change
   useEffect(() => {
@@ -6759,13 +7256,13 @@ export function ContentCreatorPage() {
     if (!activeHistoryId || !isBatchMode || newsData.length === 0) return;
 
     const sig = [
-      activeHistoryId, posterStyle, gradientPresetId, editorialTheme, gradientFade, ratioId,
+      activeHistoryId, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme, ratioId,
       JSON.stringify(colors), JSON.stringify(config),
       newsData.map((d: any) => `${d.title || ""}~${d.description || ""}~${d.imageUrl?.length || 0}~${d.imageFocusX ?? ""}~${d.imageFocusY ?? ""}~${d.imageZoom ?? ""}~${d.impact || ""}~${d.sentiment || ""}`).join("#"),
     ].join("|");
     if (sig === lastAutoSaveSigRef.current) return;
 
-    const payload: Record<string, unknown> = { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade };
+    const payload: Record<string, unknown> = { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme };
     if (creatorMode === "news" && batchMeta) {
       payload.timeRangeLabel = batchMeta.timeRangeLabel;
       payload.reportGeneratedAt = batchMeta.reportGeneratedAt;
@@ -6783,7 +7280,7 @@ export function ContentCreatorPage() {
 
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newsData, activeHistoryId, isBatchMode, creatorMode, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, batchMeta]);
+  }, [newsData, activeHistoryId, isBatchMode, creatorMode, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme, batchMeta]);
 
   function download() {
     if (!rendered) return;
@@ -6801,7 +7298,7 @@ export function ContentCreatorPage() {
       const parsed = JSON.parse(jsonText);
       if (isBatchMode) {
         if (Array.isArray(parsed) && parsed.length > 0) {
-          activeData = parsed[activeNewsIndex] || parsed[0];
+          activeData = withBentoImageFallback(parsed[activeNewsIndex] || parsed[0], parsed);
         } else {
           activeData = parsed;
         }
@@ -6827,7 +7324,8 @@ export function ContentCreatorPage() {
       posterStyle,
       activeGradient,
       editorialTheme,
-      gradientFade
+      gradientFade,
+      sentimentScheme
     );
 
     let fileName = `stratix-poster-${ratioId}-${Date.now()}.png`;
@@ -6880,7 +7378,7 @@ export function ContentCreatorPage() {
       };
 
       for (let i = 0; i < newsData.length; i++) {
-        const item = newsData[i];
+        const item = withBentoImageFallback(newsData[i], newsData);
         const tempCanvas = document.createElement("canvas");
         const cachedImg = item.imageUrl ? loadedImagesRef.current[item.imageUrl] : null;
 
@@ -6897,7 +7395,8 @@ export function ContentCreatorPage() {
           posterStyle,
           activeGradient,
           editorialTheme,
-          gradientFade
+          gradientFade,
+          sentimentScheme
         );
 
         const dataUrl = tempCanvas.toDataURL("image/png");
@@ -6991,6 +7490,23 @@ export function ContentCreatorPage() {
               </span>
             </div>
             <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleSetAsDefault}
+                disabled={defaultSaveStatus === "saving"}
+                title="Save the current style settings (ratio, colors, poster style, gradient, fade, highlight colors) as your default for every future visit"
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all border cursor-pointer disabled:cursor-wait ${
+                  defaultSaveStatus === "saved"
+                    ? "border-emerald-500/[0.35] bg-emerald-500/[0.14] text-emerald-300"
+                    : defaultSaveStatus === "error"
+                    ? "border-red-500/[0.35] bg-red-500/[0.14] text-red-300"
+                    : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] text-white/60 hover:text-white/90"
+                }`}
+              >
+                <Star className={`h-3 w-3 ${defaultSaveStatus === "saved" ? "fill-emerald-300" : ""}`} />
+                <span className="hidden xs:inline">
+                  {defaultSaveStatus === "saving" ? "Saving…" : defaultSaveStatus === "saved" ? "Saved" : defaultSaveStatus === "error" ? "Failed" : "Set as Default"}
+                </span>
+              </button>
               {creatorMode === "news" && rawBatchCandidates.length > 0 && (
                 <button
                   onClick={() => setShowSelectionModal(true)}
@@ -8151,6 +8667,35 @@ export function ContentCreatorPage() {
                       : "Full-bleed gradient, huge headline, swipe-to-read — pick a gradient below."}
                   </p>
                 </div>
+
+                {creatorMode === "news" && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider mb-2">
+                      Highlight Colors
+                    </p>
+                    <div className="flex bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg">
+                      {(["emerald", "skyblue"] as const).map((s) => {
+                        const active = sentimentScheme === s;
+                        return (
+                          <button
+                            key={s}
+                            onClick={() => setSentimentScheme(s)}
+                            className={`flex-1 py-2 rounded-md transition-all cursor-pointer text-[10px] font-bold uppercase tracking-wider text-center ${
+                              active
+                                ? "bg-white/[0.08] text-white border border-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                                : "text-[#787870] hover:text-white/60"
+                            }`}
+                          >
+                            {s === "emerald" ? "Emerald / Red" : "Sky Blue / Red"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[9px] text-[#787870] mt-1.5 leading-relaxed">
+                      Bullish highlights render in {sentimentScheme === "emerald" ? "emerald green" : "sky blue"} — bearish stays red and base text stays white either way.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
