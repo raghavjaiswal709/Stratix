@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 import { cn } from "@/lib/utils";
 import { renderTemplate } from "@/lib/prompts/template";
@@ -42,6 +42,7 @@ import {
   Calendar,
   ClipboardCopy,
   Eye,
+  EyeOff,
   Star,
 } from "lucide-react";
 
@@ -2203,7 +2204,23 @@ function parsePastedAiJson(text: string): unknown {
 
 function importNewsJson(raw: unknown): NewsItem[] {
   if (Array.isArray(raw)) {
-    const items = raw.filter((p): p is NewsItem => !!p && typeof p === "object" && typeof (p as Record<string, unknown>).title === "string");
+    const items = raw
+      .filter((p): p is Record<string, unknown> => !!p && typeof p === "object" && typeof p.title === "string")
+      .map((p) => {
+        const item = { ...p } as unknown as NewsItem;
+        // Bento/outro cards have no Instagram caption concept (see
+        // buildBentoCard) — only resolve it for posters and the cover, and
+        // only here (not a full re-normalize) since a flat array may already
+        // be a fully-shaped, previously-generated batch that just needs its
+        // caption/hashtags backfilled or re-validated, not rebuilt.
+        if (!item.isBento) {
+          const title = importClampStr(p.title, 90) || String(p.title);
+          const keyTakeaway = typeof p.keyTakeaway === "string" ? p.keyTakeaway : (typeof p.description === "string" ? p.description : "");
+          item.caption = importResolveCaption(p.caption, `${title} — here's what it means for your trades. ${keyTakeaway}`.slice(0, 400));
+          item.hashtags = importResolveHashtags(p.hashtags);
+        }
+        return item;
+      });
     if (items.length === 0) throw new Error('That array has no valid poster objects — each needs at least a "title".');
     return items;
   }
@@ -6381,6 +6398,62 @@ export function ContentCreatorPage() {
   const [parsedData, setParsedData] = useState<PosterData>(EMPTY_INDICATOR);
   const [activeNewsIndex, setActiveNewsIndex] = useState(0);
 
+  // ── Bento explainer visibility + per-item ZIP selection ───────────────────
+  // hideBento drops every isBento card from the preview carousel, its page
+  // counter/dots, and the ZIP export — without touching newsData itself, so
+  // editing/history/JSON-tab round-tripping still sees the full batch.
+  const [hideBento, setHideBento] = useState(false);
+  // Indices (into newsData) explicitly unchecked for the ZIP — everything is
+  // included by default; this only ever removes items, it never adds ones
+  // hideBento already excludes.
+  const [deselectedForZip, setDeselectedForZip] = useState<Set<number>>(new Set());
+
+  const visibleNewsIndices = useMemo(
+    () => newsData.reduce<number[]>((acc, item, i) => {
+      if (!hideBento || !item.isBento) acc.push(i);
+      return acc;
+    }, []),
+    [newsData, hideBento]
+  );
+  const visibleNewsPosition = visibleNewsIndices.indexOf(activeNewsIndex);
+  const visibleNewsCount = visibleNewsIndices.length;
+
+  const zipIncludedIndices = useMemo(
+    () => visibleNewsIndices.filter((i) => !deselectedForZip.has(i)),
+    [visibleNewsIndices, deselectedForZip]
+  );
+
+  // If hideBento gets toggled on (or a fresh batch loads) while the active
+  // card is a now-hidden bento, jump to the nearest visible card instead of
+  // leaving the preview stuck on something the counter/dots no longer count.
+  useEffect(() => {
+    if (!hideBento || visibleNewsIndices.length === 0) return;
+    if (!newsData[activeNewsIndex]?.isBento) return;
+    const next = visibleNewsIndices.find((i) => i > activeNewsIndex) ?? [...visibleNewsIndices].reverse().find((i) => i < activeNewsIndex);
+    if (next !== undefined) setActiveNewsIndex(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideBento, newsData, activeNewsIndex, visibleNewsIndices]);
+
+  const goToPrevVisibleNews = () => {
+    const pos = visibleNewsIndices.indexOf(activeNewsIndex);
+    const target = visibleNewsIndices[Math.max(0, (pos === -1 ? 0 : pos) - 1)];
+    if (target !== undefined) setActiveNewsIndex(target);
+  };
+  const goToNextVisibleNews = () => {
+    const pos = visibleNewsIndices.indexOf(activeNewsIndex);
+    const target = visibleNewsIndices[Math.min(visibleNewsIndices.length - 1, (pos === -1 ? 0 : pos) + 1)];
+    if (target !== undefined) setActiveNewsIndex(target);
+  };
+  const toggleZipSelection = (idx: number) => {
+    setDeselectedForZip((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+  const selectAllForZip = () => setDeselectedForZip(new Set());
+  const deselectAllForZip = () => setDeselectedForZip(new Set(newsData.map((_, i) => i)));
+
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   // On phones the 350px editor panel would eat the entire viewport and leave
   // no room for the canvas preview — start collapsed there so the poster is
@@ -6561,16 +6634,19 @@ export function ContentCreatorPage() {
         setCreatorMode("news");
         setNewsData(payload.posters);
         setActiveNewsIndex(0);
+        setDeselectedForZip(new Set());
         setJsonText(JSON.stringify(payload.posters, null, 2));
       } else if (doc.category === "facts-batch" && Array.isArray(payload.posters)) {
         setCreatorMode("facts");
         setNewsData(payload.posters);
         setActiveNewsIndex(0);
+        setDeselectedForZip(new Set());
         setJsonText(JSON.stringify(payload.posters, null, 2));
       } else if (doc.category === "learnings-batch" && Array.isArray(payload.posters)) {
         setCreatorMode("learnings");
         setNewsData(payload.posters);
         setActiveNewsIndex(0);
+        setDeselectedForZip(new Set());
         setJsonText(JSON.stringify(payload.posters, null, 2));
       } else if (doc.category === "daily-analysis" && payload.analysisData) {
         setCreatorMode("analysis");
@@ -6762,6 +6838,7 @@ export function ContentCreatorPage() {
 
     setNewsData(items);
     setActiveNewsIndex(0);
+    setDeselectedForZip(new Set());
     setJsonText(JSON.stringify(items, null, 2));
     setJsonError(null);
     setShowSelectionModal(false);
@@ -6792,6 +6869,7 @@ export function ContentCreatorPage() {
     setActiveTab("content");
     setNewsData(items);
     setActiveNewsIndex(0);
+    setDeselectedForZip(new Set());
     setJsonText(JSON.stringify(items, null, 2));
     setJsonError(null);
     setActiveHistoryId(null);
@@ -6944,6 +7022,10 @@ export function ContentCreatorPage() {
       setJsonText(JSON.stringify(parsedData, null, 2));
     }
     setJsonError(null);
+    // ZIP-deselection indices are positions into THIS mode's newsData array —
+    // carrying them across a mode switch would exclude unrelated cards in
+    // the next mode's (differently-ordered, differently-sized) batch.
+    setDeselectedForZip(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [creatorMode]);
 
@@ -6958,9 +7040,19 @@ export function ContentCreatorPage() {
         }
       } else if (isBatchMode) {
         if (Array.isArray(parsed)) {
-          setNewsData(parsed);
-          if (activeNewsIndex >= parsed.length) {
-            setActiveNewsIndex(Math.max(0, parsed.length - 1));
+          // Route through the same import normalizer as the "Paste The AI's
+          // Reply" flow — a flat array can still be missing/malformed
+          // caption+hashtags (e.g. an older round-tripped batch, or a plain
+          // "posters" array copied out of an AI reply), so it needs the same
+          // per-item backfill/validation, not a raw passthrough.
+          try {
+            const items = importAiJson(creatorMode as "news" | "facts" | "learnings", parsed);
+            setNewsData(items);
+            if (activeNewsIndex >= items.length) {
+              setActiveNewsIndex(Math.max(0, items.length - 1));
+            }
+          } catch (convErr) {
+            setJsonError(convErr instanceof Error ? convErr.message : "Unrecognized JSON shape for this mode.");
           }
         } else if (parsed && typeof parsed === "object") {
           // A pasted external-AI reply usually comes back as the nested
@@ -7078,7 +7170,7 @@ export function ContentCreatorPage() {
       const item = newsData[activeNewsIndex];
       if (item && canvasRef.current) {
         const liveData = { ...item, imageFocusX: ds.liveFocusX, imageFocusY: ds.liveFocusY };
-        const bounds = drawPoster(canvasRef.current, liveData, ar, colors, config, img, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
+        const bounds = drawPoster(canvasRef.current, liveData, ar, colors, config, img, creatorMode, (visibleNewsPosition === -1 ? 0 : visibleNewsPosition), visibleNewsCount, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
         setElementBounds(bounds);
       }
     };
@@ -7101,7 +7193,7 @@ export function ContentCreatorPage() {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-  }, [isDraggingImage, scale, ar, colors, config, creatorMode, activeNewsIndex, newsData, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme]);
+  }, [isDraggingImage, scale, ar, colors, config, creatorMode, activeNewsIndex, newsData, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme, visibleNewsPosition, visibleNewsCount]);
 
   // Scroll-to-zoom on the news poster image. React 19 attaches the delegated
   // "wheel" listener as passive by default, so preventDefault() inside a
@@ -7302,7 +7394,7 @@ export function ContentCreatorPage() {
         const imgEl = loadedImagesRef.current[imageUrl];
         activeImgRef.current = imgEl;
         if (canvasRef.current) {
-          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
+          const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, (visibleNewsPosition === -1 ? 0 : visibleNewsPosition), visibleNewsCount, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
           setElementBounds(bounds);
           setRendered(true);
         }
@@ -7313,7 +7405,7 @@ export function ContentCreatorPage() {
           loadedImagesRef.current[imageUrl] = imgEl;
           activeImgRef.current = imgEl;
           if (canvasRef.current) {
-            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
+            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, imgEl, creatorMode, (visibleNewsPosition === -1 ? 0 : visibleNewsPosition), visibleNewsCount, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
             setElementBounds(bounds);
             setRendered(true);
           }
@@ -7321,7 +7413,7 @@ export function ContentCreatorPage() {
         imgEl.onerror = () => {
           activeImgRef.current = null;
           if (canvasRef.current) {
-            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
+            const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, (visibleNewsPosition === -1 ? 0 : visibleNewsPosition), visibleNewsCount, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
             setElementBounds(bounds);
             setRendered(true);
           }
@@ -7331,12 +7423,12 @@ export function ContentCreatorPage() {
     } else {
       activeImgRef.current = null;
       if (canvasRef.current) {
-        const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
+        const bounds = drawPoster(canvasRef.current, activeData, ar, colors, config, null, creatorMode, (visibleNewsPosition === -1 ? 0 : visibleNewsPosition), visibleNewsCount, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme);
         setElementBounds(bounds);
         setRendered(true);
       }
     }
-  }, [jsonText, ar, colors, config, creatorMode, isBatchMode, activeNewsIndex, newsData.length, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme]);
+  }, [jsonText, ar, colors, config, creatorMode, isBatchMode, activeNewsIndex, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme, visibleNewsPosition, visibleNewsCount]);
 
   // Re-render when dependencies change
   useEffect(() => {
@@ -7426,8 +7518,8 @@ export function ContentCreatorPage() {
       config,
       activeImgRef.current,
       creatorMode,
-      activeNewsIndex,
-      newsData.length,
+      (visibleNewsPosition === -1 ? 0 : visibleNewsPosition),
+      visibleNewsCount,
       posterStyle,
       activeGradient,
       editorialTheme,
@@ -7450,18 +7542,23 @@ export function ContentCreatorPage() {
     a.click();
   }
 
-  // Preloads images in parallel and packages all batch cards into a high-res ZIP
+  // Preloads images in parallel and packages the SELECTED batch cards
+  // (respecting hideBento + the per-item ZIP checkboxes) into a high-res ZIP.
+  // Falls back to every item when there's no selection concept for this mode
+  // (facts/learnings never populate hideBento/deselectedForZip).
   const downloadAll = async () => {
     if (!isBatchMode || newsData.length === 0) return;
+    const includedIndices = zipIncludedIndices;
+    if (includedIndices.length === 0) return;
     setDownloadingZip(true);
-    
+
     try {
-      // 1. Preload all background images in parallel
+      // 1. Preload background images for the included items only, in parallel
       await Promise.all(
-        newsData.map(async (item) => {
-          const imageUrl = item.imageUrl;
+        includedIndices.map(async (idx) => {
+          const imageUrl = newsData[idx].imageUrl;
           if (!imageUrl || loadedImagesRef.current[imageUrl]) return;
-          
+
           const imgEl = new Image();
           imgEl.crossOrigin = "anonymous";
           await new Promise((resolve) => {
@@ -7475,7 +7572,10 @@ export function ContentCreatorPage() {
         })
       );
 
-      // 2. Render each poster sequentially on a high-res temporary canvas and add to JSZip
+      // 2. Render each included poster sequentially on a high-res temporary
+      // canvas and add to JSZip — numbering (both the on-canvas "X of Y" and
+      // the filename) is based on position within the included subset, so
+      // exported files stay gap-free regardless of what was excluded.
       const zip = new JSZip();
       const scaleFactor = 3.0; // 3x high resolution
       const highResAr = {
@@ -7484,8 +7584,9 @@ export function ContentCreatorPage() {
         h: ar.h * scaleFactor
       };
 
-      for (let i = 0; i < newsData.length; i++) {
-        const item = withBentoImageFallback(newsData[i], newsData);
+      for (let pos = 0; pos < includedIndices.length; pos++) {
+        const idx = includedIndices[pos];
+        const item = withBentoImageFallback(newsData[idx], newsData);
         const tempCanvas = document.createElement("canvas");
         const cachedImg = item.imageUrl ? loadedImagesRef.current[item.imageUrl] : null;
 
@@ -7497,8 +7598,8 @@ export function ContentCreatorPage() {
           config,
           cachedImg,
           creatorMode,
-          i,
-          newsData.length,
+          pos,
+          includedIndices.length,
           posterStyle,
           activeGradient,
           editorialTheme,
@@ -7514,7 +7615,7 @@ export function ContentCreatorPage() {
           .replace(/[^a-z0-9]+/g, "-")
           .slice(0, 20);
 
-        const fileName = `stratix-${creatorMode}-${i + 1}-${titleSlug}.png`;
+        const fileName = `stratix-${creatorMode}-${pos + 1}-${titleSlug}.png`;
         zip.file(fileName, base64Data, { base64: true });
       }
 
@@ -8270,33 +8371,81 @@ export function ContentCreatorPage() {
 
                       {/* Quick Item List */}
                       <div className="border-t pt-3.5" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
-                        <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider block mb-2">
-                          News Items in Batch
-                        </label>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <label className="text-[10px] font-semibold text-[#787870] uppercase tracking-wider">
+                            News Items in Batch
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setHideBento((v) => !v)}
+                            title="Remove the ELI5 explainer cards from the preview, page counter, and ZIP export"
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[9.5px] font-bold uppercase tracking-wider transition-all cursor-pointer border shrink-0 ${
+                              hideBento
+                                ? "bg-white/[0.10] border-white/20 text-white"
+                                : "bg-white/[0.02] border-white/[0.08] text-white/40 hover:text-white/70"
+                            }`}
+                          >
+                            {hideBento ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                            {hideBento ? "Bento Hidden" : "Hide Bento"}
+                          </button>
+                        </div>
                         {batchMeta && (
                           <p className="text-[9px] text-emerald-400/50 mb-2 -mt-1">
                             AI-curated from filtered news · {batchMeta.timeRangeLabel}
                             {batchMeta.reportGeneratedAt && ` · report ${new Date(batchMeta.reportGeneratedAt).toLocaleString()}`}
                           </p>
                         )}
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[9px] text-white/30">
+                            {zipIncludedIndices.length} of {visibleNewsCount} selected for ZIP
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <button type="button" onClick={selectAllForZip} className="text-[9px] font-bold text-white/40 hover:text-white/85 transition cursor-pointer">
+                              Select All
+                            </button>
+                            <span className="text-white/15">·</span>
+                            <button type="button" onClick={deselectAllForZip} className="text-[9px] font-bold text-white/40 hover:text-white/85 transition cursor-pointer">
+                              None
+                            </button>
+                          </div>
+                        </div>
                         <div className="space-y-1.5 max-h-48 overflow-y-auto">
                           {newsData.map((item, idx) => {
+                            if (hideBento && item.isBento) return null;
                             const isCurrent = idx === activeNewsIndex;
+                            const includedInZip = !deselectedForZip.has(idx);
                             return (
-                              <button
+                              <div
                                 key={idx}
-                                onClick={() => setActiveNewsIndex(idx)}
-                                className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-[11px] transition-all border cursor-pointer ${
+                                className={`w-full flex items-center gap-1.5 p-2 rounded-xl text-left text-[11px] transition-all border ${
                                   isCurrent
                                     ? "bg-white/[0.06] border-white/20 text-white font-bold"
                                     : "bg-white/[0.01] border-white/[0.04] text-white/50 hover:bg-white/[0.03] hover:text-white/80"
                                 }`}
                               >
-                                <span className="truncate flex-1 pr-2">{item.title || `News #${idx + 1}`}</span>
-                                <span className="text-[8.5px] uppercase tracking-wider opacity-60 shrink-0">
-                                  {item.source || "NEWS"}
-                                </span>
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleZipSelection(idx)}
+                                  title={includedInZip ? "Included in ZIP — click to exclude" : "Excluded from ZIP — click to include"}
+                                  className="shrink-0 cursor-pointer p-0.5 -m-0.5"
+                                >
+                                  {includedInZip ? (
+                                    <CheckSquare className="h-3.5 w-3.5 text-emerald-400" />
+                                  ) : (
+                                    <Square className="h-3.5 w-3.5 text-white/25" />
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveNewsIndex(idx)}
+                                  className="flex items-center justify-between flex-1 min-w-0 cursor-pointer"
+                                >
+                                  <span className="truncate flex-1 pr-2">{item.title || `News #${idx + 1}`}</span>
+                                  <span className="text-[8.5px] uppercase tracking-wider opacity-60 shrink-0">
+                                    {item.isBento ? "BENTO" : (item.source || "NEWS")}
+                                  </span>
+                                </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -9554,8 +9703,8 @@ export function ContentCreatorPage() {
               </button>
               <button
                 onClick={downloadAll}
-                disabled={!rendered || newsData.length === 0 || downloadingZip}
-                title="Download all posters in this batch"
+                disabled={!rendered || newsData.length === 0 || downloadingZip || zipIncludedIndices.length === 0}
+                title={zipIncludedIndices.length === 0 ? "Nothing selected — check at least one item below" : `Download ${zipIncludedIndices.length} selected poster${zipIncludedIndices.length === 1 ? "" : "s"} as a ZIP`}
                 className="flex items-center gap-1.5 px-3 xs:px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer bg-white text-black hover:bg-white/90 border border-transparent shadow-[0_2px_8px_rgba(255,255,255,0.1)] whitespace-nowrap"
               >
                 {downloadingZip ? (
@@ -9591,12 +9740,12 @@ export function ContentCreatorPage() {
             style={{ borderColor: "rgba(255, 255, 255, 0.04)" }}
           >
             <div className="text-[11px] text-[#787870] font-bold uppercase tracking-wider whitespace-nowrap truncate min-w-0">
-              POSTER <span className="text-white font-bold">{activeNewsIndex + 1}</span> OF <span className="text-white font-bold">{newsData.length}</span>
+              POSTER <span className="text-white font-bold">{(visibleNewsPosition === -1 ? 0 : visibleNewsPosition) + 1}</span> OF <span className="text-white font-bold">{visibleNewsCount}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button
-                disabled={activeNewsIndex === 0}
-                onClick={() => setActiveNewsIndex(prev => Math.max(0, prev - 1))}
+                disabled={visibleNewsPosition <= 0}
+                onClick={goToPrevVisibleNews}
                 title="Previous poster"
                 className="flex items-center gap-1 px-2 xs:px-2.5 py-1 rounded-lg border border-white/[0.08] hover:bg-white/5 transition-all text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 cursor-pointer text-white whitespace-nowrap"
               >
@@ -9604,8 +9753,8 @@ export function ContentCreatorPage() {
                 <span className="hidden xs:inline">Previous</span>
               </button>
               <button
-                disabled={activeNewsIndex === newsData.length - 1}
-                onClick={() => setActiveNewsIndex(prev => Math.min(newsData.length - 1, prev + 1))}
+                disabled={visibleNewsPosition === -1 || visibleNewsPosition >= visibleNewsCount - 1}
+                onClick={goToNextVisibleNews}
                 title="Next poster"
                 className="flex items-center gap-1 px-2 xs:px-2.5 py-1 rounded-lg border border-white/[0.08] hover:bg-white/5 transition-all text-[10px] font-bold uppercase tracking-wider disabled:opacity-40 cursor-pointer text-white whitespace-nowrap"
               >
@@ -9623,11 +9772,11 @@ export function ContentCreatorPage() {
         >
           {/* Carousel nav — real app buttons, not baked into the poster image.
               Changes which poster is being previewed/edited/exported. */}
-          {isBatchMode && newsData.length > 1 && (
+          {isBatchMode && visibleNewsCount > 1 && (
             <>
               <button
-                onClick={() => setActiveNewsIndex((i) => Math.max(0, i - 1))}
-                disabled={activeNewsIndex === 0}
+                onClick={goToPrevVisibleNews}
+                disabled={visibleNewsPosition <= 0}
                 aria-label="Previous poster"
                 title="Previous poster"
                 className="absolute left-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full flex items-center justify-center transition-all cursor-pointer border border-white/[0.1] bg-black/50 backdrop-blur-sm text-white/80 hover:bg-black/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-black/50"
@@ -9635,8 +9784,8 @@ export function ContentCreatorPage() {
                 <ChevronLeft className="h-5 w-5" />
               </button>
               <button
-                onClick={() => setActiveNewsIndex((i) => Math.min(newsData.length - 1, i + 1))}
-                disabled={activeNewsIndex === newsData.length - 1}
+                onClick={goToNextVisibleNews}
+                disabled={visibleNewsPosition === -1 || visibleNewsPosition >= visibleNewsCount - 1}
                 aria-label="Next poster"
                 title="Next poster"
                 className="absolute right-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full flex items-center justify-center transition-all cursor-pointer border border-white/[0.1] bg-black/50 backdrop-blur-sm text-white/80 hover:bg-black/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-black/50"
