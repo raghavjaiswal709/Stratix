@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
 import { cn } from "@/lib/utils";
+import { renderTemplate } from "@/lib/prompts/template";
 import { CALENDAR_PLAN } from "@/lib/content-creator/calendar-plan";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -2126,6 +2127,42 @@ const IMPORT_VALID_DIRECTION = new Set(["up", "down", "neutral"]);
 const IMPORT_VALID_CATEGORY = new Set(["Macro", "Geopolitical", "Corporate", "Sentiment", "Systemic"]);
 const IMPORT_VALID_IMPACT = new Set(["High", "Medium", "Low"]);
 
+// Same fixed brand set the automatic News Batch route always appends server-side
+// (see COMMON_HASHTAGS in app/api/content-creator/news-batch/route.ts) — kept
+// here too so a pasted external-AI reply gets the same brand-consistent tags.
+const IMPORT_BRAND_HASHTAGS = ["#Stratix", "#Trading", "#ForexTrading", "#TradingSignals", "#FinancialMarkets", "#MarketNews", "#TradingCommunity"];
+const IMPORT_HASHTAG_MAX = 30;
+
+function isImportValidHashtag(v: unknown): v is string {
+  return typeof v === "string" && /^#[A-Za-z0-9_]{2,40}$/.test(v.trim());
+}
+
+// Mirrors the route's resolveHashtags: normalizes/validates the model's own
+// tags and merges in the fixed brand set, deduping case-insensitively.
+function importResolveHashtags(candidates: unknown): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (tag: string) => {
+    const key = tag.toLowerCase();
+    if (seen.has(key) || out.length >= IMPORT_HASHTAG_MAX) return;
+    seen.add(key);
+    out.push(tag);
+  };
+  for (const tag of IMPORT_BRAND_HASHTAGS) add(tag);
+  if (Array.isArray(candidates)) {
+    for (const c of candidates) {
+      const raw = typeof c === "string" ? c.trim() : "";
+      const normalized = raw && !raw.startsWith("#") ? `#${raw}` : raw;
+      if (isImportValidHashtag(normalized)) add(normalized);
+    }
+  }
+  return out;
+}
+
+function importResolveCaption(candidate: unknown, fallback: string): string {
+  return importClampStr(candidate, 500) || fallback;
+}
+
 function importResolveInstrumentImpacts(v: unknown): { symbol: string; sentiment: "Bullish" | "Bearish" | "Neutral" }[] {
   if (!Array.isArray(v)) return [];
   return v
@@ -2204,6 +2241,8 @@ function importNewsJson(raw: unknown): NewsItem[] {
         whatHappened: importClampStr(p.whatHappened, 400) || description,
         whyItMatters: importClampStr(p.whyItMatters, 240) || keyTakeaway,
         simpleImpacts: importResolveSimpleImpacts(p.simpleImpacts),
+        caption: importResolveCaption(p.caption, `${title} — here's what it means for your trades. ${keyTakeaway}`.slice(0, 400)),
+        hashtags: importResolveHashtags(p.hashtags),
       } as NewsItem;
     })
     .filter((p) => p.title && p.description);
@@ -2240,6 +2279,8 @@ function importNewsJson(raw: unknown): NewsItem[] {
     isCover: true,
     topAssets,
     bulletHeadlines: importResolveStringArray(rawSummary.bulletHeadlines, 5).concat(posters.map((p) => p.title)).slice(0, 5),
+    caption: importResolveCaption(rawSummary.caption, `${coverTitle} — ${coverOverview}`.slice(0, 400)),
+    hashtags: importResolveHashtags(rawSummary.hashtags),
   };
 
   const rawOutro = (obj.outro && typeof obj.outro === "object" ? obj.outro : {}) as Record<string, unknown>;
@@ -5175,31 +5216,9 @@ const NEWS_POSTER_SCHEMA_EXAMPLE = JSON.stringify([
   },
 ], null, 2);
 
-function buildNewsUserMessageV5(date: string, session: string, candles: any, timeRange: TimeRange = "24h", selectedSymbols: string[]): string {
-  const ts = new Date().toISOString();
-  const candleBlock = formatCandlesForNewsPrompt(candles, selectedSymbols);
-
-  const opt = TIME_RANGE_OPTIONS.find(o => o.value === timeRange) ?? TIME_RANGE_OPTIONS[4];
-  const hours = opt.hours;
-
-  const now = new Date();
-  const tsIST = formatToISTString(now);
-  const fromDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
-  const fromTsIST = formatToISTString(fromDate);
-
-  const timeHinglish =
-    timeRange === "3h"  ? "pichle 3 ghante" :
-    timeRange === "6h"  ? "pichle 6 ghante" :
-    timeRange === "12h" ? "pichle 12 ghante" :
-    timeRange === "18h" ? "pichle 18 ghante" :
-    timeRange === "24h" ? "pichle 24 ghante" :
-    timeRange === "2d"  ? "pichle 2 din" :
-    timeRange === "3d"  ? "pichle 3 din" :
-                          "pichle ek hafte";
-
-  const symbolList = selectedSymbols.join(", ");
-
-  return `================================================================
+// Default (unedited) user-message template — {{TOKENS}} filled in by buildNewsUserMessageV5.
+// Mirrors lib/prompts/definitions/contentCreator.ts's "contentCreator.dailyAnalysisUser" default.
+const DEFAULT_DAILY_ANALYSIS_USER_TEMPLATE = `================================================================
 CRITICAL INSTRUCTION — OUTPUT FORMAT
 ================================================================
 Tera POORA response SIRF ek \`\`\`json ... \`\`\` code block hona chahiye.
@@ -5207,21 +5226,21 @@ Koi bhi text — upar, neeche, ya beech mein — STRICTLY FORBIDDEN.
 Pehli line \`\`\`json, aakhri line \`\`\`, aur beech mein ONLY valid JSON ARRAY.
 ================================================================
 
-Aaj ka IST date hai ${date}. Aane wala session hai ${SESSION_LABELS[session] ?? session} Session.
-Current IST time: ${tsIST}
-Generated: ${ts}
+Aaj ka IST date hai {{DATE}}. Aane wala session hai {{SESSION_LABEL}} Session.
+Current IST time: {{TS_IST}}
+Generated: {{TS}}
 
-⏰ NEWS TIME WINDOW: ${fromTsIST} SE LEKAR ${tsIST} TAK (${opt.display})
+⏰ NEWS TIME WINDOW: {{FROM_TS_IST}} SE LEKAR {{TS_IST}} TAK ({{WINDOW_DISPLAY}})
 STRICT RULE: Sirf is time window ke andar ki news cover karo. Older news strictly banned.
 
-${candleBlock}
+{{CANDLE_BLOCK}}
 
 Upar diye gaye REAL H4 aur H1 candle data ko price context ke liye use karo.
 
 ═══════════════════════════════════════════════════════
 TERA KAAM — TWITTER/X FEED STYLE NEWS POSTER BATCH
-(${timeHinglish} ki news — ${fromTsIST} ke baad ki)
-Selected symbols: ${symbolList}
+({{TIME_HINGLISH}} ki news — {{FROM_TS_IST}} ke baad ki)
+Selected symbols: {{SYMBOL_LIST}}
 ═══════════════════════════════════════════════════════
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -5247,7 +5266,7 @@ OUTPUT: NEWSITEM[] ARRAY — POSTER GENERATOR FORMAT
 ================================================================
 Ek valid JSON ARRAY return karo jisme har element ek NewsItem object ho.
 Minimum 4-8 items. Har item ek alag high-impact event ya symbol ya macro story cover kare.
-Selected symbols (${symbolList}) ke liye individual items banana — har symbol ka ek dedicated poster.
+Selected symbols ({{SYMBOL_LIST}}) ke liye individual items banana — har symbol ka ek dedicated poster.
 
 HAR NEWSITEM MEIN YEH EXACT FIELDS MANDATORY HAIN:
 
@@ -5261,14 +5280,14 @@ HAR NEWSITEM MEIN YEH EXACT FIELDS MANDATORY HAIN:
                      Image is specific event/asset se visually match karni chahiye.
                      MANDATORY — koi placeholder nahi, koi empty string nahi.
 • "source"         : "Bloomberg" | "Reuters" | "CNBC" | "@FirstSquawk" | "@investingLive_" | "@ForexFactory" | etc.
-• "date"           : "${new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}" (human-readable)
+• "date"           : "{{HUMAN_DATE}}" (human-readable)
 • "impact"         : EXACTLY one of: "High" | "Medium" | "Low" (case-sensitive, no other values)
 • "sentiment"      : EXACTLY one of: "Bullish" | "Bearish" | "Neutral" (case-sensitive, no other values)
-• "affectedAssets" : Comma-separated relevant symbols from: ${symbolList}, USD, EUR, GBP, JPY, AUD, NZD, CAD, CHF, Oil, Gold, BTC, ETH, US Equities, Bonds
+• "affectedAssets" : Comma-separated relevant symbols from: {{SYMBOL_LIST}}, USD, EUR, GBP, JPY, AUD, NZD, CAD, CHF, Oil, Gold, BTC, ETH, US Equities, Bonds
 • "keyTakeaway"    : 40-60 word concise summary — immediate trader bias, key technical levels to watch. No SL/TP/entry.
 
 OUTPUT SCHEMA EXAMPLE (follow this EXACT structure):
-${NEWS_POSTER_SCHEMA_EXAMPLE}
+{{SCHEMA_EXAMPLE}}
 
 ADDITIONAL RULES:
 • Markdown **bold**, *italic*, ***bold italic*** sirf "description" aur "keyTakeaway" fields mein use karo.
@@ -5286,11 +5305,49 @@ NOTHING AFTER THE LAST BACKTICK.
 NO INTRO. NO EXPLANATION. NO "Here is the JSON". NO "I hope this helps".
 JUST. THE. JSON. ARRAY. CODE. BLOCK.
 ================================================================`;
+
+function buildNewsUserMessageV5(date: string, session: string, candles: any, timeRange: TimeRange = "24h", selectedSymbols: string[], userTemplate: string = DEFAULT_DAILY_ANALYSIS_USER_TEMPLATE): string {
+  const ts = new Date().toISOString();
+  const candleBlock = formatCandlesForNewsPrompt(candles, selectedSymbols);
+
+  const opt = TIME_RANGE_OPTIONS.find(o => o.value === timeRange) ?? TIME_RANGE_OPTIONS[4];
+  const hours = opt.hours;
+
+  const now = new Date();
+  const tsIST = formatToISTString(now);
+  const fromDate = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  const fromTsIST = formatToISTString(fromDate);
+
+  const timeHinglish =
+    timeRange === "3h"  ? "pichle 3 ghante" :
+    timeRange === "6h"  ? "pichle 6 ghante" :
+    timeRange === "12h" ? "pichle 12 ghante" :
+    timeRange === "18h" ? "pichle 18 ghante" :
+    timeRange === "24h" ? "pichle 24 ghante" :
+    timeRange === "2d"  ? "pichle 2 din" :
+    timeRange === "3d"  ? "pichle 3 din" :
+                          "pichle ek hafte";
+
+  const symbolList = selectedSymbols.join(", ");
+
+  return renderTemplate(userTemplate, {
+    DATE: date,
+    SESSION_LABEL: SESSION_LABELS[session] ?? session,
+    TS_IST: tsIST,
+    TS: ts,
+    FROM_TS_IST: fromTsIST,
+    WINDOW_DISPLAY: opt.display,
+    CANDLE_BLOCK: candleBlock,
+    TIME_HINGLISH: timeHinglish,
+    SYMBOL_LIST: symbolList,
+    HUMAN_DATE: new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+    SCHEMA_EXAMPLE: NEWS_POSTER_SCHEMA_EXAMPLE,
+  });
 }
 
-function buildNewsUserMessage(date: string, session: string, candles: any, timeRange: TimeRange = "24h", selectedSymbols: string[]): string {
+function buildNewsUserMessage(date: string, session: string, candles: any, timeRange: TimeRange = "24h", selectedSymbols: string[], userTemplate: string = DEFAULT_DAILY_ANALYSIS_USER_TEMPLATE): string {
   // V1 (full internet) uses the same NewsItem[] poster format — same function, different system prompt
-  return buildNewsUserMessageV5(date, session, candles, timeRange, selectedSymbols);
+  return buildNewsUserMessageV5(date, session, candles, timeRange, selectedSymbols, userTemplate);
 }
 
 // Assembles a caption + hashtag list into one paste-ready Instagram block —
@@ -5355,6 +5412,11 @@ function PromptModal({
   const [modalSession, setModalSession] = useState(defaultSession);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(SYMBOL_DISPLAY_ORDER);
 
+  const [v1SystemTemplate, setV1SystemTemplate] = useState(NEWS_SYSTEM_PROMPT);
+  const [v5SystemTemplate, setV5SystemTemplate] = useState(NEWS_SYSTEM_PROMPT_V5);
+  const [userTemplate, setUserTemplate] = useState(DEFAULT_DAILY_ANALYSIS_USER_TEMPLATE);
+  const [recentlyCoveredBlock, setRecentlyCoveredBlock] = useState("(Loading recently-covered stories…)");
+
   useEffect(() => {
     fetch("/api/candle-summary")
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
@@ -5362,21 +5424,45 @@ function PromptModal({
       .catch(e => { setFetchErr(e.message); setFetching(false); });
   }, []);
 
-  const originalText = "• ALWAYS populate all 11 keys in symbol_wise_news (XAUUSD, XAGUSD, BTCUSDT, ETHUSD, GBPUSD, EURUSD, USDJPY, AUDUSD, NZDUSD, USDCAD, USDCHF) — none of these 11 symbols can be omitted under any circumstances.";
-  const replacementText = selectedSymbols.length > 0
+  // Admin-editable prompts (Admin → Prompt Management) — fall back to the
+  // built-in defaults above until these load.
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/prompts/contentCreator.dailyAnalysisV1.system").then(r => (r.ok ? r.json() : null)),
+      fetch("/api/prompts/contentCreator.dailyAnalysisV5.system").then(r => (r.ok ? r.json() : null)),
+      fetch("/api/prompts/contentCreator.dailyAnalysisUser").then(r => (r.ok ? r.json() : null)),
+    ]).then(([v1, v5, usr]) => {
+      if (v1?.content) setV1SystemTemplate(v1.content);
+      if (v5?.content) setV5SystemTemplate(v5.content);
+      if (usr?.content) setUserTemplate(usr.content);
+    }).catch(() => { /* fall back to built-in defaults */ });
+  }, []);
+
+  // Same rolling "don't repeat the last few batches" data the automatic News
+  // Batch generator uses server-side — keeps this external/copy-paste prompt
+  // in sync with the internal one for the same poster feature.
+  useEffect(() => {
+    fetch("/api/content-creator/recently-covered")
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.block) setRecentlyCoveredBlock(d.block); })
+      .catch(() => setRecentlyCoveredBlock("(Unable to load recently-covered stories — proceed without this check.)"));
+  }, []);
+
+  const symbolsRule = selectedSymbols.length > 0
     ? `• ALWAYS populate all selected keys in symbol_wise_news (${selectedSymbols.join(", ")}) — none of these selected symbols can be omitted under any circumstances.`
     : "• ALWAYS populate all selected keys in symbol_wise_news — none of these selected symbols can be omitted under any circumstances.";
 
   const isV5 = promptVersion === "v5";
 
-  const dynamicSystemPrompt = isV5
-    ? NEWS_SYSTEM_PROMPT_V5.replace(originalText, replacementText)
-    : NEWS_SYSTEM_PROMPT.replace(originalText, replacementText);
+  const dynamicSystemPrompt = renderTemplate(isV5 ? v5SystemTemplate : v1SystemTemplate, {
+    SYMBOLS_RULE: symbolsRule,
+    RECENTLY_COVERED_BLOCK: recentlyCoveredBlock,
+  });
 
   const userMsg = selectedSymbols.length > 0
     ? (isV5
-        ? buildNewsUserMessageV5(modalDate, modalSession, candles, timeRange, selectedSymbols)
-        : buildNewsUserMessage(modalDate, modalSession, candles, timeRange, selectedSymbols))
+        ? buildNewsUserMessageV5(modalDate, modalSession, candles, timeRange, selectedSymbols, userTemplate)
+        : buildNewsUserMessage(modalDate, modalSession, candles, timeRange, selectedSymbols, userTemplate))
     : "(Please select at least one currency pair / symbol)";
 
   const copyAllText = `=== SYSTEM PROMPT ===\n${dynamicSystemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${userMsg}`;

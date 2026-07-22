@@ -26,6 +26,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { renderTemplate } from "@/lib/prompts/template";
 import { useAppContext } from "@/lib/context";
 import { MergeModal } from "../trades/merge-modal";
 import { AnalyzingOverlay, RefineDiff, RefineIconButton } from "./ai-refine";
@@ -201,6 +202,17 @@ export function JournalDetail({
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [analyticsDuration, setAnalyticsDuration] = useState<"today" | "week" | "month" | "all">("week");
   const [copied, setCopied] = useState(false);
+  const [analyticsPromptTemplate, setAnalyticsPromptTemplate] = useState<string | null>(null);
+
+  // Admin-editable prompt (Admin → Prompt Management) — falls back to the
+  // built-in default in analyticsPrompt below until this loads.
+  useEffect(() => {
+    if (!analyticsOpen || analyticsPromptTemplate) return;
+    fetch("/api/prompts/journal.analyticsCopy")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.content) setAnalyticsPromptTemplate(d.content); })
+      .catch(() => { /* fall back to built-in default */ });
+  }, [analyticsOpen, analyticsPromptTemplate]);
 
   // Journal state
   const [aPlusLevel, setAPlusLevel] = useState(false);
@@ -760,11 +772,11 @@ export function JournalDetail({
   }, [filteredTradesForAnalytics]);
 
   const analyticsPrompt = useMemo(() => {
-    return `You are an expert trading psychologist, coach, and risk analyst. Analyze my trading and journaling data for the selected period to help me identify mistakes, improve execution, and optimize my trading plan.
+    const template = analyticsPromptTemplate ?? `You are an expert trading psychologist, coach, and risk analyst. Analyze my trading and journaling data for the selected period to help me identify mistakes, improve execution, and optimize my trading plan.
 
 Below is the JSON data of my trades and journal entries:
 \`\`\`json
-${analyticsJsonString}
+{{ANALYTICS_JSON}}
 \`\`\`
 
 Please analyze this data and generate a detailed report:
@@ -773,7 +785,8 @@ Please analyze this data and generate a detailed report:
 3. **Psychology & Emotions**: Patterns in my emotional state. Identify common emotional triggers (e.g., FOMO, anxiety) and their direct impact on my P&L.
 4. **Mistakes & Takeaways**: Highlight repeating mistakes, bad risk management behaviors, and main lessons learned.
 5. **Actionable Recommendations**: 3-5 concrete rules or habits I must implement to improve my trading discipline and profitability.`;
-  }, [analyticsJsonString]);
+    return renderTemplate(template, { ANALYTICS_JSON: analyticsJsonString });
+  }, [analyticsJsonString, analyticsPromptTemplate]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

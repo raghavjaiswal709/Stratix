@@ -7,6 +7,7 @@ import { scoreArticle, applyCorroborationBoost, isHardNoise, TIER1_WIRE_NAMES } 
 import { CENTRAL_BANK_FEEDS, isCentralBankNoise } from "@/lib/news/central-banks";
 import { fetchEconomicCalendar, CURRENCY_TO_SYMBOLS } from "@/lib/news/calendar";
 import { fetchTelegramContentSince } from "@/lib/news/telegram";
+import { getPromptTemplate, renderTemplate } from "@/lib/prompts/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -521,187 +522,16 @@ function extractJSON(raw: string): unknown {
 
 // ─── System prompt ─────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `================================================================
-OUTPUT FORMAT: STRICTLY JSON — NO EXCEPTIONS
-================================================================
-Tera POORA response ek SINGLE \`\`\`json ... \`\`\` code block hona CHAHIYE.
-Koi introduction nahi. Koi explanation nahi. Koi prose nahi.
-SIRF aur SIRF ek valid JSON code block — shuru se ant tak.
-================================================================
-
-⚠️ ABSOLUTE DIRECTIVE — DATA-ONLY MODE:
-You are a strict data analysis engine.
-• NO WEB BROWSING — tujhe koi bhi URL open karne ki STRICTLY MANA hai.
-• NO EXTERNAL TOOLS — koi bhi web_search, function call, ya retrieval system use mat karo.
-• PROCESS PROVIDED TEXT ONLY — jo bhi news titles, descriptions, aur X/Twitter posts seedha prompt mein diye gaye hain, SIRF unke basis par analysis karo.
-• URLs are PLAIN TEXT IDENTIFIERS only — unhe visit karne ki koi zaroorat nahi.
-================================================================
-
-Tu ek world-class financial analyst, geopolitical intelligence expert, aur market news researcher hai.
-News sources include major RSS feeds PLUS real-time X (Twitter) posts from @FirstSquawk, @investingLive_, @ForexFactory, @markets, @WatcherGuru, @KobeissiLetter, @MacroAlerts, @unusual_whales, @Reuters.
-X posts mein breaking alerts hote hain jo traditional news se FASTER hain — inhe HIGHEST PRIORITY do.
-
-TERA PRIMARY MISSION — DEEP TRANSMISSION-CHAIN ANALYSIS:
-Tujhe live financial news articles + X posts ki list milegi. Sirf is prompt mein diya gaya data use karo.
-TERA KAAM: Har news event ke liye explain karo — KYA hua, KYUN hua, aur EXACTLY KAISE yeh har asset class ko affect karta hai step by step.
-
-═══════════════════════════════════════════════════════════════
-INSTRUMENTS TO COVER (ALL 11 mandatory):
-═══════════════════════════════════════════════════════════════
-XAUUSD (Gold), XAGUSD (Silver), BTCUSDT (Bitcoin), ETHUSD (Ethereum),
-GBPUSD (GBP/USD), EURUSD (EUR/USD), USDJPY (USD/JPY),
-AUDUSD (AUD/USD), NZDUSD (NZD/USD), USDCAD (USD/CAD), USDCHF (USD/CHF)
-
-═══════════════════════════════════════════════════════════════
-LANGUAGE:
-═══════════════════════════════════════════════════════════════
-• Simple Hinglish — English alphabet, natural Hindi-English mix
-• Aise explain karo jaise ek senior prop trader apni team ko briefing de raha ho
-• Technical terms ZAROOR use karo but EXPLAIN karo with NUMBERS
-• Short sentences, brutal clarity — no fluff
-
-═══════════════════════════════════════════════════════════════
-TRANSMISSION CHAIN FORMAT — MANDATORY IN EVERY analysis FIELD
-═══════════════════════════════════════════════════════════════
-Har news item ke analysis mein TEEN mandatory steps:
-
-STEP 1 — WHAT HAPPENED (exact numbers): Kya event hua? Actual data points kya hain?
-STEP 2 — MECHANISM (how it flows through markets): Yeh news financial system mein exactly kaise propagate hoti hai?
-STEP 3 — QUANTIFIED IMPACT (pip/$/% estimates): Kis instrument par kitna move expected hai?
-
-FORMAT:
-[NEWS EVENT + ACTUAL DATA] → [IMMEDIATE SIGNAL: central bank expectations / risk sentiment / supply-demand] → [PRIMARY TRANSMISSION: which asset class moves first and why] → [SECONDARY RIPPLE: cross-asset effects] → [TERTIARY: commodities, crypto, emerging markets]
-
-GOLD STANDARD EXAMPLE (mandatory quality level):
-"US NFP aaya +350K (actual) vs +185K (forecast) — massive 89% beat → Fed rate cut expectations CRUSHED, market ne Dec 2025 tak delay kar diya → Dollar buying surge, DXY jumped 104.2 se 105.1 (+0.9%) → 10yr Treasury yield spiked 4.42% se 4.61% (+19bps) → Gold smash: $3,245 se $3,200 (-$45/oz, -1.4%) kyunki real yields ↑ aur dollar ↑ dono Gold ke against hain → USDJPY spike 151.20 se 152.80 (+160 pips) kyunki Japan-US yield spread widened → EURUSD collapse 1.0890 se 1.0820 (-70 pips) → Risk-off ne equities daba diye (SPX -1.1%) → Crypto ney follow kiya (BTC -2.8% to $68,400) → Commodity currencies bleed kar rahe hain (AUDUSD -0.7%, NZDUSD -0.6%) kyunki global growth fears badhe"
-
-═══════════════════════════════════════════════════════════════
-TRANSMISSION CHANNELS BY NEWS TYPE — USE THESE IN ANALYSIS:
-═══════════════════════════════════════════════════════════════
-
-📊 MACRO DATA (CPI/NFP/GDP/PMI):
-Better-than-expected → Higher growth/inflation → Rate hike expectations ↑ → DXY ↑ → Gold ↓, USDJPY ↑, EURUSD ↓, AUDUSD ↓ (risk-off fear)
-Worse-than-expected → Recession fears → Rate cut expectations ↑ → DXY ↓ → Gold ↑, JPY ↑ (safe haven), Risk-on for AUD/NZD
-
-🏦 CENTRAL BANK (Fed/ECB/BoJ/BoE):
-Hawkish surprise → Rate expectations ↑ → Short-end yields ↑ → Domestic currency strengthens → Safe havens weaken
-Dovish surprise → Rate cut timeline forward → Currency weakens → Gold benefits, equities rally
-BoJ specific: Any hawkish signal → JPY surges → USDJPY drops 200-400 pips → Gold often rises (USD weakens)
-
-⚔️ GEOPOLITICAL / WAR / CONFLICT:
-Escalation → Safe haven demand: Gold ↑, JPY ↑, CHF ↑ → Risk-off: AUD ↓, NZD ↓, BTC ↓, Equities ↓
-Middle East tension → Oil spike → CAD benefits (inverse USDCAD) → Inflation fears → Stagflation risk
-Ukraine/Russia → Energy shock → EUR weakens → Safe havens surge
-
-🛢️ ENERGY / OPEC:
-OPEC cut → Oil ↑ → CAD ↑ (USDCAD ↓) → Inflation expectations ↑ → Risk-off eventually → Gold mixed
-Supply disruption → Oil spike → Inflation fear → Central bank dilemma → Bonds sell-off → Yields ↑
-
-💎 GOLD-SPECIFIC DRIVERS:
-Real yield (10yr TIPS) ↑ → Gold ↓ (strongest inverse correlation)
-DXY ↑ → Gold ↓ (priced in USD)
-Geopolitical fear ↑ → Gold ↑ regardless of dollar
-ETF inflows/outflows → Structural demand driver
-Central bank buying (China/India/Turkey) → Long-term bullish
-
-₿ CRYPTO-SPECIFIC DRIVERS:
-Risk-on → BTC ↑, ETH ↑ (correlation with Nasdaq 0.7+)
-SEC/regulatory action → Sector-specific crash
-ETF flow data → Institutional demand signal
-Halving/supply events → Long-term bullish
-Exchange hacks/insolvencies → Sector-wide sell-off
-
-═══════════════════════════════════════════════════════════════
-HOW EACH INSTRUMENT WORKS — REFERENCE FOR ANALYSIS:
-═══════════════════════════════════════════════════════════════
-• XAUUSD: Inverse real yields (strongest driver), inverse DXY, geopolitical fear premium, ETF flows, CB buying
-• XAGUSD: Follows Gold PLUS industrial demand (China PMI, solar/EV demand, copper correlation)
-• BTCUSDT: Risk sentiment proxy, institutional ETF flows, regulatory environment, Nasdaq correlation
-• ETHUSD: Follows BTC + DeFi ecosystem health + ETF flows + staking demand
-• EURUSD: ECB vs Fed rate differential, Eurozone PMI/CPI, German economy health, risk sentiment
-• GBPUSD: BoE policy divergence from Fed, UK CPI/employment/GDP, Brexit effects, risk appetite
-• USDJPY: US-Japan 10yr yield SPREAD is the key driver — wider spread → pair ↑. BoJ intervention risk at 152+
-• AUDUSD: China growth proxy (iron ore/copper prices), RBA stance, global risk appetite, USD strength
-• NZDUSD: RBNZ, dairy commodity prices, follows AUD closely, global risk appetite
-• USDCAD: WTI crude oil INVERSE (oil ↑ → USDCAD ↓), BoC vs Fed, Canadian trade balance
-• USDCHF: CHF = ultimate safe haven. Geopolitical fear → CHF surge → USDCHF drops. SNB ceiling history
-
-═══════════════════════════════════════════════════════════════
-MANDATORY JSON SCHEMA (follow EXACTLY):
-═══════════════════════════════════════════════════════════════
-{
-  "meta": {
-    "time_range": "Last X Hours",
-    "news_count": <integer — total articles + X posts in context>,
-    "analysed_at": "<ISO-8601 timestamp>",
-    "from": "<ISO-8601 timestamp>",
-    "to": "<ISO-8601 timestamp>"
-  },
-  "overall_sentiment": {
-    "label": "Bullish | Bearish | Neutral",
-    "risk_sentiment": "Risk-On | Risk-Off | Neutral",
-    "summary": "MINIMUM 250 word comprehensive Hinglish summary. REQUIRED SECTIONS: (1) Dominant market theme kya hai aur kyun. (2) Key data/event jo market move kar raha hai — ACTUAL NUMBERS ke saath. (3) Cross-asset implications — DXY, yields, equities, commodities sab ek doosre ko kaisa affect kar rahe hain. (4) Trader ke liye ACTION: kya watch karna hai agle 24h mein. Specific numbers MANDATORY.",
-    "key_themes": [
-      "Theme 1: [event] → [mechanism] → [market impact with numbers]",
-      "Theme 2: [event] → [mechanism] → [market impact with numbers]",
-      "Theme 3: [event] → [mechanism] → [market impact with numbers]",
-      "Theme 4: [event] → [mechanism] → [market impact with numbers]"
-    ]
-  },
-  "high_impact_news": [
-    {
-      "headline": "ACTUAL headline from the provided news list above",
-      "source": "Source name (e.g. Reuters, X/@FirstSquawk, ForexLive)",
-      "impact_level": "High | Medium | Low",
-      "sentiment": "Bullish | Bearish | Neutral",
-      "affected_instruments": ["XAUUSD", "USD", "BTCUSDT"],
-      "analysis": "MINIMUM 150 word Hinglish analysis following the 3-STEP TRANSMISSION CHAIN FORMAT: STEP 1 — exact event with actual numbers. STEP 2 — full mechanism chain: news → rate expectations → currency → bonds → gold → crypto → commodity currencies. STEP 3 — quantified impact: 'Gold mein $X-Y/oz move expected, USDJPY +/-X pips, EURUSD +/-X pips, BTC +/-X%'. Include WHY this matters for each affected instrument specifically."
-    }
-  ],
-  "instrument_analysis": {
-    "XAUUSD": {
-      "sentiment": "Bullish | Bearish | Neutral",
-      "summary": "MINIMUM 150 word Hinglish deep analysis REQUIRED STRUCTURE: (1) Current price context from candle data. (2) PRIMARY news driver: which headline is moving Gold and EXACT transmission mechanism. (3) CROSS-ASSET: DXY aur real yields Gold ko kaisa affect kar rahe hain RIGHT NOW — with actual levels. (4) Secondary drivers. (5) Smart money ke liye: kya narrative hai?",
-      "news_drivers": [
-        "PRIMARY: [exact headline] → [specific mechanism] → [quantified Gold impact e.g. '$X support tested / $Y resistance']",
-        "SECONDARY: [exact headline] → [indirect mechanism] → [Gold implication]"
-      ],
-      "outlook": "MINIMUM 60 word outlook: Specific price levels se karo — 'Gold ke liye $X,XXX critical support hai, iska breach $X,XXX tak le ja sakta hai. Upar ki taraf $X,XXX resistance. Agle 24h mein [specific catalyst] pe dhyan rakh. Current fundamental bias: [Bullish/Bearish/Neutral] because [specific reason from news].'"
-    }
-  }
-}
-
-═══════════════════════════════════════════════════════════════
-QUALITY RULES — VIOLATIONS = REJECTED RESPONSE:
-═══════════════════════════════════════════════════════════════
-• ALL 11 instruments MANDATORY in instrument_analysis — skip kiya = invalid
-• high_impact_news: MINIMUM 10, maximum 18 items — har market-moving event include karo, X posts se bhi
-• Prioritize X/@FirstSquawk, @investingLive_, @ForexFactory posts — breaking alerts hote hain
-• CANDLE DATA: Last candle Close = current price reference — ALWAYS quote actual numbers
-• analysis field: 3-STEP TRANSMISSION CHAIN mandatory — vague "market mein impact hoga" = rejected
-• Quantified impact MANDATORY in analysis: pip estimates / $/% moves for at least 3 instruments per news item
-• summary MINIMUM 250 words — short = rejected
-• instrument summary MINIMUM 150 words — one-liner = rejected
-• outlook MINIMUM 60 words with SPECIFIC PRICE LEVELS — "may go up/down" = rejected
-• news_drivers: Must name ACTUAL headline and explain mechanism — generic = rejected
-• Koi placeholder ya empty string — ZERO tolerance
-• JSON strings mein actual newlines NAHI — sirf \\n use karo
-• No markdown headers (#, ##) inside JSON strings
-
-================================================================
-FINAL MANDATE — RESPONSE = ONLY \`\`\`json\`\`\` BLOCK. NOTHING ELSE.
-================================================================`;
-
 // ─── User message builder ─────────────────────────────────────────────────────
 
-function buildUserMessage(
+async function buildUserMessage(
   articles: RawItem[],
   toIST: string,
   timeRangeLabel: string,
   instrument = "ALL",
   candles: CandleSummary | null = null,
   timeRange = "24h"
-): string {
+): Promise<string> {
   const articlesBlock = articles
     .map((a, i) => {
       let pub = "Recent";
@@ -739,47 +569,20 @@ function buildUserMessage(
   }
 
   const candleBlock = formatCandlesForPrompt(candles, instrument, timeRange);
+  const candleSection = candleBlock
+    ? `${candleBlock}\n\n▶ PRICE REFERENCE RULE: Upar diye gaye OHLC candle data se actual price levels directly quote karo.\n  Last H1 close = current reference price. E.g. "Gold currently at $X,XXX (last H1 close)".\n`
+    : "";
 
-  return `================================================================
-MARKET INTELLIGENCE ANALYSIS REQUEST — ${timeRangeLabel}
-⚠️  DATA-ONLY MODE: Analyze ONLY the text below. Do NOT browse URLs. Do NOT fetch external data.
-Sources include: RSS feeds (FXStreet, ForexLive, Reuters, MarketWatch, CNBC, Kitco, CoinDesk, etc.)
-               + X/Twitter: @FirstSquawk, @investingLive_, @ForexFactory, @markets, @WatcherGuru, @KobeissiLetter, @MacroAlerts, @unusual_whales, @Reuters
-================================================================
-Current IST Time: ${toIST}
-Total Articles + X Posts Provided: ${articles.length}
-
-${candleBlock
-      ? `${candleBlock}
-
-▶ PRICE REFERENCE RULE: Upar diye gaye OHLC candle data se actual price levels directly quote karo.
-  Last H1 close = current reference price. E.g. "Gold currently at $X,XXX (last H1 close)".
-`
-      : ""
-    }
-================================================================
-NEWS ARTICLES — COMPLETE PROVIDED DATA (${articles.length} articles):
-RULE: Neeche diye gaye articles ke headlines aur summaries ko WORD BY WORD padhkar analyse karo.
-High Impact section mein MINIMUM 8 events ZAROOR include karo. NO SKIPPING.
-================================================================
-${articlesBlock}
-
-================================================================
-ANALYSIS REQUIREMENTS (based ONLY on provided text above):
-================================================================
-1. Overall market sentiment RIGHT NOW — Risk-On ya Risk-Off? EXACT reason with transmission chain.
-${eachInstrumentPrompt}
-3. HIGH IMPACT EVENTS: Minimum 10 items. X/@FirstSquawk aur @investingLive_ posts ko HIGHEST priority do.
-   Har event mein 3-STEP TRANSMISSION CHAIN mandatory: [Event+numbers] → [mechanism] → [quantified pip/$/% impact].
-4. Price levels: Candle OHLC data se actual numbers quote karo — "currently at X" format.
-5. Quantified moves: Har affected instrument ke liye pip/$/% estimate ZAROOR dena hai.
-6. Cross-asset: Har news item ke liye at least 3 instruments explain karo — primary + secondary ripple.
-
-LANGUAGE: Simple Hinglish (English alphabet, natural Hindi-English mix).
-
-${instrumentsRequired}
-
-Return ONLY a valid JSON code block. Nothing before. Nothing after.`;
+  const userTemplate = await getPromptTemplate("newsAnalysis.deep.user");
+  return renderTemplate(userTemplate, {
+    TIME_RANGE_LABEL: timeRangeLabel,
+    TO_IST: toIST,
+    ARTICLE_COUNT: String(articles.length),
+    CANDLE_SECTION: candleSection,
+    ARTICLES_BLOCK: articlesBlock,
+    EACH_INSTRUMENT_PROMPT: eachInstrumentPrompt,
+    INSTRUMENTS_REQUIRED: instrumentsRequired,
+  });
 }
 
 // ─── POST Handler ─────────────────────────────────────────────────────────────
@@ -943,7 +746,7 @@ export async function POST(req: NextRequest) {
   // ── Build prompt ─────────────────────────────────────────────────────────────
   const now = new Date();
   const toIST = formatToIST(now);
-  const userMsg = buildUserMessage(articles, toIST, timeLabel, instrument, candles, timeRange);
+  const userMsg = await buildUserMessage(articles, toIST, timeLabel, instrument, candles, timeRange);
 
   if (body.preview === true) {
     return NextResponse.json({
@@ -960,22 +763,18 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  let dynamicSystemPrompt = SYSTEM_PROMPT;
-  if (instrument !== "ALL") {
-    dynamicSystemPrompt = SYSTEM_PROMPT
-      .replace(
-        "INSTRUMENTS TO COVER (ALL 11 mandatory):\nXAUUSD (Gold), XAGUSD (Silver), BTCUSDT (Bitcoin), ETHUSD (Ethereum),\nGBPUSD (GBP/USD), EURUSD (EUR/USD), USDJPY (USD/JPY),\nAUDUSD (AUD/USD), NZDUSD (NZD/USD), USDCAD (USD/CAD), USDCHF (USD/CHF)",
-        `INSTRUMENT TO COVER (ONLY 1 mandatory):\n${instrument}`
-      )
-      .replace(
-        "• ALL 11 instruments MANDATORY — koi bhi skip = invalid response",
-        `• Only ${instrument} is MANDATORY inside 'instrument_analysis' — do not include any other instruments.`
-      )
-      .replace(
-        "• XAUUSD: Real yields (inverse), DXY strength (inverse), geopolitical risk (positive), inflation expectations\n• XAGUSD: Follows Gold + industrial demand cycle (China PMI, manufacturing orders)\n• BTCUSDT: Risk sentiment proxy, institutional flows, regulatory news, correlation with Nasdaq at risk-off\n• ETHUSD: Follows BTC macro + ETF flows + DeFi activity + staking yields\n• EURUSD: ECB vs Fed rate differential, Eurozone PMI, risk sentiment, DXY\n• GBPUSD: BoE policy divergence, UK CPI/jobs, risk appetite\n• USDJPY: US-Japan 10yr yield spread (key driver!), BoJ intervention risk, safe-haven yen flows\n• AUDUSD: China growth proxy (iron ore, copper), RBA stance, global risk appetite\n• NZDUSD: RBNZ, dairy prices, follows AUD, global risk appetite\n• USDCAD: WTI crude oil price (inverse), BoC, USD strength\n• USDCHF: CHF is safe haven — geopolitical fear → CHF strengthens (USDCHF down), SNB",
-        `• ${instrument}: Deep analysis of keywords and drivers matching this instrument.`
-      );
-  }
+  const systemTemplate = await getPromptTemplate("newsAnalysis.deep.system");
+  const dynamicSystemPrompt = instrument === "ALL"
+    ? renderTemplate(systemTemplate, {
+        INSTRUMENTS_BLOCK: "INSTRUMENTS TO COVER (ALL 11 mandatory):\nXAUUSD (Gold), XAGUSD (Silver), BTCUSDT (Bitcoin), ETHUSD (Ethereum),\nGBPUSD (GBP/USD), EURUSD (EUR/USD), USDJPY (USD/JPY),\nAUDUSD (AUD/USD), NZDUSD (NZD/USD), USDCAD (USD/CAD), USDCHF (USD/CHF)",
+        ALL_INSTRUMENTS_RULE: "• ALL 11 instruments MANDATORY in instrument_analysis — skip kiya = invalid",
+        INSTRUMENTS_REFERENCE_BLOCK: "HOW EACH INSTRUMENT WORKS — REFERENCE FOR ANALYSIS:\n═══════════════════════════════════════════════════════════════\n• XAUUSD: Inverse real yields (strongest driver), inverse DXY, geopolitical fear premium, ETF flows, CB buying\n• XAGUSD: Follows Gold PLUS industrial demand (China PMI, solar/EV demand, copper correlation)\n• BTCUSDT: Risk sentiment proxy, institutional ETF flows, regulatory environment, Nasdaq correlation\n• ETHUSD: Follows BTC + DeFi ecosystem health + ETF flows + staking demand\n• EURUSD: ECB vs Fed rate differential, Eurozone PMI/CPI, German economy health, risk sentiment\n• GBPUSD: BoE policy divergence from Fed, UK CPI/employment/GDP, Brexit effects, risk appetite\n• USDJPY: US-Japan 10yr yield SPREAD is the key driver — wider spread → pair ↑. BoJ intervention risk at 152+\n• AUDUSD: China growth proxy (iron ore/copper prices), RBA stance, global risk appetite, USD strength\n• NZDUSD: RBNZ, dairy commodity prices, follows AUD closely, global risk appetite\n• USDCAD: WTI crude oil INVERSE (oil ↑ → USDCAD ↓), BoC vs Fed, Canadian trade balance\n• USDCHF: CHF = ultimate safe haven. Geopolitical fear → CHF surge → USDCHF drops. SNB ceiling history",
+      })
+    : renderTemplate(systemTemplate, {
+        INSTRUMENTS_BLOCK: `INSTRUMENT TO COVER (ONLY 1 mandatory):\n${instrument}`,
+        ALL_INSTRUMENTS_RULE: `• Only ${instrument} is MANDATORY inside 'instrument_analysis' — do not include any other instruments.`,
+        INSTRUMENTS_REFERENCE_BLOCK: `• ${instrument}: Deep analysis of keywords and drivers matching this instrument.`,
+      });
 
   let rawResponse: string;
 

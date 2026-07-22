@@ -32,7 +32,15 @@ export async function GET() {
       .find({}, { projection: { name: 1, email: 1, image: 1, role: 1, emailVerified: 1 } })
       .toArray(),
     db.collection("userdatas").find({}).toArray(),
-    db.collection("tradeentries").find({}).toArray(),
+    // Only the fields the admin UI's Trades tab actually renders (symbol,
+    // direction, profit) plus status/userId for grouping — the full documents
+    // carry large free-text journal fields (preTradeAnalysis, postTradeReview,
+    // execution checklists, etc.) that were making this a 60MB+ transfer and
+    // taking 100+ seconds once the collection grew past a few thousand rows.
+    db
+      .collection("tradeentries")
+      .find({}, { projection: { userId: 1, symbol: 1, direction: 1, profit: 1, status: 1 } })
+      .toArray(),
     db.collection("mt5configs").find({}).toArray(),
     db.collection("accounts").find({}).toArray(),
   ]);

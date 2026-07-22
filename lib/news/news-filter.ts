@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { SENTIMENT_MODEL, INSTRUMENTS, type NewsInputItem, type GatheredNewsWindow } from "./sentiment-analysis";
+import { getPromptTemplate, renderTemplate } from "@/lib/prompts/store";
 
 // ─── Dedicated "extreme filter" for the Filter News feature ──────────────────
 //
@@ -42,64 +43,6 @@ export interface FilteredNewsItem {
   affected_instruments: InstrumentSentiment[];
 }
 
-const TIER_TAXONOMY = `Keep a news item if it plausibly falls under ANY bullet below — these categories are deliberately broad, so err on the side of KEEPING. Only discard an item if it has NO plausible connection to any tier at all (e.g. sports scores, celebrity/entertainment gossip, lifestyle content, product reviews, spam/airdrop/promo messages, or a random corporate press release with no macro or market angle).
-
-TIER 1 (High-Impact / Market Movers):
-- Central bank interest rate decisions (hikes, cuts, holds)
-- Central bank policy speeches and press conferences (e.g. Fed Chair forward guidance)
-- Employment and labor market data (e.g. Non-Farm Payrolls, unemployment rate)
-- Consumer inflation reports (CPI, Core CPI, PCE Price Index)
-- GDP growth rate reports (advance/preliminary releases)
-- Outbreak or escalation of military conflicts and wars
-- Systemic banking sector stress, liquidity crises, institution failures
-- Securities lawsuits and enforcement actions against major financial/crypto institutions
-- Approvals or rejections of major financial products (e.g. spot crypto ETFs)
-- Major cybersecurity breaches, exchange hacks, or stablecoin de-pegs
-
-TIER 2 (Medium-Impact / Volatility Catalysts):
-- Central bank meeting minutes (e.g. FOMC minutes)
-- Producer inflation reports (PPI)
-- PMI data for manufacturing and services
-- Retail sales and consumer spending data
-- OPEC+ oil production quota decisions
-- Unexpected disruptions to global energy/oil/gas supply chains
-- International sanctions, trade tariffs, or retaliatory trade restrictions
-- National election outcomes and major political leadership shifts
-- Major corporate earnings reports and forward guidance (megacap tech stocks)
-- Algorithmic supply schedule events (e.g. Bitcoin halvings, major protocol upgrades)
-- Quantitative Easing/Tightening (QE/QT) schedule updates
-- Sovereign debt rating downgrades or debt ceiling crises
-
-TIER 3 (Low-Impact / Trend Confirmation):
-- Weekly initial and continuing jobless claims
-- Consumer confidence/sentiment surveys (e.g. Michigan Sentiment)
-- Factory orders, durable goods orders, industrial production data
-- National trade balance data (import/export surplus or deficit)
-- Housing market data (building permits, housing starts, existing home sales)
-- Minor regional economic surveys and non-voting central bank speeches
-- Central bank or government gold reserve purchases/sales
-- Large-scale institutional asset purchases or corporate treasury reallocations
-- Scheduled government debt auctions (e.g. Treasury bond yields)`;
-
-function buildSystemPrompt(candleBlock: string): string {
-  return `You are a trading-news relevance classifier for a desk that tracks these instruments: ${INSTRUMENTS.join(", ")}.
-
-You will receive a numbered JSON array of news headlines (each with an index "i", "headline", "source"). For EACH item, decide whether to keep it using the tier taxonomy below.
-
-${TIER_TAXONOMY}
-${candleBlock ? `\n${candleBlock}\n\n⚠️ HOW TO USE THE PRICE DATA ABOVE: it is ADDITIVE CONTEXT ONLY — a secondary sanity-check, never the primary basis for a decision. Tier, relevance (keep/discard), tags, and sentiment must be driven by the NEWS CONTENT itself. Do NOT keep an item just because a symbol moved, and do NOT discard a genuinely relevant item just because price action looks quiet. Only use the candle data to slightly refine an impact_score when the news' real-world severity is already ambiguous from the headline alone (e.g. confirming that a move already happened), never to override the news-based tier/keep decision.\n` : ""}
-For every item you decide to KEEP, output an object with:
-- "i": the exact index from the input
-- "tier": 1, 2, or 3 (whichever tier bullet it matches — pick the closest one)
-- "tags": 1-2 short strings naming the specific matched category (e.g. ["Central Bank Rate Decision"], ["Employment Data"], ["Geopolitical Conflict"], ["Crypto ETF"], ["Exchange Hack"])
-- "impact_score": integer 0-100 — OVERALL article importance, calibrated by tier (tier 1 → roughly 70-100, tier 2 → roughly 40-75, tier 3 → roughly 15-45), with finer placement based on how surprising/severe the specific headline is
-- "affected_instruments": array of {"symbol": one of [${INSTRUMENTS.join(", ")}], "sentiment": "Bullish"|"Bearish"|"Neutral", "impact_score": integer 0-100} — only the instruments this SPECIFIC item actually affects (usually 1-4, not all 11), each tagged INDEPENDENTLY and accurately based on the headline's actual content (never a lazy default "Neutral" unless genuinely directionless). The per-instrument "impact_score" is NOT the same number for every instrument in the list — a Fed rate decision might be a 90 for EURUSD but only a 40 for AUDUSD; score each instrument's own sensitivity to this specific news on a 0-100 scale (0 = negligible/indirect, 100 = maximally market-moving for that instrument), using this rough 5-band guide: 0-20 Normal, 21-40 Mild, 41-60 Moderate, 61-80 High, 81-100 Extreme.
-
-Do NOT include an entry for items you decide to discard — simply omit their index.
-Do NOT invent headlines or change indices.
-Return STRICTLY a JSON object: { "kept": [ {...}, {...} ] }. No markdown fences, no prose.`;
-}
-
 function chunkArray<T>(arr: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
@@ -116,15 +59,24 @@ interface RawKeptEntry {
 
 const TIER_TO_IMPACT: Record<1 | 2 | 3, "High" | "Medium" | "Low"> = { 1: "High", 2: "Medium", 3: "Low" };
 
-async function filterChunk(chunk: NewsInputItem[], apiKey: string, candleBlock: string): Promise<FilteredNewsItem[]> {
+async function filterChunk(
+  chunk: NewsInputItem[],
+  apiKey: string,
+  systemPrompt: string,
+  userTemplate: string,
+): Promise<FilteredNewsItem[]> {
   const payload = chunk.map((item, i) => ({ i, headline: item.headline, source: item.source }));
+  const userMsg = renderTemplate(userTemplate, {
+    CHUNK_LENGTH: String(chunk.length),
+    PAYLOAD_JSON: JSON.stringify(payload),
+  });
 
   const openai = new OpenAI({ apiKey });
   const response = await openai.chat.completions.create({
     model: SENTIMENT_MODEL,
     messages: [
-      { role: "system", content: buildSystemPrompt(candleBlock) },
-      { role: "user", content: `Classify these ${chunk.length} news items:\n${JSON.stringify(payload)}` },
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMsg },
     ],
     temperature: 0.1,
     max_tokens: MAX_OUTPUT_TOKENS,
@@ -188,8 +140,22 @@ export interface NewsFilterResult {
 // filter, so a transient hiccup on one chunk doesn't wipe out the other
 // hundreds of correctly-classified items.
 export async function runNewsFilter(window: GatheredNewsWindow, apiKey: string): Promise<NewsFilterResult> {
+  const [systemTemplate, userTemplate] = await Promise.all([
+    getPromptTemplate("newsFilter.classifier.system"),
+    getPromptTemplate("newsFilter.classifier.user"),
+  ]);
+  const candleSection = window.candleBlock
+    ? `\n${window.candleBlock}\n\n⚠️ HOW TO USE THE PRICE DATA ABOVE: it is ADDITIVE CONTEXT ONLY — a secondary sanity-check, never the primary basis for a decision. Tier, relevance (keep/discard), tags, and sentiment must be driven by the NEWS CONTENT itself. Do NOT keep an item just because a symbol moved, and do NOT discard a genuinely relevant item just because price action looks quiet. Only use the candle data to slightly refine an impact_score when the news' real-world severity is already ambiguous from the headline alone (e.g. confirming that a move already happened), never to override the news-based tier/keep decision.\n`
+    : "";
+  const systemPrompt = renderTemplate(systemTemplate, {
+    INSTRUMENTS: INSTRUMENTS.join(", "),
+    CANDLE_SECTION: candleSection,
+  });
+
   const chunks = chunkArray(window.deduped, CHUNK_SIZE);
-  const results = await Promise.allSettled(chunks.map((chunk) => filterChunk(chunk, apiKey, window.candleBlock)));
+  const results = await Promise.allSettled(
+    chunks.map((chunk) => filterChunk(chunk, apiKey, systemPrompt, userTemplate))
+  );
   const analyzed_news = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
   return { analyzed_news };
 }
