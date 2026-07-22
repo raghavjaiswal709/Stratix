@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { ChevronDown, ChevronRight, Shield, Users, TrendingUp, BookOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, Shield, Users, TrendingUp, BookOpen, MessageSquareText } from "lucide-react";
 
 interface UserEntry {
   _id: string;
@@ -95,10 +96,17 @@ export default function AdminPage() {
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06] border border-white/[0.10]">
           <Shield className="h-4.5 w-4.5 text-white/60" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-[18px] font-bold">Admin Panel</h1>
           <p className="text-[12px] text-muted-foreground">Stratix — full data view</p>
         </div>
+        <Link
+          href="/admin/prompts"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.06] border border-white/[0.10] text-white/60 hover:text-white/90 hover:bg-white/[0.10] transition-colors shrink-0"
+        >
+          <MessageSquareText className="h-3.5 w-3.5" />
+          Prompt Management
+        </Link>
       </div>
 
       {/* Summary stats */}

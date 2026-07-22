@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { renderTemplate } from "@/lib/prompts/template";
 import {
   BrainCircuit, TrendingUp, TrendingDown, Minus, Globe,
   ChevronLeft, ChevronRight, Clock, RefreshCw, ChevronDown, ChevronUp,
@@ -176,6 +177,41 @@ const AI_SCHEMA_TEMPLATE = `{
   }
 }`;
 
+// Default (unedited) user-message template — {{TOKENS}} filled in by buildUserMessage.
+// Mirrors lib/prompts/definitions/aiReport.ts's "aiReport.choch.user" default.
+const AI_USER_TEMPLATE = `Today's UTC date is {{DATE}}. The upcoming session is the {{SESSION_LABEL}} session.
+
+⚠️ STRICT TIME CONSTRAINT: Analyze and include ONLY news, events, and data releases from {{PERIOD}} (ending at {{TS}} UTC). Any event that occurred BEFORE this window must be completely excluded — do not reference or mention anything older than the selected period. Take time to scan thoroughly within this window — do not procrastinate or rush; quality and depth matter.
+
+VERIFIED NEWS SOURCES — cross-reference ALL of the following within the selected time window:
+  Macro / Forex  : Reuters (reuters.com), Bloomberg (bloomberg.com), Financial Times (ft.com), Wall Street Journal (wsj.com), CNBC (cnbc.com), AP News (apnews.com), MarketWatch, Investing.com, ForexLive (forexlive.com), ForexFactory (forexfactory.com), DailyFX (dailyfx.com), FXStreet (fxstreet.com), BabyPips News
+  Commodities    : Kitco (kitco.com — Gold & Silver), OilPrice.com, S&P Global Platts, World Gold Council (gold.org), Metal Bulletin
+  Crypto         : CoinDesk (coindesk.com), CoinTelegraph (cointelegraph.com), The Block (theblock.co), Decrypt (decrypt.co), Blockworks (blockworks.co)
+  Equities       : Yahoo Finance, Barron's (barrons.com), Benzinga (benzinga.com), Seeking Alpha, Business Insider Markets, TheStreet
+  Central Banks  : federalreserve.gov, ecb.europa.eu, boj.or.jp, bankofengland.co.uk, rba.gov.au, rbnz.govt.nz, snb.ch, bankofcanada.ca
+  Asia-Pacific   : Nikkei Asia (asia.nikkei.com), South China Morning Post (scmp.com), Economic Times (economictimes.com), AFR (afr.com)
+  Geopolitical   : BBC Business, CNN Business, Al Jazeera Business, Guardian Business, Axios Markets
+
+{{CANDLE_BLOCK}}
+
+Using the REAL candle data above, apply the complete CHoCH QLM TOPG strategy framework. For EVERY symbol:
+1. Determine H4 bias from the provided H4 candles (HH/HL or LH/LL structure).
+2. Identify any recent liquidity sweeps (BSL or SSL raids visible in the data).
+3. Confirm or deny a H1 CHoCH after a liquidity sweep.
+4. Mark exact OB and FVG levels that caused the CHoCH (use prices from the data).
+5. Determine premium/discount zone from the most recent swing range.
+6. Construct the full QLM setup with precise entry, SL, TP1, TP2, and R:R from the data.
+
+Incorporate news from {{PERIOD}} (sourced from the platforms above) into global_macro_overview and each symbol's session_outlook.
+
+Output a single raw JSON object matching this schema exactly:
+
+{{SCHEMA_BLOCK}}
+
+Set meta.generated_at = "{{TS}}", meta.date = "{{DATE}}", meta.session = "{{SESSION_LABEL}}". Include all 11 symbols. Use real price floats from the provided data.
+
+BEFORE OUTPUTTING: Validate your JSON — balanced brackets, correct commas, quoted strings. Wrap the final output in a \`\`\`json ... \`\`\` code block.`;
+
 function formatCandlesForPrompt(data: CandleSummary | null): string {
   if (!data) return "(live candle data unavailable — apply strategy on general knowledge)";
 
@@ -238,49 +274,24 @@ const TIME_RANGE_LABELS: Record<TimeRange, string> = {
   "7d":  "the last 7 days (1 full week)",
 };
 
-const NEWS_SOURCES_BLOCK = `
-VERIFIED NEWS SOURCES — cross-reference ALL of the following within the selected time window:
-  Macro / Forex  : Reuters (reuters.com), Bloomberg (bloomberg.com), Financial Times (ft.com), Wall Street Journal (wsj.com), CNBC (cnbc.com), AP News (apnews.com), MarketWatch, Investing.com, ForexLive (forexlive.com), ForexFactory (forexfactory.com), DailyFX (dailyfx.com), FXStreet (fxstreet.com), BabyPips News
-  Commodities    : Kitco (kitco.com — Gold & Silver), OilPrice.com, S&P Global Platts, World Gold Council (gold.org), Metal Bulletin
-  Crypto         : CoinDesk (coindesk.com), CoinTelegraph (cointelegraph.com), The Block (theblock.co), Decrypt (decrypt.co), Blockworks (blockworks.co)
-  Equities       : Yahoo Finance, Barron's (barrons.com), Benzinga (benzinga.com), Seeking Alpha, Business Insider Markets, TheStreet
-  Central Banks  : federalreserve.gov, ecb.europa.eu, boj.or.jp, bankofengland.co.uk, rba.gov.au, rbnz.govt.nz, snb.ch, bankofcanada.ca
-  Asia-Pacific   : Nikkei Asia (asia.nikkei.com), South China Morning Post (scmp.com), Economic Times (economictimes.com), AFR (afr.com)
-  Geopolitical   : BBC Business, CNN Business, Al Jazeera Business, Guardian Business, Axios Markets`;
-
 function buildUserMessage(
   date: string,
   session: string,
   candles: CandleSummary | null,
+  userTemplate: string,
   timeRange: TimeRange = "24h",
 ): string {
   const ts     = new Date().toISOString();
   const period = TIME_RANGE_LABELS[timeRange];
   const candleBlock = formatCandlesForPrompt(candles);
-  return `Today's UTC date is ${date}. The upcoming session is the ${SESSION_LABELS[session] ?? session} session.
-
-⚠️ STRICT TIME CONSTRAINT: Analyze and include ONLY news, events, and data releases from ${period} (ending at ${ts} UTC). Any event that occurred BEFORE this window must be completely excluded — do not reference or mention anything older than the selected period. Take time to scan thoroughly within this window — do not procrastinate or rush; quality and depth matter.
-${NEWS_SOURCES_BLOCK}
-
-${candleBlock}
-
-Using the REAL candle data above, apply the complete CHoCH QLM TOPG strategy framework. For EVERY symbol:
-1. Determine H4 bias from the provided H4 candles (HH/HL or LH/LL structure).
-2. Identify any recent liquidity sweeps (BSL or SSL raids visible in the data).
-3. Confirm or deny a H1 CHoCH after a liquidity sweep.
-4. Mark exact OB and FVG levels that caused the CHoCH (use prices from the data).
-5. Determine premium/discount zone from the most recent swing range.
-6. Construct the full QLM setup with precise entry, SL, TP1, TP2, and R:R from the data.
-
-Incorporate news from ${period} (sourced from the platforms above) into global_macro_overview and each symbol's session_outlook.
-
-Output a single raw JSON object matching this schema exactly:
-
-${AI_SCHEMA_TEMPLATE}
-
-Set meta.generated_at = "${ts}", meta.date = "${date}", meta.session = "${SESSION_LABELS[session] ?? session}". Include all 11 symbols. Use real price floats from the provided data.
-
-BEFORE OUTPUTTING: Validate your JSON — balanced brackets, correct commas, quoted strings. Wrap the final output in a \`\`\`json ... \`\`\` code block.`;
+  return renderTemplate(userTemplate, {
+    DATE: date,
+    SESSION_LABEL: SESSION_LABELS[session] ?? session,
+    PERIOD: period,
+    TS: ts,
+    CANDLE_BLOCK: candleBlock,
+    SCHEMA_BLOCK: AI_SCHEMA_TEMPLATE,
+  });
 }
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
@@ -302,6 +313,8 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
   const [candles,  setCandles]  = useState<CandleSummary | null>(null);
   const [fetching, setFetching] = useState(true);
   const [fetchErr, setFetchErr] = useState<string | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState(AI_SYSTEM_PROMPT);
+  const [userTemplate, setUserTemplate] = useState(AI_USER_TEMPLATE);
 
   useEffect(() => {
     fetch("/api/candle-summary")
@@ -310,7 +323,19 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
       .catch(e => { setFetchErr(e.message); setFetching(false); });
   }, []);
 
-  const userMsg = buildUserMessage(date, session, candles);
+  // Admin-editable prompts (Admin → Prompt Management) — fall back to the
+  // built-in defaults above until these load.
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/prompts/aiReport.choch.system").then(r => (r.ok ? r.json() : null)),
+      fetch("/api/prompts/aiReport.choch.user").then(r => (r.ok ? r.json() : null)),
+    ]).then(([sys, usr]) => {
+      if (sys?.content) setSystemPrompt(sys.content);
+      if (usr?.content) setUserTemplate(usr.content);
+    }).catch(() => { /* fall back to built-in defaults */ });
+  }, []);
+
+  const userMsg = buildUserMessage(date, session, candles, userTemplate);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
@@ -370,9 +395,9 @@ function PromptModal({ date, session, onClose }: { date: string; session: string
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.10] text-[9px] font-bold text-white/50">1</span>
                   <span className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">System Prompt — CHoCH QLM TOPG</span>
                 </div>
-                <CopyButton text={AI_SYSTEM_PROMPT} />
+                <CopyButton text={systemPrompt} />
               </div>
-              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-52">{AI_SYSTEM_PROMPT}</pre>
+              <pre className="px-4 py-3 text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-52">{systemPrompt}</pre>
             </div>
 
             {/* Step 2 — User message with embedded candle data */}
