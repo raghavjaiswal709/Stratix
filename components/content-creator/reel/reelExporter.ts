@@ -3,6 +3,7 @@ import { drawReelFrame } from "./reelRenderer";
 import { synthesizeWhooshBuffer } from "./reelWhoosh";
 import { synthesizeTrackById } from "./reelMusicPresets";
 import { createTicker } from "./reelTicker";
+import { finalizeMp4Duration } from "./reelMp4Duration";
 
 // mp4 (H.264 + AAC) is tried first — it's the format every device, editor,
 // and social platform accepts without a second thought, and unlike webm it
@@ -262,9 +263,14 @@ export async function exportReel({ canvas, images, slideDurations, settings, onP
     cleanup();
 
     if (chunks.length === 0) throw new Error("Recording produced no data — try again.");
-    const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
-    const url = URL.createObjectURL(blob);
+    let blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
     const actualExt = (recorder.mimeType || mimeType || "").includes("mp4") ? "mp4" : fileExtension;
+
+    if (actualExt === "mp4") {
+      report({ stage: "finalizing", fraction: 1, message: "Fixing video duration for playback on every device…" });
+      blob = await finalizeMp4Duration(blob);
+    }
+    const url = URL.createObjectURL(blob);
 
     report({ stage: "done", fraction: 1, message: "Reel ready." });
     return { blob, url, mimeType: recorder.mimeType || mimeType, fileExtension: actualExt, durationSec: timeline.totalDuration };
