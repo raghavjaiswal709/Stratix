@@ -33,7 +33,8 @@ export function drawEducationalCard(
   totalCount: number,
   kind: "facts" | "learnings",
   theme: EditorialTheme = "light",
-  fadeIntensity: number = 100
+  fadeIntensity: number = 100,
+  isReel: boolean = false
 ): PosterElement[] {
   const bounds: PosterElement[] = [];
   const isCover = !!data.isCover;
@@ -59,29 +60,31 @@ export function drawEducationalCard(
 
   let Y = r(34);
 
-  // Eyebrow row
+  // Eyebrow row — centered for reels, left-aligned on the normal static
+  // poster layout.
   const brandLabel = kind === "facts" ? "STRATIX FACTS" : "STRATIX LEARNINGS";
   if (isCover) {
     const label = kind === "facts" ? "TODAY'S FACTS" : "WHAT YOU'LL LEARN TODAY";
     ctx.font = `900 ${r(12)}px "Inter", sans-serif`;
     const tw = ctx.measureText(label).width;
     const bw = tw + r(20), bh = r(26);
+    const pillX = isReel ? (W - bw) / 2 : CX;
     ctx.fillStyle = pal.bg;
-    rrect(ctx, CX, Y, bw, bh, bh / 2);
+    rrect(ctx, pillX, Y, bw, bh, bh / 2);
     ctx.fill();
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, CX + r(10), Y + bh / 2 + r(0.5));
-    bounds.push({ id: "category", label: "Eyebrow", x: CX, y: Y, w: bw, h: bh });
+    ctx.fillText(label, pillX + r(10), Y + bh / 2 + r(0.5));
+    bounds.push({ id: "category", label: "Eyebrow", x: pillX, y: Y, w: bw, h: bh });
     Y += bh + r(18);
   } else {
     ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
     ctx.fillStyle = th.muted;
-    ctx.textAlign = "left";
+    ctx.textAlign = isReel ? "center" : "left";
     ctx.textBaseline = "middle";
     const eyebrow = data.stepLabel ? `${brandLabel}  ·  ${String(data.stepLabel).toUpperCase()}` : brandLabel;
-    ctx.fillText(eyebrow, CX, Y + r(6));
+    ctx.fillText(eyebrow, isReel ? W / 2 : CX, Y + r(6));
     bounds.push({ id: "source", label: "Eyebrow", x: CX, y: Y - r(8), w: CW, h: r(20) });
     Y += r(24);
   }

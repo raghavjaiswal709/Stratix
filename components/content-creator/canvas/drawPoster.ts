@@ -23,12 +23,22 @@ export function drawPoster(
   gradient: GradientPreset = GRADIENT_PRESETS[0],
   editorialTheme: EditorialTheme = "light",
   fadeIntensity: number = 100,
-  sentimentScheme: SentimentScheme = "emerald"
+  sentimentScheme: SentimentScheme = "emerald",
+  // Every size in every draw variant below flows through the `r()` helper,
+  // which is just this one scale factor — so a uniform boost here (used only
+  // by the reel exporter, everywhere else defaults to 1 / no change) makes
+  // headline/eyebrow/body text bigger while padding, gutters, and image
+  // boxes grow in lockstep, so alignment stays exact instead of overflowing.
+  textScale: number = 1,
+  // Reel-only: centers the eyebrow pill/label instead of its normal
+  // left/right-aligned static-poster position. Default false leaves every
+  // existing poster ratio's layout untouched.
+  isReel: boolean = false
 ): PosterElement[] {
   const W = ar.w, H = ar.h;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d")!;
-  const S = Math.min(W, H) / 720;
+  const S = (Math.min(W, H) / 720) * textScale;
   const land = ar.id === "landscape";
 
   const r = (n: number) => Math.round(n * S);
@@ -52,19 +62,19 @@ export function drawPoster(
   // it always renders in its own plain-language grid regardless of whether
   // the batch is Editorial or Bold.
   if (data?.isBento) {
-    return drawBentoExplainerCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, posterStyle === "bold" ? gradient : undefined, sentimentScheme);
+    return drawBentoExplainerCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, posterStyle === "bold" ? gradient : undefined, sentimentScheme, isReel);
   }
 
   if (mode === "news") {
     return posterStyle === "bold"
-      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, "news", gradient, fadeIntensity, sentimentScheme)
-      : drawTradingNewsPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, editorialTheme, fadeIntensity, sentimentScheme);
+      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, "news", gradient, fadeIntensity, sentimentScheme, isReel)
+      : drawTradingNewsPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, editorialTheme, fadeIntensity, sentimentScheme, isReel);
   }
 
   if (mode === "facts" || mode === "learnings") {
     return posterStyle === "bold"
-      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, gradient, fadeIntensity, sentimentScheme)
-      : drawEducationalCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, editorialTheme, fadeIntensity);
+      ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, gradient, fadeIntensity, sentimentScheme, isReel)
+      : drawEducationalCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, mode, editorialTheme, fadeIntensity, isReel);
   }
 
   return drawChaseStylePoster(
