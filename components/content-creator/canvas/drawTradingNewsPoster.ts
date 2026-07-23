@@ -28,7 +28,8 @@ export function drawTradingNewsPoster(
   totalNewsCount: number,
   theme: EditorialTheme = "light",
   fadeIntensity: number = 100,
-  sentimentScheme: SentimentScheme = "emerald"
+  sentimentScheme: SentimentScheme = "emerald",
+  isReel: boolean = false
 ): PosterElement[] {
   const bounds: PosterElement[] = [];
   const isCover = !!data.isCover;
@@ -58,28 +59,30 @@ export function drawTradingNewsPoster(
 
   let Y = r(34);
 
-  // Eyebrow row
+  // Eyebrow row — centered for reels, left-aligned on the normal static
+  // poster layout.
   if (isCover) {
     const label = "MARKET PULSE · LAST 24H";
     ctx.font = `900 ${r(12)}px "Inter", sans-serif`;
     const tw = ctx.measureText(label).width;
     const bw = tw + r(20), bh = r(26);
+    const pillX = isReel ? (W - bw) / 2 : CX;
     ctx.fillStyle = "#10b981";
-    rrect(ctx, CX, Y, bw, bh, bh / 2);
+    rrect(ctx, pillX, Y, bw, bh, bh / 2);
     ctx.fill();
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, CX + r(10), Y + bh / 2 + r(0.5));
-    bounds.push({ id: "category", label: "Eyebrow", x: CX, y: Y, w: bw, h: bh });
+    ctx.fillText(label, pillX + r(10), Y + bh / 2 + r(0.5));
+    bounds.push({ id: "category", label: "Eyebrow", x: pillX, y: Y, w: bw, h: bh });
     Y += bh + r(18);
   } else {
     ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
     ctx.fillStyle = th.muted;
-    ctx.textAlign = "left";
+    ctx.textAlign = isReel ? "center" : "left";
     ctx.textBaseline = "middle";
     const eyebrow = `${(data.source || "WIRE").toUpperCase()}  ·  ${(data.date || "").toUpperCase()}`;
-    ctx.fillText(eyebrow, CX, Y + r(6));
+    ctx.fillText(eyebrow, isReel ? W / 2 : CX, Y + r(6));
     bounds.push({ id: "source", label: "Source & Date", x: CX, y: Y - r(8), w: CW, h: r(20) });
     Y += r(24);
   }

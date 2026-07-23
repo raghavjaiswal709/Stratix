@@ -41,7 +41,8 @@ export function drawBoldPoster(
   kind: "news" | "facts" | "learnings",
   gradient: GradientPreset,
   fadeIntensity: number = 100,
-  sentimentScheme: SentimentScheme = "emerald"
+  sentimentScheme: SentimentScheme = "emerald",
+  isReel: boolean = false
 ): PosterElement[] {
   const bounds: PosterElement[] = [];
   const fadeMult = Math.max(0, Math.min(200, fadeIntensity)) / 100;
@@ -294,8 +295,9 @@ export function drawBoldPoster(
   }
 
   // Eyebrow pill — same theme-flipped pill treatment as the logo badge.
-  // Centered horizontally on the cover/intro slide only (its own dedicated
-  // moment); every other slide keeps it left-aligned with the rest of the copy.
+  // Centered horizontally on the cover/intro slide (its own dedicated
+  // moment) and, for reels, on every slide — otherwise left-aligned with
+  // the rest of the copy, matching the static-poster layout.
   let Y = contentZoneH + r(28);
   {
     ctx.font = `900 ${r(12.5)}px "Inter", sans-serif`;
@@ -303,7 +305,7 @@ export function drawBoldPoster(
     const tw = ctx.measureText(eyebrowLabel).width;
     const dotGap = r(16);
     const bw = tw + r(20) + dotGap, bh = eyebrowBH;
-    const pillX = isCover ? (W - bw) / 2 : CX;
+    const pillX = isCover || isReel ? (W - bw) / 2 : CX;
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.3)";
     ctx.shadowBlur = r(10);

@@ -38,6 +38,7 @@ import {
   Eye,
   EyeOff,
   Star,
+  Clapperboard,
 } from "lucide-react";
 
 import type {
@@ -75,6 +76,16 @@ import { HistoryModal } from "./modals/HistoryModal";
 import { PosterSelectionModal } from "./modals/PosterSelectionModal";
 import { ContentCalendarModal } from "./modals/ContentCalendarModal";
 import { CopyButton } from "./modals/CopyButton";
+import { ReelStudioModal } from "./reel/ReelStudioModal";
+import { REEL_W, REEL_H, type ReelSlideSource } from "./reel/reelTypes";
+
+// Reels are consumed full-screen while scrolling and need to read at a
+// glance — bump headline/eyebrow/body text (and, since every measurement in
+// the draw functions flows through the same scale factor, the padding/gutter
+// breathing room around them) well above the static-poster baseline. This
+// only ever reaches drawPoster's reel-only `textScale` param (default 1
+// everywhere else), so normal posters/downloads are completely unaffected.
+const REEL_TEXT_SCALE = 1.45;
 
 export function ContentCreatorPage() {
   const [creatorMode, setCreatorMode] = useState<CreatorMode>("analysis");
@@ -203,6 +214,9 @@ export function ContentCreatorPage() {
 
   // ── Content Calendar (30-day News/Learnings/Facts plan) ───────────────────
   const [showCalendarModal, setShowCalendarModal] = useState(false);
+
+  // ── Reels (batch posters converted into a 9:16 video slideshow) ──────────
+  const [showReelStudio, setShowReelStudio] = useState(false);
 
   // ── History (saved generations) ───────────────────────────────────────────
   const [showHistory, setShowHistory] = useState(false);
@@ -1334,6 +1348,68 @@ export function ContentCreatorPage() {
     } finally {
       setDownloadingZip(false);
     }
+  };
+
+  // Renders every included batch poster at native reel resolution (1080x1920)
+  // via the exact same drawPoster pipeline as downloadAll — reels always
+  // convert to the 9:16 format regardless of the ratio currently selected in
+  // the editor. Returns plain dataUrls; the Reel Studio modal owns everything
+  // audio/video/export related and never touches poster-rendering internals.
+  const generateReelSlides = async (): Promise<ReelSlideSource[]> => {
+    if (!isBatchMode || newsData.length === 0) return [];
+    const includedIndices = zipIncludedIndices;
+    if (includedIndices.length === 0) return [];
+
+    await Promise.all(
+      includedIndices.map(async (idx) => {
+        const imageUrl = newsData[idx].imageUrl;
+        if (!imageUrl || loadedImagesRef.current[imageUrl]) return;
+
+        const imgEl = new Image();
+        imgEl.crossOrigin = "anonymous";
+        await new Promise((resolve) => {
+          imgEl.onload = () => {
+            loadedImagesRef.current[imageUrl] = imgEl;
+            resolve(null);
+          };
+          imgEl.onerror = () => resolve(null);
+          imgEl.src = imageUrl;
+        });
+      })
+    );
+
+    const reelAr = { id: "story", label: "9:16", w: REEL_W, h: REEL_H, desc: "Reel" };
+    const slides: ReelSlideSource[] = [];
+
+    for (let pos = 0; pos < includedIndices.length; pos++) {
+      const idx = includedIndices[pos];
+      const item = withBentoImageFallback(newsData[idx], newsData);
+      const tempCanvas = document.createElement("canvas");
+      const cachedImg = item.imageUrl ? loadedImagesRef.current[item.imageUrl] : null;
+
+      drawPoster(
+        tempCanvas,
+        item,
+        reelAr,
+        colors,
+        config,
+        cachedImg,
+        creatorMode,
+        pos,
+        includedIndices.length,
+        posterStyle,
+        activeGradient,
+        editorialTheme,
+        gradientFade,
+        sentimentScheme,
+        REEL_TEXT_SCALE,
+        true // isReel
+      );
+
+      slides.push({ title: item.title || `${creatorMode} ${pos + 1}`, dataUrl: tempCanvas.toDataURL("image/png") });
+    }
+
+    return slides;
   };
 
   // Style helpers for text inputs
@@ -3407,6 +3483,15 @@ export function ContentCreatorPage() {
                 <span className="hidden xs:inline">Download Current</span>
               </button>
               <button
+                onClick={() => setShowReelStudio(true)}
+                disabled={!rendered || newsData.length === 0 || zipIncludedIndices.length === 0}
+                title={zipIncludedIndices.length === 0 ? "Nothing selected — check at least one item below" : "Convert the selected posters into a 9:16 reel with music & transitions"}
+                className="flex items-center gap-1.5 px-2.5 xs:px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 active:scale-95 cursor-pointer border border-white/10 bg-white/5 hover:bg-white/10 text-white whitespace-nowrap"
+              >
+                <Clapperboard className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden xs:inline">Create Reel</span>
+              </button>
+              <button
                 onClick={downloadAll}
                 disabled={!rendered || newsData.length === 0 || downloadingZip || zipIncludedIndices.length === 0}
                 title={zipIncludedIndices.length === 0 ? "Nothing selected — check at least one item below" : `Download ${zipIncludedIndices.length} selected poster${zipIncludedIndices.length === 1 ? "" : "s"} as a ZIP`}
@@ -3692,6 +3777,15 @@ export function ContentCreatorPage() {
           onClear={clearPosterSelection}
           onClose={() => setShowSelectionModal(false)}
           onApply={applyPosterSelection}
+        />
+      )}
+
+      {/* Reel Studio — converts the selected batch posters into a 9:16 video slideshow */}
+      {showReelStudio && (
+        <ReelStudioModal
+          creatorMode={creatorMode}
+          generateSlides={generateReelSlides}
+          onClose={() => setShowReelStudio(false)}
         />
       )}
     </div>

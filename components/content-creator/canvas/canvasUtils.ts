@@ -264,8 +264,36 @@ export function wrapHighlightLine(
   return lines;
 }
 
+function measureLineWidth(ctx: CanvasRenderingContext2D, line: HLToken[], font: string, hlPadX: number): number {
+  ctx.font = font;
+  const spaceW = ctx.measureText(" ").width;
+  const widths = line.map((tok) => measureToken(ctx, tok, font, hlPadX));
+  return widths.reduce((a, b) => a + b, 0) + spaceW * Math.max(0, line.length - 1);
+}
+
+// `wrapHighlightLine` keeps a highlighted phrase as one unbreakable token, so
+// if that phrase alone is wider than `maxW` it still gets placed on its own
+// line — silently overflowing the card it's drawn on (the highlight's boxed
+// background bleeding past the rounded card behind it). This splits it into
+// per-word highlighted tokens (still colored, just breakable) as a fallback
+// so a long phrase wraps like normal text instead of overflowing.
+function splitHighlightToken(tokens: HLToken[]): HLToken[] {
+  const out: HLToken[] = [];
+  for (const tok of tokens) {
+    if (tok.isHL && tok.text.includes(" ")) {
+      for (const word of tok.text.split(" ").filter(Boolean)) out.push({ text: word, isHL: true });
+    } else {
+      out.push(tok);
+    }
+  }
+  return out;
+}
+
 // Searches font sizes from large to small and returns the first (largest)
-// that wraps within maxH — headlines should fill their band, not float small.
+// that wraps within maxH AND whose widest line actually fits maxW — headlines
+// should fill their band, not float small, but never at the cost of a line
+// (or an atomic highlight token) overflowing its box. Falls back to breaking
+// an oversized highlight phrase into per-word tokens if no size fits it whole.
 export function fitHighlightTitle(
   ctx: CanvasRenderingContext2D,
   tokens: HLToken[],
@@ -277,16 +305,28 @@ export function fitHighlightTitle(
   fontWeight: string = "900",
   lineHeightMult: number = 1.16
 ): { lines: HLToken[][]; fontSize: number; lineH: number; font: string } {
-  for (let sz = maxSize; sz >= minSize; sz -= 1) {
+  const attempt = (toks: HLToken[], sz: number) => {
     const font = `${fontWeight} ${sz}px ${fontFamily}`;
-    const lines = wrapHighlightLine(ctx, tokens, maxW, font, sz * 0.26);
+    const lines = wrapHighlightLine(ctx, toks, maxW, font, sz * 0.26);
     const lineH = sz * lineHeightMult;
-    if (lines.length * lineH <= maxH) {
-      return { lines, fontSize: sz, lineH, font };
-    }
+    const fitsHeight = lines.length * lineH <= maxH;
+    const fitsWidth = lines.every((line) => measureLineWidth(ctx, line, font, sz * 0.26) <= maxW + 0.5);
+    return { lines, lineH, font, ok: fitsHeight && fitsWidth };
+  };
+
+  for (let sz = maxSize; sz >= minSize; sz -= 1) {
+    const result = attempt(tokens, sz);
+    if (result.ok) return { lines: result.lines, fontSize: sz, lineH: result.lineH, font: result.font };
   }
+
+  const splitTokens = splitHighlightToken(tokens);
+  for (let sz = maxSize; sz >= minSize; sz -= 1) {
+    const result = attempt(splitTokens, sz);
+    if (result.ok) return { lines: result.lines, fontSize: sz, lineH: result.lineH, font: result.font };
+  }
+
   const font = `${fontWeight} ${minSize}px ${fontFamily}`;
-  return { lines: wrapHighlightLine(ctx, tokens, maxW, font, minSize * 0.26), fontSize: minSize, lineH: minSize * lineHeightMult, font };
+  return { lines: wrapHighlightLine(ctx, splitTokens, maxW, font, minSize * 0.26), fontSize: minSize, lineH: minSize * lineHeightMult, font };
 }
 
 // Draws center-aligned headline lines, rendering the highlighted token as a

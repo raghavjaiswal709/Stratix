@@ -179,7 +179,8 @@ export function drawBentoExplainerCard(
   activeIndex: number,
   totalCount: number,
   gradient?: GradientPreset,
-  sentimentScheme: SentimentScheme = "emerald"
+  sentimentScheme: SentimentScheme = "emerald",
+  isReel: boolean = false
 ): PosterElement[] {
   const bounds: PosterElement[] = [];
   const accent = gradient?.accent ?? "#10b981";
@@ -264,17 +265,20 @@ export function drawBentoExplainerCard(
     drawWordmark(ctx, CX, Y + badgeH / 2, logoFontSize, textPrimary, accent, "left", "middle");
     ctx.restore();
 
-    // Eyebrow pill, right-aligned on the same row. Text color is computed
-    // against the actual pill fill (not hardcoded white) — on light/
-    // monochrome gradient presets `accent` can itself be near-white, and
-    // white-on-white silently renders as an empty pill.
+    // Eyebrow pill — right-aligned on the same row as the logo normally;
+    // centered on the row for reels (with the timestamp moved to the far
+    // right instead of hugging the pill, so the row stays a clean
+    // logo-left / pill-center / timestamp-right layout). Text color is
+    // computed against the actual pill fill (not hardcoded white) — on
+    // light/monochrome gradient presets `accent` can itself be near-white,
+    // and white-on-white silently renders as an empty pill.
     const eyebrowText = "EXPLAINED SIMPLY";
     ctx.font = `800 ${r(11)}px "Inter", sans-serif`;
     setTracking(ctx, r(0.5));
     const dotGap = r(14);
     const eyebrowW = ctx.measureText(eyebrowText).width + r(20) + dotGap;
     const eyebrowH = r(28);
-    const eyebrowX = CXR - eyebrowW;
+    const eyebrowX = isReel ? (W - eyebrowW) / 2 : CXR - eyebrowW;
     const eyebrowY = Y + (badgeH - eyebrowH) / 2;
     const eyebrowFg = contrastTextColor(accent);
     ctx.save();
@@ -300,14 +304,16 @@ export function drawBentoExplainerCard(
     ctx.fillText(eyebrowText, eyebrowX + r(11) + dotGap, eyebrowY + eyebrowH / 2 + r(0.5));
     setTracking(ctx, 0);
 
-    // Render-time date/time — sits just left of the eyebrow pill, same row
-    // and same vertical position as the logo on the opposite side.
+    // Render-time date/time — sits just left of the eyebrow pill normally;
+    // for reels (where the pill is centered) it moves to the far right
+    // instead, keeping the row a clean logo-left / pill-center /
+    // timestamp-right layout rather than hanging off the pill's left edge.
     ctx.font = `700 ${r(10.5)}px "Inter", sans-serif`;
     setTracking(ctx, r(0.4));
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     ctx.fillStyle = textMuted;
-    ctx.fillText(formatPosterTimestamp(), eyebrowX - r(12), Y + badgeH / 2);
+    ctx.fillText(formatPosterTimestamp(), isReel ? CXR : eyebrowX - r(12), Y + badgeH / 2);
     setTracking(ctx, 0);
 
     Y += badgeH + r(22);
