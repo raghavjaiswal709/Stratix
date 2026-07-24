@@ -61,10 +61,15 @@ jobs:
 
       # ── 5. Run the incremental update ────────────────────────────────────
       #    The script reads each symbol's last timestamp, fetches only the
-      #    delta from Dukascopy, and appends new rows to existing CSVs.
+      #    delta from Dukascopy, and appends new rows to existing CSVs. It
+      #    also runs a bounded gap-backfill pass (see scripts/lib/candle-gaps.mjs)
+      #    that fills any holes Dukascopy left via the Twelve Data API —
+      #    requires TWELVE_DATA_API_KEY to be set as a repo secret, and is
+      #    skipped (logged, not fatal) if it isn't.
       - name: Update candle data
         env:
           SESSION_NAME: ${{ steps.session.outputs.name }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
         run: node scripts/update_candles.mjs
 
       # ── 6. Commit & push only if there is new data ───────────────────────

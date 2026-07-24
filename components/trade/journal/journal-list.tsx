@@ -192,10 +192,15 @@ export function JournalList({
 
   const [currentPage, setCurrentPage] = useState(1);
 
+  // A compiled group counts as ONE trade everywhere else on this page
+  // (tabFiltered/paginated list above already excludes children) — these
+  // tab-pill counts must match, or "All" ends up higher than what's actually
+  // listed by counting each merged child individually.
+  const topLevelTrades = trades.filter((t) => !t.parentTradeId);
   const counts = {
-    all: trades.length,
-    journaled: trades.filter((t) => t.journaled).length,
-    pending: trades.filter((t) => !t.journaled).length,
+    all: topLevelTrades.length,
+    journaled: topLevelTrades.filter((t) => t.journaled).length,
+    pending: topLevelTrades.filter((t) => !t.journaled).length,
   };
 
   const J_PAGE_SIZE = 20;
@@ -218,7 +223,7 @@ export function JournalList({
         <div className="flex items-center justify-between">
           <h2 className="text-[15px] font-bold text-white tracking-tight">Trade Journal</h2>
           <span className="text-[10px] font-semibold text-white/35 bg-white/5 px-2 py-1 rounded-full">
-            {trades.length} entries
+            {counts.all} entries
           </span>
         </div>
 

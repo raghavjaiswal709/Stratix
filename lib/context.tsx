@@ -38,7 +38,7 @@ interface AppData {
   activeProfileId: string;
 }
 
-interface AppContextType extends AppData {
+export interface AppContextType extends AppData {
   setHabitData: (data: HabitData) => void;
   setTodoData: (data: TodoData) => void;
   setTradeData: (data: TradeData) => void;
@@ -65,7 +65,7 @@ interface AppContextType extends AppData {
   deleteProfile: (id: string) => void;
 }
 
-const defaultPreferences: UserPreferences = {
+export const defaultPreferences: UserPreferences = {
   accentColor: "#10b981",
   defaultPage: "/dashboard",
   defaultTab: "todos",
@@ -111,7 +111,11 @@ const defaultData: AppData = {
   activeProfileId: "",
 };
 
-const AppContext = createContext<AppContextType>({
+// Exported so the admin "view as" page can supply a scoped provider around
+// the reused Trades/Dashboard page components without going through the
+// normal session-bound AppProvider (which always loads the signed-in
+// admin's own data, never another member's).
+export const AppContext = createContext<AppContextType>({
   ...defaultData,
   setHabitData: () => {},
   setTodoData: () => {},

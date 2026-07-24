@@ -15,17 +15,18 @@
  * Never modifies existing candle rows — purely additive.
  */
 
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getHistoricRates, Timeframe, Instrument } from 'dukascopy-node';
+import { CANDLES_DIR, getLastCandleTimestamp, persistCandles } from './lib/candle-storage.mjs';
+import { findGaps } from './lib/candle-gaps.mjs';
+import { TWELVE_DATA_SYMBOL_MAP, fetchTwelveDataCandles } from './lib/twelvedata.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const CANDLES_DIR  = path.join(__dirname, '../public/data/candles');
 const CACHE_DIR    = path.join(__dirname, '../.dukascopy-cache');
 
 /**
@@ -54,121 +55,10 @@ const INSTRUMENT_MAP = {
   us100:   Instrument.usatechidxusd,
 };
 
-// Must match download_candles.mjs exactly so existing files stay consistent.
-const PRICE_PRECISION = {
-  eurusd: 5, gbpusd: 5, usdcad: 5, nzdusd: 5, audusd: 5, usdchf: 5,
-  usdjpy: 3,
-  xauusd: 2, xagusd: 3,
-  ethusd: 2, btcusdt: 2,
-  dxy: 3, usoil: 2, us100: 2,
-};
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function utcLabel(ts) {
   return new Date(ts).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-}
-
-/**
- * Scan a symbol's directory, find the newest monthly CSV, and return the Unix
- * timestamp (seconds) of its very last data row.
- * Returns null if no data exists yet.
- */
-function getLastCandleTimestamp(symbol) {
-  const dir = path.join(CANDLES_DIR, symbol);
-  if (!fs.existsSync(dir)) return null;
-
-  const files = fs.readdirSync(dir)
-    .filter(f => /^.+_\d{4}_\d{2}\.csv$/.test(f))
-    .sort();                          // lexicographic sort → chronological
-
-  if (files.length === 0) return null;
-
-  const latestFile = files[files.length - 1];
-  const filePath   = path.join(dir, latestFile);
-  const content    = fs.readFileSync(filePath, 'utf8');
-
-  // Split by newline, drop header row, find last non-empty row
-  const lines = content.split('\n').filter(l => l.trim().length > 0);
-  if (lines.length < 2) return null;
-
-  const lastLine = lines[lines.length - 1];
-  const ts = parseInt(lastLine.split(',')[0], 10);
-
-  return Number.isFinite(ts) ? ts : null;
-}
-
-/**
- * Write new candles into the correct monthly CSV files.
- * Existing files are never truncated — only new rows are appended.
- * Deduplication is done by comparing Unix timestamps.
- *
- * @param {string} symbol
- * @param {Array}  candles — raw objects from dukascopy-node (timestamp in ms)
- * @returns {number} total candles written
- */
-function persistCandles(symbol, candles) {
-  const dp  = PRICE_PRECISION[symbol] ?? 5;
-  const dir = path.join(CANDLES_DIR, symbol);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-  // Group by YYYY_MM
-  const byMonth = {};
-  for (const c of candles) {
-    const d   = new Date(c.timestamp);
-    const yr  = d.getUTCFullYear();
-    const mo  = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const key = `${yr}_${mo}`;
-    (byMonth[key] ??= []).push(c);
-  }
-
-  let totalWritten = 0;
-
-  for (const [monthKey, monthCandles] of Object.entries(byMonth)) {
-    // Always sort chronologically within the month
-    const sorted   = monthCandles.sort((a, b) => a.timestamp - b.timestamp);
-    const fileName = `${symbol}_${monthKey}.csv`;
-    const filePath = path.join(dir, fileName);
-
-    // Serialise to CSV rows (no header)
-    const newRows = sorted.map(c => {
-      const ts = Math.floor(c.timestamp / 1000);
-      return [
-        ts,
-        Number(c.open).toFixed(dp),
-        Number(c.high).toFixed(dp),
-        Number(c.low).toFixed(dp),
-        Number(c.close).toFixed(dp),
-        Number(c.volume).toFixed(2),
-      ].join(',');
-    });
-
-    if (fs.existsSync(filePath)) {
-      // ── Append to existing file ────────────────────────────────────────
-      const existing    = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim());
-      const existingSet = new Set(existing.slice(1).map(l => l.split(',')[0]));
-
-      const toWrite = newRows.filter(r => !existingSet.has(r.split(',')[0]));
-      if (toWrite.length === 0) {
-        console.log(`    [${symbol}] ${fileName}: 0 new candles (all already present)`);
-        continue;
-      }
-
-      // Files have no trailing newline — prefix with \n
-      fs.appendFileSync(filePath, '\n' + toWrite.join('\n'));
-      console.log(`    [${symbol}] ${fileName}: +${toWrite.length} candles appended`);
-      totalWritten += toWrite.length;
-
-    } else {
-      // ── Create brand-new monthly file ─────────────────────────────────
-      const content = ['time,open,high,low,close,volume', ...newRows].join('\n');
-      fs.writeFileSync(filePath, content);
-      console.log(`    [${symbol}] ${fileName}: created with ${newRows.length} candles`);
-      totalWritten += newRows.length;
-    }
-  }
-
-  return totalWritten;
 }
 
 // ─── Chunked fetch with retry ─────────────────────────────────────────────────
@@ -343,4 +233,57 @@ if (grandTotal === 0) {
   console.log('\nNote: 0 new candles. This is normal if Dukascopy has not yet');
   console.log('published data for the most recent period (instruments like');
   console.log('XAUUSD / metals can lag by 1-24 h). Next scheduled run will retry.');
+}
+
+// ─── Gap backfill (Twelve Data) ────────────────────────────────────────────────
+//
+// A Dukascopy chunk that's still empty after retries (see fetchChunkWithRetry
+// above) is silently skipped for that run — later, successful chunks still
+// advance the file's "last timestamp" past it, so the normal incremental loop
+// never revisits it. This pass finds those holes and fills them from Twelve
+// Data instead, capped per run so one bad backlog can't blow the workflow's
+// timeout or the API's rate limit. Steady-state, once history is caught up,
+// this finds ~nothing and costs ~0 calls.
+
+const BACKFILL_CAP = parseInt(process.env.BACKFILL_CAP ?? '15', 10);
+
+console.log('\n' + '='.repeat(60));
+console.log(` GAP BACKFILL — Twelve Data, up to ${BACKFILL_CAP} call(s) this run`);
+console.log('='.repeat(60));
+
+if (!process.env.TWELVE_DATA_API_KEY) {
+  console.log('  TWELVE_DATA_API_KEY not set — skipping.');
+} else {
+  let callsUsed = 0;
+  let totalFilled = 0;
+
+  for (const symbol of Object.keys(TWELVE_DATA_SYMBOL_MAP)) {
+    if (callsUsed >= BACKFILL_CAP) break;
+
+    // Newest-first: recent gaps are both more valuable to fix and more likely
+    // to be within Twelve Data's plan's historical depth than decade-old ones.
+    const gaps = findGaps(CANDLES_DIR, symbol, { minGapMinutes: 5 })
+      .sort((a, b) => b.afterSec - a.afterSec);
+    if (gaps.length === 0) continue;
+
+    let filled = 0;
+    for (const gap of gaps) {
+      if (callsUsed >= BACKFILL_CAP) break;
+      callsUsed++;
+
+      const from = new Date((gap.afterSec + 60) * 1000);
+      const to   = new Date(gap.beforeSec * 1000);
+      const candles = await fetchTwelveDataCandles(symbol, from, to);
+      if (candles.length > 0) {
+        const written = persistCandles(symbol, candles);
+        if (written > 0) filled++;
+      }
+    }
+    totalFilled += filled;
+    console.log(`  [${symbol}] ${gaps.length} known gap(s), filled ${filled} this run`);
+  }
+
+  console.log('─'.repeat(60));
+  console.log(`  Backfilled ${totalFilled} gap(s) using ${callsUsed} Twelve Data call(s).`);
+  console.log('='.repeat(60));
 }

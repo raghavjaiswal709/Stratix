@@ -5,23 +5,24 @@ import { X, Shuffle } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { StratixWordmark } from "./stratix-logo";
 import { HftBackground } from "./hft-background";
-import { TRADING_QUOTES } from "./quotes-data";
+import type { Quote } from "./quotes-data";
 
 // Cinematic full-screen quote experience. Loaded lazily (next/dynamic) so
-// none of this — framer-motion choreography, the HFT canvas, 300+ quotes —
-// ever ships in the dashboard's critical chunk.
+// none of this — framer-motion choreography, the HFT canvas — ever ships in
+// the dashboard's critical chunk. `quotes` comes from the caller (admin-
+// managed, see /admin/quotes) so this component has no data source of its own.
 
-function randomIndex(exclude?: number): number {
-  let i = Math.floor(Math.random() * TRADING_QUOTES.length);
-  if (exclude !== undefined && TRADING_QUOTES.length > 1) {
-    while (i === exclude) i = Math.floor(Math.random() * TRADING_QUOTES.length);
+function randomIndex(length: number, exclude?: number): number {
+  let i = Math.floor(Math.random() * length);
+  if (exclude !== undefined && length > 1) {
+    while (i === exclude) i = Math.floor(Math.random() * length);
   }
   return i;
 }
 
-export function QuoteOverlay({ onClose }: { onClose: () => void }) {
+export function QuoteOverlay({ quotes, onClose }: { quotes: Quote[]; onClose: () => void }) {
   const prefersReducedMotion = useReducedMotion();
-  const [index, setIndex] = useState(() => randomIndex());
+  const [index, setIndex] = useState(() => randomIndex(quotes.length));
   const [visible, setVisible] = useState(true);
   // Framer's `animate` prop on the outer shell would silently never resolve
   // past `initial` in this component (motion value stuck at opacity 0 despite
@@ -37,7 +38,7 @@ export function QuoteOverlay({ onClose }: { onClose: () => void }) {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const quote = TRADING_QUOTES[index];
+  const quote = quotes[index];
   const words = useMemo(() => quote.text.split(" "), [quote]);
 
   // Long quotes tighten the per-word stagger so the reveal always lands
@@ -57,7 +58,7 @@ export function QuoteOverlay({ onClose }: { onClose: () => void }) {
     setVisible(false);
     window.setTimeout(onClose, 320);
   }, [onClose]);
-  const nextQuote = useCallback(() => setIndex((i) => randomIndex(i)), []);
+  const nextQuote = useCallback(() => setIndex((i) => randomIndex(quotes.length, i)), [quotes.length]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -262,7 +263,7 @@ export function QuoteOverlay({ onClose }: { onClose: () => void }) {
               transition={{ delay: authorDelay + 0.6, duration: 0.6 }}
               className="mt-6 text-[11px] font-mono tracking-widest text-white/25 select-none"
             >
-              {String(index + 1).padStart(3, "0")} / {TRADING_QUOTES.length}
+              {String(index + 1).padStart(3, "0")} / {quotes.length}
               <span className="mx-3 text-white/15">·</span>
               ENTER to begin
               <span className="mx-3 text-white/15">·</span>

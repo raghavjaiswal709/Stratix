@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { MT5ConfigModel } from "@/lib/models/MT5Config";
@@ -21,14 +21,20 @@ const METAAPI_BASE = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.a
  * When an accountId exists but connected is false, MetaApi is polled and DB is
  * updated if the account has reached DEPLOYED state.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Admin "view as" support — see /api/trade GET for the same pattern.
+  const { searchParams } = new URL(req.url);
+  const viewUserId = searchParams.get("viewUserId");
+  const effectiveUserId =
+    viewUserId && session.user.role === "admin" ? viewUserId : session.user.id;
+
   await dbConnect();
-  const config = await MT5ConfigModel.findOne({ userId: session.user.id }).lean() as {
+  const config = await MT5ConfigModel.findOne({ userId: effectiveUserId }).lean() as {
     mt5AccountId?: string;
     mt5Login?: string;
     mt5Server?: string;
@@ -82,7 +88,7 @@ export async function GET() {
   // If newly deployed, update DB
   if (data.state === "DEPLOYED") {
     await MT5ConfigModel.findOneAndUpdate(
-      { userId: session.user.id },
+      { userId: effectiveUserId },
       { $set: { connected: true, mt5ConnectedAt: new Date() } }
     );
     return NextResponse.json({
