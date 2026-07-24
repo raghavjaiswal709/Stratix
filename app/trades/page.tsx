@@ -351,11 +351,22 @@ export default function TradesPage() {
   // Merge candidates: the fetched-on-demand list above, filtered down to
   // "same symbol as the trade being merged" plus its already-merged children —
   // sorting doesn't matter much here (small on-demand set), so keep it simple.
+  //
+  // A compilation is meant for one trading decision split across multiple
+  // broker tickets (partial fills), so candidates must also share the same
+  // instrument + entry minute as the trade being merged — same symbol alone
+  // pulls in unrelated trades taken at completely different times.
   const mergeCandidates = useMemo(() => {
     if (!mergeTrade) return [];
+    const mainMinute = format(parseISO(mergeTrade.entryTime), "yyyy-MM-dd'T'HH:mm");
     return mergeCandidateTrades.filter((t) => {
       if (t._id === mergeTrade._id) return false;
       if (t.parentTradeId && t.parentTradeId !== mergeTrade._id) return false;
+      // Already part of this compilation — always show it, even if it predates
+      // the time constraint below, so re-saving doesn't silently drop it.
+      if (t.parentTradeId === mergeTrade._id) return true;
+      if (t.symbol !== mergeTrade.symbol) return false;
+      if (format(parseISO(t.entryTime), "yyyy-MM-dd'T'HH:mm") !== mainMinute) return false;
       return true;
     });
   }, [mergeTrade, mergeCandidateTrades]);
