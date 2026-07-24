@@ -100,6 +100,9 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isAuthPage = pathname.startsWith("/auth");
+  // Admin "view as" popup — a standalone read-only window, not part of the
+  // normal app shell (its own banner/tabs replace the sidebar + top bar).
+  const isAdminViewPage = pathname.startsWith("/admin/view/");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { preferences, theme } = useAppContext();
   // "default" (or unset) means: no full-palette override — fall through to
@@ -144,7 +147,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isAuthPage) {
+  if (isAuthPage || isAdminViewPage) {
     return <>{children}</>;
   }
 

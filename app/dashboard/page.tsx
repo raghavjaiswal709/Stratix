@@ -51,7 +51,13 @@ interface MT5Info {
   mt5AccountId?: string;
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({ viewUserId }: { viewUserId?: string } = {}) {
+  // Admin "view as" mode — set only when rendered inside /admin/view/[userId].
+  // Read-only: the interactive MT5 Sync section (connect/disconnect/sync) is
+  // replaced with a plain status line, since those controls act on whichever
+  // account the session belongs to (the admin's own), never the member being
+  // viewed — showing them here would be actively misleading, not just risky.
+  const readOnly = !!viewUserId;
   // metaLoading (not the full-content `loading`) — the dashboard only needs
   // preferences + profiles, which the server already resolved in initialMeta.
   // Gating on `loading` used to serialize this page behind the multi-MB
@@ -88,7 +94,11 @@ export default function DashboardPage() {
     (profileId: string, opts: { force?: boolean; silent?: boolean } = {}) => {
       const requestId = ++requestIdRef.current;
       if (!opts.silent && !hasCachedTradesRef.current) setLoading(true);
-      const url = profileId ? `/api/trade?profileId=${encodeURIComponent(profileId)}` : "/api/trade";
+      const params = new URLSearchParams();
+      if (profileId) params.set("profileId", profileId);
+      if (viewUserId) params.set("viewUserId", viewUserId);
+      const qs = params.toString();
+      const url = qs ? `/api/trade?${qs}` : "/api/trade";
 
       cachedFetch<Trade[]>(url, { ttlMs: 30_000, force: opts.force })
         .then((data) => {
@@ -101,7 +111,7 @@ export default function DashboardPage() {
           setLoading(false);
         });
     },
-    [setSharedTrades]
+    [setSharedTrades, viewUserId]
   );
 
   useEffect(() => {
@@ -123,13 +133,16 @@ export default function DashboardPage() {
 
   // Load MT5 status
   useEffect(() => {
-    cachedFetch<MT5Info>("/api/mt5/status", { ttlMs: 30_000 })
+    const url = viewUserId
+      ? `/api/mt5/status?viewUserId=${encodeURIComponent(viewUserId)}`
+      : "/api/mt5/status";
+    cachedFetch<MT5Info>(url, { ttlMs: 30_000 })
       .then((data) => {
         setMt5Info(data);
         setMt5Loading(false);
       })
       .catch(() => setMt5Loading(false));
-  }, []);
+  }, [viewUserId]);
 
   // A manually-compiled ("merged") position must count as exactly ONE trade
   // everywhere on this page — without this, every stat card, chart, and
@@ -213,56 +226,78 @@ export default function DashboardPage() {
       <LatestNewsWidget />
 
       {/* ── MT5 section ──────────────────────────────────────────────────── */}
-      <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-sm font-semibold">MT5 Sync</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Connect your MetaTrader 5 account to sync your trade history.
-            </p>
-          </div>
-
-          {/* Show sync button + disconnect when connected */}
-          {mt5Connected && mt5Info && (
-            <div className="flex items-center gap-3 shrink-0">
-              <SyncButton onComplete={() => setSyncRefreshKey((k) => k + 1)} />
+      {readOnly ? (
+        // Admin view-as: SyncButton/ConnectMT5Form/DisconnectMT5Button/TradesTable
+        // all act on whichever MT5 account belongs to the current session (the
+        // admin's own), never the member being viewed — showing them here would
+        // silently operate on the wrong account. A plain status line instead.
+        <div className="rounded-xl border border-border bg-card p-5 space-y-1">
+          <h2 className="text-sm font-semibold">MT5 Status</h2>
+          {mt5Loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="h-3.5 w-3.5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
+              <span>Checking MT5 status…</span>
             </div>
+          ) : mt5Connected && mt5Info ? (
+            <p className="text-xs text-muted-foreground">
+              Connected — {mt5Info.mt5Login ?? "—"} @ {mt5Info.mt5Server ?? "—"}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">Not connected.</p>
           )}
         </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold">MT5 Sync</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Connect your MetaTrader 5 account to sync your trade history.
+              </p>
+            </div>
 
-        {mt5Loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <div className="h-3.5 w-3.5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
-            <span>Checking MT5 status…</span>
+            {/* Show sync button + disconnect when connected */}
+            {mt5Connected && mt5Info && (
+              <div className="flex items-center gap-3 shrink-0">
+                <SyncButton onComplete={() => setSyncRefreshKey((k) => k + 1)} />
+              </div>
+            )}
           </div>
-        ) : mt5Connected && mt5Info ? (
-          <>
-            <DisconnectMT5Button
-              mt5Login={mt5Info.mt5Login ?? ""}
-              mt5Server={mt5Info.mt5Server ?? ""}
-              onDisconnected={() => setMt5Info({ state: "NONE", connected: false })}
+
+          {mt5Loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="h-3.5 w-3.5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
+              <span>Checking MT5 status…</span>
+            </div>
+          ) : mt5Connected && mt5Info ? (
+            <>
+              <DisconnectMT5Button
+                mt5Login={mt5Info.mt5Login ?? ""}
+                mt5Server={mt5Info.mt5Server ?? ""}
+                onDisconnected={() => setMt5Info({ state: "NONE", connected: false })}
+              />
+              <TradesTable refreshKey={syncRefreshKey} />
+            </>
+          ) : (
+            <ConnectMT5Form
+              deployingAccountId={
+                mt5Info?.mt5AccountId && mt5Info.state !== "NONE" && !mt5Info.connected
+                  ? mt5Info.mt5AccountId
+                  : undefined
+              }
+              onConnected={(info) =>
+                setMt5Info({
+                  state: "DEPLOYED",
+                  connected: true,
+                  mt5Login: info.mt5Login,
+                  mt5Server: info.mt5Server,
+                  mt5AccountId: info.mt5AccountId,
+                })
+              }
             />
-            <TradesTable refreshKey={syncRefreshKey} />
-          </>
-        ) : (
-          <ConnectMT5Form
-            deployingAccountId={
-              mt5Info?.mt5AccountId && mt5Info.state !== "NONE" && !mt5Info.connected
-                ? mt5Info.mt5AccountId
-                : undefined
-            }
-            onConnected={(info) =>
-              setMt5Info({
-                state: "DEPLOYED",
-                connected: true,
-                mt5Login: info.mt5Login,
-                mt5Server: info.mt5Server,
-                mt5AccountId: info.mt5AccountId,
-              })
-            }
-          />
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

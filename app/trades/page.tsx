@@ -181,7 +181,12 @@ function SortBtn({
 
 const PAGE_SIZE = 25;
 
-export default function TradesPage() {
+export default function TradesPage({ viewUserId }: { viewUserId?: string } = {}) {
+  // Admin "view as" mode — set only when rendered inside /admin/view/[userId].
+  // Every mutation trigger (add/edit/delete/merge/import/connect/clear) is
+  // hidden below, and every GET carries viewUserId so the admin sees that
+  // member's trades instead of their own.
+  const readOnly = !!viewUserId;
   const { preferences, setPreferences, sharedTrades, setSharedTrades, activeProfileId, tradingProfiles } = useAppContext();
   const prefsRef = useRef(preferences);
   
@@ -280,9 +285,10 @@ export default function TradesPage() {
       if (filterDirection !== "all") params.set("direction", filterDirection);
       if (filterStatus !== "all") params.set("status", filterStatus);
       if (filterSource !== "all") params.set("source", filterSource);
+      if (viewUserId) params.set("viewUserId", viewUserId);
       return `/api/trade?${params.toString()}`;
     },
-    [sortBy, sortDir, debouncedSymbol, filterDirection, filterStatus, filterSource]
+    [sortBy, sortDir, debouncedSymbol, filterDirection, filterStatus, filterSource, viewUserId]
   );
 
   interface PagedTradesResponse {
@@ -295,9 +301,12 @@ export default function TradesPage() {
   const load = useCallback(
     (profileId: string, page: number, opts: { force?: boolean; silent?: boolean } = {}) => {
       if (!opts.silent) setLoading(true);
+      const mt5StatusUrl = viewUserId
+        ? `/api/mt5/status?viewUserId=${encodeURIComponent(viewUserId)}`
+        : "/api/mt5/status";
       Promise.all([
         cachedFetch<PagedTradesResponse>(pageUrl(page, profileId), { ttlMs: 30_000, force: opts.force }),
-        cachedFetch<MT5Config>("/api/mt5/status", { ttlMs: 30_000, force: opts.force }),
+        cachedFetch<MT5Config>(mt5StatusUrl, { ttlMs: 30_000, force: opts.force }),
       ])
         .then(([t, m]) => {
           setTrades(Array.isArray(t.trades) ? t.trades : []);
@@ -312,7 +321,7 @@ export default function TradesPage() {
         })
         .catch(() => setLoading(false));
     },
-    [pageUrl]
+    [pageUrl, viewUserId]
   );
 
   useEffect(() => {
@@ -343,10 +352,11 @@ export default function TradesPage() {
     if (!mergeTrade) { setMergeCandidateTrades([]); return; }
     const params = new URLSearchParams({ symbol: mergeTrade.symbol });
     if (activeProfileId) params.set("profileId", activeProfileId);
+    if (viewUserId) params.set("viewUserId", viewUserId);
     cachedFetch<Trade[]>(`/api/trade?${params.toString()}`, { ttlMs: 30_000 })
       .then((arr) => setMergeCandidateTrades(Array.isArray(arr) ? arr : []))
       .catch(() => setMergeCandidateTrades([]));
-  }, [mergeTrade, activeProfileId]);
+  }, [mergeTrade, activeProfileId, viewUserId]);
 
   // Merge candidates: the fetched-on-demand list above, filtered down to
   // "same symbol as the trade being merged" plus its already-merged children —
@@ -474,47 +484,57 @@ export default function TradesPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
-            title="Import trades from JSON / CSV"
-          >
-            <ArrowUp className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Import</span>
-          </button>
-          <a
-            href="/mt5/MT5-Stratix.zip"
-            download="MT5-Stratix.zip"
-            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
-            title="Download MT5 Chrome Extension"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">MT5 Extension</span>
-          </a>
-          <button
-            onClick={() => setShowConnect(true)}
-            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
-            title="Connect MT4/MT5"
-          >
-            <Wifi className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Connect MT5</span>
-          </button>
-          <button
-            onClick={() => setClearConfirm(true)}
-            disabled={total === 0}
-            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-red-600/10 border border-red-500/20 text-[13px] font-medium text-red-400 hover:bg-red-600/20 transition disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Clear All"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Clear</span>
-          </button>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-[13px] font-semibold text-white transition shadow-lg "
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Add Trade</span>
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                onClick={() => setShowImport(true)}
+                className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
+                title="Import trades from JSON / CSV"
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Import</span>
+              </button>
+              <a
+                href="/mt5/MT5-Stratix.zip"
+                download="MT5-Stratix.zip"
+                className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
+                title="Download MT5 Chrome Extension"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">MT5 Extension</span>
+              </a>
+              <button
+                onClick={() => setShowConnect(true)}
+                className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-card border border-border text-[13px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted transition"
+                title="Connect MT4/MT5"
+              >
+                <Wifi className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Connect MT5</span>
+              </button>
+              <button
+                onClick={() => setClearConfirm(true)}
+                disabled={total === 0}
+                className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-red-600/10 border border-red-500/20 text-[13px] font-medium text-red-400 hover:bg-red-600/20 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Clear All"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Clear</span>
+              </button>
+            </>
+          )}
+          {readOnly ? (
+            <span className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[12px] font-medium text-amber-400">
+              Read-only admin view
+            </span>
+          ) : (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-[13px] font-semibold text-white transition shadow-lg "
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Add Trade</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -739,23 +759,27 @@ export default function TradesPage() {
                           {fmt(displayProfit)}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => setMergeTrade(trade)}
-                            className="text-muted-foreground/50 hover:text-amber-400 transition p-1"
-                            title="Merge trades"
-                          >
-                            <Puzzle className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => startEdit(trade)} className="text-muted-foreground/50 hover:text-white/80 transition p-1">
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirmId(trade._id)}
-                            disabled={deleting === trade._id}
-                            className="text-muted-foreground/50 hover:text-red-400 transition p-1"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          {!readOnly && (
+                            <>
+                              <button
+                                onClick={() => setMergeTrade(trade)}
+                                className="text-muted-foreground/50 hover:text-amber-400 transition p-1"
+                                title="Merge trades"
+                              >
+                                <Puzzle className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={() => startEdit(trade)} className="text-muted-foreground/50 hover:text-white/80 transition p-1">
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmId(trade._id)}
+                                disabled={deleting === trade._id}
+                                className="text-muted-foreground/50 hover:text-red-400 transition p-1"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
                           {isParent && (
                             <button
                               onClick={() => setExtendedIds(prev => prev.includes(trade._id) ? prev.filter(x => x !== trade._id) : [...prev, trade._id])}
@@ -789,14 +813,16 @@ export default function TradesPage() {
                             <span className={trade.profit > 0 ? "text-emerald-400/80" : trade.profit < 0 ? "text-red-400/80" : ""}>
                               {fmt(trade.profit)}
                             </span>
-                            <div className="flex items-center gap-1.5">
-                              <button onClick={() => startEdit(trade)} className="text-muted-foreground/40 hover:text-white/80 transition p-0.5">
-                                <Edit2 className="h-3 w-3" />
-                              </button>
-                              <button onClick={() => setDeleteConfirmId(trade._id)} className="text-muted-foreground/40 hover:text-red-400 transition p-0.5">
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
+                            {!readOnly && (
+                              <div className="flex items-center gap-1.5">
+                                <button onClick={() => startEdit(trade)} className="text-muted-foreground/40 hover:text-white/80 transition p-0.5">
+                                  <Edit2 className="h-3 w-3" />
+                                </button>
+                                <button onClick={() => setDeleteConfirmId(trade._id)} className="text-muted-foreground/40 hover:text-red-400 transition p-0.5">
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -819,14 +845,16 @@ export default function TradesPage() {
                               <span className={child.profit > 0 ? "text-emerald-400/80" : child.profit < 0 ? "text-red-400/80" : ""}>
                                 {fmt(child.profit)}
                               </span>
-                              <div className="flex items-center gap-1.5">
-                                <button onClick={() => startEdit(child)} className="text-muted-foreground/40 hover:text-white/80 transition p-0.5">
-                                  <Edit2 className="h-3 w-3" />
-                                </button>
-                                <button onClick={() => setDeleteConfirmId(child._id)} className="text-muted-foreground/40 hover:text-red-400 transition p-0.5">
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              </div>
+                              {!readOnly && (
+                                <div className="flex items-center gap-1.5">
+                                  <button onClick={() => startEdit(child)} className="text-muted-foreground/40 hover:text-white/80 transition p-0.5">
+                                    <Edit2 className="h-3 w-3" />
+                                  </button>
+                                  <button onClick={() => setDeleteConfirmId(child._id)} className="text-muted-foreground/40 hover:text-red-400 transition p-0.5">
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -915,28 +943,32 @@ export default function TradesPage() {
                           </td>
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={() => setMergeTrade(trade)}
-                                className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 transition"
-                                title="Merge trades"
-                              >
-                                <Puzzle className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => startEdit(trade)}
-                                className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
-                                title="Edit trade"
-                              >
-                                <Edit2 className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setDeleteConfirmId(trade._id)}
-                                disabled={deleting === trade._id}
-                                className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
-                                title="Delete trade"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                              {!readOnly && (
+                                <>
+                                  <button
+                                    onClick={() => setMergeTrade(trade)}
+                                    className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 transition"
+                                    title="Merge trades"
+                                  >
+                                    <Puzzle className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => startEdit(trade)}
+                                    className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
+                                    title="Edit trade"
+                                  >
+                                    <Edit2 className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirmId(trade._id)}
+                                    disabled={deleting === trade._id}
+                                    className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
+                                    title="Delete trade"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -979,21 +1011,25 @@ export default function TradesPage() {
                               </td>
                               <td className="px-5 py-2">
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button
-                                    onClick={() => startEdit(trade)}
-                                    className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
-                                    title="Edit trade"
-                                  >
-                                    <Edit2 className="h-3 w-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteConfirmId(trade._id)}
-                                    disabled={deleting === trade._id}
-                                    className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
-                                    title="Delete trade"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
+                                  {!readOnly && (
+                                    <>
+                                      <button
+                                        onClick={() => startEdit(trade)}
+                                        className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
+                                        title="Edit trade"
+                                      >
+                                        <Edit2 className="h-3 w-3" />
+                                      </button>
+                                      <button
+                                        onClick={() => setDeleteConfirmId(trade._id)}
+                                        disabled={deleting === trade._id}
+                                        className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
+                                        title="Delete trade"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -1035,21 +1071,25 @@ export default function TradesPage() {
                                 </td>
                                 <td className="px-5 py-2">
                                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                      onClick={() => startEdit(child)}
-                                      className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
-                                      title="Edit trade"
-                                    >
-                                      <Edit2 className="h-3 w-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => setDeleteConfirmId(child._id)}
-                                      disabled={deleting === child._id}
-                                      className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
-                                      title="Delete trade"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </button>
+                                    {!readOnly && (
+                                      <>
+                                        <button
+                                          onClick={() => startEdit(child)}
+                                          className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-white/80 hover:bg-white/[0.07] transition"
+                                          title="Edit trade"
+                                        >
+                                          <Edit2 className="h-3 w-3" />
+                                        </button>
+                                        <button
+                                          onClick={() => setDeleteConfirmId(child._id)}
+                                          disabled={deleting === child._id}
+                                          className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
+                                          title="Delete trade"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </td>
                               </tr>

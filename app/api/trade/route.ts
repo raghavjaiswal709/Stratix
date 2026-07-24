@@ -30,8 +30,16 @@ export async function GET(req: NextRequest) {
   const profileId = searchParams.get("profileId");
   const pageParam = searchParams.get("page");
 
+  // Admin "view as" support: an admin browsing a member's trade history from
+  // /admin/view/[userId] passes viewUserId so this read-only GET returns that
+  // member's trades instead of the admin's own. Only ever honored for admins —
+  // anyone else passing this param is silently ignored and sees their own data.
+  const viewUserId = searchParams.get("viewUserId");
+  const effectiveUserId =
+    viewUserId && session.user.role === "admin" ? viewUserId : session.user.id;
+
   await dbConnect();
-  const filter: Record<string, unknown> = { userId: session.user.id };
+  const filter: Record<string, unknown> = { userId: effectiveUserId };
   if (profileId && profileId !== "all") {
     filter.profileId = profileId;
   }
@@ -93,7 +101,7 @@ export async function GET(req: NextRequest) {
     .filter((t) => Array.isArray(t.mergedTradeIds) && t.mergedTradeIds.length > 0)
     .map((t) => t._id);
   const children = parentIds.length
-    ? await TradeEntryModel.find({ userId: session.user.id, parentTradeId: { $in: parentIds } })
+    ? await TradeEntryModel.find({ userId: effectiveUserId, parentTradeId: { $in: parentIds } })
         .select("-screenshots")
         .lean()
     : [];

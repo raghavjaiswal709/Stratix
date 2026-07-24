@@ -8,7 +8,7 @@ import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { ChevronDown, ChevronRight, Shield, Users, TrendingUp, BookOpen, MessageSquareText } from "lucide-react";
+import { ChevronDown, ChevronRight, Shield, Users, TrendingUp, BookOpen, MessageSquareText, Quote } from "lucide-react";
 
 interface UserEntry {
   _id: string;
@@ -101,6 +101,13 @@ export default function AdminPage() {
           <p className="text-[12px] text-muted-foreground">Stratix — full data view</p>
         </div>
         <Link
+          href="/admin/quotes"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.06] border border-white/[0.10] text-white/60 hover:text-white/90 hover:bg-white/[0.10] transition-colors shrink-0"
+        >
+          <Quote className="h-3.5 w-3.5" />
+          Quote Management
+        </Link>
+        <Link
           href="/admin/prompts"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/[0.06] border border-white/[0.10] text-white/60 hover:text-white/90 hover:bg-white/[0.10] transition-colors shrink-0"
         >
@@ -143,39 +150,50 @@ export default function AdminPage() {
               className="rounded-xl border border-border bg-card overflow-hidden"
             >
               {/* Row header — always visible */}
-              <button
-                onClick={() => toggle(user._id)}
-                className="w-full flex items-center gap-3 p-3.5 hover:bg-muted/40 transition-colors text-left"
-              >
-                <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage src={user.image ?? ""} alt={user.name} />
-                  <AvatarFallback className="text-[11px] bg-white/[0.08] text-white/60">
-                    {user.name?.charAt(0)?.toUpperCase() ?? "?"}
-                  </AvatarFallback>
-                </Avatar>
+              <div className="w-full flex items-center gap-1 hover:bg-muted/40 transition-colors">
+                <button
+                  onClick={() => toggle(user._id)}
+                  className="flex-1 min-w-0 flex items-center gap-3 p-3.5 text-left"
+                >
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarImage src={user.image ?? ""} alt={user.name} />
+                    <AvatarFallback className="text-[11px] bg-white/[0.08] text-white/60">
+                      {user.name?.charAt(0)?.toUpperCase() ?? "?"}
+                    </AvatarFallback>
+                  </Avatar>
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-semibold truncate">{user.name}</span>
-                    {user.role === "admin" && (
-                      <Badge className="text-[9px] px-1.5 py-0 bg-white/[0.08] text-white/55 border-white/[0.12]">
-                        ADMIN
-                      </Badge>
-                    )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-semibold truncate">{user.name}</span>
+                      {user.role === "admin" && (
+                        <Badge className="text-[9px] px-1.5 py-0 bg-white/[0.08] text-white/55 border-white/[0.12]">
+                          ADMIN
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
-                </div>
 
-                <div className="hidden sm:flex items-center gap-4 text-[11px] text-muted-foreground mr-2 shrink-0">
-                  <span>{habits.length} habits</span>
-                  <span>{user.tradeEntries.length} trades</span>
-                  <span>{todos.length} todos</span>
-                </div>
+                  <div className="hidden sm:flex items-center gap-4 text-[11px] text-muted-foreground mr-2 shrink-0">
+                    <span>{habits.length} habits</span>
+                    <span>{user.tradeEntries.length} trades</span>
+                    <span>{todos.length} todos</span>
+                  </div>
 
-                {open
-                  ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                  : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
-              </button>
+                  {open
+                    ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                    : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                </button>
+
+                <button
+                  onClick={() => window.open(`/admin/view/${user._id}`, "_blank", "width=1440,height=900,noopener")}
+                  className="flex items-center gap-1.5 mr-3 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-white/[0.06] border border-white/[0.10] text-white/60 hover:text-white/90 hover:bg-white/[0.10] transition-colors shrink-0"
+                  title="View this member's trading results — opens in a new read-only window"
+                >
+                  <TrendingUp className="h-3.5 w-3.5" />
+                  <span className="hidden md:inline">View trading results</span>
+                </button>
+              </div>
 
               {/* Expanded content */}
               {open && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   format,
   startOfMonth,
@@ -61,9 +61,17 @@ function fmt(n: number): string {
   return `${sign}$${Math.abs(n).toFixed(0)}`;
 }
 
+function dayKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [viewDate, setViewDate] = useState(new Date());
+  // Which day's trade list is open — click-driven, not hover, so it doesn't
+  // pop up every time the mouse passes over a cell.
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+  useEffect(() => setSelectedDayKey(null), [viewMode, viewDate]);
 
   // ── Range + navigation, per mode ─────────────────────────────────────────
   const { rangeStart, rangeEnd, headerLabel, goPrev, goNext } = useMemo(() => {
@@ -127,7 +135,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
   }, [trades]);
 
   const getDay = (date: Date) => {
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const key = dayKey(date);
     return dayStats.get(key) || { pnl: 0, count: 0, trades: [] as Trade[] };
   };
 
@@ -160,6 +168,11 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4 md:p-5">
+      {/* Click-away backdrop for the open day popover — sits below it (z-20 vs
+          the popover's z-30) so clicking anywhere else on the page closes it. */}
+      {selectedDayKey && (
+        <div className="fixed inset-0 z-20" onClick={() => setSelectedDayKey(null)} />
+      )}
       {/* Header */}
       <div className="mb-3 md:mb-4">
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -245,12 +258,17 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
 
               return (
                 <div key={weekStart.toISOString()} className="grid gap-px" style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}>
-                  {cells.map(({ day, inRange, pnl, hasTraded, trades: dayTrades }) => (
+                  {cells.map(({ day, inRange, pnl, hasTraded, trades: dayTrades }) => {
+                    const key = dayKey(day);
+                    const isOpen = hasTraded && selectedDayKey === key;
+                    return (
                     <div
                       key={day.toISOString()}
+                      onClick={() => hasTraded && setSelectedDayKey((prev) => (prev === key ? null : key))}
                       className={cn(
-                        "relative group min-h-[42px] flex flex-col items-center justify-center rounded-lg text-center p-1 transition",
+                        "relative min-h-[42px] flex flex-col items-center justify-center rounded-lg text-center p-1 transition",
                         !inRange && "opacity-0 pointer-events-none",
+                        hasTraded && "cursor-pointer",
                         hasTraded && pnl >= 0 && "bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20",
                         hasTraded && pnl < 0 && "bg-red-500/10 border border-red-500/20 hover:bg-red-500/20",
                         !hasTraded && inRange && "bg-muted/30 border border-transparent"
@@ -265,10 +283,12 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                         </span>
                       )}
 
-                      {/* Trades list hover popover */}
-                      {hasTraded && dayTrades.length > 0 && (
-                        <div className="absolute bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2 opacity-0 scale-95 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto flex flex-col w-56 rounded-xl border border-white/[0.08] bg-[#0c0c0c] shadow-2xl p-2 z-30 text-left transition-all duration-150 delay-100 group-hover:delay-0">
-                          <div className="absolute top-full left-0 right-0 h-[8px] bg-transparent pointer-events-auto" />
+                      {/* Trades list — opens on click, not hover */}
+                      {isOpen && dayTrades.length > 0 && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2 flex flex-col w-56 rounded-xl border border-white/[0.08] bg-[#0c0c0c] shadow-2xl p-2 z-30 text-left"
+                        >
                           <div className="px-2 py-1.5 border-b border-white/[0.06] mb-1.5 relative z-10">
                             <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
                               Trades on {format(day, "MMM d, yyyy")}
@@ -309,7 +329,8 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {/* Weekly summary */}
                   <div className="min-h-[42px] w-[56px] flex flex-col items-center justify-center">
