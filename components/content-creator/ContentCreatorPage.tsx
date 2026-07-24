@@ -3436,13 +3436,20 @@ export function ContentCreatorPage() {
             <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
           </button>
         )}
-        {/* Apple liquid glass backdrop glow circles */}
-        <div 
-          className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-[128px] pointer-events-none" 
+        {/* Apple liquid glass backdrop glow circles — sized down on mobile.
+            At w-96 (384px) these overflow a ~375px-wide phone viewport; that
+            overflow is invisible on its own (this column is overflow-hidden)
+            but any focus event elsewhere on the page makes the browser
+            auto-scroll this container to reveal it, permanently shifting the
+            whole preview (toolbar, canvas, everything) sideways with no way
+            to scroll it back. Keeping them within the container's own width
+            means there's never any overflow to scroll to. */}
+        <div
+          className="absolute top-1/4 left-1/4 w-48 h-48 md:w-96 md:h-96 rounded-full blur-[128px] pointer-events-none"
           style={{ backgroundColor: colors.accent, opacity: 0.035 }}
         />
-        <div 
-          className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-[128px] pointer-events-none" 
+        <div
+          className="absolute bottom-1/4 right-1/4 w-48 h-48 md:w-96 md:h-96 rounded-full blur-[128px] pointer-events-none"
           style={{ backgroundColor: colors.accent, opacity: 0.035 }}
         />
 
@@ -3556,9 +3563,14 @@ export function ContentCreatorPage() {
         )}
 
         {/* Canvas preview area with clickable element overlay */}
+        {/* Padding is trimmed on phones/tablets — on a ~375px-wide screen a
+            full p-6 (48px) eats ~13% of the width the poster could otherwise
+            use, and the poster is almost always width-bound there (portrait
+            phone vs. square/landscape posters), so every px of padding
+            directly costs displayed size. */}
         <div
           ref={previewRef}
-          className="relative flex-1 flex items-center justify-center overflow-hidden p-6 select-none z-10"
+          className="relative flex-1 flex items-center justify-center overflow-hidden p-2 sm:p-4 md:p-6 select-none z-10"
         >
           {/* Carousel nav — real app buttons, not baked into the poster image.
               Changes which poster is being previewed/edited/exported. */}

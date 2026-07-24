@@ -192,7 +192,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className={`flex h-screen w-full overflow-hidden bg-background${palette ? " app-theme-scope" : ""}`}
+      className={`flex h-dvh w-full overflow-hidden bg-background${palette ? " app-theme-scope" : ""}`}
       style={paletteStyle}
     >
       <TradeSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
