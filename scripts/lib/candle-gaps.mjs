@@ -34,11 +34,15 @@ export function isExpectedClosure(fromSec, toSec) {
     (fromDay === 6 || fromDay === 0 || (fromDay === 5 && from.getUTCHours() >= 20)) &&
     (toDay === 6 || toDay === 0 || (toDay === 1 && to.getUTCHours() <= 23));
 
+  // A few minutes of slack either side: the rollover doesn't land on the
+  // exact same minute every day, and neither Dukascopy nor Twelve Data has
+  // data for it regardless — confirmed by backfill runs where these edges
+  // came back "already present" (i.e. the vendor's own data has the same
+  // hole). Matching loosely avoids burning API calls on unfillable windows.
   const fh = from.getUTCHours(), fm = from.getUTCMinutes();
-  const th = to.getUTCHours(), tm = to.getUTCMinutes();
   const isDailyRollover =
-    (fh === 20 && fm >= 55 && th === 22 && tm === 0) ||   // summer (DST) variant
-    (fh === 21 && fm >= 55 && th === 23 && tm === 0);     // winter variant
+    (fh === 20 && fm >= 50) || (fh === 21 && fm <= 10) ||   // summer (DST) variant
+    (fh === 21 && fm >= 50) || (fh === 22 && fm <= 10);     // winter variant
 
   return isWeekend || isDailyRollover;
 }
