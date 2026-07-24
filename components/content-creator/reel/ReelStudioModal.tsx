@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Play,
   Pause,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { CreatorMode } from "../types";
 import {
@@ -74,6 +75,10 @@ export function ReelStudioModal({
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [bulkDuration, setBulkDuration] = useState(DEFAULT_SLIDE_DURATION);
   const [previewingTrackId, setPreviewingTrackId] = useState<string | null>(null);
+  // On phones/tablets (< md) the Transition/Motion/Music/Whoosh settings move
+  // into a slide-in sidebar instead of being stacked below the preview — this
+  // toggles that drawer. md+ ignores it entirely (settings stay in-flow).
+  const [showMobileSettings, setShowMobileSettings] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -261,6 +266,14 @@ export function ReelStudioModal({
     };
   }, []);
 
+  // The export progress / result / error states all render in the preview
+  // column, which the mobile settings sidebar sits on top of (z-[60]) — close
+  // it the moment export starts (or slides finish loading into "error") so
+  // that UI isn't hidden behind it.
+  useEffect(() => {
+    if (phase !== "ready") setShowMobileSettings(false);
+  }, [phase]);
+
   const totalDuration = buildReelTimeline(slides.map((s) => s.duration), settings.transitionDuration).totalDuration;
 
   const updateDuration = (idx: number, duration: number) => {
@@ -310,9 +323,11 @@ export function ReelStudioModal({
   const isBusy = phase === "loading" || isExporting;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm md:p-4">
       <div className="absolute inset-0" onClick={isBusy ? undefined : onClose} />
-      <div className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl border border-white/[0.1] bg-[#141412] shadow-2xl overflow-hidden">
+      {/* Edge-to-edge full-screen sheet on mobile/tablet (no room to spare for
+          a floating, rounded, padded dialog); centered card unchanged at md+. */}
+      <div className="relative w-full h-dvh md:h-auto md:max-h-[92vh] max-w-5xl flex flex-col md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#141412] shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] shrink-0">
           <div className="flex items-center gap-2">
             <Clapperboard className="h-4 w-4 text-white/60" />
@@ -375,6 +390,14 @@ export function ReelStudioModal({
                     {previewTime.toFixed(1)}/{totalDuration.toFixed(1)}s
                   </span>
                 </div>
+                {/* md+ shows Transition/Motion/Music/Whoosh in-flow to the
+                    right — on mobile they live in a sidebar, opened here. */}
+                <button
+                  onClick={() => setShowMobileSettings(true)}
+                  className="md:hidden w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-[11px] font-bold border border-white/10 bg-white/5 hover:bg-white/10 active:scale-[0.98] text-white transition cursor-pointer"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" /> Effects & Options
+                </button>
               </div>
             )}
 
@@ -433,8 +456,35 @@ export function ReelStudioModal({
             )}
           </div>
 
-          {/* Settings */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+          {/* Mobile-only backdrop for the settings sidebar below */}
+          {showMobileSettings && (
+            <div
+              className="fixed inset-0 z-[55] bg-black/60 backdrop-blur-sm md:hidden"
+              onClick={() => setShowMobileSettings(false)}
+              aria-hidden="true"
+            />
+          )}
+
+          {/* Settings — slides in from the right as a sidebar on mobile/tablet
+              (< md); at md+ this is the normal in-flow right column. */}
+          <div
+            className={`fixed md:static inset-y-0 right-0 z-[60] md:z-auto w-[88vw] max-w-[380px] md:w-auto md:max-w-none flex-1 flex flex-col bg-[#141412] md:bg-transparent transition-transform duration-300 ease-in-out md:transition-none ${
+              showMobileSettings ? "translate-x-0" : "translate-x-full"
+            } md:translate-x-0`}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0 md:hidden">
+              <span className="flex items-center gap-1.5 text-[12px] font-bold text-white">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-white/60" /> Effects & Options
+              </span>
+              <button
+                onClick={() => setShowMobileSettings(false)}
+                className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/10 transition cursor-pointer"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
             {/* Slides & per-slide duration */}
             <section>
               <h3 className="text-[10.5px] font-bold uppercase tracking-wider text-white/50 mb-2">Slides</h3>
@@ -664,6 +714,7 @@ export function ReelStudioModal({
                 </div>
               )}
             </section>
+            </div>
           </div>
         </div>
 
