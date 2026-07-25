@@ -837,7 +837,7 @@ export const MarketNews = forwardRef<MarketNewsHandle, MarketNewsProps>(function
       )}
 
       {/* ── Pagination ────────────────────────────────────────────── */}
-      {!loading && !error && totalPages > 1 && (
+      {!aiFiltering && !loading && !error && totalPages > 1 && (
         <div className="mt-8 flex items-center justify-center gap-1.5">
           <button
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}

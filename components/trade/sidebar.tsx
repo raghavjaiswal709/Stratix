@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useAppContext } from "@/lib/context";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard,
   ArrowLeftRight,
@@ -130,6 +130,25 @@ function CollapsedSidebar({
   const { tradeItems: activeTradeItems, adminTradeItems: activeAdminTradeItems, lifeItems: activeLifeItems } = getActiveSidebarItems(preferences);
   const [profileOpen, setProfileOpen] = useState(false);
   const [showManage, setShowManage] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileOpen(false);
+    };
+    const handlePointerDown = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [profileOpen]);
 
   function handleSignOut() {
     if (hasUnsavedChanges) {
@@ -296,7 +315,7 @@ function CollapsedSidebar({
 
       {/* Profile — avatar only */}
       {session?.user && (
-        <div className="relative px-2 pb-4 pt-2 border-t border-sidebar-border flex justify-center">
+        <div ref={profileRef} className="relative px-2 pb-4 pt-2 border-t border-sidebar-border flex justify-center">
           <Tooltip>
             <TooltipTrigger
               render={
@@ -427,6 +446,25 @@ function ExpandedSidebar({
   const { tradeItems: activeTradeItems, adminTradeItems: activeAdminTradeItems, lifeItems: activeLifeItems } = getActiveSidebarItems(preferences);
   const [profileOpen, setProfileOpen] = useState(false);
   const [showManage, setShowManage] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileOpen(false);
+    };
+    const handlePointerDown = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [profileOpen]);
 
   function handleSignOut() {
     if (hasUnsavedChanges) {
@@ -569,7 +607,7 @@ function ExpandedSidebar({
 
       {/* User profile — dropup */}
       {session?.user && (
-        <div className="px-3 pb-4 pt-2 border-t border-white/[0.055] relative">
+        <div ref={profileRef} className="px-3 pb-4 pt-2 border-t border-white/[0.055] relative">
           {profileOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setProfileOpen(false)} />
