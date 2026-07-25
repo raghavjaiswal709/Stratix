@@ -215,7 +215,7 @@ export function PortfolioAITrigger({
           onAsk(input);
         }
       }}
-      className={`flex items-center gap-3 rounded-full border border-white/[0.18] bg-[#0c0d12]/98 px-5 py-3 shadow-2xl transition-all duration-200 ${
+      className={`flex items-center gap-3 rounded-full border border-white/[0.18] bg-[#0d0d0d]/98 px-5 py-3 shadow-2xl transition-all duration-200 ${
         isOpen ? "border-white/40 ring-1 ring-white/15" : "hover:border-white/35"
       }`}
     >
@@ -291,7 +291,7 @@ export function PortfolioAIModal({
 
   return (
     <div
-      className="pai-bouncy-panel-center absolute bottom-full left-0 mb-2.5 flex h-[520px] max-h-[70vh] w-full flex-col rounded-[28px] border border-white/[0.16] bg-[#0c0d12]/98 shadow-2xl overflow-hidden z-[75] pointer-events-auto"
+      className="pai-bouncy-panel-center absolute bottom-full left-0 mb-2.5 flex h-[520px] max-h-[70vh] w-full flex-col rounded-[28px] border border-white/[0.16] bg-[#0d0d0d]/98 shadow-2xl overflow-hidden z-[75] pointer-events-auto"
       onClick={(e) => e.stopPropagation()}
     >
       <style>{`
@@ -396,7 +396,7 @@ export function PortfolioAIModal({
 
       {/* 100% Fixed & Consistent Searching Animation Overlay */}
       {loading && (
-        <div className="absolute inset-x-0 bottom-0 top-[53px] z-30 flex items-center justify-center bg-[#0c0d12]/85 backdrop-blur-md transition-opacity duration-200">
+        <div className="absolute inset-x-0 bottom-0 top-[53px] z-30 flex items-center justify-center bg-[#0d0d0d]/85 backdrop-blur-md transition-opacity duration-200">
           <PortfolioAIThinking />
         </div>
       )}

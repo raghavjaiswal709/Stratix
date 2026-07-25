@@ -42,7 +42,7 @@ export function AiFilteringOverlay({ articleCount }: { articleCount: number }) {
     <div
       className="relative flex flex-col items-center justify-center gap-6 overflow-hidden rounded-2xl border border-white/[0.12] py-16 px-6"
       style={{
-        background: "radial-gradient(circle at 50% 35%, rgba(255,255,255,0.03), transparent 70%), #0c0d12",
+        background: "radial-gradient(circle at 50% 35%, rgba(255,255,255,0.03), transparent 70%), #0d0d0d",
       }}
     >
       {/* High-Speed Bouncy Shooting Star Magnet Animation */}

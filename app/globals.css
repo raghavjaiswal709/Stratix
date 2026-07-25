@@ -108,17 +108,22 @@
 
 /* ===== DARK MODE ===== */
 .dark {
-  --background: #090a0f;
+  /* Bases below are deliberately neutral (R≈G≈B) — #090a0f/#11131a/#181b24
+     etc. previously ran the blue channel a few points hot, which reads as a
+     faint purple cast at low lightness even with a non-purple accent color
+     selected. Kept as color-mix(...) so picking a colorful accent still
+     tints these surfaces on purpose — only the neutral fallback moved. */
+  --background: #0a0a0a;
   --foreground: oklch(0.97 0 0);
-  --card: color-mix(in srgb, var(--accent-color) 3%, #11131a);
+  --card: color-mix(in srgb, var(--accent-color) 3%, #141414);
   --card-foreground: oklch(0.97 0 0);
-  --popover: color-mix(in srgb, var(--accent-color) 3%, #11131a);
+  --popover: color-mix(in srgb, var(--accent-color) 3%, #141414);
   --popover-foreground: oklch(0.97 0 0);
   --primary: var(--accent-color);
   --primary-foreground: var(--accent-color-foreground);
-  --secondary: color-mix(in srgb, var(--accent-color) 4%, #181b24);
+  --secondary: color-mix(in srgb, var(--accent-color) 4%, #1a1a1a);
   --secondary-foreground: oklch(0.97 0 0);
-  --muted: color-mix(in srgb, var(--accent-color) 4%, #161822);
+  --muted: color-mix(in srgb, var(--accent-color) 4%, #181818);
   --muted-foreground: oklch(0.65 0 0);
   --accent: color-mix(in srgb, var(--accent-color) 12%, transparent);
   --accent-foreground: var(--accent-color);
@@ -131,7 +136,7 @@
   --chart-3: oklch(0.769 0.167 86.31);
   --chart-4: oklch(0.641 0.246 17.51);
   --chart-5: oklch(0.579 0.246 298.91);
-  --sidebar: color-mix(in srgb, var(--accent-color) 3%, #0c0d12);
+  --sidebar: color-mix(in srgb, var(--accent-color) 3%, #0d0d0d);
   --sidebar-foreground: oklch(0.97 0 0);
   --sidebar-primary: var(--accent-color);
   --sidebar-primary-foreground: var(--accent-color-foreground);
@@ -145,7 +150,7 @@
   --table-header-bg: color-mix(in srgb, var(--accent-color) 4%, rgba(255, 255, 255, 0.02));
   --glass-border-color: color-mix(in srgb, var(--accent-color) 6%, rgba(255, 255, 255, 0.08));
   --glass-surface: color-mix(in srgb, var(--accent-color) 3%, rgba(255, 255, 255, 0.03));
-  --glass-nav-bg: color-mix(in srgb, var(--accent-color) 3%, rgba(10, 10, 15, 0.88));
+  --glass-nav-bg: color-mix(in srgb, var(--accent-color) 3%, rgba(10, 10, 10, 0.88));
 }
 
 /* ===== GLASS UTILITIES ===== */
