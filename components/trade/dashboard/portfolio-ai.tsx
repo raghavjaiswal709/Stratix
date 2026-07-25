@@ -4,7 +4,9 @@
 // user's own trades + missed trades + journal notes (see app/api/portfolio-ai/route.ts).
 // Gemini-like sticky bottom-center chat box always visible on the dashboard.
 // Focusing or typing in the text box opens the chat modal and keeps both connected.
-// Features a self-contained rounded-head bouncy shooting star comet magnet engine.
+// Features a self-contained "magnetic attraction" loading engine — small round
+// balls pulled into a pulsing core — shared with the news-filtering overlay
+// (components/chart/news-sentiment/ai-filtering-overlay.tsx).
 // Supports click-outside and Escape key dismissal for both the modal and text widget.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -16,131 +18,105 @@ export interface ChatMessage {
   content: string;
 }
 
-const SHOOTING_STAR_COUNT = 32;
+const MAGNET_DOT_COUNT = 14;
 const MAGNET_EASINGS = [
-  "cubic-bezier(0.175, 0.885, 0.32, 1.275)",
-  "cubic-bezier(0.34, 1.56, 0.64, 1)",
-  "cubic-bezier(0.25, 1, 0.5, 1)",
+  "cubic-bezier(0.4, 0, 0.2, 1)",
+  "cubic-bezier(0.34, 1.1, 0.64, 1)",
+  "ease-in-out",
 ];
 
-interface ShootingStarParticle {
+interface MagnetDotParticle {
   angle: string;
   radius: string;
-  width: number;
-  height: number;
+  size: number;
   duration: string;
   delay: string;
   easing: string;
 }
 
-export function useShootingStars(): ShootingStarParticle[] {
+// Base angle spread evenly around the ring (+ jitter) rather than pure
+// Math.random() per dot — avoids the ugly "all clustered on one side" look
+// pure randomness can produce, while the jittered angle/radius/size/timing
+// still reads as organic rather than a mechanical, uniform pattern.
+export function useShootingStars(): MagnetDotParticle[] {
   return useMemo(
     () =>
-      Array.from({ length: SHOOTING_STAR_COUNT }, (_, i) => {
-        const baseAngle = (i / SHOOTING_STAR_COUNT) * 360;
-        const angleJitter = (Math.random() - 0.5) * 10;
-        const angle = `${(baseAngle + angleJitter).toFixed(1)}deg`;
-        const radius = `${(50 + Math.random() * 95).toFixed(1)}px`;
-        const width = 1.0 + Math.random() * 0.8; // Ultra-thin razor particles: 1.0px - 1.8px
-        const height = 22 + Math.random() * 18;
-        const duration = `${(0.38 + Math.random() * 0.35).toFixed(2)}s`;
-        const delay = `${(Math.random() * 0.52).toFixed(2)}s`;
-        const easing = MAGNET_EASINGS[Math.floor(Math.random() * MAGNET_EASINGS.length)];
-
-        return { angle, radius, width, height, duration, delay, easing };
+      Array.from({ length: MAGNET_DOT_COUNT }, (_, i) => {
+        const baseAngle = (i / MAGNET_DOT_COUNT) * 360;
+        const angleJitter = (Math.random() - 0.5) * 26;
+        return {
+          angle: `${(baseAngle + angleJitter).toFixed(1)}deg`,
+          radius: `${(38 + Math.random() * 26).toFixed(1)}px`, // 38–64px out from the core
+          size: 5 + Math.random() * 4, // 5–9px — genuinely round balls, not spikes
+          duration: `${(1.2 + Math.random() * 0.9).toFixed(2)}s`,
+          delay: `${(Math.random() * 2.1).toFixed(2)}s`,
+          easing: MAGNET_EASINGS[Math.floor(Math.random() * MAGNET_EASINGS.length)],
+        };
       }),
     [],
   );
 }
 
+// Small round balls scattered around a pulsing core, each pulled inward and
+// shrinking away as it's absorbed — the core magnetically attracting data.
+// Every ball is a true circle (uniform `scale`, no scaleX/scaleY skew) on a
+// calm 1.2–2.1s cycle so it reads as a steady pull-in, not a frantic burst.
 export function ShootingStarMagnet() {
-  const stars = useShootingStars();
+  const dots = useShootingStars();
   return (
-    <div className="pai-shooting-magnet flex items-center justify-center" aria-hidden="true">
+    <div className="pai-magnet flex items-center justify-center" aria-hidden="true">
       <style>{`
-        /* REALISTIC PURE-WHITE ROUNDED BOUNCY SHOOTING STAR ENGINE */
-        .pai-shooting-magnet {
-          position: relative;
-          width: 140px;
-          height: 140px;
-          flex-shrink: 0;
-        }
+        .pai-magnet { position: relative; width: 140px; height: 140px; flex-shrink: 0; }
         .pai-magnet-halo {
-          position: absolute;
-          top: 50%; left: 50%;
-          width: 38px; height: 38px;
-          margin: -19px 0 0 -19px;
-          border-radius: 9999px;
-          background: radial-gradient(circle, rgba(255, 255, 255, 0.25), transparent 70%);
-          animation: pai-halo 0.75s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+          position: absolute; top: 50%; left: 50%; width: 52px; height: 52px;
+          margin: -26px 0 0 -26px; border-radius: 9999px;
+          background: radial-gradient(circle, rgba(255, 255, 255, 0.28), transparent 70%);
+          animation: pai-halo 2.2s ease-in-out infinite;
         }
         .pai-magnet-core {
-          position: absolute;
-          top: 50%; left: 50%;
-          width: 14px; height: 14px;
-          margin: -7px 0 0 -7px;
-          border-radius: 9999px;
-          background: #ffffff;
-          box-shadow: 0 0 14px rgba(255, 255, 255, 0.9);
-          animation: pai-pulse 0.75s cubic-bezier(0.175, 0.885, 0.32, 1.275) infinite;
+          position: absolute; top: 50%; left: 50%; width: 22px; height: 22px;
+          margin: -11px 0 0 -11px; border-radius: 9999px;
+          background: radial-gradient(circle at 35% 35%, #ffffff, #d4d4d8 75%);
+          box-shadow: 0 0 18px rgba(255, 255, 255, 0.75);
+          animation: pai-pulse 2.2s ease-in-out infinite;
         }
-        .pai-shooting-star {
-          position: absolute;
-          top: 50%; left: 50%;
-          border-radius: 9999px;
-          background: linear-gradient(0deg, #ffffff 0%, rgba(255, 255, 255, 0.7) 35%, rgba(255, 255, 255, 0.15) 80%, transparent 100%);
-          transform-origin: 50% 100%;
-          animation-name: pai-star-bounce-fly;
+        .pai-magnet-dot {
+          position: absolute; top: 50%; left: 50%; border-radius: 9999px;
+          background: radial-gradient(circle at 35% 35%, #ffffff, #b8b8c0 80%);
+          animation-name: pai-attract;
           animation-iteration-count: infinite;
         }
-
         @keyframes pai-halo {
-          0%, 100% { transform: scale(0.8); opacity: 0.25; }
-          50% { transform: scale(1.4); opacity: 0.75; }
+          0%, 100% { transform: scale(0.85); opacity: 0.35; }
+          50% { transform: scale(1.25); opacity: 0.75; }
         }
         @keyframes pai-pulse {
-          0%, 100% { transform: scale(0.85); }
-          50% { transform: scale(1.35); }
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.18); }
         }
-        @keyframes pai-star-bounce-fly {
-          0% {
-            transform: rotate(var(--angle)) translateY(calc(var(--radius) * -1)) scaleY(0.4) scaleX(0.8);
-            opacity: 0;
-          }
-          15% {
-            opacity: 0.95;
-            transform: rotate(var(--angle)) translateY(calc(var(--radius) * -0.85)) scaleY(1) scaleX(1);
-          }
-          75% {
-            transform: rotate(var(--angle)) translateY(calc(var(--radius) * -0.15)) scaleY(1.2) scaleX(1.1);
-            opacity: 1;
-          }
-          90% {
-            transform: rotate(var(--angle)) translateY(0px) scaleY(1.45) scaleX(1.35);
-            opacity: 1;
-          }
-          100% {
-            transform: rotate(var(--angle)) translateY(0px) scale(0);
-            opacity: 0;
-          }
+        @keyframes pai-attract {
+          0% { transform: rotate(var(--angle)) translateY(calc(var(--radius) * -1)) scale(0.5); opacity: 0; }
+          18% { opacity: 1; transform: rotate(var(--angle)) translateY(calc(var(--radius) * -0.92)) scale(1); }
+          70% { opacity: 0.9; transform: rotate(var(--angle)) translateY(calc(var(--radius) * -0.25)) scale(0.85); }
+          100% { transform: rotate(var(--angle)) translateY(0px) scale(0); opacity: 0; }
         }
       `}</style>
       <span className="pai-magnet-halo" />
       <span className="pai-magnet-core" />
-      {stars.map((s, i) => (
+      {dots.map((d, i) => (
         <span
           key={i}
-          className="pai-shooting-star"
+          className="pai-magnet-dot"
           style={{
-            "--angle": s.angle,
-            "--radius": s.radius,
-            width: s.width,
-            height: s.height,
-            marginTop: -s.height,
-            marginLeft: -s.width / 2,
-            animationDuration: s.duration,
-            animationDelay: s.delay,
-            animationTimingFunction: s.easing,
+            "--angle": d.angle,
+            "--radius": d.radius,
+            width: d.size,
+            height: d.size,
+            marginTop: -d.size / 2,
+            marginLeft: -d.size / 2,
+            animationDuration: d.duration,
+            animationDelay: d.delay,
+            animationTimingFunction: d.easing,
           } as CSSProperties}
         />
       ))}
