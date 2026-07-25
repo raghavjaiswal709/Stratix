@@ -754,10 +754,17 @@ export async function GET(req: NextRequest) {
 
     let scored = filtered.map((item) => toScoredItem(item));
 
-    // Economic calendar — already correctly scored per event's own impact level
+    // Economic calendar — already correctly scored per event's own impact level.
+    // Folded in only long enough to (a) let applyCorroborationBoost count a
+    // matching calendar release as a corroborating "source" for RSS coverage
+    // of the same event, then (b) stripped before the response — calendar
+    // events now live exclusively in the dedicated Scheduled Events panel
+    // (components/market-calendar/ScheduledEventsPanel.tsx), so they never
+    // duplicate as noise in this live news grid.
     scored = scored.concat(calendarEventsToArticles(calendarEvents));
 
     scored = applyCorroborationBoost(scored);
+    scored = scored.filter((s) => !s.isCalendarEvent);
 
     // Sort by recency for the cap below — with no default score gate, this
     // ensures the most RECENT items survive the cap rather than skewing
@@ -828,10 +835,13 @@ export async function GET(req: NextRequest) {
 
   let scored = deduped.map((item) => toScoredItem(item));
 
-  // Economic calendar events relevant to this symbol's currencies — already scored
+  // Economic calendar events relevant to this symbol's currencies — already
+  // scored. Folded in only for corroboration purposes and stripped before the
+  // response; see the matching comment in the ALL-instruments branch above.
   scored = scored.concat(calendarEventsToArticles(calendarEvents, relevantCurrencies));
 
   scored = applyCorroborationBoost(scored);
+  scored = scored.filter((s) => !s.isCalendarEvent);
   scored.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
 
   const signal = scored.filter((s) => s.impactScore >= minScore);

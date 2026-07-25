@@ -7,6 +7,8 @@ import { MonthlyCalendar } from "@/components/trade/dashboard/monthly-calendar";
 import { OpenPositions } from "@/components/trade/dashboard/open-positions";
 import { TradingInsights } from "@/components/trade/dashboard/trading-insights";
 import { LatestNewsWidget } from "@/components/trade/dashboard/latest-news";
+import { ScheduledEventsPanel } from "@/components/market-calendar/ScheduledEventsPanel";
+import { PortfolioAIWidget } from "@/components/trade/dashboard/portfolio-ai";
 import { TradingQuotesModal } from "@/components/shared/trading-quotes";
 import { SyncButton } from "@/components/trade/sync/sync-button";
 import { TradesTable } from "@/components/trade/sync/trades-table";
@@ -184,8 +186,11 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
   const activeProfile = tradingProfiles.find((p) => p.id === activeProfileId);
 
   return (
-    <div className="flex-1 space-y-6 p-4 md:p-6">
+    <div className="flex-1 space-y-6 p-4 md:p-6 pb-24">
       <TradingQuotesModal />
+      {!readOnly && (
+        <PortfolioAIWidget profileId={activeProfileId} />
+      )}
 
       {/* Header */}
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -202,8 +207,10 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
         </div>
       </div>
 
-      {/* Stats */}
-      <StatsCards {...stats} />
+      {/* Stats — Scheduled Events takes the Unrealized/Realized cards' old slot */}
+      <StatsCards {...stats}>
+        <ScheduledEventsPanel variant="compact" className="col-span-2" />
+      </StatsCards>
 
       {/* Charts — each handles its own loading state */}
       <div className="grid gap-4 md:grid-cols-2">

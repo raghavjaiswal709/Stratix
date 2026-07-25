@@ -7,6 +7,7 @@ import { NEWS_FILTER_PROMPTS } from "./newsFilter";
 import { ASK_AI_PROMPTS } from "./askAi";
 import { AI_REPORT_PROMPTS } from "./aiReport";
 import { CONTENT_CREATOR_PROMPTS } from "./contentCreator";
+import { PORTFOLIO_ASSISTANT_PROMPTS } from "./portfolioAssistant";
 
 export const PROMPT_DEFINITIONS: PromptDefinition[] = [
   ...JOURNAL_PROMPTS,
@@ -17,6 +18,7 @@ export const PROMPT_DEFINITIONS: PromptDefinition[] = [
   ...ASK_AI_PROMPTS,
   ...AI_REPORT_PROMPTS,
   ...CONTENT_CREATOR_PROMPTS,
+  ...PORTFOLIO_ASSISTANT_PROMPTS,
 ];
 
 const PROMPT_DEFINITION_MAP = new Map(PROMPT_DEFINITIONS.map((d) => [d.key, d]));
@@ -35,6 +37,7 @@ export const PROMPT_CATEGORY_ORDER = [
   "Journal",
   "News Analysis",
   "Ask AI",
+  "Portfolio Assistant",
   "AI Report (CHoCH QLM)",
   "Content Creator",
 ];

@@ -10,6 +10,7 @@ interface CandleSummary { [sym: string]: { h1: HCandle[]; h4: HCandle[] } }
 import { cn } from "@/lib/utils";
 import { validateReportSchema } from "@/lib/newsValidation";
 import { MarketNews, type MarketNewsHandle, FILTER_HOUR_OPTIONS, filterHourLabel } from "@/components/chart/MarketNews";
+import { ScheduledEventsPanel } from "@/components/market-calendar/ScheduledEventsPanel";
 import { AnalyseNewsModal } from "@/components/chart/news-sentiment/analyse-news-modal";
 import { SentimentReportDashboard, type SentimentReport } from "@/components/chart/news-sentiment/sentiment-report-dashboard";
 import { FilteredReportView } from "@/components/chart/news-sentiment/filtered-report-view";
@@ -4943,124 +4944,14 @@ export default function NewsAnalysisPage() {
         </div>
       </div>
 
-      {/* ── Latest report banner ───────────────────────────────────────────── */}
-      {!indexLoading && latestKind && (
-        <div className="px-5 md:px-8 pt-5">
-          {latestKind === "analysis" && analyseHistory[0] ? (
-            /* Latest is a deep AI analysis report */
-            <button
-              onClick={() => { setAiAnalysisOpen(true); handleLoadAnalyseReport(analyseHistory[0]._id); }}
-              className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border transition text-left group"
-              style={{ background: "rgba(8,8,15,0.6)", border: "1px solid rgba(16,185,129,0.12)", boxShadow: "0 0 30px rgba(124,58,237,0.05)" }}
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }}>
-                <Sparkles className="h-4 w-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5 min-w-0">
-                  <span className="text-[12px] font-semibold text-white/70 truncate min-w-0">
-                    Latest: {analyseHistory[0].timeRangeLabel} AI Analysis
-                  </span>
-                  <AITag />
-                </div>
-                <p className="text-[10px] text-white/25">{fmtLatest(analyseHistory[0].generatedAt)} · {analyseHistory[0].newsCount} articles</p>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
-                <Eye className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">View Analysis</span>
-              </div>
-            </button>
-          ) : latestKind === "sentiment" && sentimentHistory[0] ? (
-            /* Latest is a sentiment-report */
-            <button
-              onClick={() => setSentimentViewId(sentimentHistory[0]._id)}
-              className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border transition text-left group"
-              style={{ background: "rgba(8,8,15,0.6)", border: "1px solid rgba(16,185,129,0.12)", boxShadow: "0 0 30px rgba(124,58,237,0.05)" }}
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }}>
-                <Sparkles className="h-4 w-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5 min-w-0">
-                  <span className="text-[12px] font-semibold text-white/70 truncate min-w-0">
-                    Latest: {sentimentHistory[0].timeRangeLabel} Sentiment Report
-                  </span>
-                  <AITag />
-                </div>
-                <p className="text-[10px] text-white/25">{fmtLatest(sentimentHistory[0].generatedAt)} · {sentimentHistory[0].newsAnalyzedCount} articles</p>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
-                <Eye className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">View Report</span>
-              </div>
-            </button>
-          ) : latestKind === "filter" && filterHistory[0] ? (
-            /* Latest is a Filter News report */
-            <button
-              onClick={() => setFilterViewId(filterHistory[0]._id)}
-              className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border transition text-left group"
-              style={{ background: "rgba(8,8,15,0.6)", border: "1px solid rgba(16,185,129,0.12)", boxShadow: "0 0 30px rgba(124,58,237,0.05)" }}
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                style={{ background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }}>
-                <Filter className="h-4 w-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5 min-w-0">
-                  <span className="text-[12px] font-semibold text-white/70 truncate min-w-0">
-                    Latest: {filterHistory[0].timeRangeLabel} Filtered News
-                  </span>
-                  <AITag />
-                </div>
-                <p className="text-[10px] text-white/25">{fmtLatest(filterHistory[0].generatedAt)} · {filterHistory[0].keptNewsCount}/{filterHistory[0].allNewsCount} kept</p>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
-                <Eye className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">View Report</span>
-              </div>
-            </button>
-          ) : latestReport ? (
-            /* Latest is a session report */
-            <button
-              onClick={() => openReportView(latestReport)}
-              className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border transition text-left group"
-              style={latestReport.reportType === "ai"
-                ? { background: "rgba(8,8,15,0.6)", border: "1px solid rgba(16,185,129,0.12)", boxShadow: "0 0 30px rgba(124,58,237,0.05)" }
-                : { background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }
-              }
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                style={latestReport.reportType === "ai"
-                  ? { background: "linear-gradient(135deg, #059669 0%, #7c3aed 60%, #0891b2 100%)" }
-                  : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)" }
-                }
-              >
-                {latestReport.reportType === "ai"
-                  ? <Sparkles className="h-4 w-4 text-white" />
-                  : <Newspaper className="h-4 w-4 text-white/50" />
-                }
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5 min-w-0">
-                  <span className="text-[12px] font-semibold text-white/70 truncate min-w-0">
-                    Latest: {SESSION_LABELS[latestReport.session]} Session · {formatDateLabel(latestReport.date)}
-                  </span>
-                  {latestReport.reportType === "ai" ? <AITag /> : <ManualTag />}
-                </div>
-                {latestReport.latestAt && (
-                  <p className="text-[10px] text-white/25">{fmtLatest(latestReport.latestAt)}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-white/30 group-hover:text-white/60 transition">
-                <Eye className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">View Report</span>
-              </div>
-            </button>
-          ) : null}
-        </div>
-      )}
+
+
+      {/* ── Scheduled Events — dedicated area for upcoming market-calendar
+          releases, kept out of the live news grid below (which filters them
+          out server-side) so they never show up twice. ────────────────────── */}
+      <div className="px-5 md:px-8 pt-5">
+        <ScheduledEventsPanel variant="full" />
+      </div>
 
       {/* ── Main: Live News ────────────────────────────────────────────────── */}
       <div id="market-news-section" className="flex-1 pt-5">
