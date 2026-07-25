@@ -259,7 +259,7 @@ export const DASHBOARD_PALETTES: DashboardPalette[] = [
     positive: "#34d399", negative: "#f87171", accent: "#818cf8", icon: "#6366f1", badge: "#4f46e5" },
   { id: "violet-depths",   name: "Violet Depths", mode: "dark",
     background: "#0d0915", card: "#140f21", border: "#241a38", muted: "#1c132d", secondary: "#231839", text: "#eae4f5", textMuted: "#9385b5",
-    positive: "#34d399", negative: "#f87171", accent: "#a78bfa", icon: "#8b5cf6", badge: "#7c3aed" },
+    positive: "#34d399", negative: "#f87171", accent: "#6b5b95", icon: "#584a7d", badge: "#463a68" },
 
   // ── Light Mode Palettes ──
   { id: "porcelain-mint",    name: "Porcelain & Mint", mode: "light",
