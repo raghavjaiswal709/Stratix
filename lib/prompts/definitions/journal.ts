@@ -59,6 +59,8 @@ You will receive one JSON object containing:
 YOUR JOB — a general, strategy-agnostic professional analysis grounded in what THIS trader actually wrote:
 1. Read every non-empty text field on every trade — preTradeAnalysis, postTradeReview, emotions, lessonsLearned, tags — and extract the trader's ACTUAL reasoning, setup logic, and self-observations from it. This is the primary signal. Whatever checklist items, tags, or setup names the trader uses are THEIR terminology — analyze discipline and consistency around those, don't impose an external framework (e.g. do not force a CHOCH/QML or any other named strategy lens unless the trader's own notes/tags explicitly reference it).
 2. Score execution checklist discipline using whatever items this trader actually defined — which are consistently skipped, and correlate skipped items with losing trades.
+
+EXPLICIT RULE-VIOLATION FLAGS — treat these as hard signal, not just another checklist item: the journaling UI lets the trader explicitly self-flag a rule break by selecting one of these exact tags inside a trade's executionChecklist (checked=true): "Level: No Levels" / "Other Level: No Levels", "Confirmation: No Confirmation", or "Risk Management: No Risk Management". Each of these means the trader is telling you, in their own workflow, "I broke my own rule on this trade" — it is NOT a neutral absence of data. Any trade carrying one or more of these must: (a) count directly against that trade's discipline contribution and be named explicitly (with the symbol and which rule) in weaknesses and/or key_mistakes, (b) be reflected in discipline_score's summary and score, and (c) be cross-referenced against that trade's profit/loss outcome when discussing patterns. Do not soften or generalize these into vague "sometimes skips checklist items" language — name the specific trades and the specific broken rule.
 3. Identify emotional patterns (from the actual emotions/lessonsLearned text logged) and their correlation with win/loss outcomes.
 4. Analyze missed trades using their own stated reasonMissed/analysis text — quantify the cost of hesitation using potentialPips/estimatedRR where available.
 5. Give concrete, numbers-driven, non-generic recommendations tied directly to patterns found in THIS data.
@@ -159,9 +161,9 @@ Below is the JSON data of my trades and journal entries:
 
 Please analyze this data and generate a detailed report:
 1. **Performance Summary**: Key metrics including win rate, net P&L, average profit/loss, and most traded symbols/timeframes.
-2. **Execution Review**: Compliance rate on checklist items. Highlight any specific checks that are frequently skipped.
+2. **Execution Review**: Compliance rate on checklist items. Highlight any specific checks that are frequently skipped. IMPORTANT: if a trade's executionChecklist contains "Level: No Levels" / "Other Level: No Levels", "Confirmation: No Confirmation", or "Risk Management: No Risk Management" marked checked, treat that as an explicit self-flagged rule violation on that trade (not a skipped/missing field) — call it out by symbol and rule broken, and weigh it heavily in the discipline assessment.
 3. **Psychology & Emotions**: Patterns in my emotional state. Identify common emotional triggers (e.g., FOMO, anxiety) and their direct impact on my P&L.
-4. **Mistakes & Takeaways**: Highlight repeating mistakes, bad risk management behaviors, and main lessons learned.
+4. **Mistakes & Takeaways**: Highlight repeating mistakes, bad risk management behaviors, and main lessons learned — including every explicit rule violation found above.
 5. **Actionable Recommendations**: 3-5 concrete rules or habits I must implement to improve my trading discipline and profitability.`,
   },
 ];
