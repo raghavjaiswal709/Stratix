@@ -31,3 +31,7 @@ export function compressImage(dataUrl: string, maxDim = 1200): Promise<string> {
     img.src = dataUrl;
   });
 }
+
+export function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  return fetch(dataUrl).then((r) => r.blob());
+}

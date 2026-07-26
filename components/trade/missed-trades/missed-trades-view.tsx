@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnalyzingOverlay, RefineDiff, RefineIconButton } from "@/components/trade/journal/ai-refine";
+import { uploadScreenshotToR2 } from "@/lib/uploadScreenshot";
 
 type Outcome = "hit-tp" | "hit-sl" | "partial" | "still-open" | "unknown";
 type Direction = "buy" | "sell";
@@ -44,6 +45,7 @@ interface MissedTrade {
   analysis: string;
   lessonsLearned: string;
   screenshots: string[];
+  screenshotKeys?: string[];
   tags: string[];
 }
 
@@ -81,6 +83,7 @@ const EMPTY_FORM = {
   lessonsLearned: "",
   tags: [] as string[],
   screenshots: [] as string[],
+  screenshotKeys: [] as string[],
 };
 
 function fmt(n: number) {
@@ -192,6 +195,7 @@ function MissedTradeDetail({
   const [tagsInput, setTagsInput] = useState("");
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [screenshotUploadError, setScreenshotUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // AI Refine — per-field inline diff (analyze → accept/discard), plus "Refine All"
@@ -201,6 +205,10 @@ function MissedTradeDetail({
   const [refineError, setRefineError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Revoke any local blob-preview URLs created for the trade we're leaving
+    // — they're never persisted, so this is the only place they'd be freed.
+    form.screenshots.forEach((s) => { if (s.startsWith("blob:")) URL.revokeObjectURL(s); });
+
     if (!trade) {
       setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 16) });
       return;
@@ -223,13 +231,24 @@ function MissedTradeDetail({
       lessonsLearned: trade.lessonsLearned ?? "",
       tags: [...(trade.tags ?? [])],
       screenshots: [...(trade.screenshots ?? [])],
+      screenshotKeys: [...(trade.screenshotKeys ?? trade.screenshots ?? [])],
     });
     setSaved(false);
+    setScreenshotUploadError(null);
     setRefining(false);
     setRefineFields([]);
     setRefineSuggestions({});
     setRefineError(null);
   }, [trade?._id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // True-unmount cleanup for any blob-preview URLs still outstanding.
+  const formScreenshotsRef = useRef<string[]>(form.screenshots);
+  useEffect(() => { formScreenshotsRef.current = form.screenshots; }, [form.screenshots]);
+  useEffect(() => {
+    return () => {
+      formScreenshotsRef.current.forEach((s) => { if (s.startsWith("blob:")) URL.revokeObjectURL(s); });
+    };
+  }, []);
 
   useEffect(() => {
     if (lightboxIndex === null) return;
@@ -351,6 +370,20 @@ function MissedTradeDetail({
     setTagsInput("");
   }
 
+  async function addScreenshotFromDataUrl(dataUrl: string) {
+    try {
+      const { key, previewUrl } = await uploadScreenshotToR2(dataUrl, "missed-trade");
+      setForm(prev => ({
+        ...prev,
+        screenshots: [...prev.screenshots, previewUrl],
+        screenshotKeys: [...prev.screenshotKeys, key],
+      }));
+      setScreenshotUploadError(null);
+    } catch {
+      setScreenshotUploadError("Failed to upload screenshot — please try again.");
+    }
+  }
+
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files) return;
@@ -358,7 +391,7 @@ function MissedTradeDetail({
       const reader = new FileReader();
       reader.onload = ev => {
         if (ev.target?.result) {
-          setForm(prev => ({ ...prev, screenshots: [...prev.screenshots, ev.target!.result as string] }));
+          addScreenshotFromDataUrl(ev.target.result as string);
         }
       };
       reader.readAsDataURL(file);
@@ -386,7 +419,7 @@ function MissedTradeDetail({
         analysis: form.analysis,
         lessonsLearned: form.lessonsLearned,
         tags: form.tags,
-        screenshots: form.screenshots,
+        screenshots: form.screenshotKeys,
       };
 
       const url = trade ? `/api/missed-trade/${trade._id}` : "/api/missed-trade";
@@ -645,6 +678,16 @@ function MissedTradeDetail({
           </div>
         )}
 
+        {screenshotUploadError && (
+          <div className="flex items-center gap-2.5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
+            <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+            <span className="text-[12px] text-red-300 flex-1">{screenshotUploadError}</span>
+            <button onClick={() => setScreenshotUploadError(null)} className="text-red-400/60 hover:text-red-400 transition">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
         <div className="rounded-xl border border-white/7 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
             <Eye className="h-4 w-4 text-white/55" />
@@ -796,7 +839,20 @@ function MissedTradeDetail({
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center">
                     <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-semibold transition">View</span>
                   </div>
-                  <button onClick={e => { e.stopPropagation(); setForm(prev => ({ ...prev, screenshots: prev.screenshots.filter((_, idx) => idx !== i) })); }} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 h-5 w-5 rounded bg-black/70 flex items-center justify-center text-white transition">
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      // Removes this screenshot's reference from the trade only —
+                      // the underlying R2 object is intentionally never deleted.
+                      if (src.startsWith("blob:")) URL.revokeObjectURL(src);
+                      setForm(prev => ({
+                        ...prev,
+                        screenshots: prev.screenshots.filter((_, idx) => idx !== i),
+                        screenshotKeys: prev.screenshotKeys.filter((_, idx) => idx !== i),
+                      }));
+                    }}
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 h-5 w-5 rounded bg-black/70 flex items-center justify-center text-white transition"
+                  >
                     <X className="h-3 w-3" />
                   </button>
                 </div>

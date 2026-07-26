@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { MissedTradeModel } from "@/lib/models/MissedTrade";
+import { hydrateScreenshots } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   await dbConnect();
   const trade = await MissedTradeModel.findOne({ _id: id, userId: session.user.id }).lean();
   if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(trade);
+  const screenshotKeys = trade.screenshots ?? [];
+  const screenshots = await hydrateScreenshots(screenshotKeys);
+  return NextResponse.json({ ...trade, screenshots, screenshotKeys });
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -31,7 +34,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   ).lean();
 
   if (!trade) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(trade);
+  const screenshotKeys = trade.screenshots ?? [];
+  const screenshots = await hydrateScreenshots(screenshotKeys);
+  return NextResponse.json({ ...trade, screenshots, screenshotKeys });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -30,6 +30,7 @@ import { renderTemplate } from "@/lib/prompts/template";
 import { useAppContext } from "@/lib/context";
 import { MergeModal } from "../trades/merge-modal";
 import { AnalyzingOverlay, RefineDiff, RefineIconButton } from "./ai-refine";
+import { uploadScreenshotToR2 } from "@/lib/uploadScreenshot";
 
 interface ChecklistItem {
   item: string;
@@ -63,6 +64,7 @@ export interface JournalDetailTrade {
   timeframe?: string;
   executionChecklist: ChecklistItem[];
   screenshots: string[];
+  screenshotKeys?: string[];
   preTradeAnalysis: string;
   postTradeReview: string;
   riskRatio: number;
@@ -230,6 +232,8 @@ export function JournalDetail({
   const [customChecked, setCustomChecked] = useState<Record<string, boolean>>({});
   const [newOptionInput, setNewOptionInput] = useState("");
   const [screenshots, setScreenshots] = useState<string[]>(trade.screenshots ?? []);
+  const [screenshotKeys, setScreenshotKeys] = useState<string[]>(trade.screenshotKeys ?? trade.screenshots ?? []);
+  const [screenshotUploadError, setScreenshotUploadError] = useState<string | null>(null);
   const [preTradeAnalysis, setPreTradeAnalysis] = useState(trade.preTradeAnalysis ?? "");
   const [postTradeReview, setPostTradeReview] = useState(trade.postTradeReview ?? "");
   const [riskRatio, setRiskRatio] = useState(trade.riskRatio ?? 1);
@@ -382,8 +386,13 @@ export function JournalDetail({
     setRiskManagementValues(riskMgmtVals);
     setNews(hasNewsVal);
     setMultiTimeframe(hasMultiTFVal);
-    
+
+    // Revoke any local blob-preview URLs created for the trade we're leaving
+    // — they're never persisted, so this is the only place they'd be freed.
+    screenshots.forEach((s) => { if (s.startsWith("blob:")) URL.revokeObjectURL(s); });
     setScreenshots(trade.screenshots ?? []);
+    setScreenshotKeys(trade.screenshotKeys ?? trade.screenshots ?? []);
+    setScreenshotUploadError(null);
     setPreTradeAnalysis(trade.preTradeAnalysis ?? "");
     setPostTradeReview(trade.postTradeReview ?? "");
     const autoRR = calculateAutoRR(trade.entryPrice, trade.stopLoss, trade.takeProfit, trade.exitPrice, trade.direction);
@@ -419,12 +428,23 @@ export function JournalDetail({
     let cancelled = false;
     fetch(`/api/trade/${trade._id}`)
       .then((r) => r.json())
-      .then((full: { screenshots?: string[] }) => {
-        if (!cancelled && Array.isArray(full.screenshots)) setScreenshots(full.screenshots);
+      .then((full: { screenshots?: string[]; screenshotKeys?: string[] }) => {
+        if (cancelled) return;
+        if (Array.isArray(full.screenshots)) setScreenshots(full.screenshots);
+        if (Array.isArray(full.screenshotKeys)) setScreenshotKeys(full.screenshotKeys);
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [trade._id]);
+
+  // True-unmount cleanup for any blob-preview URLs still outstanding.
+  const screenshotsRef = useRef<string[]>(screenshots);
+  useEffect(() => { screenshotsRef.current = screenshots; }, [screenshots]);
+  useEffect(() => {
+    return () => {
+      screenshotsRef.current.forEach((s) => { if (s.startsWith("blob:")) URL.revokeObjectURL(s); });
+    };
+  }, []);
 
   // Keep editTimeframe in sync when timeframe changes via chart's "Set default"
   // (trade._id stays the same, only timeframe changes)
@@ -463,6 +483,22 @@ export function JournalDetail({
     return () => window.removeEventListener("keydown", handler);
   }, [lightboxIndex, screenshots.length]);
 
+  // Shared by every "add a screenshot" entry point (paste, chart capture,
+  // file upload): compresses + uploads straight to R2, then records the
+  // R2 key (canonical, saved to Mongo) alongside a local preview URL
+  // (display-only, never saved) — see lib/uploadScreenshot.ts.
+  const addScreenshotFromDataUrl = useCallback(async (dataUrl: string) => {
+    try {
+      const { key, previewUrl } = await uploadScreenshotToR2(dataUrl, "journal");
+      setScreenshots((prev) => [...prev, previewUrl]);
+      setScreenshotKeys((prev) => [...prev, key]);
+      setScreenshotUploadError(null);
+      markDirty();
+    } catch {
+      setScreenshotUploadError("Failed to upload screenshot — please try again.");
+    }
+  }, [markDirty]);
+
   // Global paste handler to paste images directly from clipboard
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -478,8 +514,7 @@ export function JournalDetail({
           const reader = new FileReader();
           reader.onload = (event) => {
             if (event.target?.result) {
-              setScreenshots((prev) => [...prev, event.target!.result as string]);
-              markDirty();
+              addScreenshotFromDataUrl(event.target.result as string);
             }
           };
           reader.readAsDataURL(file);
@@ -490,12 +525,11 @@ export function JournalDetail({
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [markDirty]);
+  }, [addScreenshotFromDataUrl]);
 
   const handleChartScreenshot = useCallback((dataUrl: string) => {
-    setScreenshots((prev) => [...prev, dataUrl]);
-    markDirty();
-  }, [markDirty]);
+    addScreenshotFromDataUrl(dataUrl);
+  }, [addScreenshotFromDataUrl]);
 
   // Auto R:R Calculation helper
   const calculateAutoRR = useCallback((
@@ -822,8 +856,7 @@ Please analyze this data and generate a detailed report:
       const reader = new FileReader();
       reader.onload = (ev) => {
         if (ev.target?.result) {
-          setScreenshots((prev) => [...prev, ev.target!.result as string]);
-          markDirty();
+          addScreenshotFromDataUrl(ev.target.result as string);
         }
       };
       reader.readAsDataURL(file);
@@ -1016,7 +1049,7 @@ Please analyze this data and generate a detailed report:
         body: JSON.stringify({
           journaled: true,
           executionChecklist: compiledChecklist,
-          screenshots,
+          screenshots: screenshotKeys,
           preTradeAnalysis,
           postTradeReview,
           riskRatio,
@@ -1837,7 +1870,12 @@ Please analyze this data and generate a detailed report:
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      // Removes this screenshot's reference from the trade only.
+                      // The underlying R2 object is intentionally never deleted —
+                      // it may still be referenced by other merged/compiled trades.
+                      if (src.startsWith("blob:")) URL.revokeObjectURL(src);
                       setScreenshots((prev) => prev.filter((_, idx) => idx !== i));
+                      setScreenshotKeys((prev) => prev.filter((_, idx) => idx !== i));
                       markDirty();
                     }}
                     className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 h-5 w-5 rounded bg-black/70 flex items-center justify-center text-white transition"
@@ -2239,6 +2277,17 @@ Please analyze this data and generate a detailed report:
           <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
           <span className="text-[12px] text-red-300 flex-1">{refineError}</span>
           <button onClick={() => setRefineError(null)} className="text-red-400/60 hover:text-red-400 transition">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Screenshot Upload Error Banner */}
+      {screenshotUploadError && (
+        <div className="mx-6 mt-4 flex items-center gap-2.5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
+          <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+          <span className="text-[12px] text-red-300 flex-1">{screenshotUploadError}</span>
+          <button onClick={() => setScreenshotUploadError(null)} className="text-red-400/60 hover:text-red-400 transition">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { MissedTradeModel } from "@/lib/models/MissedTrade";
+import { hydrateScreenshots } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,14 @@ export async function GET(req: NextRequest) {
   if (profileId) query.profileId = profileId;
 
   const trades = await MissedTradeModel.find(query).sort({ date: -1 }).lean();
-  return NextResponse.json(trades);
+  const hydrated = await Promise.all(
+    trades.map(async (t) => ({
+      ...t,
+      screenshots: await hydrateScreenshots(t.screenshots),
+      screenshotKeys: t.screenshots ?? [],
+    }))
+  );
+  return NextResponse.json(hydrated);
 }
 
 export async function POST(req: NextRequest) {
