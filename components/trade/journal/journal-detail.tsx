@@ -223,6 +223,7 @@ export function JournalDetail({
   const [confirmationValues, setConfirmationValues] = useState<string[]>([]);
   const [riskFree, setRiskFree] = useState(false);
   const [riskManagement, setRiskManagement] = useState(false);
+  const [riskManagementValues, setRiskManagementValues] = useState<string[]>([]);
   const [news, setNews] = useState(false);
   const [multiTimeframe, setMultiTimeframe] = useState(false);
   const [activeItems, setActiveItems] = useState<string[]>([]);
@@ -330,6 +331,7 @@ export function JournalDetail({
       if (c.item.startsWith("Level: ") || c.item.startsWith("Other Level: ")) return;
       if (c.item.startsWith("Level Timeframe: ") || c.item.startsWith("Other Level Timeframe: ")) return;
       if (c.item.startsWith("Confirmation: ")) return;
+      if (c.item.startsWith("Risk Management: ")) return;
 
       active.push(c.item);
       customCheckedMap[c.item] = c.checked;
@@ -360,9 +362,12 @@ export function JournalDetail({
     const confVals = rawChecklist
       .filter(c => c.item.startsWith("Confirmation: ") && c.checked)
       .map(c => c.item.replace("Confirmation: ", ""));
-      
+
     const hasRiskFreeVal = rawChecklist.find(c => c.item === "RiskFree" || c.item === "Risk Free")?.checked ?? false;
     const hasRiskMgmtVal = rawChecklist.find(c => c.item === "Risk Management" || c.item === "RIsk Management")?.checked ?? false;
+    const riskMgmtVals = rawChecklist
+      .filter(c => c.item.startsWith("Risk Management: ") && c.checked)
+      .map(c => c.item.replace("Risk Management: ", ""));
     const hasNewsVal = rawChecklist.find(c => c.item === "News")?.checked ?? false;
     const hasMultiTFVal = rawChecklist.find(c => c.item === "Multi timeframe analysis" || c.item === "multi timeframe analysis")?.checked ?? false;
 
@@ -374,6 +379,7 @@ export function JournalDetail({
     setConfirmationValues(confVals);
     setRiskFree(hasRiskFreeVal);
     setRiskManagement(hasRiskMgmtVal);
+    setRiskManagementValues(riskMgmtVals);
     setNews(hasNewsVal);
     setMultiTimeframe(hasMultiTFVal);
     
@@ -594,7 +600,27 @@ export function JournalDetail({
   };
 
   const toggleRiskManagement = () => {
-    setRiskManagement(!riskManagement);
+    const next = !riskManagement;
+    setRiskManagement(next);
+    if (!next) {
+      setRiskManagementValues([]);
+    }
+    markDirty();
+  };
+
+  const toggleRiskManagementValue = (val: string) => {
+    setRiskManagementValues(prev => {
+      let next;
+      if (prev.includes(val)) {
+        next = prev.filter(v => v !== val);
+      } else {
+        next = [...prev, val];
+      }
+      if (next.length > 0) {
+        setRiskManagement(true);
+      }
+      return next;
+    });
     markDirty();
   };
 
@@ -645,6 +671,7 @@ export function JournalDetail({
       setRiskFree(false);
     } else if (id === "riskManagement") {
       setRiskManagement(false);
+      setRiskManagementValues([]);
     } else if (id === "news") {
       setNews(false);
     } else if (id === "multiTimeframe") {
@@ -781,9 +808,9 @@ Below is the JSON data of my trades and journal entries:
 
 Please analyze this data and generate a detailed report:
 1. **Performance Summary**: Key metrics including win rate, net P&L, average profit/loss, and most traded symbols/timeframes.
-2. **Execution Review**: Compliance rate on checklist items. Highlight any specific checks that are frequently skipped.
+2. **Execution Review**: Compliance rate on checklist items. Highlight any specific checks that are frequently skipped. IMPORTANT: if a trade's executionChecklist contains "Level: No Levels" / "Other Level: No Levels", "Confirmation: No Confirmation", or "Risk Management: No Risk Management" marked checked, treat that as an explicit self-flagged rule violation on that trade (not a skipped/missing field) — call it out by symbol and rule broken, and weigh it heavily in the discipline assessment.
 3. **Psychology & Emotions**: Patterns in my emotional state. Identify common emotional triggers (e.g., FOMO, anxiety) and their direct impact on my P&L.
-4. **Mistakes & Takeaways**: Highlight repeating mistakes, bad risk management behaviors, and main lessons learned.
+4. **Mistakes & Takeaways**: Highlight repeating mistakes, bad risk management behaviors, and main lessons learned — including every explicit rule violation found above.
 5. **Actionable Recommendations**: 3-5 concrete rules or habits I must implement to improve my trading discipline and profitability.`;
     return renderTemplate(template, { ANALYTICS_JSON: analyticsJsonString });
   }, [analyticsJsonString, analyticsPromptTemplate]);
@@ -957,6 +984,11 @@ Please analyze this data and generate a detailed report:
     // Risk Management
     if (activeItems.includes("riskManagement")) {
       compiledChecklist.push({ item: "Risk Management", checked: riskManagement });
+      if (riskManagement) {
+        riskManagementValues.forEach(v => {
+          compiledChecklist.push({ item: `Risk Management: ${v}`, checked: true });
+        });
+      }
     }
 
     // News
@@ -1484,12 +1516,14 @@ Please analyze this data and generate a detailed report:
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {activeItems.map((itemId) => {
                   let isChecked = false;
+                  let isViolation = false;
                   let toggleFn = () => {};
                   let label = "";
                   let subOptionsContent: React.ReactNode = null;
 
                   if (itemId === "levels") {
                     isChecked = otherLevels && !!otherLevelsValue;
+                    isViolation = otherLevelsValue === "No Levels";
                     label = "Levels";
                     toggleFn = () => {
                       setOtherLevels(!otherLevels);
@@ -1501,7 +1535,7 @@ Please analyze this data and generate a detailed report:
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase shrink-0">Levels:</span>
                           <div className="flex flex-wrap gap-1.5">
-                            {["A+", "SBR/RBS", "DB/DT", "Level 1", "Level 2", "Level 3", "Level 4", "TJL1", "TJL 2"].map((lvl) => (
+                            {["QML", "SBR/RBS", "DB/DT", "Level 1", "Level 2", "Level 3", "Level 4", "TJL1", "TJL 2", "No Levels"].map((lvl) => (
                               <button
                                 key={lvl}
                                 type="button"
@@ -1515,8 +1549,8 @@ Please analyze this data and generate a detailed report:
                                 className={cn(
                                   "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
                                   otherLevelsValue === lvl
-                                    ? lvl === "A+"
-                                      ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-400 font-bold shadow-md shadow-yellow-500/10"
+                                    ? lvl === "No Levels"
+                                      ? "bg-red-500/20 border-red-500/40 text-red-400 font-bold shadow-md shadow-red-500/10"
                                       : "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
                                     : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
                                 )}
@@ -1556,6 +1590,7 @@ Please analyze this data and generate a detailed report:
                     );
                   } else if (itemId === "confirmation") {
                     isChecked = confirmation && confirmationValues.length > 0;
+                    isViolation = confirmationValues.includes("No Confirmation");
                     label = "Confirmation";
                     toggleFn = () => {
                       setConfirmation(!confirmation);
@@ -1566,7 +1601,7 @@ Please analyze this data and generate a detailed report:
                       <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 mt-2">
                         <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Confirmation:</span>
                         <div className="flex flex-wrap gap-1.5">
-                          {["Candle confirmation", "Choch confirmation"].map((conf) => {
+                          {["Candle confirmation", "Choch confirmation", "No Confirmation"].map((conf) => {
                             const isActive = confirmationValues.includes(conf);
                             return (
                               <button
@@ -1581,7 +1616,9 @@ Please analyze this data and generate a detailed report:
                                 className={cn(
                                   "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
                                   isActive
-                                    ? "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
+                                    ? conf === "No Confirmation"
+                                      ? "bg-red-500/20 border-red-500/40 text-red-400 font-bold shadow-md shadow-red-500/10"
+                                      : "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
                                     : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
                                 )}
                               >
@@ -1601,11 +1638,44 @@ Please analyze this data and generate a detailed report:
                     };
                   } else if (itemId === "riskManagement") {
                     isChecked = riskManagement;
+                    isViolation = riskManagementValues.includes("No Risk Management");
                     label = "Risk Management";
                     toggleFn = () => {
-                      setRiskManagement(!riskManagement);
+                      const next = !riskManagement;
+                      setRiskManagement(next);
+                      if (!next) setRiskManagementValues([]);
                       markDirty();
                     };
+                    subOptionsContent = riskManagement && (
+                      <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 mt-2">
+                        <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Risk Management:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {["No Risk Management"].map((val) => {
+                            const isActive = riskManagementValues.includes(val);
+                            return (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={() => {
+                                  toggleRiskManagementValue(val);
+                                  if (!riskManagement) {
+                                    setRiskManagement(true);
+                                  }
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                                  isActive
+                                    ? "bg-red-500/20 border-red-500/40 text-red-400 font-bold shadow-md shadow-red-500/10"
+                                    : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                                )}
+                              >
+                                {val}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
                   } else if (itemId === "news") {
                     isChecked = news;
                     label = "News";
@@ -1638,9 +1708,11 @@ Please analyze this data and generate a detailed report:
                       key={itemId}
                       className={cn(
                         "group p-3 rounded-xl border transition-all flex flex-col justify-between",
-                        isChecked 
-                          ? "bg-emerald-500/[0.04] border-emerald-500/20 hover:border-emerald-500/35" 
-                          : "bg-white/2 border-white/7 hover:border-white/15"
+                        isViolation
+                          ? "bg-red-500/[0.05] border-red-500/25 hover:border-red-500/40"
+                          : isChecked
+                            ? "bg-emerald-500/[0.04] border-emerald-500/20 hover:border-emerald-500/35"
+                            : "bg-white/2 border-white/7 hover:border-white/15"
                       )}
                     >
                       <div className="flex items-center gap-2.5 w-full">
@@ -1648,9 +1720,11 @@ Please analyze this data and generate a detailed report:
                           onClick={toggleFn}
                           className={cn(
                             "h-4.5 w-4.5 rounded border flex items-center justify-center shrink-0 transition-all cursor-pointer",
-                            isChecked 
-                              ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" 
-                              : "border-white/20 hover:border-white/30"
+                            isViolation
+                              ? "bg-red-500/20 border-red-500/40 text-red-400"
+                              : isChecked
+                                ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                                : "border-white/20 hover:border-white/30"
                           )}
                         >
                           {isChecked && (
@@ -1659,17 +1733,22 @@ Please analyze this data and generate a detailed report:
                             </svg>
                           )}
                         </div>
-                        <span 
+                        <span
                           onClick={toggleFn}
                           className={cn(
                             "text-[12px] font-medium flex-1 cursor-pointer select-none truncate",
-                            isChecked ? "text-emerald-400 font-semibold" : "text-white/60"
+                            isViolation ? "text-red-400 font-semibold" : isChecked ? "text-emerald-400 font-semibold" : "text-white/60"
                           )}
                         >
                           {label}
                           {isChecked && itemId === "levels" && ` (${otherLevelsValue}${otherLevelsTimeframe ? ` - ${otherLevelsTimeframe.toUpperCase()}` : ""})`}
+                          {isViolation && (
+                            <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-red-400/80">
+                              Rule violation
+                            </span>
+                          )}
                         </span>
-                        
+
                         {/* Remove button */}
                         <button
                           type="button"

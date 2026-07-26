@@ -132,6 +132,10 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
     const [noApiKey, setNoApiKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [justSaved, setJustSaved] = useState(false);
+    // TradingView shows mt5 candles in IST (broker time isn't what TradingView
+    // displays) — toggling this re-anchors the chart's displayed clock to IST
+    // for mt5 trades too, so a candle lines up with what the trader saw on TV.
+    const [tvTiming, setTvTiming] = useState(false);
     const { theme } = useAppContext();
     const isDark = theme !== "light";
 
@@ -273,8 +277,11 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         // epoch by a fixed offset before setData is how we control what wall
         // clock the chart displays. mt5 trades must show the broker/MT5
         // terminal's own time; manual trades show the IST time the trader
-        // typed in.
-        const displayShiftSec = (source === "mt5" ? BROKER_UTC_OFFSET_MIN : IST_OFFSET_MIN) * 60;
+        // typed in. "TradingView timing" overrides this: TV always renders in
+        // IST here, so when enabled every trade (mt5 included) is shifted to
+        // IST instead of the broker offset — this is what makes a candle at
+        // e.g. 19:50 on TradingView line up with 19:50 on this chart too.
+        const displayShiftSec = (tvTiming ? IST_OFFSET_MIN : source === "mt5" ? BROKER_UTC_OFFSET_MIN : IST_OFFSET_MIN) * 60;
 
         const shiftedCandles = candles.map((c) => ({
           ...c,
@@ -490,7 +497,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
         }
       };
        
-    }, [loaded, interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction, source, isDark]);
+    }, [loaded, interval, retryKey, symbol, entryTime, exitTime, entryPrice, exitPrice, stopLoss, takeProfit, direction, source, isDark, tvTiming]);
 
     function handleCapture() {
       if (!chartRef.current) return;
@@ -554,6 +561,22 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
                 </button>
               ))}
             </div>
+
+            {/* TradingView timing toggle — shifts candle display to match TradingView's clock */}
+            <button
+              type="button"
+              onClick={() => setTvTiming((v) => !v)}
+              title="Show candle times the way TradingView displays them"
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors",
+                tvTiming
+                  ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                  : "bg-white/[0.07] border-white/[0.10] text-white/65 hover:bg-white/[0.09]"
+              )}
+            >
+              <Clock className="h-3 w-3" />
+              TradingView Timing
+            </button>
 
             {/* Set as default button — shown when current interval differs from saved */}
             {loaded && interval !== savedInterval && !loading && !error && !noApiKey && (
