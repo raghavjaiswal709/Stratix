@@ -21,15 +21,14 @@ import {
   AlertCircle,
   Trash2,
   LineChart,
-  Puzzle,
   Sparkles,
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { renderTemplate } from "@/lib/prompts/template";
 import { useAppContext } from "@/lib/context";
-import { MergeModal } from "../trades/merge-modal";
 import { AnalyzingOverlay, RefineDiff, RefineIconButton } from "./ai-refine";
+import { getTradingSession, getSessionBadgeClasses } from "@/lib/trade-session";
 import { uploadScreenshotToR2 } from "@/lib/uploadScreenshot";
 
 interface ChecklistItem {
@@ -65,6 +64,7 @@ export interface JournalDetailTrade {
   executionChecklist: ChecklistItem[];
   screenshots: string[];
   screenshotKeys?: string[];
+  screenshotMeta?: { url: string; caption?: string; timeframe?: string }[];
   preTradeAnalysis: string;
   postTradeReview: string;
   riskRatio: number;
@@ -223,6 +223,7 @@ export function JournalDetail({
   const [otherLevelsTimeframe, setOtherLevelsTimeframe] = useState("");
   const [confirmation, setConfirmation] = useState(false);
   const [confirmationValues, setConfirmationValues] = useState<string[]>([]);
+  const [confirmationTimeframe, setConfirmationTimeframe] = useState("");
   const [riskFree, setRiskFree] = useState(false);
   const [riskManagement, setRiskManagement] = useState(false);
   const [riskManagementValues, setRiskManagementValues] = useState<string[]>([]);
@@ -233,7 +234,13 @@ export function JournalDetail({
   const [newOptionInput, setNewOptionInput] = useState("");
   const [screenshots, setScreenshots] = useState<string[]>(trade.screenshots ?? []);
   const [screenshotKeys, setScreenshotKeys] = useState<string[]>(trade.screenshotKeys ?? trade.screenshots ?? []);
+  const [screenshotMeta, setScreenshotMeta] = useState<{ url: string; caption?: string; timeframe?: string }[]>(
+    trade.screenshotMeta ?? (trade.screenshots ?? []).map(s => ({ url: s, caption: "", timeframe: "" }))
+  );
   const [screenshotUploadError, setScreenshotUploadError] = useState<string | null>(null);
+  const [uploadingItems, setUploadingItems] = useState<{ id: string; previewUrl: string; error?: string }[]>([]);
+  const [isFetchingTrade, setIsFetchingTrade] = useState<boolean>(true);
+  const [lightboxLoaded, setLightboxLoaded] = useState<boolean>(false);
   const [preTradeAnalysis, setPreTradeAnalysis] = useState(trade.preTradeAnalysis ?? "");
   const [postTradeReview, setPostTradeReview] = useState(trade.postTradeReview ?? "");
   const [riskRatio, setRiskRatio] = useState(trade.riskRatio ?? 1);
@@ -335,6 +342,7 @@ export function JournalDetail({
       if (c.item.startsWith("Level: ") || c.item.startsWith("Other Level: ")) return;
       if (c.item.startsWith("Level Timeframe: ") || c.item.startsWith("Other Level Timeframe: ")) return;
       if (c.item.startsWith("Confirmation: ")) return;
+      if (c.item.startsWith("Confirmation Timeframe: ")) return;
       if (c.item.startsWith("Risk Management: ")) return;
 
       active.push(c.item);
@@ -351,6 +359,11 @@ export function JournalDetail({
     if (hasAPlus && !otherVal) {
       otherVal = "A+";
     }
+    // Map legacy "Level 1", "Level 2", etc. to "L1", "L2", etc.
+    if (otherVal === "Level 1") otherVal = "L1";
+    if (otherVal === "Level 2") otherVal = "L2";
+    if (otherVal === "Level 3") otherVal = "L3";
+    if (otherVal === "Level 4") otherVal = "L4";
 
     const otherTfItem = rawChecklist.find(c => (c.item.startsWith("Level Timeframe: ") || c.item.startsWith("Other Level Timeframe: ")) && c.checked);
     let otherTf = otherTfItem ? otherTfItem.item.replace("Level Timeframe: ", "").replace("Other Level Timeframe: ", "") : "";
@@ -366,6 +379,8 @@ export function JournalDetail({
     const confVals = rawChecklist
       .filter(c => c.item.startsWith("Confirmation: ") && c.checked)
       .map(c => c.item.replace("Confirmation: ", ""));
+    const confTfItem = rawChecklist.find(c => c.item.startsWith("Confirmation Timeframe: ") && c.checked);
+    let confTf = confTfItem ? confTfItem.item.replace("Confirmation Timeframe: ", "") : "";
 
     const hasRiskFreeVal = rawChecklist.find(c => c.item === "RiskFree" || c.item === "Risk Free")?.checked ?? false;
     const hasRiskMgmtVal = rawChecklist.find(c => c.item === "Risk Management" || c.item === "RIsk Management")?.checked ?? false;
@@ -381,6 +396,7 @@ export function JournalDetail({
     setOtherLevelsTimeframe(otherTf);
     setConfirmation(hasConfVal);
     setConfirmationValues(confVals);
+    setConfirmationTimeframe(confTf);
     setRiskFree(hasRiskFreeVal);
     setRiskManagement(hasRiskMgmtVal);
     setRiskManagementValues(riskMgmtVals);
@@ -390,8 +406,14 @@ export function JournalDetail({
     // Revoke any local blob-preview URLs created for the trade we're leaving
     // — they're never persisted, so this is the only place they'd be freed.
     screenshots.forEach((s) => { if (s.startsWith("blob:")) URL.revokeObjectURL(s); });
-    setScreenshots(trade.screenshots ?? []);
-    setScreenshotKeys(trade.screenshotKeys ?? trade.screenshots ?? []);
+    const initialScreenshots = trade.screenshots ?? [];
+    setScreenshots(initialScreenshots);
+    setScreenshotKeys(trade.screenshotKeys ?? initialScreenshots);
+    if (trade.screenshotMeta && trade.screenshotMeta.length > 0) {
+      setScreenshotMeta(trade.screenshotMeta);
+    } else {
+      setScreenshotMeta(initialScreenshots.map(s => ({ url: s, caption: "", timeframe: "" })));
+    }
     setScreenshotUploadError(null);
     setPreTradeAnalysis(trade.preTradeAnalysis ?? "");
     setPostTradeReview(trade.postTradeReview ?? "");
@@ -426,6 +448,7 @@ export function JournalDetail({
   // being journaled, via the single-trade endpoint (which keeps every field).
   useEffect(() => {
     let cancelled = false;
+    setIsFetchingTrade(true);
     fetch(`/api/trade/${trade._id}`)
       .then((r) => r.json())
       .then((full: { screenshots?: string[]; screenshotKeys?: string[] }) => {
@@ -433,9 +456,16 @@ export function JournalDetail({
         if (Array.isArray(full.screenshots)) setScreenshots(full.screenshots);
         if (Array.isArray(full.screenshotKeys)) setScreenshotKeys(full.screenshotKeys);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsFetchingTrade(false);
+      });
     return () => { cancelled = true; };
   }, [trade._id]);
+
+  useEffect(() => {
+    setLightboxLoaded(false);
+  }, [lightboxIndex]);
 
   // True-unmount cleanup for any blob-preview URLs still outstanding.
   const screenshotsRef = useRef<string[]>(screenshots);
@@ -488,13 +518,21 @@ export function JournalDetail({
   // R2 key (canonical, saved to Mongo) alongside a local preview URL
   // (display-only, never saved) — see lib/uploadScreenshot.ts.
   const addScreenshotFromDataUrl = useCallback(async (dataUrl: string) => {
+    const tempId = `upload-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    setUploadingItems((prev) => [...prev, { id: tempId, previewUrl: dataUrl }]);
+    setScreenshotUploadError(null);
+
     try {
       const { key, previewUrl } = await uploadScreenshotToR2(dataUrl, "journal");
+      setUploadingItems((prev) => prev.filter((item) => item.id !== tempId));
       setScreenshots((prev) => [...prev, previewUrl]);
       setScreenshotKeys((prev) => [...prev, key]);
       setScreenshotUploadError(null);
       markDirty();
     } catch {
+      setUploadingItems((prev) =>
+        prev.map((item) => (item.id === tempId ? { ...item, error: "Upload failed" } : item))
+      );
       setScreenshotUploadError("Failed to upload screenshot — please try again.");
     }
   }, [markDirty]);
@@ -1006,6 +1044,9 @@ Please analyze this data and generate a detailed report:
         confirmationValues.forEach(v => {
           compiledChecklist.push({ item: `Confirmation: ${v}`, checked: true });
         });
+        if (confirmationTimeframe) {
+          compiledChecklist.push({ item: `Confirmation Timeframe: ${confirmationTimeframe}`, checked: true });
+        }
       }
     }
 
@@ -1050,6 +1091,7 @@ Please analyze this data and generate a detailed report:
           journaled: true,
           executionChecklist: compiledChecklist,
           screenshots: screenshotKeys,
+          screenshotMeta,
           preTradeAnalysis,
           postTradeReview,
           riskRatio,
@@ -1154,150 +1196,197 @@ Please analyze this data and generate a detailed report:
               ›
             </button>
           )}
+          {!lightboxLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+              <Loader2 className="h-8 w-8 text-white/60 animate-spin" />
+            </div>
+          )}
           <img
             src={screenshots[lightboxIndex]}
             alt={`Screenshot ${lightboxIndex + 1}`}
-            className="max-w-[90vw] max-h-[85vh] object-contain rounded-xl shadow-2xl"
+            onLoad={() => setLightboxLoaded(true)}
+            className={cn(
+              "max-w-[90vw] max-h-[80vh] object-contain rounded-xl shadow-2xl transition-opacity duration-300 relative z-10",
+              lightboxLoaded ? "opacity-100" : "opacity-0"
+            )}
             onClick={(e) => e.stopPropagation()}
           />
-          <div className="absolute bottom-4 text-[12px] text-white/50 bg-black/40 px-3 py-1 rounded-full">
-            {lightboxIndex + 1} / {screenshots.length}
+          {/* Caption & Timeframe overlay in Lightbox */}
+          <div className="absolute bottom-4 inset-x-4 max-w-xl mx-auto flex flex-col items-center gap-1.5 z-20 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+            {screenshotMeta[lightboxIndex]?.timeframe || screenshotMeta[lightboxIndex]?.caption ? (
+              <div className="flex items-center gap-2 bg-black/85 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/15 text-white/90 text-[12px] shadow-2xl">
+                {screenshotMeta[lightboxIndex].timeframe && (
+                  <span className="font-extrabold text-emerald-400 bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px] uppercase">
+                    {screenshotMeta[lightboxIndex].timeframe}
+                  </span>
+                )}
+                {screenshotMeta[lightboxIndex].caption && (
+                  <span className="font-medium text-white/90">{screenshotMeta[lightboxIndex].caption}</span>
+                )}
+              </div>
+            ) : null}
+            <div className="text-[11px] text-white/50 bg-black/60 px-3 py-0.5 rounded-full border border-white/10">
+              {lightboxIndex + 1} / {screenshots.length}
+            </div>
           </div>
         </div>
       )}
 
       {/* Sticky header */}
-      <div className="sticky top-0 z-10 border-b border-white/7 bg-[#0c0e14]/95 backdrop-blur-sm">
-        <div className="flex items-center justify-between flex-wrap gap-y-2 px-6 py-3.5">
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            "h-9 w-9 rounded-xl flex items-center justify-center text-[10px] font-bold shrink-0",
-            isWinner ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20" : trade.status === "open" ? "bg-white/8 text-white/60" : "bg-red-500/12 text-red-400 ring-1 ring-red-500/20"
-          )}>
-            {trade.symbol.slice(0, 2)}
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[17px] font-bold text-white tracking-tight">{trade.symbol}</span>
-              {trade._deleted && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/8 text-white/40 border border-white/10">
-                  DELETED
-                </span>
-              )}
-              {isWinner && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-400 border border-emerald-500/20">
-                  WINNER
-                </span>
-              )}
-              {!isWinner && trade.status === "closed" && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-500/12 text-red-400 border border-red-500/20">
-                  LOSER
-                </span>
-              )}
-              {trade.status === "open" && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/8 text-white/50 border border-white/12">
-                  OPEN
-                </span>
-              )}
-              {isAggregatedView && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  COMPILED
-                </span>
-              )}
-              {isDirty && (
-                <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-amber-500/12 text-amber-400 border border-amber-500/20 animate-pulse">
-                  Unsaved
-                </span>
-              )}
+      <div className={cn(
+        "sticky top-0 z-10 border-b backdrop-blur-md transition-all duration-300",
+        displayProfit >= 0
+          ? "border-emerald-500/20 bg-gradient-to-r from-emerald-950/40 via-[#0c0e14]/95 to-[#0c0e14]/95"
+          : "border-red-500/20 bg-gradient-to-r from-red-950/40 via-[#0c0e14]/95 to-[#0c0e14]/95"
+      )}>
+        <div className="flex items-center justify-between flex-wrap gap-y-3 px-6 py-3.5">
+          <div className="flex items-center gap-3.5">
+            <div className={cn(
+              "h-11 w-11 rounded-2xl flex items-center justify-center text-[11px] font-black shrink-0 shadow-lg",
+              displayProfit >= 0
+                ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30"
+                : "bg-red-500/20 text-red-400 ring-1 ring-red-500/30"
+            )}>
+              {trade.symbol.slice(0, 2)}
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-white/30 mt-0.5">
-              <span className={cn("font-semibold", trade.direction === "buy" ? "text-emerald-400/80" : "text-red-400/80")}>
-                {trade.direction === "buy" ? "Long" : "Short"}
-              </span>
-              <span className="text-white/15">·</span>
-              <span>Entry <span className="text-white/55">${displayEntryPrice}</span></span>
-              <span className="text-white/15">·</span>
-              {displayProfit !== 0 && (
-                <span className={cn("font-semibold", displayProfit >= 0 ? "text-emerald-400" : "text-red-400")}>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[18px] font-bold text-white tracking-tight">{trade.symbol}</span>
+                {trade._deleted && (
+                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/8 text-white/40 border border-white/10">
+                    DELETED
+                  </span>
+                )}
+                {isWinner && (
+                  <span className="text-[9px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm">
+                    WINNER
+                  </span>
+                )}
+                {!isWinner && trade.status === "closed" && (
+                  <span className="text-[9px] font-bold px-2.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 shadow-sm">
+                    LOSER
+                  </span>
+                )}
+                {trade.status === "open" && (
+                  <span className="text-[9px] font-bold px-2.5 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/15">
+                    OPEN
+                  </span>
+                )}
+                {isAggregatedView && (
+                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/60 border border-white/15">
+                    COMPILED
+                  </span>
+                )}
+                {/* Trading Session Tag */}
+                {(() => {
+                  const sessionInfo = getTradingSession(displayEntryTime, trade.source);
+                  return (
+                    <span className={cn(
+                      "text-[9px] font-bold px-2.5 py-0.5 rounded-full border tracking-wide uppercase shadow-sm shrink-0",
+                      getSessionBadgeClasses(sessionInfo.session)
+                    )} title={sessionInfo.isViolation ? "Trade taken outside session hours (Rule Violation)" : `${sessionInfo.session} Session`}>
+                      {sessionInfo.session === "No Session" ? "NO SESSION" : `${sessionInfo.session} SESSION`}
+                    </span>
+                  );
+                })()}
+                {isDirty && (
+                  <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/25 animate-pulse">
+                    Unsaved
+                  </span>
+                )}
+              </div>
+
+              {/* Subline stats */}
+              <div className="flex items-center gap-2 text-[11px] text-white/40 mt-1 flex-wrap font-medium">
+                <span className={cn("font-bold px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider", trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20" : "bg-red-500/15 text-red-300 border border-red-500/20")}>
+                  {trade.direction === "buy" ? "Long" : "Short"}
+                </span>
+                <span className="text-white/15">·</span>
+                <span>Entry <span className="text-white/80 font-semibold">${displayEntryPrice}</span></span>
+                {displayExitPrice !== undefined && (
+                  <>
+                    <span className="text-white/15">·</span>
+                    <span>Exit <span className="text-white/80 font-semibold">${displayExitPrice}</span></span>
+                  </>
+                )}
+                {displaySL !== undefined && (
+                  <>
+                    <span className="text-white/15">·</span>
+                    <span>SL <span className="text-red-400 font-semibold">${displaySL}</span></span>
+                  </>
+                )}
+                {displayTP !== undefined && (
+                  <>
+                    <span className="text-white/15">·</span>
+                    <span>TP <span className="text-emerald-400 font-semibold">${displayTP}</span></span>
+                  </>
+                )}
+                <span className="hidden sm:inline text-white/15">·</span>
+                <span className="hidden sm:inline text-white/50">{format(parseISO(displayEntryTime), "MMM d, yyyy HH:mm")}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3.5 flex-wrap">
+            {/* Big Profit / Loss text without background box */}
+            {displayProfit !== 0 && (
+              <div className="flex flex-col items-end">
+                <span className={cn(
+                  "text-[22px] sm:text-[26px] font-black tabular-nums leading-none tracking-tight",
+                  displayProfit >= 0 ? "text-emerald-400" : "text-red-400"
+                )}>
                   {displayProfit >= 0 ? "+" : ""}${Math.abs(displayProfit).toFixed(2)}
                 </span>
-              )}
-              <span className="hidden sm:inline text-white/15">·</span>
-              <span className="hidden sm:inline">{format(parseISO(displayEntryTime), "MMM d, yyyy HH:mm")}</span>
+                <span className="text-[8.5px] uppercase tracking-wider font-semibold text-white/35 mt-1">
+                  Realized P&L
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setEditOpen((o) => !o)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] transition",
+                  editOpen
+                    ? "border-white/[0.15] bg-white/[0.05] text-white/65"
+                    : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
+                )}
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+                Edit
+              </button>
+              <button
+                onClick={handleRefineJournal}
+                disabled={refining}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition",
+                  refining
+                    ? "border-white/10 bg-white/5 text-white/40 cursor-not-allowed"
+                    : "border-white/[0.15] bg-gradient-to-r from-white/[0.07] to-white/[0.04] text-white/80 hover:from-white/[0.12] hover:to-white/[0.08] hover:text-white"
+                )}
+                title="Refine all journal text with AI (gpt-4o-mini)"
+              >
+                {refining ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                <span className="hidden sm:inline">{refining ? "Refining…" : "Refine All"}</span>
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[13px] font-semibold transition",
+                  saved ? "bg-emerald-600 text-white" : "bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
+                )}
+              >
+                <Save className="h-3.5 w-3.5" />
+                {saving ? "Saving…" : saved ? "Saved!" : "Save"}
+              </button>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowChart((s) => !s)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] transition",
-              showChart
-                ? "border-amber-500/35 bg-amber-500/10 text-amber-400"
-                : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
-            )}
-          >
-            <LineChart className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline whitespace-nowrap">{showChart ? "Hide Chart" : "Show Chart"}</span>
-          </button>
-          <button
-            onClick={() => setEditOpen((o) => !o)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] transition",
-              editOpen
-                ? "border-white/[0.15] bg-white/[0.05] text-white/65"
-                : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
-            )}
-          >
-            <Edit2 className="h-3.5 w-3.5" />
-            Edit
-          </button>
-          {!trade.parentTradeId && (
-            <button
-              onClick={() => setMergeOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/5 transition"
-            >
-              <Puzzle className="h-3.5 w-3.5" />
-              Merge
-            </button>
-          )}
-          <button
-            onClick={() => setAnalyticsOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/5 transition"
-          >
-            <BarChart2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Analytics</span>
-          </button>
-          <button
-            onClick={handleRefineJournal}
-            disabled={refining}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition",
-              refining
-                ? "border-white/10 bg-white/5 text-white/40 cursor-not-allowed"
-                : "border-white/[0.15] bg-gradient-to-r from-white/[0.07] to-white/[0.04] text-white/80 hover:from-white/[0.12] hover:to-white/[0.08] hover:text-white"
-            )}
-            title="Refine all journal text with AI (gpt-4o-mini)"
-          >
-            {refining ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5" />
-            )}
-            <span className="hidden sm:inline">{refining ? "Refining…" : "Refine All"}</span>
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[13px] font-semibold transition",
-              saved ? "bg-emerald-600 text-white" : "bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
-            )}
-          >
-            <Save className="h-3.5 w-3.5" />
-            {saving ? "Saving…" : saved ? "Saved!" : "Save"}
-          </button>
-        </div>
         </div>
       </div>
 
@@ -1336,7 +1425,7 @@ Please analyze this data and generate a detailed report:
                   onClick={() => setEditDirection("sell")}
                   className={cn(
                     "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12px] font-semibold transition",
-                    editDirection === "sell" ? "bg-red-600 text-white shadow-lg shadow-red-500/20" : "text-white/40 hover:text-white/70"
+                    editDirection === "sell" ? "bg-white/[0.09] text-white shadow-lg " : "text-white/40 hover:text-white/70"
                   )}
                 >
                   <TrendingDown className="h-3 w-3" /> Short
@@ -1436,82 +1525,7 @@ Please analyze this data and generate a detailed report:
           </div>
         )}
 
-        {/* Trade summary card */}
-        {trade.exitPrice && (
-          <div className={cn(
-            "rounded-xl overflow-hidden border",
-            isWinner ? "border-emerald-500/15 bg-gradient-to-br from-emerald-500/[0.06] to-transparent" : "border-red-500/15 bg-gradient-to-br from-red-500/[0.06] to-transparent"
-          )}>
-            <div className="flex flex-wrap items-center justify-between gap-4 p-4">
-              <div className="flex items-center gap-3">
-                <div className={cn(
-                  "h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold",
-                  isWinner ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/12 text-red-400"
-                )}>
-                  {trade.symbol.slice(0, 2)}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[15px] font-bold text-white">{trade.symbol}</span>
-                    <span className={cn(
-                      "text-[10px] font-bold px-2 py-0.5 rounded-lg",
-                      trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
-                    )}>
-                      {trade.direction === "buy" ? "LONG" : "SHORT"}
-                    </span>
-                    {isAggregatedView && (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                          COMPILED
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setMergeOpen(true)}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-semibold transition"
-                          title="Edit Main Trade & Compilation Settings"
-                        >
-                          <Edit2 className="h-3 w-3" />
-                          <span>Edit Main Trade</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-white/30 mt-0.5">{format(parseISO(displayEntryTime), "MMM d, yyyy · HH:mm")}</p>
-                </div>
-              </div>
-              <div className={cn(
-                "text-right",
-              )}>
-                <p className={cn("text-[24px] font-black tabular-nums", isWinner ? "text-emerald-400" : "text-red-400")}>
-                  {displayProfit >= 0 ? "+" : ""}${Math.abs(displayProfit).toFixed(2)}
-                </p>
-                <p className="text-[11px] text-white/30">Realized P&L</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 divide-x divide-white/5 border-t border-white/5">
-              <div className="px-4 py-2.5">
-                <p className="text-[9px] text-white/30 uppercase tracking-wider font-semibold">Entry</p>
-                <p className="text-[13px] font-semibold text-white/80 mt-0.5">${displayEntryPrice}</p>
-              </div>
-              <div className="px-4 py-2.5">
-                <p className="text-[9px] text-white/30 uppercase tracking-wider font-semibold">Exit</p>
-                <p className="text-[13px] font-semibold text-white/80 mt-0.5">${displayExitPrice !== undefined ? displayExitPrice : "N/A"}</p>
-              </div>
-              {displaySL !== undefined && (
-                <div className="px-4 py-2.5">
-                  <p className="text-[9px] text-red-400/50 uppercase tracking-wider font-semibold">Stop Loss</p>
-                  <p className="text-[13px] font-semibold text-red-400/70 mt-0.5">${displaySL}</p>
-                </div>
-              )}
-              {displayTP !== undefined && (
-                <div className="px-4 py-2.5">
-                  <p className="text-[9px] text-emerald-400/50 uppercase tracking-wider font-semibold">Take Profit</p>
-                  <p className="text-[13px] font-semibold text-emerald-400/70 mt-0.5">${displayTP}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+
 
 
         {/* Execution Checklist */}
@@ -1568,7 +1582,7 @@ Please analyze this data and generate a detailed report:
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase shrink-0">Levels:</span>
                           <div className="flex flex-wrap gap-1.5">
-                            {["QML", "SBR/RBS", "DB/DT", "Level 1", "Level 2", "Level 3", "Level 4", "TJL1", "TJL 2", "No Levels"].map((lvl) => (
+                            {["QML", "SBR/RBS", "DB/DT", "L1", "L2", "L3", "L4", "TJL1", "TJL 2", "No Levels"].map((lvl) => (
                               <button
                                 key={lvl}
                                 type="button"
@@ -1631,35 +1645,64 @@ Please analyze this data and generate a detailed report:
                       markDirty();
                     };
                     subOptionsContent = confirmation && (
-                      <div className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 mt-2">
-                        <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase">Confirmation:</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {["Candle confirmation", "Choch confirmation", "No Confirmation"].map((conf) => {
-                            const isActive = confirmationValues.includes(conf);
-                            return (
-                              <button
-                                key={conf}
-                                type="button"
-                                onClick={() => {
-                                  toggleConfirmationValue(conf);
-                                  if (!confirmation) {
-                                    setConfirmation(true);
-                                  }
-                                }}
-                                className={cn(
-                                  "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
-                                  isActive
-                                    ? conf === "No Confirmation"
-                                      ? "bg-red-500/20 border-red-500/40 text-red-400 font-bold shadow-md shadow-red-500/10"
-                                      : "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
-                                    : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
-                                )}
-                              >
-                                {conf}
-                              </button>
-                            );
-                          })}
+                      <div className="flex flex-col gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 mt-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase shrink-0">Confirmation:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {["Candle confirmation", "Choch confirmation", "No Confirmation"].map((conf) => {
+                              const isActive = confirmationValues.includes(conf);
+                              return (
+                                <button
+                                  key={conf}
+                                  type="button"
+                                  onClick={() => {
+                                    toggleConfirmationValue(conf);
+                                    if (!confirmation) {
+                                      setConfirmation(true);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "px-2.5 py-1 rounded text-[10px] font-medium transition-all border",
+                                    isActive
+                                      ? conf === "No Confirmation"
+                                        ? "bg-red-500/20 border-red-500/40 text-red-400 font-bold shadow-md shadow-red-500/10"
+                                        : "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold shadow-md border-transparent"
+                                      : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                                  )}
+                                >
+                                  {conf}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
+
+                        {/* Timeframe option box for Confirmation */}
+                        {confirmationValues.length > 0 && !confirmationValues.includes("No Confirmation") && (
+                          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/5">
+                            <span className="text-[10px] text-white/45 font-medium tracking-wide uppercase shrink-0">Timeframe:</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {["m1", "m5", "m15", "m30", "h1", "h4", "d1"].map((tf) => (
+                                <button
+                                  key={tf}
+                                  type="button"
+                                  onClick={() => {
+                                    setConfirmationTimeframe(confirmationTimeframe === tf ? "" : tf);
+                                    markDirty();
+                                  }}
+                                  className={cn(
+                                    "px-2 py-0.5 rounded text-[10px] font-medium transition-all border uppercase",
+                                    confirmationTimeframe === tf
+                                      ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 font-bold shadow-md shadow-emerald-500/10"
+                                      : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
+                                  )}
+                                >
+                                  {tf}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   } else if (itemId === "riskFree") {
@@ -1851,136 +1894,157 @@ Please analyze this data and generate a detailed report:
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
             <Camera className="h-4 w-4 text-white/65" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Screenshots</span>
-            {screenshots.length > 0 && (
-              <span className="ml-auto text-[11px] text-white/30">{screenshots.length} image{screenshots.length !== 1 ? "s" : ""} · click to view</span>
+            {(screenshots.length > 0 || uploadingItems.length > 0) && (
+              <span className="ml-auto text-[11px] text-white/30">
+                {screenshots.length + uploadingItems.length} image{(screenshots.length + uploadingItems.length) !== 1 ? "s" : ""} · click to view
+              </span>
             )}
           </div>
           <div className="p-4">
-            <div className="flex flex-wrap gap-3">
-              {screenshots.map((src, i) => (
-                <div
-                  key={i}
-                  className="relative group w-28 h-20 rounded-lg overflow-hidden border border-white/10 cursor-pointer"
-                  onClick={() => setLightboxIndex(i)}
-                >
-                  <img src={src} alt={`Screenshot ${i + 1}`} className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center">
-                    <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-semibold transition">View</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {isFetchingTrade && screenshots.length === 0 && uploadingItems.length === 0 ? (
+                Array.from({ length: 2 }).map((_, idx) => (
+                  <div key={idx} className="w-full h-64 sm:h-72 md:h-80 rounded-xl bg-white/[0.04] border border-white/10 animate-pulse flex items-center justify-center shrink-0">
+                    <Loader2 className="h-6 w-6 text-white/20 animate-spin" />
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // Removes this screenshot's reference from the trade only.
-                      // The underlying R2 object is intentionally never deleted —
-                      // it may still be referenced by other merged/compiled trades.
-                      if (src.startsWith("blob:")) URL.revokeObjectURL(src);
-                      setScreenshots((prev) => prev.filter((_, idx) => idx !== i));
-                      setScreenshotKeys((prev) => prev.filter((_, idx) => idx !== i));
-                      markDirty();
-                    }}
-                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 h-5 w-5 rounded bg-black/70 flex items-center justify-center text-white transition"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
+                ))
+              ) : (
+                <>
+                  {screenshots.map((src, i) => (
+                    <JournalScreenshotTile
+                      key={`${src}-${i}`}
+                      src={src}
+                      meta={screenshotMeta[i]}
+                      index={i}
+                      onView={() => setLightboxIndex(i)}
+                      onDelete={() => {
+                        if (src.startsWith("blob:")) URL.revokeObjectURL(src);
+                        setScreenshots((prev) => prev.filter((_, idx) => idx !== i));
+                        setScreenshotKeys((prev) => prev.filter((_, idx) => idx !== i));
+                        setScreenshotMeta((prev) => prev.filter((_, idx) => idx !== i));
+                        markDirty();
+                      }}
+                      onUpdateMeta={(newMeta) => {
+                        setScreenshotMeta((prev) => {
+                          const next = [...prev];
+                          next[i] = { ...next[i], url: src, ...newMeta };
+                          return next;
+                        });
+                        markDirty();
+                      }}
+                    />
+                  ))}
+                  {uploadingItems.map((item) => (
+                    <JournalUploadingTile
+                      key={item.id}
+                      item={item}
+                      onDismiss={() => {
+                        setUploadingItems((prev) => prev.filter((i) => i.id !== item.id));
+                      }}
+                    />
+                  ))}
+                </>
+              )}
               <button
                 onClick={() => fileRef.current?.click()}
-                className="w-28 h-20 rounded-lg border-2 border-dashed border-white/15 flex flex-col items-center justify-center gap-1 text-white/25 hover:text-white/50 hover:border-white/25 transition"
+                className="w-full h-64 sm:h-72 md:h-80 rounded-xl border-2 border-dashed border-white/15 flex flex-col items-center justify-center gap-2.5 text-white/30 hover:text-white/70 hover:border-white/30 bg-white/[0.01] hover:bg-white/[0.03] transition group relative overflow-hidden shrink-0 cursor-pointer"
               >
-                <Plus className="h-4 w-4" />
-                <span className="text-[10px]">Add image</span>
+                <Plus className="h-7 w-7 group-hover:scale-110 transition-transform" />
+                <span className="text-[12px] font-semibold">Add image</span>
               </button>
               <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
             </div>
           </div>
         </div>
 
-        {/* Pre-Trade Analysis */}
-        <div className="rounded-xl border border-white/7 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-            <FileText className="h-4 w-4 text-white/55" />
-            <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Pre-Trade Analysis</span>
-            {preTradeAnalysis.length > 10 && refineSuggestions.preTradeAnalysis === undefined && (
-              <div className="ml-auto">
-                <RefineIconButton
-                  onClick={() => handleRefineSingleField("preTradeAnalysis")}
-                  disabled={refining}
-                  title="Refine pre-trade analysis with AI"
+        {/* Pre-Trade Analysis & Post-Trade Review (Side-by-Side Grid) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Pre-Trade Analysis */}
+          <div className="rounded-xl border border-white/7 overflow-hidden flex flex-col">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
+              <FileText className="h-4 w-4 text-white/55" />
+              <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Pre-Trade Analysis</span>
+              {preTradeAnalysis.length > 10 && refineSuggestions.preTradeAnalysis === undefined && (
+                <div className="ml-auto">
+                  <RefineIconButton
+                    onClick={() => handleRefineSingleField("preTradeAnalysis")}
+                    disabled={refining}
+                    title="Refine pre-trade analysis with AI"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="p-4 relative flex-1 flex flex-col">
+              {refineSuggestions.preTradeAnalysis !== undefined ? (
+                <RefineDiff
+                  original={preTradeAnalysis}
+                  suggestion={refineSuggestions.preTradeAnalysis}
+                  onReplace={() => acceptRefine("preTradeAnalysis")}
+                  onDiscard={() => discardRefine("preTradeAnalysis")}
                 />
-              </div>
-            )}
-          </div>
-          <div className="p-4 relative">
-            {refineSuggestions.preTradeAnalysis !== undefined ? (
-              <RefineDiff
-                original={preTradeAnalysis}
-                suggestion={refineSuggestions.preTradeAnalysis}
-                onReplace={() => acceptRefine("preTradeAnalysis")}
-                onDiscard={() => discardRefine("preTradeAnalysis")}
-              />
-            ) : (
-              <>
-                <textarea
-                  value={preTradeAnalysis}
-                  onChange={(e) => { setPreTradeAnalysis(e.target.value); markDirty(); }}
-                  placeholder="What did you see? Plan, thesis, levels, risk..."
-                  rows={5}
-                  disabled={refining && refineFields.includes("preTradeAnalysis")}
-                  className={cn(
-                    "w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none leading-relaxed transition",
-                    refining && refineFields.includes("preTradeAnalysis") && "opacity-30"
+              ) : (
+                <>
+                  <textarea
+                    value={preTradeAnalysis}
+                    onChange={(e) => { setPreTradeAnalysis(e.target.value); markDirty(); }}
+                    placeholder="What did you see? Plan, thesis, levels, risk..."
+                    rows={5}
+                    disabled={refining && refineFields.includes("preTradeAnalysis")}
+                    className={cn(
+                      "w-full h-full min-h-[120px] bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none leading-relaxed transition",
+                      refining && refineFields.includes("preTradeAnalysis") && "opacity-30"
+                    )}
+                  />
+                  {refining && refineFields.includes("preTradeAnalysis") && (
+                    <AnalyzingOverlay label="AI is analyzing…" />
                   )}
-                />
-                {refining && refineFields.includes("preTradeAnalysis") && (
-                  <AnalyzingOverlay label="AI is analyzing…" />
-                )}
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Post-Trade Review */}
-        <div className="rounded-xl border border-white/7 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-            <BookOpen className="h-4 w-4 text-white/55" />
-            <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Post-Trade Review</span>
-            {postTradeReview.length > 10 && refineSuggestions.postTradeReview === undefined && (
-              <div className="ml-auto">
-                <RefineIconButton
-                  onClick={() => handleRefineSingleField("postTradeReview")}
-                  disabled={refining}
-                  title="Refine post-trade review with AI"
+          {/* Post-Trade Review */}
+          <div className="rounded-xl border border-white/7 overflow-hidden flex flex-col">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
+              <BookOpen className="h-4 w-4 text-white/55" />
+              <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Post-Trade Review</span>
+              {postTradeReview.length > 10 && refineSuggestions.postTradeReview === undefined && (
+                <div className="ml-auto">
+                  <RefineIconButton
+                    onClick={() => handleRefineSingleField("postTradeReview")}
+                    disabled={refining}
+                    title="Refine post-trade review with AI"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="p-4 relative flex-1 flex flex-col">
+              {refineSuggestions.postTradeReview !== undefined ? (
+                <RefineDiff
+                  original={postTradeReview}
+                  suggestion={refineSuggestions.postTradeReview}
+                  onReplace={() => acceptRefine("postTradeReview")}
+                  onDiscard={() => discardRefine("postTradeReview")}
                 />
-              </div>
-            )}
-          </div>
-          <div className="p-4 relative">
-            {refineSuggestions.postTradeReview !== undefined ? (
-              <RefineDiff
-                original={postTradeReview}
-                suggestion={refineSuggestions.postTradeReview}
-                onReplace={() => acceptRefine("postTradeReview")}
-                onDiscard={() => discardRefine("postTradeReview")}
-              />
-            ) : (
-              <>
-                <textarea
-                  value={postTradeReview}
-                  onChange={(e) => { setPostTradeReview(e.target.value); markDirty(); }}
-                  placeholder="What happened? Execution, slippage, improvements..."
-                  rows={5}
-                  disabled={refining && refineFields.includes("postTradeReview")}
-                  className={cn(
-                    "w-full bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none leading-relaxed transition",
-                    refining && refineFields.includes("postTradeReview") && "opacity-30"
+              ) : (
+                <>
+                  <textarea
+                    value={postTradeReview}
+                    onChange={(e) => { setPostTradeReview(e.target.value); markDirty(); }}
+                    placeholder="What happened? Execution, slippage, improvements..."
+                    rows={5}
+                    disabled={refining && refineFields.includes("postTradeReview")}
+                    className={cn(
+                      "w-full h-full min-h-[120px] bg-transparent text-[13px] text-white/75 placeholder:text-white/20 resize-none focus:outline-none leading-relaxed transition",
+                      refining && refineFields.includes("postTradeReview") && "opacity-30"
+                    )}
+                  />
+                  {refining && refineFields.includes("postTradeReview") && (
+                    <AnalyzingOverlay label="AI is analyzing…" />
                   )}
-                />
-                {refining && refineFields.includes("postTradeReview") && (
-                  <AnalyzingOverlay label="AI is analyzing…" />
-                )}
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -2228,12 +2292,6 @@ Please analyze this data and generate a detailed report:
           <div className="rounded-xl border border-white/7 p-4 bg-white/3 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-white/5">
               <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Live Chart</span>
-              <button
-                onClick={() => setShowChart(false)}
-                className="text-[11px] text-white/40 hover:text-red-400 transition"
-              >
-                Hide Chart
-              </button>
             </div>
             <TradeChart
               ref={chartRef}
@@ -2247,11 +2305,23 @@ Please analyze this data and generate a detailed report:
               direction={trade.direction}
               source={trade.source}
               defaultInterval={trade.timeframe}
+              height="80vh"
               onSaveInterval={handleSaveTimeframe}
               onScreenshot={handleChartScreenshot}
             />
           </div>
         )}
+
+        {/* Shifted Show/Hide Chart Toggle Button at the Bottom */}
+        <div className="pt-3 pb-2 flex justify-center">
+          <button
+            onClick={() => setShowChart((s) => !s)}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.10] text-white/80 hover:text-white text-[12.5px] font-semibold transition shadow-md cursor-pointer"
+          >
+            <LineChart className="h-4 w-4 shrink-0 text-white/70" />
+            <span>{showChart ? "Hide Chart" : "Show Chart"}</span>
+          </button>
+        </div>
 
         {/* Unsaved changes sticky footer */}
         {isDirty && (
@@ -2293,107 +2363,215 @@ Please analyze this data and generate a detailed report:
         </div>
       )}
 
-      {/* Analytics AI Modal */}
-      {analyticsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-card border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between p-5 border-b border-border">
-              <h3 className="text-[15px] font-semibold text-card-foreground">AI Analytics Assistant</h3>
-              <button
-                onClick={() => { setAnalyticsOpen(false); setCopied(false); }}
-                className="text-muted-foreground hover:text-foreground/60 transition"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            
-            <div className="p-5 flex-1 overflow-y-auto space-y-4">
-              <p className="text-[12px] text-muted-foreground">
-                Select a duration to fetch your trade and journaling history. We've formatted it into a clean JSON layout and pre-compiled a prompt for AI chatbot analysis.
-              </p>
-              
-              {/* Duration tabs */}
-              <div className="flex gap-2 p-1 bg-white/5 rounded-xl border border-white/5 w-fit">
-                {([
-                  { label: "Today", value: "today" },
-                  { label: "Last Week", value: "week" },
-                  { label: "Last Month", value: "month" },
-                  { label: "All Time", value: "all" },
-                ] as const).map((d) => (
-                  <button
-                    key={d.value}
-                    onClick={() => { setAnalyticsDuration(d.value); setCopied(false); }}
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg text-[11px] font-semibold transition",
-                      analyticsDuration === d.value
-                        ? "bg-white/[0.09] text-white shadow-lg"
-                        : "text-white/40 hover:text-white/70"
-                    )}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
 
-              <div className="text-[11px] text-white/35 font-medium">
-                Found {filteredTradesForAnalytics.length} trade{filteredTradesForAnalytics.length !== 1 ? "s" : ""} for this duration.
-              </div>
+    </div>
+  );
+}
 
-              {/* Prompt box */}
-              <div className="space-y-1.5">
-                <label className="block text-[10px] uppercase tracking-wider text-white/35 font-semibold">
-                  Compiled Prompt &amp; Data
-                </label>
-                <div className="relative group">
-                  <pre className="bg-black/40 text-[11px] text-white/70 p-3 rounded-lg overflow-y-auto max-h-[35vh] whitespace-pre-wrap font-mono border border-white/5">
-                    {analyticsPrompt}
-                  </pre>
-                </div>
-              </div>
-            </div>
+function JournalScreenshotTile({
+  src,
+  meta,
+  index,
+  onView,
+  onDelete,
+  onUpdateMeta,
+}: {
+  src: string;
+  meta?: { caption?: string; timeframe?: string };
+  index: number;
+  onView: () => void;
+  onDelete: () => void;
+  onUpdateMeta: (meta: { caption?: string; timeframe?: string }) => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [captionInput, setCaptionInput] = useState(meta?.caption ?? "");
+  const [timeframeInput, setTimeframeInput] = useState(meta?.timeframe ?? "");
 
-            <div className="p-4 border-t border-border flex items-center justify-end gap-2">
-              <button
-                onClick={() => { setAnalyticsOpen(false); setCopied(false); }}
-                className="px-4 py-2 rounded-lg border border-white/10 text-[12px] text-white/40 hover:text-white/70 transition"
-              >
-                Close
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(analyticsPrompt);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  } catch (e) {
-                    console.error("Failed to copy", e);
-                  }
-                }}
-                className={cn(
-                  "px-4 py-2 rounded-lg text-[12px] font-semibold transition flex items-center gap-1.5",
-                  copied
-                    ? "bg-emerald-600 text-white animate-pulse"
-                    : "bg-white/[0.10] hover:bg-white/[0.16] border border-white/[0.12] text-white"
-                )}
-              >
-                {copied ? "Copied!" : "Copy Prompt for AI"}
-              </button>
-            </div>
-          </div>
+  useEffect(() => {
+    setCaptionInput(meta?.caption ?? "");
+    setTimeframeInput(meta?.timeframe ?? "");
+  }, [meta?.caption, meta?.timeframe]);
+
+  const saveMeta = () => {
+    onUpdateMeta({ caption: captionInput, timeframe: timeframeInput });
+    setEditing(false);
+  };
+
+  return (
+    <div
+      className="relative group w-full h-64 sm:h-72 md:h-80 rounded-xl overflow-hidden border border-white/10 cursor-pointer bg-white/[0.03] shrink-0"
+      onClick={onView}
+    >
+      {!loaded && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/[0.04] animate-pulse z-0">
+          <Loader2 className="h-4 w-4 text-white/40 animate-spin" />
         </div>
       )}
 
-      {mergeOpen && (
-        <MergeModal
-          parentTrade={trade as any}
-          allTrades={sortedCandidates as any}
-          onClose={() => setMergeOpen(false)}
-          onMerged={() => {
-            setMergeOpen(false);
-            window.dispatchEvent(new CustomEvent("refresh-trades"));
-          }}
+      {error ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-500/10 text-red-300 p-1 text-center">
+          <AlertCircle className="h-4 w-4 mb-0.5" />
+          <span className="text-[9px] leading-tight">Failed to load</span>
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={meta?.caption || `Screenshot ${index + 1}`}
+          onLoad={() => setLoaded(true)}
+          onError={() => setError(true)}
+          className={cn(
+            "w-full h-full object-cover transition-opacity duration-300 relative z-10",
+            loaded ? "opacity-100" : "opacity-0"
+          )}
         />
       )}
+
+      {/* Timeframe Tag Overlay */}
+      {meta?.timeframe && !editing && (
+        <div className="absolute top-2 left-2 bg-black/80 text-emerald-400 font-extrabold text-[10px] px-2 py-0.5 rounded-md border border-emerald-500/30 uppercase z-20 pointer-events-none shadow-md">
+          {meta.timeframe}
+        </div>
+      )}
+
+      {/* Caption Text Overlay */}
+      {meta?.caption && !editing && (
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-2.5 pt-6 text-white/90 text-[11px] font-medium truncate z-20 pointer-events-none">
+          {meta.caption}
+        </div>
+      )}
+
+      {loaded && !editing && (
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/45 transition flex items-center justify-center gap-2 z-20">
+          <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-semibold transition bg-white/10 px-2.5 py-1 rounded-md border border-white/20 hover:bg-white/20">View</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditing(true);
+            }}
+            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md bg-white/15 hover:bg-white/25 text-white transition border border-white/20 flex items-center gap-1 text-[11px] font-semibold"
+            title="Edit caption & timeframe"
+          >
+            <Edit2 className="h-3.5 w-3.5" />
+            <span>Edit</span>
+          </button>
+        </div>
+      )}
+
+      {!editing && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 h-6 w-6 rounded-md bg-black/80 flex items-center justify-center text-white transition hover:bg-black z-30 border border-white/20"
+          title="Remove screenshot"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+
+      {/* Inline Edit Form Overlay (Clean Translucent Black Tint without Blur) */}
+      {editing && (
+        <div
+          className="absolute inset-0 bg-[#0c0e14]/90 p-3.5 z-40 flex flex-col justify-between border border-white/15 rounded-xl shadow-2xl transition-all duration-300"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-1 pb-1 border-b border-white/10">
+            <span className="text-[10px] font-extrabold text-white/80 uppercase tracking-wider">Screenshot Details</span>
+            <button onClick={() => setEditing(false)} className="text-white/40 hover:text-white transition">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2.5 my-auto">
+            <div>
+              <span className="text-[9px] text-white/50 font-bold uppercase tracking-wider block mb-1">Timeframe</span>
+              <div className="flex flex-wrap gap-1.5">
+                {["m1", "m5", "m15", "m30", "h1", "h4", "d1"].map((tf) => (
+                  <button
+                    key={tf}
+                    type="button"
+                    onClick={() => setTimeframeInput(timeframeInput === tf ? "" : tf)}
+                    className={cn(
+                      "px-2 py-0.5 rounded-md text-[9.5px] font-bold border uppercase transition-all",
+                      timeframeInput === tf
+                        ? "bg-emerald-500/25 border-emerald-500/50 text-emerald-400 shadow-md shadow-emerald-500/10 font-black"
+                        : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10"
+                    )}
+                  >
+                    {tf}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span className="text-[9px] text-white/50 font-bold uppercase tracking-wider block mb-1">Caption / Notes</span>
+              <input
+                type="text"
+                value={captionInput}
+                onChange={(e) => setCaptionInput(e.target.value)}
+                placeholder="What did you see on this chart?"
+                className="w-full bg-black/50 border border-white/15 rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition"
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={saveMeta}
+            className="w-full py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/40 text-[11px] font-bold transition shadow-md"
+          >
+            Save Details
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JournalUploadingTile({
+  item,
+  onDismiss,
+}: {
+  item: { id: string; previewUrl: string; error?: string };
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="relative w-full h-64 sm:h-72 md:h-80 rounded-xl overflow-hidden border border-white/10 bg-white/[0.03] shrink-0">
+      {item.previewUrl && (
+        <img
+          src={item.previewUrl}
+          alt="Uploading preview"
+          className="w-full h-full object-cover opacity-30"
+        />
+      )}
+
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-1 bg-black/50 z-10">
+        {item.error ? (
+          <>
+            <AlertCircle className="h-4 w-4 text-red-400" />
+            <span className="text-[9px] font-medium text-red-300 text-center leading-tight">Failed</span>
+            <button
+              onClick={onDismiss}
+              className="absolute top-1 right-1 h-4 w-4 rounded bg-black/80 flex items-center justify-center text-white/70 hover:text-white"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </>
+        ) : (
+          <>
+            <Loader2 className="h-4 w-4 text-white/60 animate-spin" />
+            <span className="text-[10px] text-white/50 font-medium">
+              Uploading…
+            </span>
+          </>
+        )}
+      </div>
     </div>
   );
 }

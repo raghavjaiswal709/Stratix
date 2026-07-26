@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { auth } from "@/lib/auth";
 import { getPromptTemplate, renderTemplate } from "@/lib/prompts/store";
+import { getObjectText } from "@/lib/r2";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -234,14 +235,14 @@ function recentCsvFiles(symbol: string, n = 2): string[] {
   });
 }
 
-async function fetch1mCandles(symbol: string, origin: string, cookie: string, count = 120): Promise<Candle1m[]> {
+async function fetch1mCandles(symbol: string, count = 120): Promise<Candle1m[]> {
   const files = recentCsvFiles(symbol, 2);
   const rows: string[] = [];
   for (const file of files) {
     try {
-      const r = await fetch(`${origin}/data/candles/${symbol}/${file}`, { headers: { cookie }, cache: "no-store" });
-      if (!r.ok) continue;
-      rows.push(...(await r.text()).split("\n").filter(l => l.trim() && !l.startsWith("time")));
+      const text = await getObjectText(`candles/${symbol}/${file}`);
+      if (!text) continue;
+      rows.push(...text.split("\n").filter(l => l.trim() && !l.startsWith("time")));
     } catch { /* skip */ }
   }
   const candles: Candle1m[] = [];
@@ -334,12 +335,9 @@ export async function POST(req: NextRequest) {
   const symbol   = INSTRUMENT_SYMBOL[instrument] ?? "xauusd";
   const kwConfig = INSTRUMENT_KEYWORDS[instrument] ?? { primary: [], macro: [] };
 
-  const origin = new URL(req.url).origin;
-  const cookie = req.headers.get("cookie") ?? "";
-
   // Fetch candles + RSS feeds in parallel
   const [candles, allFeedResults] = await Promise.all([
-    fetch1mCandles(symbol, origin, cookie, 120),
+    fetch1mCandles(symbol, 120),
     Promise.all(FEEDS.map(f => fetchFeed(f.url, f.name))),
   ]);
 

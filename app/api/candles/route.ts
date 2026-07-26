@@ -4,9 +4,8 @@
  * Four-layer gap-filling strategy — always returns the most-recent `limit`
  * candles with no visible gap even when the CSV archive is stale:
  *
- *   Layer 1 — Local CSV (static-asset HTTP fetch, O(5ms)):
- *     Fetch 1-min CSV files from public/data/candles/ via the Vercel CDN edge
- *     and resample. No fs import — avoids Turbopack over-bundling warning.
+ *   Layer 1 — Archived CSV (Cloudflare R2, O(50-100ms)):
+ *     Fetch 1-min CSV files from R2 (candles/{symbol}/{file}.csv) and resample.
  *
  *   Layer 2 — Binance REST klines (real-time, no API key, O(200ms)):
  *     For symbols that have a Binance representation (XAUUSD via XAUTUSDT,
@@ -27,6 +26,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getHistoricalRates, Timeframe } from "dukascopy-node";
+import { getObjectText } from "@/lib/r2";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
     if (binanceSymbol) {
       // ── Binance Flow ───────────────────────────────────────────────────────
       try {
-        candles = await loadFromCsv(req, symbol, intervalSec, limit);
+        candles = await loadFromCsv(symbol, intervalSec, limit);
       } catch (err) {
         console.warn(`[candles] ${symbol} CSV load failed:`, (err as Error).message);
       }
@@ -153,7 +153,7 @@ export async function GET(req: NextRequest) {
       if (!hasCache) {
         // Case A: Initial fetch
         try {
-          candles = await loadFromCsv(req, symbol, intervalSec, limit);
+          candles = await loadFromCsv(symbol, intervalSec, limit);
         } catch (err) {
           console.warn(`[candles] ${symbol} CSV load failed:`, (err as Error).message);
         }
@@ -326,9 +326,8 @@ async function fetchDukascopy(
     .filter((c) => Number.isFinite(c.open) && c.time > 0);
 }
 
-// ── CSV helpers (static-asset HTTP fetch — Vercel-safe, no fs bundling) ────────
+// ── CSV helpers (Cloudflare R2 — replaces the old static-asset fetch) ─────────
 async function loadFromCsv(
-  req: NextRequest,
   symbol: string,
   intervalSec: number,
   limit: number
@@ -337,18 +336,12 @@ async function loadFromCsv(
   if (!dir) return [];
   const months = Math.max(2, Math.ceil((limit * intervalSec) / (30 * 86400)) + 1);
   const files = recentMonthFiles(dir, months);
-  // Derive the origin from the incoming request URL so this works on
-  // localhost, Vercel preview URLs, and production equally.
-  const origin = new URL(req.url).origin;
 
   const chunks = await Promise.all(
     files.map(async (file) => {
       try {
-        const res = await fetch(`${origin}/data/candles/${dir}/${file}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) return [] as string[];
-        const text = await res.text();
+        const text = await getObjectText(`candles/${dir}/${file}`);
+        if (!text) return [] as string[];
         return text.split("\n").filter((l) => l.trim() && !l.startsWith("time"));
       } catch {
         return [] as string[];
