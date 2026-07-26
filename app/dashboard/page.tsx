@@ -19,7 +19,7 @@ import { compileTrades } from "@/lib/trades/compile";
 import { AdvancedInsights } from "@/components/trade/dashboard/advanced-insights";
 import { PnlBreakdown } from "@/components/trade/dashboard/pnl-breakdown";
 import { DASHBOARD_PALETTES } from "@/types";
-import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
+import { cachedFetch, invalidateApiCache, peekApiCache } from "@/lib/api-cache";
 
 interface Trade {
   _id: string;
@@ -73,9 +73,29 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
     ? DASHBOARD_PALETTES.find((p) => p.id === preferences.dashboardPalette)
     : undefined;
   const trades = sharedTrades;
-  const [loading, setLoading] = useState(sharedTrades.length === 0);
-  const [mt5Info, setMt5Info] = useState<MT5Info | null>(null);
-  const [mt5Loading, setMt5Loading] = useState(true);
+  const initialTradesUrl = (() => {
+    const params = new URLSearchParams();
+    if (activeProfileId) params.set("profileId", activeProfileId);
+    if (viewUserId) params.set("viewUserId", viewUserId);
+    const qs = params.toString();
+    return qs ? `/api/trade?${qs}` : "/api/trade";
+  })();
+  const initialMt5Url = viewUserId
+    ? `/api/mt5/status?viewUserId=${encodeURIComponent(viewUserId)}`
+    : "/api/mt5/status";
+  // Any persisted cache hit (however old) means real data renders on the very
+  // first paint (hard reload included) — not just on later client-side nav
+  // via sharedTrades, which resets to empty on every hard reload. Freshness
+  // is cachedFetch's job below; this is purely "do we have something to show".
+  const [loading, setLoading] = useState(
+    () => sharedTrades.length === 0 && peekApiCache(initialTradesUrl, { persist: true, allowStale: true }) == null
+  );
+  const [mt5Info, setMt5Info] = useState<MT5Info | null>(
+    () => peekApiCache<MT5Info>(initialMt5Url, { persist: true, allowStale: true })
+  );
+  const [mt5Loading, setMt5Loading] = useState(
+    () => peekApiCache(initialMt5Url, { persist: true, allowStale: true }) == null
+  );
   const [syncRefreshKey, setSyncRefreshKey] = useState(0);
 
   // Tracked via ref so the fetch effect doesn't depend on sharedTrades —
@@ -95,12 +115,13 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
   const loadTrades = useCallback(
     (profileId: string, opts: { force?: boolean; silent?: boolean } = {}) => {
       const requestId = ++requestIdRef.current;
-      if (!opts.silent && !hasCachedTradesRef.current) setLoading(true);
       const params = new URLSearchParams();
       if (profileId) params.set("profileId", profileId);
       if (viewUserId) params.set("viewUserId", viewUserId);
       const qs = params.toString();
       const url = qs ? `/api/trade?${qs}` : "/api/trade";
+      const hasAnyCache = !opts.force && peekApiCache<Trade[]>(url, { persist: true, allowStale: true }) != null;
+      if (!opts.silent && !hasCachedTradesRef.current && !hasAnyCache) setLoading(true);
 
       cachedFetch<Trade[]>(url, { ttlMs: 30_000, force: opts.force, persist: true })
         .then((data) => {
@@ -138,6 +159,7 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
     const url = viewUserId
       ? `/api/mt5/status?viewUserId=${encodeURIComponent(viewUserId)}`
       : "/api/mt5/status";
+    if (peekApiCache(url, { persist: true, allowStale: true }) == null) setMt5Loading(true);
     cachedFetch<MT5Info>(url, { ttlMs: 30_000, persist: true })
       .then((data) => {
         setMt5Info(data);

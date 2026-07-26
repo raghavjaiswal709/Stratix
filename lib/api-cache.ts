@@ -42,6 +42,27 @@ function writeLS(url: string, entry: CacheEntry): void {
   }
 }
 
+// Shared lookup used by both cachedFetch and the synchronous peekApiCache
+// below — checks the in-memory Map first, promoting a localStorage mirror
+// into it on a cold miss when `persist` is set. Returns the entry regardless
+// of age; callers that care about freshness check `ts` themselves.
+function getEntry(url: string, persist: boolean): CacheEntry | null {
+  let hit = cache.get(url);
+  if (!hit && persist) {
+    const ls = readLS(url);
+    if (ls) {
+      cache.set(url, ls);
+      hit = ls;
+    }
+  }
+  return hit ?? null;
+}
+
+function getFreshEntry(url: string, ttlMs: number, persist: boolean): CacheEntry | null {
+  const hit = getEntry(url, persist);
+  return hit && Date.now() - hit.ts < ttlMs ? hit : null;
+}
+
 /**
  * Fetch JSON from `url`, serving a cached copy if it's younger than `ttlMs`.
  * Pass `force: true` to bypass the cache and refresh it (used after mutations
@@ -55,17 +76,8 @@ export async function cachedFetch<T = unknown>(
   const { ttlMs = DEFAULT_TTL_MS, force = false, init, persist = false } = opts;
 
   if (!force) {
-    let hit = cache.get(url);
-    if (!hit && persist) {
-      const ls = readLS(url);
-      if (ls) {
-        cache.set(url, ls);
-        hit = ls;
-      }
-    }
-    if (hit && Date.now() - hit.ts < ttlMs) {
-      return hit.data as T;
-    }
+    const hit = getFreshEntry(url, ttlMs, persist);
+    if (hit) return hit.data as T;
     const pending = inflight.get(url);
     if (pending) return pending as Promise<T>;
   }
@@ -106,6 +118,27 @@ export function invalidateApiCache(prefix: string): void {
   } catch {
     // Storage disabled — in-memory invalidation above still took effect.
   }
+}
+
+/** Synchronously check for a cached entry (in-memory, or in localStorage when
+ * `persist: true`) without triggering a network request. Use this to seed
+ * initial component state and to decide whether a reload needs to show a
+ * loading spinner at all.
+ *
+ * By default this only returns entries younger than `ttlMs` (same freshness
+ * rule `cachedFetch` uses to decide whether to skip the network). Pass
+ * `allowStale: true` for the "show something instantly" use case — any last
+ * known value, however old, so the UI never blocks on a spinner when it has
+ * data to display; the paired `cachedFetch` call still runs independently
+ * and will hit the network itself once that same data is stale, silently
+ * swapping in the fresh copy when it resolves. */
+export function peekApiCache<T = unknown>(
+  url: string,
+  opts: { ttlMs?: number; persist?: boolean; allowStale?: boolean } = {}
+): T | null {
+  const { ttlMs = DEFAULT_TTL_MS, persist = false, allowStale = false } = opts;
+  const hit = allowStale ? getEntry(url, persist) : getFreshEntry(url, ttlMs, persist);
+  return hit ? (hit.data as T) : null;
 }
 
 /** Seed the cache directly — used when a page already has fresh data (e.g.
