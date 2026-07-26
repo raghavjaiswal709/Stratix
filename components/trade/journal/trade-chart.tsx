@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { IChartApi, UTCTimestamp } from "lightweight-charts";
 import { parseISO, differenceInMinutes, subMinutes, addMinutes } from "date-fns";
-import { RefreshCw, Camera, BarChart2, AlertTriangle, ExternalLink, Clock, Check, Play } from "lucide-react";
+import { RefreshCw, Camera, BarChart2, AlertTriangle, ExternalLink, Clock, Check, Play, MousePointerClick } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/context";
 import { toTrueUTC, BROKER_UTC_OFFSET_MIN, IST_OFFSET_MIN } from "@/lib/utils/ist-time";
@@ -31,6 +31,7 @@ interface TradeChartProps {
   direction: "buy" | "sell";
   source?: "manual" | "mt5";         // decides which timezone correction applies
   defaultInterval?: string;          // saved timeframe e.g. "1H", "15m"
+  height?: number | string;          // custom chart height (defaults to "80vh")
   onScreenshot?: (dataUrl: string) => void;
   onSaveInterval?: (interval: string) => void; // callback when user sets a default
 }
@@ -75,15 +76,17 @@ const INTERVAL_MINS: Record<Interval, number> = {
 };
 
 function autoInterval(entryTime: string, exitTime?: string): Interval {
-  const dur = differenceInMinutes(
-    exitTime ? parseISO(exitTime) : new Date(),
-    parseISO(entryTime)
-  );
-  if (dur < 60) return "1min";
-  if (dur < 240) return "5min";
-  if (dur < 4320) return "15min";
-  if (dur < 20160) return "1h";
-  return "4h";
+  if (!exitTime) return "15min";
+  try {
+    const dur = Math.abs(differenceInMinutes(parseISO(exitTime), parseISO(entryTime)));
+    if (dur <= 30) return "1min";
+    if (dur <= 180) return "5min";
+    if (dur <= 720) return "15min";
+    if (dur <= 2880) return "1h";
+    return "4h";
+  } catch {
+    return "15min";
+  }
 }
 
 // Use full ISO string so the API route always parses as UTC (no timezone-local ambiguity)
@@ -106,16 +109,43 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
       direction,
       source,
       defaultInterval,
+      height = "80vh",
       onScreenshot,
       onSaveInterval,
     },
     ref
   ) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const chartWrapperRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const [riskBox, setRiskBox] = useState<RRBox | null>(null);
     const [rewardBox, setRewardBox] = useState<RRBox | null>(null);
     const [rrLabel, setRrLabel] = useState<{ left: number; top: number; text: string } | null>(null);
+
+    // Click-to-interact gate: prevents mouse scroll / touchpad gestures from
+    // hijacking page scroll until the user explicitly clicks on the chart.
+    const [isInteractive, setIsInteractive] = useState(false);
+
+    useEffect(() => {
+      if (!isInteractive) return;
+      const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+        if (chartWrapperRef.current && !chartWrapperRef.current.contains(e.target as Node)) {
+          setIsInteractive(false);
+        }
+      };
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") setIsInteractive(false);
+      };
+
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+        document.removeEventListener("touchstart", handleClickOutside);
+        document.removeEventListener("keydown", handleKeyDown);
+      };
+    }, [isInteractive]);
 
     // Resolve initial interval: use saved default if valid, else auto-detect
     const initInterval: Interval = defaultInterval && TF_TO_INTERVAL[defaultInterval]
@@ -528,14 +558,8 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
               {symbol} · Live Chart
             </span>
-            {hasNoDefaultSet && (
-              <span className="flex items-center gap-1 text-[10px] text-amber-400/70 bg-amber-500/8 border border-amber-500/15 rounded px-1.5 py-0.5">
-                <Clock className="h-3 w-3" />
-                No default timeframe
-              </span>
-            )}
-            {savedInterval && !hasNoDefaultSet && (
-              <span className="text-[10px] text-white/40 bg-white/[0.08]/8 border border-white/[0.08] rounded px-1.5 py-0.5">
+            {savedInterval && (
+              <span className="text-[10px] text-white/40 bg-white/[0.08] border border-white/[0.08] rounded px-1.5 py-0.5">
                 Default: {INTERVAL_LABELS[savedInterval]}
               </span>
             )}
@@ -556,7 +580,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
                 >
                   {INTERVAL_LABELS[iv]}
                   {savedInterval === iv && (
-                    <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-white/60" />
                   )}
                 </button>
               ))}
@@ -570,7 +594,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors",
                 tvTiming
-                  ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                  ? "bg-white/15 border-white/25 text-white"
                   : "bg-white/[0.07] border-white/[0.10] text-white/65 hover:bg-white/[0.09]"
               )}
             >
@@ -583,7 +607,7 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
               <button
                 onClick={handleSaveInterval}
                 title="Save this timeframe as default for this trade"
-                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-amber-600/15 border border-amber-500/20 text-[11px] font-medium text-amber-400 hover:bg-amber-600/25 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.07] border border-white/[0.10] text-[11px] font-medium text-white/75 hover:bg-white/[0.12] hover:text-white transition-colors"
               >
                 {justSaved ? <Check className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
                 {justSaved ? "Saved!" : "Set default"}
@@ -604,19 +628,46 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
           </div>
         </div>
 
-        {/* No default timeframe hint */}
-        {loaded && hasNoDefaultSet && !loading && !error && !noApiKey && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/5 border-b border-amber-500/10">
-            <Clock className="h-3.5 w-3.5 text-amber-400/60 shrink-0" />
-            <p className="text-[11px] text-amber-400/60">
-              No default timeframe saved for this trade. Select a timeframe above and click <strong className="text-amber-400">Set default</strong> so the chart always opens on your setup&apos;s timeframe.
-            </p>
-          </div>
-        )}
-
         {/* Chart canvas area */}
-        <div className="relative overflow-hidden" style={{ height: 380 }}>
-          <div ref={containerRef} className="w-full h-full" />
+        <div ref={chartWrapperRef} className="relative overflow-hidden w-full group/chart" style={{ height }}>
+          <div
+            ref={containerRef}
+            className={cn(
+              "w-full h-full transition-opacity duration-200",
+              isInteractive ? "pointer-events-auto" : "pointer-events-none"
+            )}
+          />
+
+          {/* Click-to-interact overlay (when inactive, page scrolling passes straight through unaffected) */}
+          {!isInteractive && (
+            <div
+              onClick={() => setIsInteractive(true)}
+              className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/25 hover:bg-black/40 backdrop-blur-[0.5px] cursor-pointer transition group-hover/chart:bg-black/35"
+              title="Click to interact with chart"
+            >
+              <div className="px-4 py-2 rounded-xl bg-black/85 border border-white/15 text-[12px] font-semibold text-white/90 shadow-2xl flex items-center gap-2 group-hover/chart:scale-105 transition-transform">
+                <MousePointerClick className="h-4 w-4 text-white/70" />
+                <span>Click chart to interact & zoom</span>
+              </div>
+            </div>
+          )}
+
+          {/* Active chart badge indicator */}
+          {isInteractive && (
+            <div className="absolute top-2 right-2 z-20 flex items-center gap-2 bg-black/80 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-white/15 text-[11px] text-white/80 shadow-lg">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Chart Active</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsInteractive(false);
+                }}
+                className="ml-1 text-[10px] text-white/60 hover:text-white underline cursor-pointer"
+              >
+                Lock
+              </button>
+            </div>
+          )}
 
           {/* Risk / Reward box overlay — TradingView Position-tool style */}
           {riskBox && (

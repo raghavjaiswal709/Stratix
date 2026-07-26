@@ -36,6 +36,7 @@ import { ImportModal } from "@/components/trade/trades/import-modal";
 import { MergeModal } from "@/components/trade/trades/merge-modal";
 import type { TradesSortFilterPrefs } from "@/types";
 import { cn } from "@/lib/utils";
+import { getTradingSession, getSessionBadgeClasses } from "@/lib/trade-session";
 import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
 
 interface Trade {
@@ -727,7 +728,7 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
                   <div key={trade._id} className="divide-y divide-white/5">
                     {/* Main card */}
                     <div className="px-4 py-3.5 flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-full bg-amber-500/15 flex items-center justify-center text-[10px] font-bold text-amber-400 shrink-0">
+                      <div className={`h-9 w-9 rounded-xl flex items-center justify-center text-[10px] font-bold shrink-0 shadow-sm ${displayProfit > 0 ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30" : "bg-red-500/20 text-red-400 ring-1 ring-red-500/30"}`}>
                         {trade.symbol.slice(0, 2)}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -736,8 +737,19 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
                           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
                             {trade.direction === "buy" ? "Long" : "Short"}
                           </span>
+                          {(() => {
+                            const sessionInfo = getTradingSession(displayEntryTime, trade.source);
+                            return (
+                              <span className={cn(
+                                "text-[8.5px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 uppercase tracking-wide",
+                                getSessionBadgeClasses(sessionInfo.session)
+                              )}>
+                                {sessionInfo.session === "No Session" ? "NO SESSION" : sessionInfo.session}
+                              </span>
+                            );
+                          })()}
                           {isParent && agg && (
-                            <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            <span className="text-[8.5px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/15">
                               COMPILED ({agg.childTrades.length + 1})
                             </span>
                           )}
@@ -901,10 +913,12 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
                           </td>
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-2">
-                              <div className="h-7 w-7 rounded-full bg-amber-500/15 flex items-center justify-center text-[9px] font-bold text-amber-400 shrink-0">{trade.symbol.slice(0, 2)}</div>
+                              <div className={`h-7 w-7 rounded-xl flex items-center justify-center text-[9px] font-bold shrink-0 shadow-sm ${displayProfit > 0 ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30" : "bg-red-500/20 text-red-400 ring-1 ring-red-500/30"}`}>
+                                {trade.symbol.slice(0, 2)}
+                              </div>
                               <span className="text-[13px] font-semibold text-foreground">{trade.symbol}</span>
                               {isParent && agg && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/15">
                                   COMPILED ({agg.childTrades.length + 1})
                                 </span>
                               )}
@@ -919,10 +933,23 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
                             </div>
                           </td>
                           <td className="px-5 py-3.5">
-                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
-                              {trade.direction === "buy" ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                              {trade.direction === "buy" ? "Long" : "Short"}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${trade.direction === "buy" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+                                {trade.direction === "buy" ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                {trade.direction === "buy" ? "Long" : "Short"}
+                              </span>
+                              {(() => {
+                                const sessionInfo = getTradingSession(displayEntryTime, trade.source);
+                                return (
+                                  <span className={cn(
+                                    "text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 uppercase tracking-wide",
+                                    getSessionBadgeClasses(sessionInfo.session)
+                                  )}>
+                                    {sessionInfo.session === "No Session" ? "NO SESSION" : sessionInfo.session}
+                                  </span>
+                                );
+                              })()}
+                            </div>
                           </td>
                           <td className="px-5 py-3.5 text-[13px] text-foreground/70">${displayEntryPrice.toLocaleString()}</td>
                           <td className="px-5 py-3.5 text-[13px] text-muted-foreground">{displayExitPrice ? `$${displayExitPrice.toLocaleString()}` : "—"}</td>
