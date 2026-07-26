@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { TradeEntryModel } from "@/lib/models/TradeEntry";
 import { getContractSize } from "@/lib/contract-sizes";
+import { hydrateScreenshots } from "@/lib/r2";
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,9 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  return NextResponse.json(trade);
+  const screenshotKeys = trade.screenshots ?? [];
+  const screenshots = await hydrateScreenshots(screenshotKeys);
+  return NextResponse.json({ ...trade, screenshots, screenshotKeys });
 }
 
 // PUT /api/trade/[id] — update trade or journal data

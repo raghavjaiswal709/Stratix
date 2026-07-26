@@ -21,6 +21,10 @@ export interface IMissedTrade extends Document<string> {
   analysis: string;
   lessonsLearned: string;
   screenshots: string[];
+  // Permanent, write-once snapshot of the pre-R2-migration base64 screenshots
+  // (see scripts/migrate-screenshots-to-r2.ts). Never read by the app, never
+  // modified or removed by anything — kept solely as a recovery fallback.
+  screenshotsBase64Backup?: string[];
   tags: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -47,6 +51,7 @@ const MissedTradeSchema = new Schema<IMissedTrade>(
     analysis: { type: String, default: "" },
     lessonsLearned: { type: String, default: "" },
     screenshots: { type: [String], default: [] },
+    screenshotsBase64Backup: { type: [String], default: undefined },
     tags: { type: [String], default: [] },
   },
   { timestamps: true }
