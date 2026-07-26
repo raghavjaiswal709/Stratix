@@ -61,6 +61,32 @@ export async function getObjectText(key: string): Promise<string | null> {
   }
 }
 
+/**
+ * Reads an object's raw bytes plus its stored content type. Returns null (not a
+ * throw) for a missing key so callers can answer 404 cleanly.
+ *
+ * Used by the note-image proxy route. The bytes are deliberately served through
+ * our own origin rather than via a redirect to a presigned R2 URL: the drawing
+ * editor loads a saved image back into a <canvas> and then calls `toDataURL()`
+ * on undo/save, which throws a SecurityError on a canvas tainted by a
+ * cross-origin image. Same-origin bytes keep that path working.
+ */
+export async function getObjectBytes(
+  key: string
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  try {
+    const res = await r2Client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    const bytes = await res.Body?.transformToByteArray();
+    if (!bytes) return null;
+    return { bytes, contentType: res.ContentType ?? "application/octet-stream" };
+  } catch (err) {
+    const name = (err as { name?: string })?.name;
+    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    if (name === "NoSuchKey" || status === 404) return null;
+    throw err;
+  }
+}
+
 /** Direct server-side write of UTF-8 text (e.g. a CSV) to an object key. */
 export async function putObjectText(key: string, text: string): Promise<void> {
   await r2Client.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: text, ContentType: "text/csv" }));

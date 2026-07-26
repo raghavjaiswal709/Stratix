@@ -52,6 +52,7 @@ import {
   PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { uploadNoteImage, persistCanvasImage } from "@/lib/note-images";
 import ReactDOM from "react-dom";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -608,6 +609,7 @@ const FigureExtension = Node.create({
 // ── FigureView ────────────────────────────────────────────────────────────
 function FigureView({ node, updateAttributes, selected, deleteNode }: ReactNodeViewProps) {
   const [showDraw, setShowDraw] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const attrs = node.attrs as { src: string; caption: string; width: string; align?: string };
   const align = attrs.align || "center";
   const wrapperRef = useRef<HTMLElement>(null);
@@ -771,10 +773,29 @@ function FigureView({ node, updateAttributes, selected, deleteNode }: ReactNodeV
         />
       </figcaption>
 
+      {saveError && (
+        <div contentEditable={false} className="mt-1.5 text-center text-[12px] text-red-500">
+          {saveError}
+        </div>
+      )}
+
       {showDraw && (
         <DrawingModal
           imageSrc={attrs.src}
-          onSave={(merged) => { updateAttributes({ src: merged }); setShowDraw(false); }}
+          onSave={(merged) => {
+            // Annotating flattens image + markup into a fresh PNG. Upload it and
+            // keep only the URL — storing the bytes here would put them straight
+            // back into the `userdatas` document.
+            setShowDraw(false);
+            setSaveError(null);
+            persistCanvasImage(merged)
+              .then((src) => updateAttributes({ src }))
+              .catch((err) =>
+                setSaveError(
+                  err instanceof Error ? err.message : "Could not save the annotated image."
+                )
+              );
+          }}
           onClose={() => setShowDraw(false)}
         />
       )}
@@ -849,6 +870,7 @@ const DrawingExtension = Node.create({
 // ── DrawingView ───────────────────────────────────────────────────────────
 function DrawingView({ node, updateAttributes, selected, deleteNode }: ReactNodeViewProps) {
   const [editing, setEditing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const attrs = node.attrs as {
     data: string;
     canvasWidth: number;
@@ -985,9 +1007,27 @@ function DrawingView({ node, updateAttributes, selected, deleteNode }: ReactNode
             initialDataUrl={attrs.data || undefined}
             canvasWidth={attrs.canvasWidth}
             canvasHeight={attrs.canvasHeight}
-            onSave={(dataUrl) => { updateAttributes({ data: dataUrl }); setEditing(false); }}
+            onSave={(dataUrl) => {
+              // Upload the flattened canvas and store only its URL — see
+              // lib/note-images.ts for why bytes must not live in the note body.
+              setEditing(false);
+              setSaveError(null);
+              persistCanvasImage(dataUrl)
+                .then((data) => updateAttributes({ data }))
+                .catch((err) =>
+                  setSaveError(
+                    err instanceof Error ? err.message : "Could not save the drawing."
+                  )
+                );
+            }}
             onCancel={() => setEditing(false)}
           />
+        </div>
+      )}
+
+      {saveError && (
+        <div contentEditable={false} className="mt-1.5 text-center text-[12px] text-red-500">
+          {saveError}
         </div>
       )}
     </NodeViewWrapper>
@@ -1528,6 +1568,11 @@ export function RichEditor({ content, onChange }: RichEditorProps) {
   // Slash command state
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
 
+  // Image uploads go to R2 over the network, so they need visible progress and
+  // a real error path — silently dropping an image would look like data loss.
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
@@ -1612,25 +1657,33 @@ export function RichEditor({ content, onChange }: RichEditorProps) {
   );
 
   // ── Image upload ──────────────────────────────────────────────────────
+  // Uploads to R2 and stores only the returned URL in the node. Embedding the
+  // bytes as base64 instead would land them inside the user's single `userdatas`
+  // document, which is re-read and re-written in full on every note edit.
   const handleFileUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
+      e.target.value = "";
       if (!file || !editor) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const src = ev.target?.result as string;
-        if (!src) return;
+
+      const pending = pendingPlacementRef.current;
+      pendingPlacementRef.current = null;
+
+      setImageError(null);
+      setImageUploading(true);
+      try {
+        const src = await uploadNoteImage(file);
         const nodeDesc = { type: "figure", attrs: { src, caption: "" } };
-        const pending = pendingPlacementRef.current;
         if (pending) {
           doInsertNode(nodeDesc, pending.placement, pending.from, pending.to);
-          pendingPlacementRef.current = null;
         } else {
           editor.chain().focus().insertContent(nodeDesc).run();
         }
-      };
-      reader.readAsDataURL(file);
-      e.target.value = "";
+      } catch (err) {
+        setImageError(err instanceof Error ? err.message : "Image upload failed.");
+      } finally {
+        setImageUploading(false);
+      }
     },
     [editor, doInsertNode]
   );
@@ -1709,6 +1762,27 @@ export function RichEditor({ content, onChange }: RichEditorProps) {
       )}
 
       <EditorToolbar editor={editor} onImageUpload={handleImageButtonClick} onInsertDrawing={handleDrawingButtonClick} />
+
+      {imageUploading && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-[13px] text-muted-foreground">
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+          Uploading image…
+        </div>
+      )}
+
+      {imageError && (
+        <div className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-500">
+          <span>{imageError}</span>
+          <button
+            type="button"
+            onClick={() => setImageError(null)}
+            className="shrink-0 text-red-500/70 transition-colors hover:text-red-500"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       <EditorContent editor={editor} className="notion-editor focus:outline-none" />
     </div>

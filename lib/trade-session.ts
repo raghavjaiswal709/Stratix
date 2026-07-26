@@ -55,27 +55,21 @@ export function getTradingSession(isoString?: string, source?: TradeTimeSource):
 export function getSessionBadgeClasses(session: TradingSession): string {
   switch (session) {
     case "Asian":
-      return "bg-cyan-500/15 text-cyan-400 border-cyan-500/25";
     case "London":
-      return "bg-pink-500/15 text-pink-400 border-pink-500/25";
     case "NY":
-      return "bg-amber-500/15 text-amber-400 border-amber-500/25";
     case "No Session":
     default:
-      return "bg-red-500/20 text-red-400 border-red-500/30 font-bold";
+      return "bg-transparent text-zinc-400 border-none font-semibold";
   }
 }
 
 export function getSessionTextColor(session: TradingSession): string {
   switch (session) {
     case "Asian":
-      return "text-cyan-400 font-black";
     case "London":
-      return "text-pink-400 font-black";
     case "NY":
-      return "text-amber-400 font-black";
     case "No Session":
     default:
-      return "text-red-400 font-black";
+      return "text-zinc-400 font-semibold";
   }
 }

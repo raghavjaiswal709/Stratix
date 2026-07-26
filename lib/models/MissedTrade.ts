@@ -51,7 +51,9 @@ const MissedTradeSchema = new Schema<IMissedTrade>(
     analysis: { type: String, default: "" },
     lessonsLearned: { type: String, default: "" },
     screenshots: { type: [String], default: [] },
-    screenshotsBase64Backup: { type: [String], default: undefined },
+    // See TradeEntry: migration-only backup, never read by app code, excluded by
+    // default so it can't silently bloat every read of this collection.
+    screenshotsBase64Backup: { type: [String], default: undefined, select: false },
     tags: { type: [String], default: [] },
   },
   { timestamps: true }
