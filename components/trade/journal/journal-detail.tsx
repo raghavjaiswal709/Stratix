@@ -1889,6 +1889,74 @@ Please analyze this data and generate a detailed report:
           </div>
         </div>
 
+        {/* Screenshots */}
+        <div className="rounded-xl border border-white/7 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
+            <Camera className="h-4 w-4 text-white/65" />
+            <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Screenshots</span>
+            {(screenshots.length > 0 || uploadingItems.length > 0) && (
+              <span className="ml-auto text-[11px] text-white/30">
+                {screenshots.length + uploadingItems.length} image{(screenshots.length + uploadingItems.length) !== 1 ? "s" : ""} · click to view
+              </span>
+            )}
+          </div>
+          <div className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {isFetchingTrade && screenshots.length === 0 && uploadingItems.length === 0 ? (
+                Array.from({ length: 2 }).map((_, idx) => (
+                  <div key={idx} className="w-full h-64 sm:h-72 md:h-80 rounded-xl bg-white/[0.04] border border-white/10 animate-pulse flex items-center justify-center shrink-0">
+                    <Loader2 className="h-6 w-6 text-white/20 animate-spin" />
+                  </div>
+                ))
+              ) : (
+                <>
+                  {screenshots.map((src, i) => (
+                    <JournalScreenshotTile
+                      key={`${src}-${i}`}
+                      src={src}
+                      meta={screenshotMeta[i]}
+                      index={i}
+                      onView={() => setLightboxIndex(i)}
+                      onDelete={() => {
+                        if (src.startsWith("blob:")) URL.revokeObjectURL(src);
+                        setScreenshots((prev) => prev.filter((_, idx) => idx !== i));
+                        setScreenshotKeys((prev) => prev.filter((_, idx) => idx !== i));
+                        setScreenshotMeta((prev) => prev.filter((_, idx) => idx !== i));
+                        markDirty();
+                      }}
+                      onUpdateMeta={(newMeta) => {
+                        setScreenshotMeta((prev) => {
+                          const next = [...prev];
+                          next[i] = { ...next[i], url: src, ...newMeta };
+                          return next;
+                        });
+                        markDirty();
+                      }}
+                    />
+                  ))}
+                  {uploadingItems.map((item) => (
+                    <JournalUploadingTile
+                      key={item.id}
+                      item={item}
+                      onDismiss={() => {
+                        setUploadingItems((prev) => prev.filter((i) => i.id !== item.id));
+                      }}
+                    />
+                  ))}
+                </>
+              )}
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="w-full h-64 sm:h-72 md:h-80 rounded-xl border-2 border-dashed border-white/15 flex flex-col items-center justify-center gap-2.5 text-white/30 hover:text-white/70 hover:border-white/30 bg-white/[0.01] hover:bg-white/[0.03] transition group relative overflow-hidden shrink-0 cursor-pointer"
+              >
+                <Plus className="h-7 w-7 group-hover:scale-110 transition-transform" />
+                <span className="text-[12px] font-semibold">Add image</span>
+              </button>
+              <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
+            </div>
+          </div>
+        </div>
+
         {/* Pre-Trade Analysis & Post-Trade Review (Side-by-Side Grid) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Pre-Trade Analysis */}
@@ -2216,74 +2284,6 @@ Please analyze this data and generate a detailed report:
             <p className="text-[10px] text-white/25 text-center">
               {rating <= 3 ? "Poor execution — major mistakes" : rating <= 5 ? "Below average — room to improve" : rating <= 7 ? "Decent execution" : rating <= 9 ? "Great trade execution" : "Perfect A+ execution"}
             </p>
-          </div>
-        </div>
-
-        {/* Screenshots */}
-        <div className="rounded-xl border border-white/7 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
-            <Camera className="h-4 w-4 text-white/65" />
-            <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Screenshots</span>
-            {(screenshots.length > 0 || uploadingItems.length > 0) && (
-              <span className="ml-auto text-[11px] text-white/30">
-                {screenshots.length + uploadingItems.length} image{(screenshots.length + uploadingItems.length) !== 1 ? "s" : ""} · click to view
-              </span>
-            )}
-          </div>
-          <div className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {isFetchingTrade && screenshots.length === 0 && uploadingItems.length === 0 ? (
-                Array.from({ length: 2 }).map((_, idx) => (
-                  <div key={idx} className="w-full h-64 sm:h-72 md:h-80 rounded-xl bg-white/[0.04] border border-white/10 animate-pulse flex items-center justify-center shrink-0">
-                    <Loader2 className="h-6 w-6 text-white/20 animate-spin" />
-                  </div>
-                ))
-              ) : (
-                <>
-                  {screenshots.map((src, i) => (
-                    <JournalScreenshotTile
-                      key={`${src}-${i}`}
-                      src={src}
-                      meta={screenshotMeta[i]}
-                      index={i}
-                      onView={() => setLightboxIndex(i)}
-                      onDelete={() => {
-                        if (src.startsWith("blob:")) URL.revokeObjectURL(src);
-                        setScreenshots((prev) => prev.filter((_, idx) => idx !== i));
-                        setScreenshotKeys((prev) => prev.filter((_, idx) => idx !== i));
-                        setScreenshotMeta((prev) => prev.filter((_, idx) => idx !== i));
-                        markDirty();
-                      }}
-                      onUpdateMeta={(newMeta) => {
-                        setScreenshotMeta((prev) => {
-                          const next = [...prev];
-                          next[i] = { ...next[i], url: src, ...newMeta };
-                          return next;
-                        });
-                        markDirty();
-                      }}
-                    />
-                  ))}
-                  {uploadingItems.map((item) => (
-                    <JournalUploadingTile
-                      key={item.id}
-                      item={item}
-                      onDismiss={() => {
-                        setUploadingItems((prev) => prev.filter((i) => i.id !== item.id));
-                      }}
-                    />
-                  ))}
-                </>
-              )}
-              <button
-                onClick={() => fileRef.current?.click()}
-                className="w-full h-64 sm:h-72 md:h-80 rounded-xl border-2 border-dashed border-white/15 flex flex-col items-center justify-center gap-2.5 text-white/30 hover:text-white/70 hover:border-white/30 bg-white/[0.01] hover:bg-white/[0.03] transition group relative overflow-hidden shrink-0 cursor-pointer"
-              >
-                <Plus className="h-7 w-7 group-hover:scale-110 transition-transform" />
-                <span className="text-[12px] font-semibold">Add image</span>
-              </button>
-              <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
-            </div>
           </div>
         </div>
 

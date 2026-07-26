@@ -10,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft, Quote as QuoteIcon, Search, Plus, Trash2, Loader2, AlertCircle, Check, X,
 } from "lucide-react";
-import { invalidateApiCache } from "@/lib/api-cache";
 
 interface QuoteEntry {
   _id: string;
@@ -85,7 +84,6 @@ export default function AdminQuotesPage() {
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
 
       setQuotes((prev) => (prev ? [...prev, body.quote] : [body.quote]));
-      invalidateApiCache("/api/quotes");
       setNewText("");
       setNewAuthor("");
       setMessage({ type: "ok", msg: "Quote added." });
@@ -106,7 +104,6 @@ export default function AdminQuotesPage() {
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
       setQuotes((prev) => (prev ? prev.filter((q) => q._id !== id) : prev));
-      invalidateApiCache("/api/quotes");
     } catch (e) {
       setMessage({ type: "err", msg: e instanceof Error ? e.message : "Delete failed" });
     } finally {

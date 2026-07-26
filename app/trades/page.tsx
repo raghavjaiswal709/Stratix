@@ -37,7 +37,7 @@ import { MergeModal } from "@/components/trade/trades/merge-modal";
 import type { TradesSortFilterPrefs } from "@/types";
 import { cn } from "@/lib/utils";
 import { getTradingSession, getSessionBadgeClasses } from "@/lib/trade-session";
-import { cachedFetch, invalidateApiCache, peekApiCache } from "@/lib/api-cache";
+import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
 
 interface Trade {
   _id: string;
@@ -190,46 +190,19 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
   const readOnly = !!viewUserId;
   const { preferences, setPreferences, sharedTrades, setSharedTrades, activeProfileId, tradingProfiles } = useAppContext();
   const prefsRef = useRef(preferences);
-
+  
   useEffect(() => {
     prefsRef.current = preferences;
   }, [preferences]);
 
-  // Initialize sort/filter from saved preferences — hoisted above the
-  // trades/loading state below so the very first render can peek the cache
-  // for the exact URL this view will request (page 1, these filters).
-  const saved = preferences.tradesSortFilter ?? DEFAULT_PREFS;
-
-  function initialPageUrl(page: number): string {
-    const params = new URLSearchParams();
-    params.set("page", String(page));
-    params.set("pageSize", String(PAGE_SIZE));
-    params.set("sortBy", saved.sortBy);
-    params.set("sortDir", saved.sortDir);
-    if (activeProfileId) params.set("profileId", activeProfileId);
-    if (saved.filterSymbol) params.set("symbol", saved.filterSymbol);
-    if (saved.filterDirection !== "all") params.set("direction", saved.filterDirection);
-    if (saved.filterStatus !== "all") params.set("status", saved.filterStatus);
-    if (saved.filterSource !== "all") params.set("source", saved.filterSource);
-    if (viewUserId) params.set("viewUserId", viewUserId);
-    return `/api/trade?${params.toString()}`;
-  }
-  const initialMt5Url = viewUserId
-    ? `/api/mt5/status?viewUserId=${encodeURIComponent(viewUserId)}`
-    : "/api/mt5/status";
-  // Cache hit here means the page renders real data on the very first paint
-  // — no spinner — while `load()`'s own effect still fires to reconcile.
-  const cachedPaged = peekApiCache<PagedTradesResponse>(initialPageUrl(1), { persist: true, allowStale: true });
-  const cachedMt5 = peekApiCache<MT5Config>(initialMt5Url, { persist: true, allowStale: true });
-
   // Current page's rows only — a parent trade's merged children ride along
   // in this same array (server includes them) purely so getAggregatedTradeInfo
   // can roll them up; they're filtered back out via `pageRows` before render.
-  const [trades, setTrades] = useState<Trade[]>(() => cachedPaged?.trades ?? []);
-  const [total, setTotal] = useState(() => cachedPaged?.total ?? 0);
-  const [totalPages, setTotalPages] = useState(() => cachedPaged?.totalPages ?? 1);
-  const [mt5, setMt5] = useState<MT5Config | null>(() => cachedMt5 ?? null);
-  const [loading, setLoading] = useState(() => !(cachedPaged && cachedMt5));
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [mt5, setMt5] = useState<MT5Config | null>(null);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -259,6 +232,8 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
+  // Initialize sort/filter from saved preferences
+  const saved = preferences.tradesSortFilter ?? DEFAULT_PREFS;
   const [sortBy, setSortBy] = useState<TradesSortFilterPrefs["sortBy"]>(saved.sortBy);
   const [sortDir, setSortDir] = useState<"asc" | "desc">(saved.sortDir);
   const [filterSymbol, setFilterSymbol] = useState(saved.filterSymbol);
@@ -325,20 +300,12 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
 
   const load = useCallback(
     (profileId: string, page: number, opts: { force?: boolean; silent?: boolean } = {}) => {
-      const url = pageUrl(page, profileId);
+      if (!opts.silent) setLoading(true);
       const mt5StatusUrl = viewUserId
         ? `/api/mt5/status?viewUserId=${encodeURIComponent(viewUserId)}`
         : "/api/mt5/status";
-      // Any cached copy (however old) on both endpoints means we already have
-      // real data to show — never flash the full-table spinner over it, just
-      // reconcile silently once the background cachedFetch below resolves.
-      const hasAnyCache =
-        !opts.force &&
-        peekApiCache<PagedTradesResponse>(url, { persist: true, allowStale: true }) != null &&
-        peekApiCache<MT5Config>(mt5StatusUrl, { persist: true, allowStale: true }) != null;
-      if (!opts.silent && !hasAnyCache) setLoading(true);
       Promise.all([
-        cachedFetch<PagedTradesResponse>(url, { ttlMs: 30_000, force: opts.force, persist: true }),
+        cachedFetch<PagedTradesResponse>(pageUrl(page, profileId), { ttlMs: 30_000, force: opts.force, persist: true }),
         cachedFetch<MT5Config>(mt5StatusUrl, { ttlMs: 30_000, force: opts.force, persist: true }),
       ])
         .then(([t, m]) => {
@@ -773,10 +740,10 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
                             const sessionInfo = getTradingSession(displayEntryTime, trade.source);
                             return (
                               <span className={cn(
-                                "text-[8.5px] font-bold py-0.5 rounded-full border shrink-0 uppercase tracking-wide w-[64px] inline-flex items-center justify-center text-center",
+                                "text-[8.5px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 uppercase tracking-wide",
                                 getSessionBadgeClasses(sessionInfo.session)
                               )}>
-                                {sessionInfo.session === "No Session" ? "-" : sessionInfo.session}
+                                {sessionInfo.session === "No Session" ? "NO SESSION" : sessionInfo.session}
                               </span>
                             );
                           })()}
@@ -974,10 +941,10 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
                                 const sessionInfo = getTradingSession(displayEntryTime, trade.source);
                                 return (
                                   <span className={cn(
-                                    "text-[9px] font-bold py-0.5 rounded-full border shrink-0 uppercase tracking-wide w-[72px] inline-flex items-center justify-center text-center",
+                                    "text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 uppercase tracking-wide",
                                     getSessionBadgeClasses(sessionInfo.session)
                                   )}>
-                                    {sessionInfo.session === "No Session" ? "-" : sessionInfo.session}
+                                    {sessionInfo.session === "No Session" ? "NO SESSION" : sessionInfo.session}
                                   </span>
                                 );
                               })()}
