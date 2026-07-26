@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getObjectText } from "@/lib/r2";
 
 const SYMBOL_MAP: Record<string, string> = {
   XAUUSD: "XAU/USD",
@@ -69,33 +70,12 @@ function matchKnownSymbol(symbol: string): string | null {
 
 const cleanSymbol = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-async function fetchCsvContent(symbolFolder: string, fileName: string, origin: string, cookieHeader: string): Promise<string | null> {
-  const urls = [
-    `https://raw.githubusercontent.com/raghavjaiswal709/Stratix/refs/heads/master/public/data/candles/${symbolFolder}/${fileName}`,
-    `https://raw.githubusercontent.com/raghavjaiswal709/Stratix/refs/heads/main/public/data/candles/${symbolFolder}/${fileName}`,
-    `https://cdn.jsdelivr.net/gh/raghavjaiswal709/Stratix@master/public/data/candles/${symbolFolder}/${fileName}`,
-    `https://cdn.jsdelivr.net/gh/raghavjaiswal709/Stratix@main/public/data/candles/${symbolFolder}/${fileName}`,
-    `${origin}/data/candles/${symbolFolder}/${fileName}`
-  ];
-
-  for (const url of urls) {
-    try {
-      const headers: Record<string, string> = {};
-      if (url.startsWith(origin)) {
-        headers["cookie"] = cookieHeader;
-      }
-      const res = await fetch(url, { headers, cache: "no-store" });
-      if (res.status === 200) {
-        const text = await res.text();
-        if (text && text.trim().length > 0 && !text.includes("<html") && !text.includes("<!DOCTYPE")) {
-          return text;
-        }
-      }
-    } catch {
-      // ignore and try next
-    }
+async function fetchCsvContent(symbolFolder: string, fileName: string): Promise<string | null> {
+  try {
+    return await getObjectText(`candles/${symbolFolder}/${fileName}`);
+  } catch {
+    return null;
   }
-  return null;
 }
 
 async function fetchTwelveData(symbol: string, interval: string, from: string, to: string) {
@@ -184,12 +164,9 @@ export async function GET(req: NextRequest) {
   const months = getMonthsInRange(paddedFromDate, new Date(to));
   const candles1m: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
 
-  const origin = new URL(req.url).origin;
-  const cookieHeader = req.headers.get("cookie") ?? "";
-
   for (const { year, month } of months) {
     const fileName = `${symbolFolder}_${year}_${month}.csv`;
-    const fileContent = await fetchCsvContent(symbolFolder, fileName, origin, cookieHeader);
+    const fileContent = await fetchCsvContent(symbolFolder, fileName);
     if (!fileContent) continue;
     
     try {
@@ -286,5 +263,5 @@ export async function GET(req: NextRequest) {
     finalCandles = aggregated;
   }
 
-  return NextResponse.json({ candles: finalCandles, source: "github-local" });
+  return NextResponse.json({ candles: finalCandles, source: "r2" });
 }

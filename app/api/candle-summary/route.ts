@@ -2,16 +2,14 @@
  * GET /api/candle-summary
  *
  * Returns the last 48 h of H1 candles and last 7 days of H4 candles
- * for every symbol in public/data/candles/.
+ * for every symbol archived in Cloudflare R2 (candles/{symbol}/{file}.csv).
  * Used by the Prompt modals to embed real price data in the AI prompt.
  *
  * Admin-only. Resamples 1-min CSV data on the fly — no extra storage needed.
- *
- * Uses HTTP fetch against Vercel's static-asset layer instead of fs.readFile
- * to avoid the nft file-tracing issue (dynamic paths matching 1000s of CSVs).
  */
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getObjectText } from "@/lib/r2";
 
 export const dynamic = "force-dynamic";
 
@@ -73,17 +71,13 @@ function recentMonthFiles(symbol: string, n = 3): string[] {
   });
 }
 
-async function fetchRows(symbol: string, origin: string, cookieHeader: string): Promise<string[]> {
+async function fetchRows(symbol: string): Promise<string[]> {
   const files   = recentMonthFiles(symbol, 3);
   const buckets = await Promise.all(
     files.map(async (file) => {
       try {
-        const res = await fetch(`${origin}/data/candles/${symbol}/${file}`, {
-          headers: { cookie: cookieHeader },
-          cache: "no-store",
-        });
-        if (!res.ok) return [] as string[];
-        const text = await res.text();
+        const text = await getObjectText(`candles/${symbol}/${file}`);
+        if (!text) return [] as string[];
         return text.split("\n").filter(l => l.trim() && !l.startsWith("time"));
       } catch {
         return [] as string[];
@@ -93,20 +87,18 @@ async function fetchRows(symbol: string, origin: string, cookieHeader: string): 
   return buckets.flat();
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const userSession = await auth();
   if (!userSession?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const origin       = new URL(req.url).origin;
-  const cookieHeader = req.headers.get("cookie") ?? "";
   const now          = Date.now();
   const result: Record<string, { h1: Candle[]; h4: Candle[] }> = {};
 
   await Promise.all(
     SYMBOLS.map(async (symbol) => {
-      const rows = await fetchRows(symbol, origin, cookieHeader);
+      const rows = await fetchRows(symbol);
       result[symbol] = {
         h1: resample(rows, 3600,  now - LOOKBACK_H1_MS),
         h4: resample(rows, 14400, now - LOOKBACK_H4_MS),
