@@ -65,7 +65,7 @@ for (const symbol of symbols) {
 
   // Newest-first: recent gaps are both more valuable to fix and more likely
   // to be within Twelve Data's plan's historical depth than decade-old ones.
-  const gaps = findGaps(CANDLES_DIR, symbol, { minGapMinutes: 5 })
+  const gaps = (await findGaps(CANDLES_DIR, symbol, { minGapMinutes: 5 }))
     .sort((a, b) => b.afterSec - a.afterSec);
   totalGapsSeen += gaps.length;
   console.log(`\n[${symbol}] ${gaps.length} known gap(s)`);
@@ -88,7 +88,7 @@ for (const symbol of symbols) {
       console.log('no data from Twelve Data');
       continue;
     }
-    const written = persistCandles(symbol, candles);
+    const written = await persistCandles(symbol, candles);
     console.log(`got ${candles.length}, wrote ${written} new`);
     if (written > 0) filled++;
   }

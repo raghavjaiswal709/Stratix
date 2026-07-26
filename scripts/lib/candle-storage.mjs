@@ -1,20 +1,22 @@
 /**
  * candle-storage.mjs
  *
- * Shared read/write layer for the on-disk candle CSVs, used by both the
- * scheduled incremental updater (update_candles.mjs) and the gap backfill
- * tools (backfill_candle_gaps.mjs). Extracted so both write through the exact
- * same append/dedup logic instead of two copies drifting apart over time.
+ * Shared read/write layer for the candle CSVs, used by both the scheduled
+ * incremental updater (update_candles.mjs) and the gap backfill tools
+ * (backfill_candle_gaps.mjs). Extracted so both write through the exact same
+ * append/dedup logic instead of two copies drifting apart over time.
+ *
+ * Storage backend: Cloudflare R2 (candles/{symbol}/{symbol}_{yyyy}_{mm}.csv),
+ * migrated from local disk via scripts/migrate-candles-to-r2.ts. See that
+ * script's header comment for the migration's safety model.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { getObjectText, putObjectText, listObjectKeys } from './r2-client.mjs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-
-export const CANDLES_DIR = path.join(__dirname, '../../public/data/candles');
+// Kept only for symmetry with the pre-migration API — no longer points at a
+// real directory, callers only ever pass it through to findGaps/readAllTimestamps
+// which now ignore it (kept as a parameter so call sites needed zero changes).
+export const CANDLES_DIR = 'candles';
 
 // Must match download_candles.mjs exactly so existing files stay consistent.
 export const PRICE_PRECISION = {
@@ -26,26 +28,23 @@ export const PRICE_PRECISION = {
 };
 
 /**
- * Scan a symbol's directory, find the newest monthly CSV, and return the Unix
- * timestamp (seconds) of its very last data row.
+ * Scan a symbol's R2 objects, find the newest monthly CSV, and return the
+ * Unix timestamp (seconds) of its very last data row.
  * Returns null if no data exists yet.
  */
-export function getLastCandleTimestamp(symbol) {
-  const dir = path.join(CANDLES_DIR, symbol);
-  if (!fs.existsSync(dir)) return null;
+export async function getLastCandleTimestamp(symbol) {
+  const keys = (await listObjectKeys(`candles/${symbol}/`))
+    .filter((k) => /_\d{4}_\d{2}\.csv$/.test(k))
+    .sort(); // key embeds yyyy_mm — lexicographic sort == chronological
 
-  const files = fs.readdirSync(dir)
-    .filter(f => /^.+_\d{4}_\d{2}\.csv$/.test(f))
-    .sort();                          // lexicographic sort → chronological
+  if (keys.length === 0) return null;
 
-  if (files.length === 0) return null;
-
-  const latestFile = files[files.length - 1];
-  const filePath   = path.join(dir, latestFile);
-  const content    = fs.readFileSync(filePath, 'utf8');
+  const latestKey = keys[keys.length - 1];
+  const content = await getObjectText(latestKey);
+  if (!content) return null;
 
   // Split by newline, drop header row, find last non-empty row
-  const lines = content.split('\n').filter(l => l.trim().length > 0);
+  const lines = content.split('\n').filter((l) => l.trim().length > 0);
   if (lines.length < 2) return null;
 
   const lastLine = lines[lines.length - 1];
@@ -55,27 +54,25 @@ export function getLastCandleTimestamp(symbol) {
 }
 
 /**
- * Write new candles into the correct monthly CSV files.
- * Existing files are never truncated — only new rows are appended, and
+ * Write new candles into the correct monthly CSV objects in R2.
+ * Existing rows are never truncated — only new rows are appended, and
  * insertion is dedup'd by timestamp, so out-of-order or overlapping input
  * (e.g. a gap backfill landing in the middle of a month) is safe to call.
  *
  * @param {string} symbol
  * @param {Array}  candles — raw objects with timestamp in ms (Dukascopy or
  *                 Twelve Data shape — both normalize to the same fields)
- * @returns {number} total candles written
+ * @returns {Promise<number>} total candles written
  */
-export function persistCandles(symbol, candles) {
-  const dp  = PRICE_PRECISION[symbol] ?? 5;
-  const dir = path.join(CANDLES_DIR, symbol);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+export async function persistCandles(symbol, candles) {
+  const dp = PRICE_PRECISION[symbol] ?? 5;
 
   // Group by YYYY_MM
   const byMonth = {};
   for (const c of candles) {
-    const d   = new Date(c.timestamp);
-    const yr  = d.getUTCFullYear();
-    const mo  = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const d = new Date(c.timestamp);
+    const yr = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
     const key = `${yr}_${mo}`;
     (byMonth[key] ??= []).push(c);
   }
@@ -84,12 +81,12 @@ export function persistCandles(symbol, candles) {
 
   for (const [monthKey, monthCandles] of Object.entries(byMonth)) {
     // Always sort chronologically within the month
-    const sorted   = monthCandles.sort((a, b) => a.timestamp - b.timestamp);
+    const sorted = monthCandles.sort((a, b) => a.timestamp - b.timestamp);
     const fileName = `${symbol}_${monthKey}.csv`;
-    const filePath = path.join(dir, fileName);
+    const key = `candles/${symbol}/${fileName}`;
 
     // Serialise to CSV rows (no header)
-    const newRows = sorted.map(c => {
+    const newRows = sorted.map((c) => {
       const ts = Math.floor(c.timestamp / 1000);
       return [
         ts,
@@ -101,17 +98,19 @@ export function persistCandles(symbol, candles) {
       ].join(',');
     });
 
-    if (fs.existsSync(filePath)) {
-      // ── Merge into existing file ───────────────────────────────────────
-      // Not just append: backfilled rows can land anywhere in the month
-      // (mid-file, not just at the end), so read the whole file, add the
-      // genuinely-new rows, and re-sort chronologically before writing back.
-      const existingLines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim());
-      const header         = existingLines[0];
-      const existingRows    = existingLines.slice(1);
-      const existingSet     = new Set(existingRows.map(l => l.split(',')[0]));
+    const existingContent = await getObjectText(key);
 
-      const toAdd = newRows.filter(r => !existingSet.has(r.split(',')[0]));
+    if (existingContent !== null) {
+      // ── Merge into existing object ─────────────────────────────────────
+      // Not just append: backfilled rows can land anywhere in the month
+      // (mid-file, not just at the end), so read the whole object, add the
+      // genuinely-new rows, and re-sort chronologically before writing back.
+      const existingLines = existingContent.split('\n').filter((l) => l.trim());
+      const header = existingLines[0];
+      const existingRows = existingLines.slice(1);
+      const existingSet = new Set(existingRows.map((l) => l.split(',')[0]));
+
+      const toAdd = newRows.filter((r) => !existingSet.has(r.split(',')[0]));
       if (toAdd.length === 0) {
         console.log(`    [${symbol}] ${fileName}: 0 new candles (all already present)`);
         continue;
@@ -120,14 +119,13 @@ export function persistCandles(symbol, candles) {
       const allRows = [...existingRows, ...toAdd].sort(
         (a, b) => parseInt(a.split(',')[0], 10) - parseInt(b.split(',')[0], 10)
       );
-      fs.writeFileSync(filePath, [header, ...allRows].join('\n'));
+      await putObjectText(key, [header, ...allRows].join('\n'));
       console.log(`    [${symbol}] ${fileName}: +${toAdd.length} candles merged`);
       totalWritten += toAdd.length;
-
     } else {
-      // ── Create brand-new monthly file ─────────────────────────────────
+      // ── Create brand-new monthly object ────────────────────────────────
       const content = ['time,open,high,low,close,volume', ...newRows].join('\n');
-      fs.writeFileSync(filePath, content);
+      await putObjectText(key, content);
       console.log(`    [${symbol}] ${fileName}: created with ${newRows.length} candles`);
       totalWritten += newRows.length;
     }

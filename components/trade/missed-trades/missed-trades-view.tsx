@@ -194,9 +194,15 @@ function MissedTradeDetail({
   const [saved, setSaved] = useState(false);
   const [tagsInput, setTagsInput] = useState("");
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lightboxLoaded, setLightboxLoaded] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [screenshotUploadError, setScreenshotUploadError] = useState<string | null>(null);
+  const [uploadingItems, setUploadingItems] = useState<{ id: string; previewUrl: string; error?: string }[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLightboxLoaded(false);
+  }, [lightboxIndex]);
 
   // AI Refine — per-field inline diff (analyze → accept/discard), plus "Refine All"
   const [refining, setRefining] = useState(false);
@@ -371,8 +377,13 @@ function MissedTradeDetail({
   }
 
   async function addScreenshotFromDataUrl(dataUrl: string) {
+    const tempId = `upload-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    setUploadingItems(prev => [...prev, { id: tempId, previewUrl: dataUrl }]);
+    setScreenshotUploadError(null);
+
     try {
       const { key, previewUrl } = await uploadScreenshotToR2(dataUrl, "missed-trade");
+      setUploadingItems(prev => prev.filter(item => item.id !== tempId));
       setForm(prev => ({
         ...prev,
         screenshots: [...prev.screenshots, previewUrl],
@@ -380,13 +391,16 @@ function MissedTradeDetail({
       }));
       setScreenshotUploadError(null);
     } catch {
+      setUploadingItems(prev =>
+        prev.map(item => (item.id === tempId ? { ...item, error: "Upload failed" } : item))
+      );
       setScreenshotUploadError("Failed to upload screenshot — please try again.");
     }
   }
 
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
     Array.from(files).forEach(file => {
       const reader = new FileReader();
       reader.onload = ev => {
@@ -396,6 +410,7 @@ function MissedTradeDetail({
       };
       reader.readAsDataURL(file);
     });
+    e.target.value = "";
   }
 
   async function handleSave() {
@@ -445,7 +460,7 @@ function MissedTradeDetail({
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-      {lightboxIndex !== null && (
+      {lightboxIndex !== null && form.screenshots[lightboxIndex] && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/92" onClick={() => setLightboxIndex(null)}>
           <button className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition z-10" onClick={() => setLightboxIndex(null)}>
             <X className="h-5 w-5" />
@@ -456,7 +471,21 @@ function MissedTradeDetail({
           {lightboxIndex < form.screenshots.length - 1 && (
             <button className="absolute right-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition text-2xl z-10" onClick={e => { e.stopPropagation(); setLightboxIndex(i => Math.min(form.screenshots.length - 1, (i ?? 0) + 1)); }}>›</button>
           )}
-          <img src={form.screenshots[lightboxIndex]} alt="" className="max-w-[90vw] max-h-[85vh] object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
+          {!lightboxLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+              <Loader2 className="h-8 w-8 text-white/60 animate-spin" />
+            </div>
+          )}
+          <img
+            src={form.screenshots[lightboxIndex]}
+            alt=""
+            onLoad={() => setLightboxLoaded(true)}
+            className={cn(
+              "max-w-[90vw] max-h-[85vh] object-contain rounded-xl shadow-2xl transition-opacity duration-300 relative z-10",
+              lightboxLoaded ? "opacity-100" : "opacity-0"
+            )}
+            onClick={e => e.stopPropagation()}
+          />
           <div className="absolute bottom-4 text-[12px] text-white/50 bg-black/40 px-3 py-1 rounded-full">{lightboxIndex + 1} / {form.screenshots.length}</div>
         </div>
       )}
@@ -829,35 +858,40 @@ function MissedTradeDetail({
           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/7">
             <Camera className="h-4 w-4 text-white/55" />
             <span className="text-[12px] font-semibold text-white/70 uppercase tracking-wider">Screenshots</span>
-            {form.screenshots.length > 0 && <span className="ml-auto text-[10px] text-white/30">{form.screenshots.length} image{form.screenshots.length !== 1 ? "s" : ""}</span>}
+            {(form.screenshots.length > 0 || uploadingItems.length > 0) && (
+              <span className="ml-auto text-[10px] text-white/30">
+                {form.screenshots.length + uploadingItems.length} image{(form.screenshots.length + uploadingItems.length) !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
           <div className="p-4">
             <div className="flex flex-wrap gap-3">
               {form.screenshots.map((src, i) => (
-                <div key={i} className="relative group w-28 h-20 rounded-lg overflow-hidden border border-white/10 cursor-pointer" onClick={() => setLightboxIndex(i)}>
-                  <img src={src} alt="" className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center">
-                    <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-semibold transition">View</span>
-                  </div>
-                  <button
-                    onClick={e => {
-                      e.stopPropagation();
-                      // Removes this screenshot's reference from the trade only —
-                      // the underlying R2 object is intentionally never deleted.
-                      if (src.startsWith("blob:")) URL.revokeObjectURL(src);
-                      setForm(prev => ({
-                        ...prev,
-                        screenshots: prev.screenshots.filter((_, idx) => idx !== i),
-                        screenshotKeys: prev.screenshotKeys.filter((_, idx) => idx !== i),
-                      }));
-                    }}
-                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 h-5 w-5 rounded bg-black/70 flex items-center justify-center text-white transition"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
+                <MissedScreenshotTile
+                  key={`${src}-${i}`}
+                  src={src}
+                  index={i}
+                  onView={() => setLightboxIndex(i)}
+                  onDelete={() => {
+                    if (src.startsWith("blob:")) URL.revokeObjectURL(src);
+                    setForm((prev) => ({
+                      ...prev,
+                      screenshots: prev.screenshots.filter((_, idx) => idx !== i),
+                      screenshotKeys: prev.screenshotKeys.filter((_, idx) => idx !== i),
+                    }));
+                  }}
+                />
               ))}
-              <button onClick={() => fileRef.current?.click()} className="w-28 h-20 rounded-lg border-2 border-dashed border-white/15 flex flex-col items-center justify-center gap-1 text-white/25 hover:text-white/50 hover:border-white/25 transition">
+              {uploadingItems.map((item) => (
+                <MissedUploadingTile
+                  key={item.id}
+                  item={item}
+                  onDismiss={() => {
+                    setUploadingItems((prev) => prev.filter((i) => i.id !== item.id));
+                  }}
+                />
+              ))}
+              <button onClick={() => fileRef.current?.click()} className="w-28 h-20 rounded-lg border-2 border-dashed border-white/15 flex flex-col items-center justify-center gap-1 text-white/25 hover:text-white/50 hover:border-white/25 transition shrink-0">
                 <Plus className="h-4 w-4" />
                 <span className="text-[10px]">Add image</span>
               </button>
@@ -981,6 +1015,111 @@ export function MissedTradesView() {
           <p className="text-[12px] mt-1">Log setups you passed on to learn from them</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function MissedScreenshotTile({
+  src,
+  index,
+  onView,
+  onDelete,
+}: {
+  src: string;
+  index: number;
+  onView: () => void;
+  onDelete: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+
+  return (
+    <div
+      className="relative group w-28 h-20 rounded-lg overflow-hidden border border-white/10 cursor-pointer bg-white/[0.03] shrink-0"
+      onClick={onView}
+    >
+      {!loaded && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/[0.04] animate-pulse z-0">
+          <Loader2 className="h-4 w-4 text-white/40 animate-spin" />
+        </div>
+      )}
+
+      {error ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-500/10 text-red-300 p-1 text-center">
+          <AlertTriangle className="h-4 w-4 mb-0.5" />
+          <span className="text-[9px] leading-tight">Failed to load</span>
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={`Screenshot ${index + 1}`}
+          onLoad={() => setLoaded(true)}
+          onError={() => setError(true)}
+          className={cn(
+            "w-full h-full object-cover transition-opacity duration-300 relative z-10",
+            loaded ? "opacity-100" : "opacity-0"
+          )}
+        />
+      )}
+
+      {loaded && (
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center z-20">
+          <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-semibold transition">View</span>
+        </div>
+      )}
+
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 h-5 w-5 rounded bg-black/70 flex items-center justify-center text-white transition hover:bg-black/90 z-30"
+        title="Remove screenshot"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+function MissedUploadingTile({
+  item,
+  onDismiss,
+}: {
+  item: { id: string; previewUrl: string; error?: string };
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="relative w-28 h-20 rounded-lg overflow-hidden border border-white/10 bg-white/[0.03] shrink-0">
+      {item.previewUrl && (
+        <img
+          src={item.previewUrl}
+          alt="Uploading preview"
+          className="w-full h-full object-cover opacity-20 filter blur-[1px]"
+        />
+      )}
+
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-1 bg-black/40 backdrop-blur-[2px] z-10">
+        {item.error ? (
+          <>
+            <AlertTriangle className="h-4 w-4 text-red-400" />
+            <span className="text-[9px] font-medium text-red-300 text-center leading-tight">Failed</span>
+            <button
+              onClick={onDismiss}
+              className="absolute top-1 right-1 h-4 w-4 rounded bg-black/80 flex items-center justify-center text-white/70 hover:text-white"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </>
+        ) : (
+          <>
+            <Loader2 className="h-4 w-4 text-white/60 animate-spin" />
+            <span className="text-[10px] text-white/50 font-medium">
+              Uploading…
+            </span>
+          </>
+        )}
+      </div>
     </div>
   );
 }
