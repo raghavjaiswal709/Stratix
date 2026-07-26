@@ -446,6 +446,11 @@ export interface ApiTrade {
   margin?: number;
   executionChecklist?: { item: string; checked: boolean }[];
   screenshots?: string[];
+  screenshotMeta?: {
+    url: string;
+    caption?: string;
+    timeframe?: string;
+  }[];
   preTradeAnalysis?: string;
   postTradeReview?: string;
   riskRatio?: number;

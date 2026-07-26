@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useAppContext } from "@/lib/context";
 import type { ApiTrade } from "@/types";
 import { JournalList, JournalTrade } from "@/components/trade/journal/journal-list";
@@ -199,6 +199,14 @@ export default function JournalPage() {
   }, [sharedTrades]);
 
   const selectedTrade = trades.find((t) => t._id === selectedId);
+  const selectedProfit = useMemo(() => {
+    if (!selectedTrade) return 0;
+    if (selectedTrade.mergedTradeIds && selectedTrade.mergedTradeIds.length > 0) {
+      const childTrades = trades.filter(t => t.parentTradeId === selectedTrade._id || t._id === selectedTrade._id);
+      return childTrades.reduce((acc, c) => acc + (c.profit || 0), 0);
+    }
+    return selectedTrade.profit ?? 0;
+  }, [selectedTrade, trades]);
 
   function handleSaved(updated: JournalTrade) {
     const next = trades.map((t) => (t._id === updated._id ? { ...t, ...updated } : t));
@@ -293,19 +301,19 @@ export default function JournalPage() {
 
       <div className="flex flex-col h-full">
         {/* Top tab bar — scrolls horizontally instead of wrapping/overlapping on narrow phones */}
-        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/7 shrink-0 bg-[#0c0e14] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-2 px-5 py-2.5 border-b border-white/7 shrink-0 bg-[#101116] backdrop-blur-md overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shadow-sm">
           {TABS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => handleViewChange(key)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition shrink-0 whitespace-nowrap",
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold transition shrink-0 whitespace-nowrap cursor-pointer",
                 view === key
-                  ? "bg-white/[0.09] text-white border border-white/[0.12]"
-                  : "text-white/40 hover:text-white/70 hover:bg-white/[0.05] border border-transparent"
+                  ? "bg-white/[0.12] text-white border border-white/20 shadow-md shadow-black/40"
+                  : "text-white/40 hover:text-white/75 hover:bg-white/[0.05] border border-transparent"
               )}
             >
-              <Icon className="h-3.5 w-3.5 shrink-0" />
+              <Icon className="h-3.5 w-3.5 shrink-0 text-white/70" />
               {label}
             </button>
           ))}

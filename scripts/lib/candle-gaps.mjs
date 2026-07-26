@@ -15,8 +15,7 @@
  * backfilled from a second data source (see twelvedata.mjs).
  */
 
-import fs from 'fs';
-import path from 'path';
+import { getObjectText, listObjectKeys } from './r2-client.mjs';
 
 /**
  * True when [fromSec, toSec] is entirely inside an expected closure: the
@@ -47,16 +46,21 @@ export function isExpectedClosure(fromSec, toSec) {
   return isWeekend || isDailyRollover;
 }
 
-/** All existing candle timestamps (seconds, sorted) for a symbol across its monthly CSVs. */
-export function readAllTimestamps(candlesDir, symbol) {
-  const dir = path.join(candlesDir, symbol);
-  if (!fs.existsSync(dir)) return [];
+/**
+ * All existing candle timestamps (seconds, sorted) for a symbol across its
+ * monthly R2 objects. `candlesDir` is accepted but unused — kept only so
+ * call sites didn't need to change when storage moved from local disk to R2.
+ */
+export async function readAllTimestamps(candlesDir, symbol) {
+  const keys = (await listObjectKeys(`candles/${symbol}/`))
+    .filter((k) => /_\d{4}_\d{2}\.csv$/.test(k))
+    .sort();
 
-  const files = fs.readdirSync(dir).filter(f => /^.+_\d{4}_\d{2}\.csv$/.test(f)).sort();
   const ts = [];
-  for (const f of files) {
-    const content = fs.readFileSync(path.join(dir, f), 'utf8');
-    const lines = content.split('\n').filter(l => l.trim());
+  for (const key of keys) {
+    const content = await getObjectText(key);
+    if (!content) continue;
+    const lines = content.split('\n').filter((l) => l.trim());
     for (let i = 1; i < lines.length; i++) {
       const t = parseInt(lines[i].split(',')[0], 10);
       if (Number.isFinite(t)) ts.push(t);
@@ -77,8 +81,8 @@ export function readAllTimestamps(candlesDir, symbol) {
  *   afterSec/beforeSec are the existing candles bracketing the hole — the
  *   caller should fetch (afterSec + 60) .. beforeSec to fill it.
  */
-export function findGaps(candlesDir, symbol, { minGapMinutes = 5 } = {}) {
-  const ts = readAllTimestamps(candlesDir, symbol);
+export async function findGaps(candlesDir, symbol, { minGapMinutes = 5 } = {}) {
+  const ts = await readAllTimestamps(candlesDir, symbol);
   const gaps = [];
   for (let i = 1; i < ts.length; i++) {
     const diffMin = (ts[i] - ts[i - 1]) / 60;

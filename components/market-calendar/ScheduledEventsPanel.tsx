@@ -130,102 +130,78 @@ export function ScheduledEventsPanel({ variant = "full", limit, className }: Sch
     const isNext = carouselIndex === nextIndex;
 
     return (
-      <div className={`flex flex-col justify-between rounded-xl md:rounded-2xl border border-border bg-card p-3.5 md:p-4 shadow-sm ${className ?? ""}`}>
+      <div className={`h-full flex flex-col justify-between rounded-xl md:rounded-2xl border border-border bg-card p-3 md:p-3.5 shadow-sm ${className ?? ""}`}>
         {/* Card Header */}
-        <div className="flex items-center justify-between gap-4 shrink-0 mb-2.5">
+        <div className="flex items-center justify-between gap-3 shrink-0 mb-1">
           <div className="flex items-center gap-2">
-            <CalendarClock className="h-4 w-4 text-white/40" />
-            <h2 className="text-xs sm:text-sm font-semibold text-white/90">Scheduled Events</h2>
+            <CalendarClock className="h-3.5 w-3.5 text-white/40" />
+            <h2 className="text-xs font-semibold text-white/90">Scheduled Events</h2>
           </div>
-          <Link href="/market-calendar" className="text-xs text-white/40 hover:text-white/70 flex items-center gap-1 transition shrink-0">
-            Calendar <ExternalLink className="h-3 w-3" />
-          </Link>
-        </div>
-
-        {/* Content Area */}
-        {loading ? (
-          <div className="h-16 rounded-xl bg-white/[0.03] animate-pulse" />
-        ) : error ? (
-          <div className="py-4 flex items-center justify-center">
-            <p className="text-xs text-white/40 text-center">Could not load the economic calendar.</p>
-          </div>
-        ) : upcoming.length === 0 || !activeEvent ? (
-          <div className="py-4 flex items-center justify-center">
-            <p className="text-xs text-white/40 text-center">No high-impact events scheduled right now.</p>
-          </div>
-        ) : (
-          <div className="flex flex-col justify-between gap-2.5">
-            {/* Single Text Carousel Event Item (Fixed Compact Height) */}
-            <div className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-all duration-300 ${
-              isNext ? "border-emerald-500/30 bg-emerald-500/[0.04]" : "border-white/[0.08] bg-white/[0.03]"
-            }`}>
-              <div className="shrink-0 w-14 text-center pr-2 border-r border-white/10">
-                <p className="text-sm sm:text-base font-bold tabular-nums leading-none text-white">{formatISTTime(activeEvent.date)}</p>
-                <p className="text-[8px] font-bold text-white/35 uppercase tracking-wider mt-1">IST</p>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${IMPACT_DOT[activeEvent.impact] ?? "bg-white/30"}`} />
-                  <span className="text-[9px] font-bold uppercase text-white/40 font-mono">[{activeEvent.country}]</span>
-                  <span className={`text-[9px] font-bold uppercase ${IMPACT_TEXT[activeEvent.impact] ?? "text-white/40"}`}>{activeEvent.impact}</span>
-                  {isNext && (
-                    <span className="ml-1 px-1.5 py-0.2 rounded text-[8px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                      Next
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs font-medium leading-snug truncate text-white/90" title={activeEvent.title}>
-                  {activeEvent.title}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <span className={`text-[11px] font-bold ${activeTime <= now ? "text-white/35" : "text-emerald-400"}`}>
-                  {formatRelative(activeTime - now)}
-                </span>
-              </div>
-            </div>
-
-            {/* Carousel Navigation Footer */}
+          <div className="flex items-center gap-2">
             {upcoming.length > 1 && (
-              <div className="flex items-center justify-between pt-0.5 px-0.5">
-                {/* Dot Indicators */}
-                <div className="flex items-center gap-1">
-                  {upcoming.map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setCarouselIndex(idx)}
-                      className={`h-1.5 rounded-full transition-all ${
-                        carouselIndex === idx
-                          ? "w-4 bg-emerald-400"
-                          : "w-1.5 bg-white/20 hover:bg-white/40"
-                      }`}
-                      title={`Event ${idx + 1}`}
-                    />
-                  ))}
-                </div>
-
-                {/* Arrow Controls & Index Counter */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setCarouselIndex((prev) => (prev - 1 + upcoming.length) % upcoming.length)}
-                    className="flex h-5 w-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/50 hover:bg-white/10 hover:text-white transition"
-                    title="Previous event"
-                  >
-                    <ChevronLeft className="h-3 w-3" />
-                  </button>
-                  <span className="text-[10px] font-mono text-white/40">
-                    {carouselIndex + 1}/{upcoming.length}
-                  </span>
-                  <button
-                    onClick={() => setCarouselIndex((prev) => (prev + 1) % upcoming.length)}
-                    className="flex h-5 w-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/50 hover:bg-white/10 hover:text-white transition"
-                    title="Next event"
-                  >
-                    <ChevronRight className="h-3 w-3" />
-                  </button>
-                </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCarouselIndex((prev) => (prev - 1 + upcoming.length) % upcoming.length)}
+                  className="flex h-5 w-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/50 hover:bg-white/10 hover:text-white transition cursor-pointer"
+                  title="Previous event"
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                </button>
+                <span className="text-[10px] font-mono font-semibold text-white/50 px-0.5">
+                  {carouselIndex + 1}/{upcoming.length}
+                </span>
+                <button
+                  onClick={() => setCarouselIndex((prev) => (prev + 1) % upcoming.length)}
+                  className="flex h-5 w-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/50 hover:bg-white/10 hover:text-white transition cursor-pointer"
+                  title="Next event"
+                >
+                  <ChevronRight className="h-3 w-3" />
+                </button>
               </div>
             )}
+            <Link href="/market-calendar" className="text-[11px] text-white/40 hover:text-white/70 flex items-center gap-1 transition shrink-0">
+              Calendar <ExternalLink className="h-3 w-3" />
+            </Link>
+          </div>
+        </div>
+
+        {/* Content Area Directly in Parent Div (No nested border box!) */}
+        {loading ? (
+          <div className="h-10 rounded-lg bg-white/[0.03] animate-pulse" />
+        ) : error ? (
+          <div className="py-2 flex items-center justify-center">
+            <p className="text-[11px] text-white/40 text-center">Could not load the economic calendar.</p>
+          </div>
+        ) : upcoming.length === 0 || !activeEvent ? (
+          <div className="py-2 flex items-center justify-center">
+            <p className="text-[11px] text-white/40 text-center">No high-impact events scheduled right now.</p>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3.5 py-1 flex-1 min-w-0">
+            <div className="shrink-0 text-center pr-3.5 border-r border-white/10 flex flex-col justify-center">
+              <p className="text-[15px] sm:text-[17px] font-extrabold tabular-nums leading-none text-white">{formatISTTime(activeEvent.date)}</p>
+              <p className="text-[8.5px] font-bold text-white/35 uppercase tracking-wider mt-1">IST</p>
+            </div>
+            <div className="min-w-0 flex-1 flex flex-col justify-center gap-0.5">
+              <p className="text-[13px] sm:text-[14px] font-semibold leading-tight truncate text-white/95" title={activeEvent.title}>
+                {activeEvent.title}
+              </p>
+              <div className="flex items-center gap-1.5 leading-none mt-0.5">
+                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${IMPACT_DOT[activeEvent.impact] ?? "bg-white/30"}`} />
+                <span className="text-[9.5px] font-bold uppercase text-white/50 font-mono">[{activeEvent.country}]</span>
+                <span className={`text-[9.5px] font-bold uppercase ${IMPACT_TEXT[activeEvent.impact] ?? "text-white/40"}`}>{activeEvent.impact}</span>
+                {isNext && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded text-[8px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                    Next
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="shrink-0 text-right self-center pl-1">
+              <span className={`text-[12px] sm:text-[13px] font-extrabold ${activeTime <= now ? "text-white/35" : "text-emerald-400"}`}>
+                {formatRelative(activeTime - now)}
+              </span>
+            </div>
           </div>
         )}
       </div>
