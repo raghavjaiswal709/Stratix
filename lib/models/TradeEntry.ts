@@ -41,6 +41,11 @@ export interface ITradeEntry extends Document<string> {
   journaled: boolean;
   executionChecklist: ChecklistItem[];
   screenshots: string[];
+  screenshotMeta?: {
+    url: string;
+    caption?: string;
+    timeframe?: string;
+  }[];
   // Permanent, write-once snapshot of the pre-R2-migration base64 screenshots
   // (see scripts/migrate-screenshots-to-r2.ts). Never read by the app, never
   // modified or removed by anything — kept solely as a recovery fallback.
@@ -101,6 +106,16 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
       default: [],
     },
     screenshots: { type: [String], default: [] },
+    screenshotMeta: {
+      type: [
+        {
+          url: { type: String, required: true },
+          caption: { type: String, default: "" },
+          timeframe: { type: String, default: "" },
+        },
+      ],
+      default: [],
+    },
     screenshotsBase64Backup: { type: [String], default: undefined },
     preTradeAnalysis: { type: String, default: "" },
     postTradeReview: { type: String, default: "" },

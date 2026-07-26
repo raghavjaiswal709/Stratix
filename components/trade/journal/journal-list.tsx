@@ -5,6 +5,7 @@ import { format, parseISO } from "date-fns";
 import { TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/context";
+import { getTradingSession, getSessionBadgeClasses, getSessionTextColor } from "@/lib/trade-session";
 import type { JournalDetailTrade } from "./journal-detail";
 import type { JournalSortFilterPrefs } from "@/types";
 
@@ -228,20 +229,20 @@ export function JournalList({
         </div>
 
         {/* Tabs — segmented control */}
-        <div className="flex p-1 gap-1 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+        <div className="flex p-1 gap-1 rounded-xl bg-white/[0.04] border border-white/[0.08] w-full overflow-hidden">
           {(["all", "journaled", "pending"] as JournalTab[]).map((t) => (
             <button
               key={t}
               onClick={() => onTabChange(t)}
               className={cn(
-                "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11.5px] font-semibold transition",
+                "flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer min-w-0",
                 tab === t
-                  ? "bg-white/[0.10] text-white shadow-sm"
-                  : "text-white/35 hover:text-white/60 hover:bg-white/[0.03]"
+                  ? "bg-white/[0.12] text-white border border-white/10 shadow-sm"
+                  : "text-white/40 hover:text-white/70 hover:bg-white/[0.03]"
               )}
             >
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-              <span className={cn("text-[10px] rounded-full px-1.5 py-px", tab === t ? "bg-white/10 text-white/70" : "text-white/25")}>
+              <span className="truncate">{t.charAt(0).toUpperCase() + t.slice(1)}</span>
+              <span className={cn("text-[9.5px] font-bold rounded-full px-1.5 py-0.5 shrink-0", tab === t ? "bg-white/15 text-white" : "bg-white/5 text-white/30")}>
                 {counts[t]}
               </span>
             </button>
@@ -456,15 +457,25 @@ export function JournalList({
                 <div
                   onClick={() => onSelect(trade._id, null)}
                   className={cn(
-                    "w-full text-left px-4 py-3.5 transition hover:bg-white/3 flex items-start gap-2 relative",
-                    selectedId === trade._id && selectedSubTradeId === null && "bg-white/[0.05] border-l-2 border-l-white/30",
+                    "w-full text-left px-4 py-3.5 transition flex items-start gap-2 relative cursor-pointer",
+                    displayProfit > 0
+                      ? selectedId === trade._id && selectedSubTradeId === null
+                        ? "bg-gradient-to-r from-emerald-500/[0.18] via-emerald-500/[0.08] to-transparent border-l-2 border-l-emerald-400"
+                        : "bg-gradient-to-r from-emerald-500/[0.07] via-emerald-500/[0.02] to-transparent hover:from-emerald-500/[0.12]"
+                      : selectedId === trade._id && selectedSubTradeId === null
+                        ? "bg-gradient-to-r from-red-500/[0.18] via-red-500/[0.08] to-transparent border-l-2 border-l-red-400"
+                        : "bg-gradient-to-r from-red-500/[0.07] via-red-500/[0.02] to-transparent hover:from-red-500/[0.12]",
                     trade._deleted && "opacity-40"
                   )}
                 >
                   {/* Symbol badge */}
                   <div className={cn(
-                    "h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-[9px] font-bold",
-                    trade._deleted ? "bg-white/5 text-white/30" : displayProfit > 0 ? "bg-amber-500/15 text-amber-400" : "bg-white/10 text-white/50"
+                    "h-7 w-7 shrink-0 rounded-xl flex items-center justify-center text-[9px] font-bold shadow-sm",
+                    trade._deleted
+                      ? "bg-white/5 text-white/30"
+                      : displayProfit > 0
+                        ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30"
+                        : "bg-red-500/20 text-red-400 ring-1 ring-red-500/30"
                   )}>
                     {trade.symbol.slice(0, 2)}
                   </div>
@@ -480,13 +491,13 @@ export function JournalList({
                         ) : (
                           <>
                             {displayProfit > 0 && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 shrink-0">
-                                WINNER
+                              <span className="text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 shrink-0">
+                                W
                               </span>
                             )}
                             {displayProfit <= 0 && trade.status === "closed" && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20 shrink-0">
-                                LOSER
+                              <span className="text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20 shrink-0">
+                                L
                               </span>
                             )}
                             {trade.status === "open" && (
@@ -500,8 +511,8 @@ export function JournalList({
 
                       {isParent && (
                         <div className="flex items-center gap-1 shrink-0">
-                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                            COMPILED ({agg?.childTrades.length ? agg.childTrades.length + 1 : 1})
+                          <span className="text-[10px] font-black text-white/45">
+                            ({agg?.childTrades.length ? agg.childTrades.length + 1 : 1})
                           </span>
                           <button
                             onClick={(e) => {
@@ -534,9 +545,22 @@ export function JournalList({
                         {fmt(displayProfit)}
                       </span>
                     </div>
-                    <p className="text-[10px] text-white/25 mt-0.5">
-                      {format(parseISO(displayEntryTime), "MMM d, yyyy, HH:mm")}
-                    </p>
+                    <div className="flex items-center justify-between gap-1 mt-0.5">
+                      <span className="text-[10px] text-white/25 truncate">
+                        {format(parseISO(displayEntryTime), "MMM d, yyyy, HH:mm")}
+                      </span>
+                      {(() => {
+                        const sessionInfo = getTradingSession(displayEntryTime, trade.source);
+                        return (
+                          <span className={cn(
+                            "text-[10.5px] uppercase tracking-wider shrink-0 font-black",
+                            getSessionTextColor(sessionInfo.session)
+                          )} title={`${sessionInfo.session} Session`}>
+                            {sessionInfo.shortLabel}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
 

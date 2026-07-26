@@ -50,6 +50,7 @@ interface RawTrade {
   status: string;
   timeframe?: string;
   executionChecklist?: { item: string; checked: boolean }[];
+  screenshotMeta?: { url: string; caption?: string; timeframe?: string }[];
   preTradeAnalysis?: string;
   postTradeReview?: string;
   riskRatio?: number;
@@ -202,6 +203,7 @@ export async function POST(req: NextRequest) {
       status: t.status,
       timeframe: t.timeframe,
       executionChecklist: t.executionChecklist,
+      screenshotMeta: t.screenshotMeta?.length ? t.screenshotMeta.map(s => ({ caption: s.caption, timeframe: s.timeframe })) : undefined,
       preTradeAnalysis: t.preTradeAnalysis,
       postTradeReview: t.postTradeReview,
       riskRatio: t.riskRatio,
