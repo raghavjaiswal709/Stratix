@@ -102,7 +102,7 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
       const qs = params.toString();
       const url = qs ? `/api/trade?${qs}` : "/api/trade";
 
-      cachedFetch<Trade[]>(url, { ttlMs: 30_000, force: opts.force })
+      cachedFetch<Trade[]>(url, { ttlMs: 30_000, force: opts.force, persist: true })
         .then((data) => {
           if (requestId !== requestIdRef.current) return; // superseded by a newer request
           setSharedTrades(Array.isArray(data) ? data : []);
@@ -138,7 +138,7 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
     const url = viewUserId
       ? `/api/mt5/status?viewUserId=${encodeURIComponent(viewUserId)}`
       : "/api/mt5/status";
-    cachedFetch<MT5Info>(url, { ttlMs: 30_000 })
+    cachedFetch<MT5Info>(url, { ttlMs: 30_000, persist: true })
       .then((data) => {
         setMt5Info(data);
         setMt5Loading(false);

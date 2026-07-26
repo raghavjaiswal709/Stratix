@@ -134,7 +134,7 @@ export default function JournalPage() {
 
   const load = useCallback((profileId: string, opts: { force?: boolean } = {}) => {
     const url = profileId ? `/api/trade?profileId=${encodeURIComponent(profileId)}` : "/api/trade";
-    cachedFetch<JournalTrade[]>(url, { ttlMs: 30_000, force: opts.force })
+    cachedFetch<JournalTrade[]>(url, { ttlMs: 30_000, force: opts.force, persist: true })
       .then((data) => {
         const arr = Array.isArray(data) ? data : [];
         const timer = setTimeout(() => {

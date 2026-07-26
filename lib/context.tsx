@@ -140,16 +140,88 @@ export const AppContext = createContext<AppContextType>({
 
 const LS_ACTIVE_PROFILE_KEY = "stratix_activeProfileId";
 const LS_PENDING_SAVE_KEY = "stratix_pending_save";
+const LS_APPDATA_PREFIX = "stratix_appdata_cache_";
+// Bump this if AppData's shape changes incompatibly — a mismatch just falls
+// back to initialMeta/network instead of merging corrupt cached state.
+const APPDATA_CACHE_VERSION = 1;
 
-function buildInitialData(initialMeta: InitialMeta | null): AppData {
-  if (!initialMeta) return defaultData;
+interface PersistedAppData {
+  v: number;
+  savedAt: number;
+  data: AppData;
+}
+
+function appDataCacheKey(userId: string): string {
+  return `${LS_APPDATA_PREFIX}${userId}`;
+}
+
+// tradeData.trades is a legacy field (with a per-trade base64 `images` array)
+// that's no longer read by any active page — excluded from the persisted
+// snapshot to keep it small and avoid localStorage quota issues. Everything
+// else (habits/todos/diary/notes/customStrategies/tradeNotes/preferences/
+// profiles) is plain JSON with no embedded images.
+function sanitizeForPersist(data: AppData): AppData {
   return {
-    ...defaultData,
-    preferences: initialMeta.preferences ?? defaultPreferences,
-    scoreWeights: initialMeta.scoreWeights ?? defaultData.scoreWeights,
-    theme: initialMeta.theme ?? "dark",
-    tradingProfiles: initialMeta.tradingProfiles ?? [],
-    activeProfileId: initialMeta.activeProfileId ?? "",
+    ...data,
+    tradeData: { ...data.tradeData, trades: [] },
+  };
+}
+
+function readAppDataCache(userId: string): AppData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(appDataCacheKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedAppData;
+    return parsed.v === APPDATA_CACHE_VERSION ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeAppDataCache(userId: string, data: AppData): void {
+  if (typeof window === "undefined") return;
+  try {
+    const payload: PersistedAppData = {
+      v: APPDATA_CACHE_VERSION,
+      savedAt: Date.now(),
+      data: sanitizeForPersist(data),
+    };
+    localStorage.setItem(appDataCacheKey(userId), JSON.stringify(payload));
+  } catch {
+    // Quota exceeded or private-mode storage — non-fatal, network path unaffected.
+  }
+}
+
+function buildInitialData(initialMeta: InitialMeta | null, userId: string | null): AppData {
+  const base: AppData = initialMeta
+    ? {
+        ...defaultData,
+        preferences: initialMeta.preferences ?? defaultPreferences,
+        scoreWeights: initialMeta.scoreWeights ?? defaultData.scoreWeights,
+        theme: initialMeta.theme ?? "dark",
+        tradingProfiles: initialMeta.tradingProfiles ?? [],
+        activeProfileId: initialMeta.activeProfileId ?? "",
+      }
+    : defaultData;
+
+  const cached = userId ? readAppDataCache(userId) : null;
+  if (!cached) return base;
+
+  // Cache fills in content fields initialMeta never covered (habits/todos/
+  // trades/diary/notes); server-provided meta fields always win over it.
+  return {
+    ...base,
+    habitData: cached.habitData ?? base.habitData,
+    todoData: cached.todoData ?? base.todoData,
+    tradeData: cached.tradeData ?? base.tradeData,
+    diaryData: cached.diaryData ?? base.diaryData,
+    notesData: cached.notesData ?? base.notesData,
+    preferences: initialMeta?.preferences ?? cached.preferences ?? base.preferences,
+    scoreWeights: initialMeta?.scoreWeights ?? cached.scoreWeights ?? base.scoreWeights,
+    theme: initialMeta?.theme ?? cached.theme ?? base.theme,
+    tradingProfiles: initialMeta?.tradingProfiles ?? cached.tradingProfiles ?? base.tradingProfiles,
+    activeProfileId: initialMeta?.activeProfileId ?? cached.activeProfileId ?? base.activeProfileId,
   };
 }
 
@@ -173,13 +245,19 @@ async function fetchWithRetry(url: string, options: RequestInit, maxAttempts = 3
 export function AppProvider({
   children,
   initialMeta = null,
+  initialUserId = null,
 }: {
   children: React.ReactNode;
   initialMeta?: InitialMeta | null;
+  initialUserId?: string | null;
 }) {
   const { data: session, status } = useSession();
-  const [data, setData] = useState<AppData>(() => buildInitialData(initialMeta));
-  const [loading, setLoading] = useState(true);
+  const userId = session?.user?.id ?? initialUserId ?? null;
+  const [data, setData] = useState<AppData>(() => buildInitialData(initialMeta, userId));
+  // If a valid per-user snapshot was already found, skip the loading spinner
+  // entirely — the mount effect below still fetches in the background to
+  // reconcile/refresh (stale-while-revalidate), it just doesn't gate the UI.
+  const [loading, setLoading] = useState(() => !(userId && readAppDataCache(userId)));
   // Meta (preferences, profiles, theme) is already resolved when the server
   // handed us initialMeta — dashboard & co. can render immediately.
   const [metaLoading, setMetaLoading] = useState(initialMeta === null);
@@ -189,6 +267,10 @@ export function AppProvider({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const saveStatusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingUpdatesRef = useRef<Partial<AppData>>({});
+  const dataRef = useRef(data);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   // Load full data from API (content fields: habits, todos, diary, notes, tradeData)
   useEffect(() => {
@@ -209,7 +291,7 @@ export function AppProvider({
       .then((res) => res.json())
       .then((userData) => {
         const timer = setTimeout(() => {
-          setData({
+          const merged: AppData = {
             habitData: userData.habitData || defaultData.habitData,
             todoData: userData.todoData || defaultData.todoData,
             tradeData: userData.tradeData || defaultData.tradeData,
@@ -220,7 +302,9 @@ export function AppProvider({
             theme: userData.theme || defaultData.theme,
             tradingProfiles: Array.isArray(userData.tradingProfiles) ? userData.tradingProfiles : [],
             activeProfileId: localActiveId || userData.activeProfileId || "",
-          });
+          };
+          setData(merged);
+          if (userId) writeAppDataCache(userId, merged);
           setLoading(false);
           setMetaLoading(false);
         }, 0);
@@ -256,9 +340,14 @@ export function AppProvider({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(pending),
     })
-      .then(res => { if (res.ok) localStorage.removeItem(LS_PENDING_SAVE_KEY); })
+      .then(res => {
+        if (res.ok) {
+          localStorage.removeItem(LS_PENDING_SAVE_KEY);
+          if (userId) writeAppDataCache(userId, { ...dataRef.current, ...pending });
+        }
+      })
       .catch(() => {}); // Will be retried on the next session
-  }, [loading, session]);
+  }, [loading, session, userId]);
 
   // Save to API with retry and localStorage fallback
   const saveToApi = useCallback(
@@ -284,6 +373,7 @@ export function AppProvider({
           });
           setSaveStatus("saved");
           localStorage.removeItem(LS_PENDING_SAVE_KEY);
+          if (userId) writeAppDataCache(userId, dataRef.current);
           saveStatusTimeoutRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
         } catch (err) {
           console.error("Save failed after retries:", err);
@@ -296,7 +386,7 @@ export function AppProvider({
         }
       }, 500);
     },
-    [session]
+    [session, userId]
   );
 
   const setHabitData = useCallback(
