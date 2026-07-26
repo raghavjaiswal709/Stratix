@@ -4,6 +4,7 @@ import { useAppContext } from "@/lib/context";
 import { ACCENT_PRESETS, DASHBOARD_PALETTES } from "@/types";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
 import {
   LayoutDashboard,
   ArrowLeftRight,
@@ -74,8 +75,9 @@ export default function SettingsPage() {
   useEffect(() => {
     if (isAdmin) {
       setLoadingUsers(true);
-      fetch("/api/admin/users")
-        .then((res) => res.json())
+      // persist: false — this list carries other members' names/emails/roles,
+      // kept in-memory-only so it's never written to localStorage.
+      cachedFetch<{ users?: any[] }>("/api/admin/users", { ttlMs: 60_000 })
         .then((data) => {
           setUsersList(data.users || []);
         })
@@ -154,6 +156,7 @@ export default function SettingsPage() {
         }),
       });
       if (res.ok) {
+        invalidateApiCache("/api/admin/users");
         triggerSaveAlert("User settings updated");
       }
     } catch (err) {

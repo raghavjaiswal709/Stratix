@@ -217,8 +217,7 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
 
   useEffect(() => {
     if (showConnect && connectTab === "ea" && !eaUserId) {
-      fetch("/api/me")
-        .then((r) => r.json())
+      cachedFetch<{ id?: string }>("/api/me", { ttlMs: 300_000, persist: true })
         .then((d) => setEaUserId(d.id ?? null))
         .catch(() => null);
     }
@@ -305,8 +304,8 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
         ? `/api/mt5/status?viewUserId=${encodeURIComponent(viewUserId)}`
         : "/api/mt5/status";
       Promise.all([
-        cachedFetch<PagedTradesResponse>(pageUrl(page, profileId), { ttlMs: 30_000, force: opts.force }),
-        cachedFetch<MT5Config>(mt5StatusUrl, { ttlMs: 30_000, force: opts.force }),
+        cachedFetch<PagedTradesResponse>(pageUrl(page, profileId), { ttlMs: 30_000, force: opts.force, persist: true }),
+        cachedFetch<MT5Config>(mt5StatusUrl, { ttlMs: 30_000, force: opts.force, persist: true }),
       ])
         .then(([t, m]) => {
           setTrades(Array.isArray(t.trades) ? t.trades : []);

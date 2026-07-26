@@ -86,7 +86,7 @@ export default async function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <AuthProvider session={session}>
-          <AppProvider initialMeta={initialMeta}>
+          <AppProvider initialMeta={initialMeta} initialUserId={session?.user?.id ?? null}>
             <TooltipProvider>
               <ClientLayout>{children}</ClientLayout>
             </TooltipProvider>
