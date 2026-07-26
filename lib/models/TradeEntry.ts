@@ -116,7 +116,12 @@ const TradeEntrySchema = new Schema<ITradeEntry>(
       ],
       default: [],
     },
-    screenshotsBase64Backup: { type: [String], default: undefined },
+    // Pre-migration base64 screenshots kept by scripts/migrate-screenshots-to-r2.ts.
+    // `select: false` because no application code ever reads this field, but it
+    // averages ~5 KB/doc: left selectable it made GET /api/trade ship 19 MB of
+    // dead backup data (22.66 MB total, ~250s on the M0 tier's ~0.09 MB/s).
+    // Queries that genuinely need it must ask via .select("+screenshotsBase64Backup").
+    screenshotsBase64Backup: { type: [String], default: undefined, select: false },
     preTradeAnalysis: { type: String, default: "" },
     postTradeReview: { type: String, default: "" },
     riskRatio: { type: Number, default: 1 },

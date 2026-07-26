@@ -8,9 +8,10 @@ const ALLOWED_CONTENT_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+  "image/gif": "gif",
 };
 
-const ALLOWED_SCOPES = new Set(["journal", "missed-trade"]);
+const ALLOWED_SCOPES = new Set(["journal", "missed-trade", "trade-note"]);
 
 // POST /api/uploads/presign — issues a short-lived presigned R2 PUT URL so
 // the browser uploads image bytes directly to R2, bypassing this function

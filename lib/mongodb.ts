@@ -34,7 +34,16 @@ async function dbConnect(): Promise<typeof mongoose> {
       // unreachable — keeps API routes from leaving requests "pending" forever.
       serverSelectionTimeoutMS: 10000,
       // Allow long-running cursors but don't let a dead socket hang indefinitely.
-      socketTimeoutMS: 45000,
+      //
+      // 120s, not 45s: GET /api/trade's full-history path legitimately ships
+      // ~3.6 MB (3,950 trades — the AI analytics panel really does consume
+      // executionChecklist/preTradeAnalysis/postTradeReview), and the Atlas M0
+      // tier moves data at only ~0.09 MB/s, so that read takes ~40s. At 45s the
+      // read raced the timeout and lost: the driver aborted, labelled it
+      // RetryableWriteError, retried once, and the route 500'd at ~90s. This is
+      // headroom for a known-slow read, NOT a fix for an unbounded one — the
+      // real fix is to stop shipping full documents for aggregates.
+      socketTimeoutMS: 120000,
       // Reuse a healthy pool across hot-reloads / concurrent requests.
       maxPoolSize: 10,
       minPoolSize: 1,
