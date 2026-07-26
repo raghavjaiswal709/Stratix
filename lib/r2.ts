@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const BUCKET = process.env.R2_BUCKET_NAME!;
@@ -42,4 +42,40 @@ export async function uploadBufferToR2(key: string, buffer: Buffer, contentType:
 export async function hydrateScreenshots(raw: string[] | undefined | null): Promise<string[]> {
   if (!raw || raw.length === 0) return [];
   return Promise.all(raw.map((entry) => (entry.startsWith("data:") ? entry : getPresignedDownloadUrl(entry))));
+}
+
+/**
+ * Reads an object's body as UTF-8 text. Returns null (not a throw) when the
+ * key doesn't exist yet — a normal case for e.g. a brand-new month file that
+ * hasn't been written to R2 yet.
+ */
+export async function getObjectText(key: string): Promise<string | null> {
+  try {
+    const res = await r2Client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    return (await res.Body?.transformToString("utf-8")) ?? null;
+  } catch (err) {
+    const name = (err as { name?: string })?.name;
+    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    if (name === "NoSuchKey" || status === 404) return null;
+    throw err;
+  }
+}
+
+/** Direct server-side write of UTF-8 text (e.g. a CSV) to an object key. */
+export async function putObjectText(key: string, text: string): Promise<void> {
+  await r2Client.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: text, ContentType: "text/csv" }));
+}
+
+/** Lists every object key under a prefix, transparently paginating past R2's 1000-key page limit. */
+export async function listObjectKeys(prefix: string): Promise<string[]> {
+  const keys: string[] = [];
+  let token: string | undefined;
+  do {
+    const res = await r2Client.send(
+      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, ContinuationToken: token })
+    );
+    keys.push(...(res.Contents ?? []).map((o) => o.Key).filter((k): k is string => !!k));
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return keys;
 }

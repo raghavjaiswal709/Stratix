@@ -32,7 +32,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 lxml
+        run: pip install requests beautifulsoup4 lxml "boto3>=1.36"
 
       - name: Determine session
         id: session
@@ -51,8 +51,12 @@ jobs:
 
       - name: Generate Hinglish news analysis
         env:
-          GEMINI_API_KEY: "AIzaSyDxtiltuqItfIBIoEXaUDeXgd3Qlhm9dLw"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SESSION_NAME: ${{ steps.session.outputs.name }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: python scripts/generate_news_analysis.py
 
       - name: Commit and push news report
