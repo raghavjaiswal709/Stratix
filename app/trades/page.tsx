@@ -738,12 +738,18 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
                           </span>
                           {(() => {
                             const sessionInfo = getTradingSession(displayEntryTime, trade.source);
+                            const sessionLabel =
+                              sessionInfo.session === "No Session"
+                                ? "-"
+                                : sessionInfo.session === "NY"
+                                ? "NEW YORK"
+                                : sessionInfo.session.toUpperCase();
                             return (
                               <span className={cn(
-                                "text-[8.5px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 uppercase tracking-wide",
+                                "text-[8.5px] font-bold py-0.5 rounded-full border shrink-0 uppercase tracking-wide w-[76px] inline-flex items-center justify-center text-center",
                                 getSessionBadgeClasses(sessionInfo.session)
                               )}>
-                                {sessionInfo.session === "No Session" ? "NO SESSION" : sessionInfo.session}
+                                {sessionLabel}
                               </span>
                             );
                           })()}
@@ -939,12 +945,18 @@ export default function TradesPage({ viewUserId }: { viewUserId?: string } = {})
                               </span>
                               {(() => {
                                 const sessionInfo = getTradingSession(displayEntryTime, trade.source);
+                                const sessionLabel =
+                                  sessionInfo.session === "No Session"
+                                    ? "-"
+                                    : sessionInfo.session === "NY"
+                                    ? "NEW YORK"
+                                    : sessionInfo.session.toUpperCase();
                                 return (
                                   <span className={cn(
-                                    "text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 uppercase tracking-wide",
+                                    "text-[9px] font-bold py-0.5 rounded-full border shrink-0 uppercase tracking-wide w-[84px] inline-flex items-center justify-center text-center",
                                     getSessionBadgeClasses(sessionInfo.session)
                                   )}>
-                                    {sessionInfo.session === "No Session" ? "NO SESSION" : sessionInfo.session}
+                                    {sessionLabel}
                                   </span>
                                 );
                               })()}
