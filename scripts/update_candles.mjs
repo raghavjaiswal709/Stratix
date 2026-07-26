@@ -117,7 +117,7 @@ async function updateSymbol(symbol) {
   const pad = ' '.repeat(Math.max(0, 8 - symbol.length));
   const tag = `[${symbol.toUpperCase()}]${pad}`;
 
-  const lastTsSec = getLastCandleTimestamp(symbol);
+  const lastTsSec = await getLastCandleTimestamp(symbol);
   if (lastTsSec === null) {
     console.log(`${tag} No existing data — run download_candles.mjs first. Skipping.`);
     return 0;
@@ -193,7 +193,7 @@ async function updateSymbol(symbol) {
   }
 
   console.log(`${tag} Received ${allRaw.length} candle(s) total, ${fresh.length} genuinely new.`);
-  return persistCandles(symbol, fresh);
+  return await persistCandles(symbol, fresh);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -262,7 +262,7 @@ if (!process.env.TWELVE_DATA_API_KEY) {
 
     // Newest-first: recent gaps are both more valuable to fix and more likely
     // to be within Twelve Data's plan's historical depth than decade-old ones.
-    const gaps = findGaps(CANDLES_DIR, symbol, { minGapMinutes: 5 })
+    const gaps = (await findGaps(CANDLES_DIR, symbol, { minGapMinutes: 5 }))
       .sort((a, b) => b.afterSec - a.afterSec);
     if (gaps.length === 0) continue;
 
@@ -275,7 +275,7 @@ if (!process.env.TWELVE_DATA_API_KEY) {
       const to   = new Date(gap.beforeSec * 1000);
       const candles = await fetchTwelveDataCandles(symbol, from, to);
       if (candles.length > 0) {
-        const written = persistCandles(symbol, candles);
+        const written = await persistCandles(symbol, candles);
         if (written > 0) filled++;
       }
     }

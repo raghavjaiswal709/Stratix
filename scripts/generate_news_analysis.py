@@ -17,8 +17,36 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 
+import boto3
+from botocore.config import Config
+from botocore.exceptions import ClientError
 import requests
 from bs4 import BeautifulSoup
+
+# ─── Cloudflare R2 client (candle CSV archive) ─────────────────────────────────
+# Candle data lives in R2 (candles/{symbol}/{symbol}_{yyyy}_{mm}.csv) — see
+# scripts/migrate-candles-to-r2.ts and scripts/lib/candle-storage.mjs for the
+# JS-side equivalent. Config flags disable a botocore>=1.36 default (checksum
+# trailers) that some S3-compatible backends, R2 included, handle inconsistently.
+_r2_client = None
+
+
+def _get_r2_client():
+    global _r2_client
+    if _r2_client is None:
+        _r2_client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+            aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+            aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+            region_name="auto",
+            config=Config(
+                signature_version="s3v4",
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+            ),
+        )
+    return _r2_client
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -300,34 +328,39 @@ def _resample_candles(rows: list[str], bucket_sec: int, cutoff_sec: int) -> list
     return [{"t": t, **b} for t, b in sorted_buckets]
 
 
-def _get_recent_csv_paths(symbol: str, base_dir="public/data/candles") -> list[str]:
+def _get_recent_object_keys(symbol: str, n: int = 3) -> list[str]:
     now = datetime.now(timezone.utc)
-    paths = []
-    # Fetch current month and the 2 preceding months to cover lookbacks
-    for i in range(3):
+    keys = []
+    # Current month and the (n-1) preceding months to cover lookbacks
+    for i in range(n):
         year = now.year
         month = now.month - i
         while month <= 0:
             month += 12
             year -= 1
         filename = f"{symbol}_{year}_{month:02d}.csv"
-        path = os.path.join(base_dir, symbol, filename)
-        if os.path.exists(path):
-            paths.append(path)
-    return paths
+        keys.append(f"candles/{symbol}/{filename}")
+    return keys
 
 
 def _read_rows_for_symbol(symbol: str) -> list[str]:
-    paths = _get_recent_csv_paths(symbol)
+    r2 = _get_r2_client()
+    bucket = os.environ["R2_BUCKET_NAME"]
     rows = []
-    for path in paths:
+    for key in _get_recent_object_keys(symbol):
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip() and not line.startswith("time"):
-                        rows.append(line)
+            obj = r2.get_object(Bucket=bucket, Key=key)
+            text = obj["Body"].read().decode("utf-8")
+            for line in text.split("\n"):
+                if line.strip() and not line.startswith("time"):
+                    rows.append(line)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") not in ("NoSuchKey", "404"):
+                print(f"  [candles] Error reading {key}: {e}", file=sys.stderr)
+            # NoSuchKey is expected for a not-yet-created month — skip silently,
+            # same as the old os.path.exists()-based behavior.
         except Exception as e:
-            print(f"  [candles] Error reading {path}: {e}", file=sys.stderr)
+            print(f"  [candles] Error reading {key}: {e}", file=sys.stderr)
     return rows
 
 
