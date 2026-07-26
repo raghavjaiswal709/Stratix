@@ -9,7 +9,7 @@ import { MissedTradesView } from "@/components/trade/missed-trades/missed-trades
 import { ReportsView } from "@/components/trade/journal/reports-view";
 import { AlertCircle, BookOpen, X, AlertTriangle, FileBarChart } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { cachedFetch, invalidateApiCache, peekApiCache } from "@/lib/api-cache";
+import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
 
 type JournalTab = "all" | "journaled" | "pending";
 type PageView = "journal" | "missed" | "reports";
@@ -69,17 +69,10 @@ export default function JournalPage() {
   const { setHasUnsavedChanges, sharedTrades, setSharedTrades, activeProfileId } = useAppContext();
 
   // Pre-populate from the shared cache so navigating trades→journal shows latest data instantly
-  const initialTradesUrl = activeProfileId
-    ? `/api/trade?profileId=${encodeURIComponent(activeProfileId)}`
-    : "/api/trade";
-  // On a hard reload sharedTrades is empty (it's in-memory context state), but
-  // the persisted cache may still have a fresh copy — check that too so a
-  // reload doesn't flash a spinner it doesn't need to.
-  const cachedInitialTrades = peekApiCache<JournalTrade[]>(initialTradesUrl, { persist: true, allowStale: true });
   const [trades, setTrades] = useState<JournalTrade[]>(
-    sharedTrades.length > 0 ? (sharedTrades as unknown as JournalTrade[]) : cachedInitialTrades ?? []
+    sharedTrades.length > 0 ? (sharedTrades as unknown as JournalTrade[]) : []
   );
-  const [loading, setLoading] = useState(sharedTrades.length === 0 && cachedInitialTrades == null);
+  const [loading, setLoading] = useState(sharedTrades.length === 0);
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
