@@ -72,6 +72,13 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "OPENAI_API_KEY not configured" }, { status: 500 });
 
+  // Everything below can throw (template lookup, live-price fetch escaping
+  // its own guards, etc.) — without this wrapper an uncaught throw falls
+  // through to Next.js's own error page (HTML/plain text, not JSON), which
+  // breaks the client's res.json() with "Unexpected token" instead of
+  // surfacing a readable error.
+  try {
+
   // Body is optional — Facts generation is otherwise fully automatic unless a
   // topicHint is supplied (e.g. from the content calendar). previewOnly skips
   // the OpenAI call and just returns the exact prompt text.
@@ -181,4 +188,10 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     cards: [cover, ...facts, outro],
   });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Facts batch generation failed unexpectedly — try again." },
+      { status: 500 }
+    );
+  }
 }

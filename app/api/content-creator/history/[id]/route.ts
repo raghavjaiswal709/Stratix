@@ -11,24 +11,42 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { id } = await params;
-  await dbConnect();
-  const doc = await ContentCreatorGenerationModel.findOne({ _id: id, userId: session.user.id }).lean();
-  if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  try {
+    const { id } = await params;
+    await dbConnect();
+    const doc = await ContentCreatorGenerationModel.findOne({ _id: id, userId: session.user.id }).lean();
+    if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json(doc);
+    return NextResponse.json(doc);
+  } catch (err) {
+    // A raw throw here (e.g. a Mongo connection blip) would otherwise fall
+    // through to Next.js's own error page — HTML/plain text, not JSON —
+    // which breaks the client's res.json() with "Unexpected token" instead
+    // of a readable error.
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to load this entry — try again." },
+      { status: 500 }
+    );
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { id } = await params;
-  await dbConnect();
-  const result = await ContentCreatorGenerationModel.deleteOne({ _id: id, userId: session.user.id });
-  if (result.deletedCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  try {
+    const { id } = await params;
+    await dbConnect();
+    const result = await ContentCreatorGenerationModel.deleteOne({ _id: id, userId: session.user.id });
+    if (result.deletedCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to delete this entry — try again." },
+      { status: 500 }
+    );
+  }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -40,20 +58,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
-  await dbConnect();
-  const doc = await ContentCreatorGenerationModel.findOneAndUpdate(
-    { _id: id, userId: session.user.id },
-    {
-      $set: {
-        ...(body.title ? { title: body.title.slice(0, 200) } : {}),
-        ...(body.itemCount !== undefined ? { itemCount: body.itemCount } : {}),
-        ...(body.payload !== undefined ? { payload: body.payload } : {}),
-      }
-    },
-    { new: true }
-  );
+  try {
+    await dbConnect();
+    const doc = await ContentCreatorGenerationModel.findOneAndUpdate(
+      { _id: id, userId: session.user.id },
+      {
+        $set: {
+          ...(body.title ? { title: body.title.slice(0, 200) } : {}),
+          ...(body.itemCount !== undefined ? { itemCount: body.itemCount } : {}),
+          ...(body.payload !== undefined ? { payload: body.payload } : {}),
+        }
+      },
+      { new: true }
+    );
 
-  if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ _id: String(doc._id), success: true, updatedAt: doc.createdAt });
+    if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ _id: String(doc._id), success: true, updatedAt: doc.createdAt });
+  } catch (err) {
+    // Same reasoning as GET/DELETE above — a Mongo throw (e.g. hitting the
+    // 16MB document cap once enough image-heavy posters accumulate in one
+    // batch, or a connection blip) must never escape as a non-JSON response.
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to save changes — try again." },
+      { status: 500 }
+    );
+  }
 }
-

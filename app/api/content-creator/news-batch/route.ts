@@ -274,6 +274,14 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "OPENAI_API_KEY not configured" }, { status: 500 });
 
+  // Everything below can throw — a flaky Mongo connection, a live-price
+  // fetch that somehow escapes its own guards, a template lookup failure —
+  // and without this wrapper an uncaught throw here falls through to
+  // Next.js's own error page (HTML/plain text, not JSON), which is what
+  // breaks the client's res.json() with "Unexpected token" instead of
+  // surfacing a readable error.
+  try {
+
   let body: { reportId?: string; previewOnly?: boolean } = {};
   try { body = await req.json(); } catch { /* empty body is fine — use latest report */ }
 
@@ -498,4 +506,10 @@ export async function POST(req: NextRequest) {
     reportGeneratedAt: (report as { generatedAt?: Date }).generatedAt ?? null,
     candidateCount: candidates.length,
   });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "News batch generation failed unexpectedly — try again." },
+      { status: 500 }
+    );
+  }
 }

@@ -67,6 +67,7 @@ import {
 } from "./newsJsonImport";
 import { compressImage, runWithConcurrency } from "./imageUtils";
 import { WebImageSearch } from "./WebImageSearch";
+import { parseJsonResponse } from "./apiUtils";
 import { drawPoster } from "./canvas/drawPoster";
 import { computeCoverFitSlack, getAntonFontFamily } from "./canvas/canvasUtils";
 import type { SentimentScheme } from "./canvas/canvasUtils";
@@ -238,7 +239,7 @@ export function ContentCreatorPage() {
     setHistoryError(null);
     try {
       const res = await fetch("/api/content-creator/history");
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) throw new Error(data?.error || "Failed to load history");
       setHistoryItems(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -270,7 +271,7 @@ export function ContentCreatorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category, title, itemCount, payload }),
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (res.ok && data._id) {
         return data._id;
       }
@@ -349,7 +350,7 @@ export function ContentCreatorPage() {
     setHistoryBusyId(id);
     try {
       const res = await fetch(`/api/content-creator/history/${id}`);
-      const doc = await res.json();
+      const doc = await parseJsonResponse(res);
       if (!res.ok) throw new Error(doc?.error || "Failed to load entry");
 
       setActiveHistoryId(id);
@@ -403,7 +404,7 @@ export function ContentCreatorPage() {
     setHistoryBusyId(id);
     try {
       const res = await fetch(`/api/content-creator/history/${id}`, { method: "DELETE" });
-      if (!res.ok) { const d = await res.json(); throw new Error(d?.error || "Failed to delete"); }
+      if (!res.ok) { const d = await parseJsonResponse(res); throw new Error(d?.error || "Failed to delete"); }
       setHistoryItems((prev) => prev.filter((h) => h._id !== id));
       if (id === activeHistoryId) {
         setActiveHistoryId(null);
@@ -426,7 +427,7 @@ export function ContentCreatorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
 
       const items: NewsItem[] = Array.isArray(data.posters) ? data.posters : [];
@@ -482,7 +483,7 @@ export function ContentCreatorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(topicHint ? { topicHint } : {}),
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
 
       const items: NewsItem[] = Array.isArray(data.cards) ? data.cards : [];
@@ -521,7 +522,7 @@ export function ContentCreatorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(topicHint ? { topicHint } : {}),
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
 
       const items: NewsItem[] = Array.isArray(data.cards) ? data.cards : [];
@@ -799,7 +800,7 @@ export function ContentCreatorPage() {
       try {
         const res = await fetch("/api/content-creator/defaults");
         if (!res.ok) return;
-        const data = await res.json();
+        const data = await parseJsonResponse(res);
         const s = data?.settings;
         if (!s || typeof s !== "object") return;
         if (s.ratioId) setRatioId(s.ratioId);
@@ -1078,7 +1079,7 @@ export function ContentCreatorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
       });
-      const searchData = await searchRes.json();
+      const searchData = await parseJsonResponse(searchRes);
       const top = searchRes.ok && Array.isArray(searchData.results) ? searchData.results[0] : null;
       if (!top?.imageUrl) return "";
 
@@ -1087,7 +1088,7 @@ export function ContentCreatorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: top.imageUrl }),
       });
-      const fetchData = await fetchRes.json();
+      const fetchData = await parseJsonResponse(fetchRes);
       if (!fetchRes.ok || typeof fetchData?.imageUrl !== "string") return "";
       return await compressImage(fetchData.imageUrl);
     } catch {
