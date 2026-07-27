@@ -13,20 +13,11 @@ import {
 import { format, subDays, subMonths, parseISO, isAfter } from "date-fns";
 import { TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getISTDateKey } from "@/lib/utils/ist-time";
-
-interface Trade {
-  _id: string;
-  entryTime: string;
-  profit: number;
-  swap?: number;
-  commission?: number;
-  status: string;
-  source?: "manual" | "mt5";
-}
+import type { DashboardStats } from "@/lib/trades/dashboard-stats";
 
 interface PerformanceChartProps {
-  trades: Trade[];
+  /** Net P&L per IST calendar day of entry, ascending — rolled up in Mongo. */
+  byEntryDay: DashboardStats["byEntryDay"];
   loading?: boolean;
   /** Dashboard-palette-driven positive/negative colors (SVG props can't read CSS vars). */
   positiveColor?: string;
@@ -47,29 +38,24 @@ function getPeriodStart(period: Period): Date | null {
   }
 }
 
-function buildChartData(trades: Trade[], start: Date | null) {
-  const sorted = [...trades]
-    .sort((a, b) => new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime());
-
+// The per-day grouping (net P&L per IST calendar day of entry) now happens in
+// Mongo, so this just windows the series and runs the cumulative sum.
+//
+// One deliberate behavior change: the period filter is day-granular. It used to
+// compare each trade's raw entryTime against `start`, which could include or
+// drop part of the boundary day; now a day is in or out as a whole. For a chart
+// with one point per day that is the more consistent reading, but it means a
+// period edge can shift by up to a day versus the old build.
+function buildChartData(byEntryDay: DashboardStats["byEntryDay"], start: Date | null) {
   const filtered = start
-    ? sorted.filter((t) => isAfter(parseISO(t.entryTime), start))
-    : sorted;
-
-  // Group by calendar day in true IST based on entryTime so each day has one
-  // cumulative point. Multiple trades on the same day are summed, avoiding
-  // duplicate X labels.
-  const byDay = new Map<string, number>();
-  for (const t of filtered) {
-    const key = getISTDateKey(t.entryTime, t.source);
-    const netProfit = t.profit + (t.swap || 0) + (t.commission || 0);
-    byDay.set(key, (byDay.get(key) ?? 0) + netProfit);
-  }
+    ? byEntryDay.filter((d) => isAfter(parseISO(d._id), start))
+    : byEntryDay;
 
   let cumPnL = 0;
-  return Array.from(byDay.entries()).map(([key, dayPnL]) => {
-    cumPnL += dayPnL;
+  return filtered.map((d) => {
+    cumPnL += d.pnl;
     return {
-      date: format(parseISO(key), "MMM d"),
+      date: format(parseISO(d._id), "MMM d"),
       pnl: parseFloat(cumPnL.toFixed(2)),
     };
   });
@@ -94,15 +80,15 @@ function CustomTooltip({
   );
 }
 
-export function PerformanceChart({ trades, loading, positiveColor = "#10b981", negativeColor = "#ef4444" }: PerformanceChartProps) {
+export function PerformanceChart({ byEntryDay, loading, positiveColor = "#10b981", negativeColor = "#ef4444" }: PerformanceChartProps) {
   // Default to ALL so the chart is never empty for users who have trades
   // from earlier periods. They can narrow down using the period buttons.
   const [period, setPeriod] = useState<Period>("ALL");
 
   const data = useMemo(() => {
     const start = getPeriodStart(period);
-    return buildChartData(trades, start);
-  }, [trades, period]);
+    return buildChartData(byEntryDay, start);
+  }, [byEntryDay, period]);
 
   const totalForPeriod = data.length > 0 ? data[data.length - 1].pnl : 0;
   const isPositive = totalForPeriod >= 0;

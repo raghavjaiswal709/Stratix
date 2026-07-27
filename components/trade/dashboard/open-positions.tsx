@@ -2,16 +2,15 @@
 
 import { TrendingUp, TrendingDown } from "lucide-react";
 
+// Exactly the fields the rows below render — the stats pipeline projects these
+// and nothing else, so an open position costs ~116 bytes instead of a document.
 interface OpenTrade {
   _id: string;
   symbol: string;
   direction: "buy" | "sell";
   lots: number;
   entryPrice: number;
-  stopLoss?: number;
-  takeProfit?: number;
   profit: number;
-  entryTime: string;
 }
 
 interface OpenPositionsProps {

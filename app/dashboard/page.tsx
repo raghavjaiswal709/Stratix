@@ -15,35 +15,11 @@ import { TradesTable } from "@/components/trade/sync/trades-table";
 import { ConnectMT5Form, DisconnectMT5Button } from "@/components/trade/mt5/connect-form";
 import { format } from "date-fns";
 import { useAppContext } from "@/lib/context";
-import { compileTrades } from "@/lib/trades/compile";
 import { AdvancedInsights } from "@/components/trade/dashboard/advanced-insights";
 import { PnlBreakdown } from "@/components/trade/dashboard/pnl-breakdown";
 import { DASHBOARD_PALETTES } from "@/types";
 import { cachedFetch, invalidateApiCache } from "@/lib/api-cache";
-
-interface Trade {
-  _id: string;
-  symbol: string;
-  direction: "buy" | "sell";
-  lots: number;
-  entryPrice: number;
-  exitPrice?: number;
-  entryTime: string;
-  exitTime?: string;
-  profit: number;
-  swap?: number;
-  commission?: number;
-  status: "open" | "closed";
-  stopLoss?: number;
-  takeProfit?: number;
-  riskRatio?: number;
-  rewardRatio?: number;
-  rating?: number;
-  journaled?: boolean;
-  parentTradeId?: string;
-  mergedTradeIds?: string[];
-  source?: "manual" | "mt5";
-}
+import { deriveTotals, type DashboardStats } from "@/lib/trades/dashboard-stats";
 
 interface MT5Info {
   connected: boolean;
@@ -64,7 +40,7 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
   // preferences + profiles, which the server already resolved in initialMeta.
   // Gating on `loading` used to serialize this page behind the multi-MB
   // /api/user-data fetch it never reads.
-  const { activeProfileId, tradingProfiles, metaLoading, sharedTrades, setSharedTrades, preferences } = useAppContext();
+  const { activeProfileId, tradingProfiles, metaLoading, preferences } = useAppContext();
   // "default"/unset = no palette active; PerformanceChart falls back to its
   // own emerald/red defaults. The app-wide token overrides + CSS catch-alls
   // (card top-stripe, header icons, badge rows) already come from
@@ -72,40 +48,42 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
   const dashPalette = preferences.dashboardPalette && preferences.dashboardPalette !== "default"
     ? DASHBOARD_PALETTES.find((p) => p.id === preferences.dashboardPalette)
     : undefined;
-  const trades = sharedTrades;
-  const [loading, setLoading] = useState(sharedTrades.length === 0);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
   const [mt5Info, setMt5Info] = useState<MT5Info | null>(null);
   const [mt5Loading, setMt5Loading] = useState(true);
   const [syncRefreshKey, setSyncRefreshKey] = useState(0);
 
-  // Tracked via ref so the fetch effect doesn't depend on sharedTrades —
-  // having sharedTrades.length in the deps made the effect re-fire after its
-  // own setSharedTrades, fetching /api/trade twice on every mount.
-  const hasCachedTradesRef = useRef(sharedTrades.length > 0);
+  // Tracked via ref so the fetch effect doesn't depend on `stats` — putting it
+  // in the deps would re-fire the effect after its own setStats, fetching twice
+  // on every mount.
+  const hasStatsRef = useRef(false);
   useEffect(() => {
-    hasCachedTradesRef.current = sharedTrades.length > 0;
-  }, [sharedTrades]);
+    hasStatsRef.current = stats !== null;
+  }, [stats]);
 
-  // Load manual trades — re-fetch when active profile changes. Served from
-  // the shared api-cache when a fresh copy already exists (instant revisit),
-  // and re-fetched fresh whenever another page reports a trade mutation.
-  // requestId guards against a slow, now-stale request (e.g. from a profile
-  // the user has already switched away from) overwriting newer state.
+  // Load the pre-rolled dashboard numbers — re-fetch when the active profile
+  // changes. This used to pull every trade document (3.62 MB / ~3.7s) purely to
+  // reduce it in the browser; /api/trade/stats does the rollups in Mongo and
+  // returns ~76 KB. Served from the shared api-cache when a fresh copy exists,
+  // and re-fetched whenever another page reports a trade mutation. requestId
+  // guards against a slow, now-stale request (e.g. from a profile the user has
+  // already switched away from) overwriting newer state.
   const requestIdRef = useRef(0);
-  const loadTrades = useCallback(
+  const loadStats = useCallback(
     (profileId: string, opts: { force?: boolean; silent?: boolean } = {}) => {
       const requestId = ++requestIdRef.current;
-      if (!opts.silent && !hasCachedTradesRef.current) setLoading(true);
+      if (!opts.silent && !hasStatsRef.current) setLoading(true);
       const params = new URLSearchParams();
       if (profileId) params.set("profileId", profileId);
       if (viewUserId) params.set("viewUserId", viewUserId);
       const qs = params.toString();
-      const url = qs ? `/api/trade?${qs}` : "/api/trade";
+      const url = qs ? `/api/trade/stats?${qs}` : "/api/trade/stats";
 
-      cachedFetch<Trade[]>(url, { ttlMs: 30_000, force: opts.force, persist: true })
+      cachedFetch<DashboardStats>(url, { ttlMs: 30_000, force: opts.force, persist: true })
         .then((data) => {
           if (requestId !== requestIdRef.current) return; // superseded by a newer request
-          setSharedTrades(Array.isArray(data) ? data : []);
+          setStats(data ?? null);
           setLoading(false);
         })
         .catch(() => {
@@ -113,13 +91,13 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
           setLoading(false);
         });
     },
-    [setSharedTrades, viewUserId]
+    [viewUserId]
   );
 
   useEffect(() => {
     if (metaLoading) return;
-    loadTrades(activeProfileId);
-  }, [activeProfileId, metaLoading, loadTrades]);
+    loadStats(activeProfileId);
+  }, [activeProfileId, metaLoading, loadStats]);
 
   // Any trade mutation elsewhere (Trades page, Journal, MT5 sync) invalidates
   // the cache and re-syncs in the background — silent so it never flashes
@@ -127,11 +105,11 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
   useEffect(() => {
     const handler = () => {
       invalidateApiCache("/api/trade");
-      loadTrades(activeProfileId, { force: true, silent: true });
+      loadStats(activeProfileId, { force: true, silent: true });
     };
     window.addEventListener("refresh-trades", handler);
     return () => window.removeEventListener("refresh-trades", handler);
-  }, [activeProfileId, loadTrades]);
+  }, [activeProfileId, loadStats]);
 
   // Load MT5 status
   useEffect(() => {
@@ -146,34 +124,14 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
       .catch(() => setMt5Loading(false));
   }, [viewUserId]);
 
-  // A manually-compiled ("merged") position must count as exactly ONE trade
-  // everywhere on this page — without this, every stat card, chart, and
-  // insight below would double/triple-count merged trades (parent + children).
-  const compiledTrades = useMemo(() => compileTrades(trades), [trades]);
+  // Merged ("compiled") positions already count as exactly ONE trade here —
+  // the aggregation collapses parent + children before any rollup runs, so
+  // nothing on this page double-counts them.
+  const totals = useMemo(() => (stats ? deriveTotals(stats) : null), [stats]);
 
-  const stats = useMemo(() => {
-    const closed = compiledTrades.filter((t) => t.status === "closed");
-    const open = compiledTrades.filter((t) => t.status === "open");
-    const netProfit = (t: Trade) => t.profit + (t.swap || 0) + (t.commission || 0);
-    const realized = closed.reduce((s, t) => s + netProfit(t), 0);
-    const unrealized = open.reduce((s, t) => s + netProfit(t), 0);
-    const wins = closed.filter((t) => netProfit(t) > 0).length;
-    const losses = closed.filter((t) => netProfit(t) < 0).length;
-    const winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
-    return {
-      totalPnL: realized + unrealized,
-      unrealized,
-      realized,
-      winRate,
-      openTrades: open.length,
-      closedTrades: closed.length,
-      totalTrades: compiledTrades.length,
-    };
-  }, [compiledTrades]);
-
-  // Show full-page spinner while meta resolves OR while trades are loading.
+  // Show full-page spinner while meta resolves OR while stats are loading.
   // This prevents stats/charts from flashing zeros before data arrives.
-  if (metaLoading || loading) {
+  if (metaLoading || loading || !stats || !totals) {
     return (
       <div className="flex items-center justify-center h-full min-h-[60vh]">
         <div className="h-5 w-5 rounded-full border-[1.5px] border-white/20 border-t-white/70 animate-spin" />
@@ -208,26 +166,26 @@ export default function DashboardPage({ viewUserId }: { viewUserId?: string } = 
       </div>
 
       {/* Stats — Scheduled Events takes the Unrealized/Realized cards' old slot */}
-      <StatsCards {...stats}>
+      <StatsCards {...totals}>
         <ScheduledEventsPanel variant="compact" className="col-span-2" />
       </StatsCards>
 
       {/* Charts — each handles its own loading state */}
       <div className="grid gap-4 md:grid-cols-2">
-        <PerformanceChart trades={compiledTrades} loading={loading} positiveColor={dashPalette?.positive} negativeColor={dashPalette?.negative} />
-        <MonthlyCalendar  trades={compiledTrades} loading={loading} />
+        <PerformanceChart byEntryDay={stats.byEntryDay} loading={loading} positiveColor={dashPalette?.positive} negativeColor={dashPalette?.negative} />
+        <MonthlyCalendar byEntryDay={stats.byEntryDay} loading={loading} profileId={activeProfileId} viewUserId={viewUserId} />
       </div>
 
       {/* Costs, profit factor, direction & symbol insights */}
-      <TradingInsights trades={compiledTrades} />
+      <TradingInsights stats={stats} />
 
       {/* Monthly P&L rollup, trading sessions, trade duration buckets */}
-      <PnlBreakdown trades={compiledTrades} />
+      <PnlBreakdown stats={stats} />
 
       {/* Best/worst day, weekday performance, risk discipline, journaling health */}
-      <AdvancedInsights trades={compiledTrades} />
+      <AdvancedInsights stats={stats} />
 
-      <OpenPositions trades={compiledTrades.filter((t) => t.status === "open")} />
+      <OpenPositions trades={stats.openPositions} />
 
       {/* ── Latest News ──────────────────────────────────────────────────── */}
       <LatestNewsWidget />

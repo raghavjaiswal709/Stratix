@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   format,
   startOfMonth,
@@ -21,25 +21,16 @@ import {
 } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getISTDateKey } from "@/lib/utils/ist-time";
-
-interface Trade {
-  _id: string;
-  entryTime: string;
-  profit: number;
-  swap?: number;
-  commission?: number;
-  status: string;
-  symbol: string;
-  journaled?: boolean;
-  lots?: number;
-  direction?: string;
-  source?: "manual" | "mt5";
-}
+import { cachedFetch } from "@/lib/api-cache";
+import type { DashboardStats } from "@/lib/trades/dashboard-stats";
+import type { CalendarTrade } from "@/lib/trades/stats-pipeline";
 
 interface MonthlyCalendarProps {
-  trades: Trade[];
+  /** Net P&L and trade count per IST calendar day of entry — rolled up in Mongo. */
+  byEntryDay: DashboardStats["byEntryDay"];
   loading?: boolean;
+  profileId?: string;
+  viewUserId?: string;
 }
 
 type ViewMode = "week" | "month" | "3m" | "year";
@@ -52,10 +43,6 @@ const VIEW_MODES: { id: ViewMode; label: string }[] = [
 
 const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 
-function net(t: Trade): number {
-  return t.profit + (t.swap || 0) + (t.commission || 0);
-}
-
 function fmt(n: number): string {
   const sign = n >= 0 ? "+" : "";
   return `${sign}$${Math.abs(n).toFixed(0)}`;
@@ -65,7 +52,7 @@ function dayKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
+export function MonthlyCalendar({ byEntryDay, loading, profileId, viewUserId }: MonthlyCalendarProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [viewDate, setViewDate] = useState(new Date());
   // Which day's trade list is open — click-driven, not hover, so it doesn't
@@ -121,23 +108,45 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
   }, [viewMode, viewDate]);
 
   // Per-day P&L/count lookup — shared by both the cell grid and the heatmap.
-  const dayStats = useMemo(() => {
-    const map = new Map<string, { pnl: number; count: number; trades: Trade[] }>();
-    for (const t of trades) {
-      const key = getISTDateKey(t.entryTime, t.source);
-      const cur = map.get(key) || { pnl: 0, count: 0, trades: [] as Trade[] };
-      cur.pnl += net(t);
-      cur.count += 1;
-      cur.trades.push(t);
-      map.set(key, cur);
-    }
-    return map;
-  }, [trades]);
+  const dayStats = useMemo(
+    () => new Map(byEntryDay.map((d) => [d._id, { pnl: d.pnl, count: d.count }])),
+    [byEntryDay]
+  );
 
-  const getDay = (date: Date) => {
-    const key = dayKey(date);
-    return dayStats.get(key) || { pnl: 0, count: 0, trades: [] as Trade[] };
-  };
+  const getDay = (date: Date) => dayStats.get(dayKey(date)) ?? { pnl: 0, count: 0 };
+
+  // The individual trade rows for a day are fetched only when that day is
+  // actually clicked. Bundling every row into the stats response cost 451 KB of
+  // a 523 KB payload to populate a popover that shows one day at a time.
+  const [dayTrades, setDayTrades] = useState<CalendarTrade[]>([]);
+  const [dayTradesLoading, setDayTradesLoading] = useState(false);
+  // Which day the in-flight request belongs to, so a slow response for a
+  // previously-clicked day can't overwrite the one now open.
+  const pendingDayRef = useRef<string | null>(null);
+
+  const openDay = useCallback(
+    (key: string | null) => {
+      setSelectedDayKey(key);
+      pendingDayRef.current = key;
+      if (!key) return;
+      const params = new URLSearchParams({ day: key });
+      if (profileId) params.set("profileId", profileId);
+      if (viewUserId) params.set("viewUserId", viewUserId);
+      setDayTrades([]);
+      setDayTradesLoading(true);
+      cachedFetch<{ trades: CalendarTrade[] }>(`/api/trade/stats?${params}`, { ttlMs: 30_000 })
+        .then((res) => {
+          if (pendingDayRef.current !== key) return; // superseded by a newer click
+          setDayTrades(res?.trades ?? []);
+          setDayTradesLoading(false);
+        })
+        .catch(() => {
+          if (pendingDayRef.current !== key) return;
+          setDayTradesLoading(false);
+        });
+    },
+    [profileId, viewUserId]
+  );
 
   const rangeTotal = useMemo(() => {
     return eachDayOfInterval({ start: rangeStart, end: rangeEnd }).reduce(
@@ -171,7 +180,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
       {/* Click-away backdrop for the open day popover — sits below it (z-20 vs
           the popover's z-30) so clicking anywhere else on the page closes it. */}
       {selectedDayKey && (
-        <div className="fixed inset-0 z-20" onClick={() => setSelectedDayKey(null)} />
+        <div className="fixed inset-0 z-20" onClick={() => openDay(null)} />
       )}
       {/* Header */}
       <div className="mb-3 md:mb-4">
@@ -248,7 +257,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
 
               const cells = days.map((day) => {
                 const inRange = day >= rangeStart && day <= rangeEnd;
-                const stat = inRange ? getDay(day) : { pnl: 0, count: 0, trades: [] as Trade[] };
+                const stat = inRange ? getDay(day) : { pnl: 0, count: 0 };
                 if (inRange) {
                   weekPnL += stat.pnl;
                   weekCount += stat.count;
@@ -258,13 +267,13 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
 
               return (
                 <div key={weekStart.toISOString()} className="grid gap-px" style={{ gridTemplateColumns: "repeat(7, 1fr) 56px" }}>
-                  {cells.map(({ day, inRange, pnl, hasTraded, trades: dayTrades }) => {
+                  {cells.map(({ day, inRange, pnl, hasTraded }) => {
                     const key = dayKey(day);
                     const isOpen = hasTraded && selectedDayKey === key;
                     return (
                     <div
                       key={day.toISOString()}
-                      onClick={() => hasTraded && setSelectedDayKey((prev) => (prev === key ? null : key))}
+                      onClick={() => hasTraded && openDay(selectedDayKey === key ? null : key)}
                       className={cn(
                         "relative min-h-[42px] flex flex-col items-center justify-center rounded-lg text-center p-1 transition",
                         !inRange && "opacity-0 pointer-events-none",
@@ -284,7 +293,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                       )}
 
                       {/* Trades list — opens on click, not hover */}
-                      {isOpen && dayTrades.length > 0 && (
+                      {isOpen && (
                         <div
                           onClick={(e) => e.stopPropagation()}
                           className="absolute bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2 flex flex-col w-56 rounded-xl border border-white/[0.08] bg-[#0c0c0c] shadow-2xl p-2 z-30 text-left"
@@ -295,8 +304,13 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                             </span>
                           </div>
                           <div className="space-y-1 max-h-[160px] overflow-y-auto pr-0.5">
+                            {dayTradesLoading && (
+                              <div className="flex items-center justify-center py-3">
+                                <div className="h-3.5 w-3.5 rounded-full border-[1.5px] border-white/20 border-t-white/60 animate-spin" />
+                              </div>
+                            )}
                             {dayTrades.map((trade) => {
-                              const tradeNet = net(trade);
+                              const tradeNet = trade.net;
                               return (
                                 <div
                                   key={trade._id}
@@ -373,7 +387,7 @@ export function MonthlyCalendar({ trades, loading }: MonthlyCalendarProps) {
                         <div key={weekStart.toISOString()} className="grid grid-cols-7 gap-px">
                           {days.map((day) => {
                             const inMonth = isSameMonth(day, monthDate);
-                            const stat = inMonth ? getDay(day) : { pnl: 0, count: 0, trades: [] as Trade[] };
+                            const stat = inMonth ? getDay(day) : { pnl: 0, count: 0 };
                             const hasTraded = inMonth && stat.count > 0;
                             return (
                               <div
