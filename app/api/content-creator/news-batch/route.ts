@@ -9,20 +9,122 @@ import { getPromptTemplate, renderTemplate } from "@/lib/prompts/store";
 import { getRecentlyCoveredBlock } from "@/lib/content-creator/recent-news";
 
 export const runtime = "nodejs";
-export const maxDuration = 180;
+// Kept at a value every Vercel plan allows (Hobby caps at 60s), because the
+// chunked curation below is designed to finish well inside it — see
+// CHUNK_TIMEOUT_MS. The previous 180 was silently clamped on Hobby and the
+// single monolithic call blew straight past it (FUNCTION_INVOCATION_TIMEOUT).
+export const maxDuration = 60;
 
 // How many of the filter report's top items we show the curator model.
-// Sorted by impact_score first, so this is "the best 120", not "the first 120".
-// Raised alongside the 15-story floor in the prompt (Admin → Prompt
-// Management → "News Batch Curator") — a 15+ story floor needs a wider
-// candidate pool to cluster from, or the model runs out of genuinely
-// distinct stories before it hits the floor.
-const MAX_CANDIDATES = 120;
+// Sorted by impact_score first, so this is "the best 80", not "the first 80".
+// Sized against MAX_POSTERS below: a 10-card batch needs nowhere near the
+// 120-candidate pool the old 15-story floor did, and a leaner pool means
+// less input for each slice to chew through.
+const MAX_CANDIDATES = 80;
 const CURATOR_MODEL = "gpt-5.5-2026-04-23";
 // Content cards only — the cover and outro are synthesized/parsed outside
-// this range, so a full batch is up to MAX_POSTERS+2 cards. The 15-card
-// floor itself lives in the prompt text (admin-editable), not here.
-const MAX_POSTERS = 20;
+// this range, so a full batch is up to MAX_POSTERS+2 cards (plus one ELI5
+// bento companion per story, inserted client-side). Ten is what comfortably
+// fits Vercel Hobby's hard 60s function ceiling; the prompt's own 15-story
+// floor is overridden per-slice in buildChunkInstruction below.
+const MAX_POSTERS = 10;
+
+// ── Chunked curation ────────────────────────────────────────────────────
+// Asking one reasoning-tier call to write every card (each carrying the full
+// ELI5 bento set, a 60-90 word imagePrompt, a caption and 18-22 hashtags)
+// reliably ran ~100s locally and timed the serverless function out in
+// production. Splitting the candidate pool into disjoint slices and curating
+// them concurrently keeps every individual call small — same cards, a
+// fraction of the wall time — and lets one slow or failed slice degrade the
+// batch instead of killing it (see Promise.allSettled in POST).
+const CHUNK_COUNT = 4;
+// 4 slices x 3 = 12 cards for a 10-card target: a deliberate surplus, so
+// losing a whole slice to a timeout still lands 9 and losing a card to the
+// title-dedupe below still lands 10.
+const POSTERS_PER_CHUNK = Math.ceil(MAX_POSTERS / CHUNK_COUNT);
+// Per-call ceiling, deliberately well under maxDuration so one hung slice
+// can never consume the whole request budget — it aborts and the rest still
+// land. Prep (Mongo + live prices + templates) measures ~3s, leaving ~12s of
+// headroom under Hobby's 60s ceiling.
+const CHUNK_TIMEOUT_MS = 45_000;
+// Each slice writes ~3 cards rather than the whole batch, so it needs a
+// fraction of the old 60000-token allowance (which existed to cover this
+// model's internal reasoning tokens before it writes a full-batch reply).
+const CHUNK_MAX_TOKENS = 12000;
+
+interface CuratorChunkResult {
+  posters?: unknown;
+  summary?: unknown;
+  outro?: unknown;
+}
+
+// Deals candidates out round-robin rather than slicing contiguously: the pool
+// arrives impact-sorted, so contiguous slices would hand the first chunk every
+// strong story and the last chunk only the dregs. Slices stay disjoint, so two
+// chunks can never independently write up the same story.
+function partitionRoundRobin<T>(items: T[], groups: number): T[][] {
+  const out: T[][] = Array.from({ length: groups }, () => []);
+  items.forEach((item, i) => out[i % groups].push(item));
+  return out.filter((g) => g.length > 0);
+}
+
+function normalizeTitleKey(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+// Appended in code rather than baked into the admin-editable user template:
+// the system prompt sets a hard 15-story floor that each parallel slice would
+// otherwise try to hit on its own, blowing the per-call budget right back up.
+// Injecting it here means the override survives any admin edit of the prompt.
+function buildChunkInstruction(target: number, batchTarget: number): string {
+  return `\n\n━━━ SCOPE OVERRIDE FOR THIS REQUEST ━━━\nThis request is ONE SLICE of a larger batch being curated in parallel — the other slices cover different candidates, and their cards are merged with yours afterwards.\n\nDISREGARD the "15-20 stories" range and the 15-story hard floor in PART 1 entirely. They are superseded: the assembled batch targets ${batchTarget} cards in total, and your slice's share is EXACTLY ${target} cards. Return fewer only if this slice genuinely holds fewer than ${target} distinct, real-consequence stories after clustering — never pad to reach it.\n\nBecause only ${batchTarget} cards ship in total, be markedly more selective than usual: pick the highest-impact, most genuinely tradeable stories in your slice and drop marginal ones. Every other rule — clustering, the no-repeat rule, field shapes, number accuracy — still applies in full.`;
+}
+
+async function runCuratorChunk(
+  openai: OpenAI,
+  systemPrompt: string,
+  userMessage: string,
+  label: string
+): Promise<CuratorChunkResult> {
+  const startedAt = Date.now();
+  try {
+    const response = await openai.chat.completions.create(
+      {
+        model: CURATOR_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage },
+        ],
+        // No `temperature` override — this model only supports its default (1).
+        // `reasoning_effort` is the real latency lever on this reasoning-tier
+        // model: the thinking pass, not the token count, is what made the old
+        // single call run ~100s. "low" keeps the curation/clustering quality
+        // that matters here while cutting that pass dramatically.
+        reasoning_effort: "low",
+        max_completion_tokens: CHUNK_MAX_TOKENS,
+        response_format: { type: "json_object" },
+      },
+      {
+        timeout: CHUNK_TIMEOUT_MS,
+        // Without this the SDK's default of 2 retries silently multiplies the
+        // timeout above (40s → ~120s) and blows the function budget anyway.
+        // A slice that times out is meant to be dropped, not retried.
+        maxRetries: 0,
+      }
+    );
+    const raw = response.choices[0]?.message?.content ?? "";
+    const fence = raw.match(/```json\s*([\s\S]*?)```/);
+    const parsed = JSON.parse(fence ? fence[1].trim() : raw) as CuratorChunkResult;
+    console.log(`[news-batch] ${label} ok in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+    return parsed;
+  } catch (err) {
+    console.warn(
+      `[news-batch] ${label} failed after ${((Date.now() - startedAt) / 1000).toFixed(1)}s:`,
+      err instanceof Error ? err.message : err
+    );
+    throw err;
+  }
+}
 
 type PosterCategory = "Macro" | "Geopolitical" | "Corporate" | "Sentiment" | "Systemic";
 const VALID_CATEGORIES = new Set<PosterCategory>(["Macro", "Geopolitical", "Corporate", "Sentiment", "Systemic"]);
@@ -343,42 +445,82 @@ export async function POST(req: NextRequest) {
   }
 
   const openai = new OpenAI({ apiKey });
-  let raw = "";
-  try {
-    const response = await openai.chat.completions.create({
-      model: CURATOR_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: userMessage,
-        },
-      ],
-      // No `temperature` override — this model only supports its default (1).
-      // 60000 covers a 15-20 card batch (each card now also carries the full
-      // ELI5 bento field set) plus cover/outro copy, with headroom for this
-      // reasoning-tier model's internal reasoning tokens before it ever
-      // writes the response.
-      max_completion_tokens: 60000,
-      response_format: { type: "json_object" },
-    });
-    raw = response.choices[0]?.message?.content ?? "";
-  } catch (err) {
+
+  // Curate every slice concurrently. allSettled (not all) is the point: a
+  // slice that times out or returns unparseable JSON is dropped, and the
+  // remaining slices still assemble a shippable batch.
+  const slices = partitionRoundRobin(candidates, CHUNK_COUNT);
+  const batchStartedAt = Date.now();
+  const settled = await Promise.allSettled(
+    slices.map((slice, i) =>
+      runCuratorChunk(
+        openai,
+        systemPrompt,
+        renderTemplate(userTemplate, {
+          CANDIDATE_COUNT: String(slice.length),
+          CANDIDATES_JSON: JSON.stringify(slice),
+        }) + buildChunkInstruction(POSTERS_PER_CHUNK, MAX_POSTERS),
+        `slice ${i + 1}/${slices.length}`
+      )
+    )
+  );
+  console.log(
+    `[news-batch] ${settled.filter((s) => s.status === "fulfilled").length}/${slices.length} slices in ${((Date.now() - batchStartedAt) / 1000).toFixed(1)}s`
+  );
+
+  const fulfilled = settled.filter(
+    (s): s is PromiseFulfilledResult<CuratorChunkResult> => s.status === "fulfilled"
+  );
+  if (fulfilled.length === 0) {
+    const firstError = settled.find((s): s is PromiseRejectedResult => s.status === "rejected")?.reason;
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "AI curation call failed" },
+      {
+        error: firstError instanceof Error
+          ? `AI curation failed: ${firstError.message}`
+          : "AI curation call failed — try again.",
+      },
       { status: 502 }
     );
   }
 
-  let parsed: { posters?: unknown; summary?: unknown; outro?: unknown };
-  try {
-    const fence = raw.match(/```json\s*([\s\S]*?)```/);
-    parsed = JSON.parse(fence ? fence[1].trim() : raw);
-  } catch {
-    return NextResponse.json({ error: "AI returned unparseable JSON — try again." }, { status: 502 });
+  // Merge every slice's cards, dropping any near-duplicate headline that got
+  // through despite the disjoint slicing (two slices can still land on the
+  // same theme from different source articles). Cover/outro copy comes from
+  // the first slice that produced it — the local fallbacks further down cover
+  // the case where no slice did.
+  // Drained round-robin rather than concatenated: the slices deliberately
+  // over-produce (12 cards for a 10-card batch), so concatenating would trim
+  // the surplus off the tail and drop the last slice's cards wholesale.
+  // Taking one card from each slice per round spreads the trim evenly, which
+  // preserves the impact mix that partitionRoundRobin dealt out in the first
+  // place. Each slice orders its own cards strongest-first, so round 0 is
+  // every slice's best story, round 1 its second, and so on.
+  const sliceQueues = fulfilled
+    .map((f) => (Array.isArray(f.value?.posters) ? (f.value.posters as unknown[]) : []))
+    .filter((queue) => queue.length > 0);
+  const seenTitles = new Set<string>();
+  const rawPosters: unknown[] = [];
+  const deepestQueue = sliceQueues.reduce((max, q) => Math.max(max, q.length), 0);
+  for (let round = 0; round < deepestQueue && rawPosters.length < MAX_POSTERS; round++) {
+    for (const queue of sliceQueues) {
+      if (round >= queue.length) continue;
+      const poster = queue[round];
+      const title = typeof (poster as Record<string, unknown>)?.title === "string"
+        ? ((poster as Record<string, unknown>).title as string)
+        : "";
+      const key = normalizeTitleKey(title);
+      if (!key || seenTitles.has(key)) continue;
+      seenTitles.add(key);
+      rawPosters.push(poster);
+      if (rawPosters.length >= MAX_POSTERS) break;
+    }
   }
 
-  const rawPosters = Array.isArray(parsed.posters) ? parsed.posters : [];
+  const parsed: CuratorChunkResult = {
+    summary: fulfilled.find((f) => f.value?.summary)?.value.summary,
+    outro: fulfilled.find((f) => f.value?.outro)?.value.outro,
+  };
+
   const VALID_IMPACT = new Set(["High", "Medium", "Low"]);
   const VALID_SENTIMENT = new Set(["Bullish", "Bearish", "Neutral"]);
 

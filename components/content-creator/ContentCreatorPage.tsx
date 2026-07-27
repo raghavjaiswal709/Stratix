@@ -435,7 +435,7 @@ export function ContentCreatorPage() {
 
       // items[0] is always the cover slide (isCover: true); the last item is
       // always the outro slide (isOutro: true) if present; everything between
-      // is the 8-12 curated candidates. Don't commit to newsData yet — open
+      // is the ~10 curated candidates. Don't commit to newsData yet — open
       // the selection modal so the user picks which stories make the batch,
       // unless Fully Automated is on, in which case every candidate is kept
       // and the modal never opens.
@@ -3402,8 +3402,8 @@ export function ContentCreatorPage() {
                           <span className="block text-[11.5px] font-bold text-white tracking-wide">AI News Batch</span>
                           <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
                             {fullyAutomated
-                              ? "Curate 8-12 distinct high-impact stories, deduped, with cover + outro — every story kept and illustrated automatically, no review step."
-                              : "Curate 8-12 distinct high-impact stories, deduped, with cover + outro. Select which slides to include."}
+                              ? "Curate the top 10 distinct high-impact stories, deduped, with cover + outro — every story kept and illustrated automatically, no review step."
+                              : "Curate the top 10 distinct high-impact stories, deduped, with cover + outro. Select which slides to include."}
                           </span>
                         </span>
                       </button>

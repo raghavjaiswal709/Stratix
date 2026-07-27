@@ -5,7 +5,13 @@ import { fetchLiveContext } from "@/lib/content-creator/live-prices";
 import { getPromptTemplate, renderTemplate } from "@/lib/prompts/store";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// Kept at a value every Vercel plan allows — Hobby caps at 60s, so a higher
+// number here is silently clamped and the function dies with an opaque
+// FUNCTION_INVOCATION_TIMEOUT (a non-JSON 504) instead of a readable error.
+export const maxDuration = 60;
+// Abort the model call before the platform aborts the whole function, so a
+// slow generation surfaces as a normal JSON error the UI can display.
+const OPENAI_TIMEOUT_MS = 45_000;
 
 const CURATOR_MODEL = "gpt-5.5-2026-04-23";
 const MIN_SLIDES = 4;
@@ -102,15 +108,23 @@ export async function POST(req: NextRequest) {
   const openai = new OpenAI({ apiKey });
   let raw = "";
   try {
-    const response = await openai.chat.completions.create({
-      model: CURATOR_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
-      max_completion_tokens: 12000,
-      response_format: { type: "json_object" },
-    });
+    const response = await openai.chat.completions.create(
+      {
+        model: CURATOR_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage },
+        ],
+        max_completion_tokens: 12000,
+        response_format: { type: "json_object" },
+      },
+      {
+        timeout: OPENAI_TIMEOUT_MS,
+        // Without this the SDK's default of 2 retries multiplies the timeout
+        // above (45s → ~135s) and blows the function budget regardless.
+        maxRetries: 0,
+      }
+    );
     raw = response.choices[0]?.message?.content ?? "";
   } catch (err) {
     return NextResponse.json(
