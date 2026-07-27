@@ -65,7 +65,8 @@ import {
   parsePastedAiJson,
   importAiJson,
 } from "./newsJsonImport";
-import { compressImage } from "./imageUtils";
+import { compressImage, runWithConcurrency } from "./imageUtils";
+import { WebImageSearch } from "./WebImageSearch";
 import { drawPoster } from "./canvas/drawPoster";
 import { computeCoverFitSlack, getAntonFontFamily } from "./canvas/canvasUtils";
 import type { SentimentScheme } from "./canvas/canvasUtils";
@@ -205,6 +206,10 @@ export function ContentCreatorPage() {
   const [rawBatchOutro, setRawBatchOutro] = useState<NewsItem | null>(null);
   const [selectedPosterIndices, setSelectedPosterIndices] = useState<Set<number>>(new Set());
   const [showSelectionModal, setShowSelectionModal] = useState(false);
+  // Auto image-gen (Gemini) for the cover/chosen stories/outro, fired when
+  // the user confirms their selection — see applyPosterSelection below.
+  const [generatingImages, setGeneratingImages] = useState(false);
+  const [imageGenProgress, setImageGenProgress] = useState({ done: 0, total: 0 });
 
   // Attach a locally generated image (e.g. from Grok Imagine) to the active
   // news poster: clicking the poster's image area or the Upload button opens
@@ -536,19 +541,68 @@ export function ContentCreatorPage() {
   const selectAllPosters = () => setSelectedPosterIndices(new Set(rawBatchCandidates.map((_, i) => i)));
   const clearPosterSelection = () => setSelectedPosterIndices(new Set());
 
+  // Calls the Gemini-backed /generate-image route for one poster's
+  // imagePrompt and compresses the result exactly like a manual upload
+  // (see processImageFile below) so generated and uploaded images end up
+  // in the same shape wherever imageUrl is read. Never throws — a failed
+  // or missing image just leaves imageUrl empty, same as today, and the
+  // poster falls back to the existing manual-upload picker.
+  const generateImageForPrompt = async (prompt: string): Promise<string> => {
+    if (!prompt) return "";
+    try {
+      const res = await fetch("/api/content-creator/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      const data = await res.json();
+      if (!res.ok || typeof data?.imageUrl !== "string") return "";
+      return await compressImage(data.imageUrl);
+    } catch {
+      return "";
+    }
+  };
+
   // Builds the final batch (cover + whichever candidates are checked) and
   // commits it as the active newsData — this is the point the batch is
   // actually saved to History, so History only ever reflects what the user
-  // chose to keep, not the full raw AI candidate pool.
+  // chose to keep, not the full raw AI candidate pool. Also the point
+  // images get auto-generated: only for stories the user actually kept,
+  // not the full 20-story candidate pool, so a regenerate doesn't burn
+  // through Gemini's free-tier quota on stories that never make the cut.
   const applyPosterSelection = async () => {
     const chosen = rawBatchCandidates.filter((_, idx) => selectedPosterIndices.has(idx));
+    if (chosen.length === 0 && !rawBatchCover) return;
+
+    const toIllustrate: NewsItem[] = [...(rawBatchCover ? [rawBatchCover] : []), ...chosen, ...(rawBatchOutro ? [rawBatchOutro] : [])];
+    setImageGenProgress({ done: 0, total: toIllustrate.length });
+    setGeneratingImages(true);
+    let illustrated: NewsItem[];
+    try {
+      illustrated = await runWithConcurrency(toIllustrate, 3, async (story) => {
+        const imageUrl = story.imageUrl || (await generateImageForPrompt(story.imagePrompt || ""));
+        setImageGenProgress((p) => ({ ...p, done: p.done + 1 }));
+        return imageUrl ? { ...story, imageUrl } : story;
+      });
+    } finally {
+      setGeneratingImages(false);
+    }
+
+    let cursor = 0;
+    const cover = rawBatchCover ? illustrated[cursor++] : null;
+    const illustratedChosen = illustrated.slice(cursor, cursor + chosen.length);
+    cursor += chosen.length;
+    const outro = rawBatchOutro ? illustrated[cursor++] : null;
+
     // Every chosen story is immediately followed by its "explain it simply"
-    // bento companion card — same story, plain-language rewrite.
-    const chosenWithBento = chosen.flatMap((story) => [story, buildBentoCard(story)]);
+    // bento companion card — same story, plain-language rewrite. It inherits
+    // the parent's imageUrl (buildBentoCard copies it), so this must run
+    // after illustration above, not before.
+    const chosenWithBento = illustratedChosen.flatMap((story) => [story, buildBentoCard(story)]);
     const items: NewsItem[] = [
-      ...(rawBatchCover ? [rawBatchCover] : []),
+      ...(cover ? [cover] : []),
       ...chosenWithBento,
-      ...(rawBatchOutro ? [rawBatchOutro] : []),
+      ...(outro ? [outro] : []),
     ];
     if (items.length === 0) return;
 
@@ -569,6 +623,43 @@ export function ContentCreatorPage() {
     if (createdId) {
       setActiveHistoryId(createdId);
     }
+  };
+
+  // "Fill Images" — a standalone catch-up pass over whatever's already sitting
+  // in newsData (loaded from History, pasted JSON, or a batch generated
+  // before this feature existed), not just the moment a fresh batch is
+  // confirmed. Runs on Pexels with the top hit auto-applied per poster (no
+  // per-image picker) so a full batch fills in one click — Gemini's free
+  // tier is too rate-limited to fill a whole batch reliably in one pass, see
+  // generateImageForPrompt/fetchTopPexelsImage above. Only touches items
+  // with no imageUrl yet, so it never clobbers a manual upload or an
+  // existing pick — bento cards are skipped entirely since they inherit
+  // their parent story's image at render time (see withBentoImageFallback).
+  const fillAllImages = async () => {
+    const targets = newsData
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => !item.isBento && !item.imageUrl && buildWebSearchQuery(item));
+    if (targets.length === 0) return;
+
+    setImageGenProgress({ done: 0, total: targets.length });
+    setGeneratingImages(true);
+    let filled: { idx: number; imageUrl: string }[];
+    try {
+      const results = await runWithConcurrency(targets, 4, async ({ item, idx }) => {
+        const imageUrl = await fetchTopPexelsImage(buildWebSearchQuery(item));
+        setImageGenProgress((p) => ({ ...p, done: p.done + 1 }));
+        return { idx, imageUrl };
+      });
+      filled = results.filter((r) => r.imageUrl);
+    } finally {
+      setGeneratingImages(false);
+    }
+    if (filled.length === 0) return;
+
+    const next = [...newsData];
+    for (const { idx, imageUrl } of filled) next[idx] = { ...next[idx], imageUrl };
+    setNewsData(next);
+    setJsonText(JSON.stringify(next, null, 2));
   };
 
   // Converts a pasted external-AI JSON reply (the nested {posters}/{facts}/
@@ -954,6 +1045,45 @@ export function ContentCreatorPage() {
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  // Query for the "Search Photos" picker — the headline alone reads like a
+  // real stock-photo search query; falls back to the takeaway/description
+  // for items (e.g. bento cards) that don't carry a title of their own.
+  const buildWebSearchQuery = (item: NewsItem | undefined | null): string =>
+    (item?.title || item?.keyTakeaway || item?.description || "").trim().slice(0, 150);
+
+  const handleWebImageSelect = async (dataUrl: string) => {
+    handleUpdateField("imageUrl", await compressImage(dataUrl));
+  };
+
+  // Pexels top-hit, no picking — used by "Fill Images" so a whole batch can
+  // be illustrated in one click instead of clicking through the picker grid
+  // per poster. Never throws — a failed search/fetch just leaves imageUrl
+  // empty, same fallback behavior as the Gemini path.
+  const fetchTopPexelsImage = async (query: string): Promise<string> => {
+    if (!query.trim()) return "";
+    try {
+      const searchRes = await fetch("/api/content-creator/search-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      const searchData = await searchRes.json();
+      const top = searchRes.ok && Array.isArray(searchData.results) ? searchData.results[0] : null;
+      if (!top?.imageUrl) return "";
+
+      const fetchRes = await fetch("/api/content-creator/fetch-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: top.imageUrl }),
+      });
+      const fetchData = await fetchRes.json();
+      if (!fetchRes.ok || typeof fetchData?.imageUrl !== "string") return "";
+      return await compressImage(fetchData.imageUrl);
+    } catch {
+      return "";
+    }
   };
 
   const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2044,6 +2174,9 @@ export function ContentCreatorPage() {
                             Upload
                           </button>
                         </div>
+                        <div className="mt-2">
+                          <WebImageSearch query={buildWebSearchQuery(newsData[activeNewsIndex])} onSelect={handleWebImageSelect} />
+                        </div>
                       </div>
 
                       {/* Pan & zoom — adjusts how the image fills its frame */}
@@ -2334,6 +2467,9 @@ export function ContentCreatorPage() {
                             <Upload className="h-3 w-3" />
                             Upload
                           </button>
+                        </div>
+                        <div className="mt-2">
+                          <WebImageSearch query={buildWebSearchQuery(newsData[activeNewsIndex])} onSelect={handleWebImageSelect} />
                         </div>
                       </div>
 
@@ -3379,6 +3515,27 @@ export function ContentCreatorPage() {
               <RefreshCw className="h-3.5 w-3.5 shrink-0" />
               <span className="hidden xs:inline">RE-RENDER</span>
             </button>
+          </div>
+
+          {/* Utility actions — always their own row, icon-only, so this never
+              competes with Generate/Re-render for space and can never get
+              clipped no matter how narrow the panel or how many icons live
+              here (Fill Images is conditional on mode). */}
+          <div className="flex gap-2 flex-wrap">
+            {(creatorMode === "news" || creatorMode === "facts" || creatorMode === "learnings") && newsData.length > 0 && (
+              <button
+                onClick={fillAllImages}
+                disabled={generatingImages || newsData.every((item) => item.isBento || item.imageUrl || !buildWebSearchQuery(item))}
+                title={
+                  generatingImages
+                    ? `Filling images… ${imageGenProgress.done}/${imageGenProgress.total}`
+                    : "Fill every poster still missing an image with a Pexels stock photo (top match, no picking) — skips any that already have one"
+                }
+                className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-95 cursor-pointer border border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {generatingImages ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5 shrink-0" />}
+              </button>
+            )}
 
             <button
               onClick={handleSaveCurrentToHistory}
@@ -3789,6 +3946,8 @@ export function ContentCreatorPage() {
           onClear={clearPosterSelection}
           onClose={() => setShowSelectionModal(false)}
           onApply={applyPosterSelection}
+          applying={generatingImages}
+          applyProgress={imageGenProgress}
         />
       )}
 
