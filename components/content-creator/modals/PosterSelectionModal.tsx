@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, CheckSquare, Square, ListChecks } from "lucide-react";
+import { X, CheckSquare, Square, ListChecks, Loader2 } from "lucide-react";
 import type { NewsItem } from "../types";
 
 
@@ -25,6 +25,8 @@ export function PosterSelectionModal({
   onClear,
   onClose,
   onApply,
+  applying = false,
+  applyProgress,
 }: {
   candidates: NewsItem[];
   selected: Set<number>;
@@ -33,6 +35,9 @@ export function PosterSelectionModal({
   onClear: () => void;
   onClose: () => void;
   onApply: () => void;
+  /** True while the confirmed selection's poster images are being generated (Gemini). */
+  applying?: boolean;
+  applyProgress?: { done: number; total: number };
 }) {
   const [filter, setFilter] = useState<(typeof CATEGORY_ORDER)[number]>("all");
 
@@ -45,7 +50,7 @@ export function PosterSelectionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="absolute inset-0" onClick={onClose} />
+      <div className="absolute inset-0" onClick={applying ? undefined : onClose} />
       <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-white/[0.1] bg-[#141412] shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] shrink-0">
           <div className="flex items-center gap-2">
@@ -53,17 +58,23 @@ export function PosterSelectionModal({
             <div>
               <span className="text-[13px] font-bold text-white block">Select Posters for Batch</span>
               <span className="text-[10px] text-white/35">
-                {candidates.length} curated stories found · {selected.size} selected
+                {applying
+                  ? `Generating images… ${applyProgress?.done ?? 0}/${applyProgress?.total ?? 0}`
+                  : `${candidates.length} curated stories found · ${selected.size} selected`}
               </span>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition cursor-pointer">
+          <button
+            onClick={onClose}
+            disabled={applying}
+            className="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.07] transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Category filter */}
-        <div className="flex items-center gap-1.5 px-5 py-3 border-b border-white/[0.06] shrink-0 flex-wrap">
+        <div className={`flex items-center gap-1.5 px-5 py-3 border-b border-white/[0.06] shrink-0 flex-wrap ${applying ? "opacity-40 pointer-events-none" : ""}`}>
           {CATEGORY_ORDER.map((cat) => {
             const active = filter === cat;
             const label = cat === "all" ? "All" : CATEGORY_LABELS[cat];
@@ -85,7 +96,7 @@ export function PosterSelectionModal({
         </div>
 
         {/* Bulk actions */}
-        <div className="flex items-center gap-2 px-5 py-2.5 border-b border-white/[0.06] shrink-0">
+        <div className={`flex items-center gap-2 px-5 py-2.5 border-b border-white/[0.06] shrink-0 ${applying ? "opacity-40 pointer-events-none" : ""}`}>
           <button
             onClick={onSelectAll}
             className="text-[10.5px] font-bold text-white/50 hover:text-white/85 transition cursor-pointer"
@@ -102,7 +113,7 @@ export function PosterSelectionModal({
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+        <div className={`flex-1 overflow-y-auto p-3 space-y-1.5 ${applying ? "opacity-40 pointer-events-none" : ""}`}>
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-white/30 gap-2">
               <p className="text-[12px]">No stories in this category.</p>
@@ -153,13 +164,23 @@ export function PosterSelectionModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-white/[0.06] shrink-0">
-          <span className="text-[10.5px] text-white/35">{selected.size} of {candidates.length} selected</span>
+          <span className="text-[10.5px] text-white/35">
+            {applying ? "Generating poster images with Gemini…" : `${selected.size} of ${candidates.length} selected`}
+          </span>
           <button
             onClick={onApply}
-            disabled={selected.size === 0}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-bold bg-emerald-500/[0.18] text-emerald-300 hover:bg-emerald-500/[0.26] border border-emerald-500/[0.28] transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={selected.size === 0 || applying}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-bold bg-emerald-500/[0.18] text-emerald-300 hover:bg-emerald-500/[0.26] border border-emerald-500/[0.28] transition cursor-pointer disabled:opacity-40 disabled:cursor-wait"
           >
-            <CheckSquare className="h-3.5 w-3.5" /> Continue with {selected.size} {selected.size === 1 ? "Poster" : "Posters"}
+            {applying ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> {applyProgress?.done ?? 0}/{applyProgress?.total ?? 0} images…
+              </>
+            ) : (
+              <>
+                <CheckSquare className="h-3.5 w-3.5" /> Continue with {selected.size} {selected.size === 1 ? "Poster" : "Posters"}
+              </>
+            )}
           </button>
         </div>
       </div>

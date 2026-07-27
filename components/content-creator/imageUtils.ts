@@ -35,3 +35,19 @@ export function compressImage(dataUrl: string, maxDim = 1200): Promise<string> {
 export function dataUrlToBlob(dataUrl: string): Promise<Blob> {
   return fetch(dataUrl).then((r) => r.blob());
 }
+
+// Runs `worker` over `items` with at most `limit` in flight at once —
+// used to fan out per-poster Gemini image-generation calls without
+// hammering the API (or the user's connection) with 10-20 parallel requests.
+export async function runWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await worker(items[i], i);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
