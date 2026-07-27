@@ -35,7 +35,7 @@ export function PosterSelectionModal({
   onClear: () => void;
   onClose: () => void;
   onApply: () => void;
-  /** True while the confirmed selection's poster images are being generated (Gemini). */
+  /** True while the confirmed selection's poster images are being auto-filled from Pexels. */
   applying?: boolean;
   applyProgress?: { done: number; total: number };
 }) {
@@ -165,7 +165,7 @@ export function PosterSelectionModal({
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-white/[0.06] shrink-0">
           <span className="text-[10.5px] text-white/35">
-            {applying ? "Generating poster images with Gemini…" : `${selected.size} of ${candidates.length} selected`}
+            {applying ? "Filling poster images from Pexels…" : `${selected.size} of ${candidates.length} selected`}
           </span>
           <button
             onClick={onApply}

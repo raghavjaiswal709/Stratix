@@ -196,6 +196,9 @@ export function ContentCreatorPage() {
   const [showPromptForCategory, setShowPromptForCategory] = useState<"news" | "facts" | "learnings" | null>(null);
   const [generatingBatch, setGeneratingBatch] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  // "Fully Automated" — skips the poster-selection modal for News Batch:
+  // every curated story is kept, illustrated, and saved with no review step.
+  const [fullyAutomated, setFullyAutomated] = useState(false);
   const [batchMeta, setBatchMeta] = useState<{ timeRangeLabel: string; reportGeneratedAt: string | null } | null>(null);
   // Raw AI-curated batch (20-30 candidates, cover excluded) from the most
   // recent generation — kept separately so the user can revisit the
@@ -206,7 +209,7 @@ export function ContentCreatorPage() {
   const [rawBatchOutro, setRawBatchOutro] = useState<NewsItem | null>(null);
   const [selectedPosterIndices, setSelectedPosterIndices] = useState<Set<number>>(new Set());
   const [showSelectionModal, setShowSelectionModal] = useState(false);
-  // Auto image-gen (Gemini) for the cover/chosen stories/outro, fired when
+  // Auto image-fill (Pexels) for the cover/chosen stories/outro, fired when
   // the user confirms their selection — see applyPosterSelection below.
   const [generatingImages, setGeneratingImages] = useState(false);
   const [imageGenProgress, setImageGenProgress] = useState({ done: 0, total: 0 });
@@ -432,7 +435,9 @@ export function ContentCreatorPage() {
       // items[0] is always the cover slide (isCover: true); the last item is
       // always the outro slide (isOutro: true) if present; everything between
       // is the 8-12 curated candidates. Don't commit to newsData yet — open
-      // the selection modal so the user picks which stories make the batch.
+      // the selection modal so the user picks which stories make the batch,
+      // unless Fully Automated is on, in which case every candidate is kept
+      // and the modal never opens.
       // The outro is never a selectable candidate — it's always re-appended.
       const outro = items.length > 1 && items[items.length - 1]?.isOutro ? items[items.length - 1] : null;
       const body = outro ? items.slice(0, -1) : items;
@@ -447,7 +452,15 @@ export function ContentCreatorPage() {
       setRawBatchOutro(outro);
       setRawBatchCandidates(candidates);
       setSelectedPosterIndices(new Set(candidates.map((_, i) => i))); // default: everything selected
-      setShowSelectionModal(true);
+
+      if (fullyAutomated) {
+        // Read straight off the fetch response, not batchMeta state — the
+        // setBatchMeta call above hasn't re-rendered yet, so batchMeta itself
+        // would still be stale here (see illustrateAndSaveBatch's doc comment).
+        await illustrateAndSaveBatch(cover ?? null, candidates, outro, data.timeRangeLabel, data.reportGeneratedAt);
+      } else {
+        setShowSelectionModal(true);
+      }
     } catch (e) {
       setGenerateError(e instanceof Error ? e.message : "Generation failed");
     } finally {
@@ -541,46 +554,31 @@ export function ContentCreatorPage() {
   const selectAllPosters = () => setSelectedPosterIndices(new Set(rawBatchCandidates.map((_, i) => i)));
   const clearPosterSelection = () => setSelectedPosterIndices(new Set());
 
-  // Calls the Gemini-backed /generate-image route for one poster's
-  // imagePrompt and compresses the result exactly like a manual upload
-  // (see processImageFile below) so generated and uploaded images end up
-  // in the same shape wherever imageUrl is read. Never throws — a failed
-  // or missing image just leaves imageUrl empty, same as today, and the
-  // poster falls back to the existing manual-upload picker.
-  const generateImageForPrompt = async (prompt: string): Promise<string> => {
-    if (!prompt) return "";
-    try {
-      const res = await fetch("/api/content-creator/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-      const data = await res.json();
-      if (!res.ok || typeof data?.imageUrl !== "string") return "";
-      return await compressImage(data.imageUrl);
-    } catch {
-      return "";
-    }
-  };
+  // Illustrates (Pexels) + commits + saves a final cover/chosen/outro set —
+  // shared by the "Continue with N Posters" button (applyPosterSelection
+  // below, reads the user's checked selection from state) and the "Fully
+  // Automated" generate path (which calls this directly with every
+  // candidate, skipping the review modal entirely). Takes timeRangeLabel/
+  // reportGeneratedAt as params rather than reading batchMeta from state —
+  // the automated path calls this in the same tick as setBatchMeta, before
+  // React has re-rendered, so reading batchMeta here would see the stale
+  // pre-update value.
+  const illustrateAndSaveBatch = async (
+    cover: NewsItem | null,
+    chosen: NewsItem[],
+    outro: NewsItem | null,
+    timeRangeLabel?: string,
+    reportGeneratedAt?: string | null
+  ) => {
+    if (chosen.length === 0 && !cover) return;
 
-  // Builds the final batch (cover + whichever candidates are checked) and
-  // commits it as the active newsData — this is the point the batch is
-  // actually saved to History, so History only ever reflects what the user
-  // chose to keep, not the full raw AI candidate pool. Also the point
-  // images get auto-generated: only for stories the user actually kept,
-  // not the full 20-story candidate pool, so a regenerate doesn't burn
-  // through Gemini's free-tier quota on stories that never make the cut.
-  const applyPosterSelection = async () => {
-    const chosen = rawBatchCandidates.filter((_, idx) => selectedPosterIndices.has(idx));
-    if (chosen.length === 0 && !rawBatchCover) return;
-
-    const toIllustrate: NewsItem[] = [...(rawBatchCover ? [rawBatchCover] : []), ...chosen, ...(rawBatchOutro ? [rawBatchOutro] : [])];
+    const toIllustrate: NewsItem[] = [...(cover ? [cover] : []), ...chosen, ...(outro ? [outro] : [])];
     setImageGenProgress({ done: 0, total: toIllustrate.length });
     setGeneratingImages(true);
     let illustrated: NewsItem[];
     try {
-      illustrated = await runWithConcurrency(toIllustrate, 3, async (story) => {
-        const imageUrl = story.imageUrl || (await generateImageForPrompt(story.imagePrompt || ""));
+      illustrated = await runWithConcurrency(toIllustrate, 4, async (story) => {
+        const imageUrl = story.imageUrl || (await fetchTopPexelsImage(buildWebSearchQuery(story)));
         setImageGenProgress((p) => ({ ...p, done: p.done + 1 }));
         return imageUrl ? { ...story, imageUrl } : story;
       });
@@ -589,10 +587,10 @@ export function ContentCreatorPage() {
     }
 
     let cursor = 0;
-    const cover = rawBatchCover ? illustrated[cursor++] : null;
+    const illustratedCover = cover ? illustrated[cursor++] : null;
     const illustratedChosen = illustrated.slice(cursor, cursor + chosen.length);
     cursor += chosen.length;
-    const outro = rawBatchOutro ? illustrated[cursor++] : null;
+    const illustratedOutro = outro ? illustrated[cursor++] : null;
 
     // Every chosen story is immediately followed by its "explain it simply"
     // bento companion card — same story, plain-language rewrite. It inherits
@@ -600,9 +598,9 @@ export function ContentCreatorPage() {
     // after illustration above, not before.
     const chosenWithBento = illustratedChosen.flatMap((story) => [story, buildBentoCard(story)]);
     const items: NewsItem[] = [
-      ...(cover ? [cover] : []),
+      ...(illustratedCover ? [illustratedCover] : []),
       ...chosenWithBento,
-      ...(outro ? [outro] : []),
+      ...(illustratedOutro ? [illustratedOutro] : []),
     ];
     if (items.length === 0) return;
 
@@ -616,25 +614,35 @@ export function ContentCreatorPage() {
 
     const createdId = await saveToHistory(
       "news-batch",
-      `News Batch · ${chosen.length} ${chosen.length === 1 ? "story" : "stories"} · ${batchMeta?.timeRangeLabel ?? "curated"}`,
+      `News Batch · ${chosen.length} ${chosen.length === 1 ? "story" : "stories"} · ${timeRangeLabel || "curated"}`,
       items.length,
-      { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme, timeRangeLabel: batchMeta?.timeRangeLabel, reportGeneratedAt: batchMeta?.reportGeneratedAt }
+      { posters: items, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme, timeRangeLabel, reportGeneratedAt }
     );
     if (createdId) {
       setActiveHistoryId(createdId);
     }
   };
 
+  // Builds the final batch (cover + whichever candidates are checked) — this
+  // is the point the batch is actually saved to History, so History only
+  // ever reflects what the user chose to keep, not the full raw AI candidate
+  // pool. Triggered by the selection modal's "Continue with N Posters".
+  const applyPosterSelection = async () => {
+    const chosen = rawBatchCandidates.filter((_, idx) => selectedPosterIndices.has(idx));
+    await illustrateAndSaveBatch(rawBatchCover, chosen, rawBatchOutro, batchMeta?.timeRangeLabel, batchMeta?.reportGeneratedAt);
+  };
+
   // "Fill Images" — a standalone catch-up pass over whatever's already sitting
   // in newsData (loaded from History, pasted JSON, or a batch generated
   // before this feature existed), not just the moment a fresh batch is
-  // confirmed. Runs on Pexels with the top hit auto-applied per poster (no
-  // per-image picker) so a full batch fills in one click — Gemini's free
-  // tier is too rate-limited to fill a whole batch reliably in one pass, see
-  // generateImageForPrompt/fetchTopPexelsImage above. Only touches items
-  // with no imageUrl yet, so it never clobbers a manual upload or an
-  // existing pick — bento cards are skipped entirely since they inherit
-  // their parent story's image at render time (see withBentoImageFallback).
+  // confirmed — applyPosterSelection above already fills images for a fresh
+  // "Generate" run, so this button mainly exists for older/imported batches.
+  // Runs on Pexels with the top hit auto-applied per poster (no per-image
+  // picker, see fetchTopPexelsImage below) so a full batch fills in one
+  // click. Only touches items with no imageUrl yet, so it never clobbers a
+  // manual upload or an existing pick — bento cards are skipped entirely
+  // since they inherit their parent story's image at render time (see
+  // withBentoImageFallback).
   const fillAllImages = async () => {
     const targets = newsData
       .map((item, idx) => ({ item, idx }))
@@ -1057,10 +1065,11 @@ export function ContentCreatorPage() {
     handleUpdateField("imageUrl", await compressImage(dataUrl));
   };
 
-  // Pexels top-hit, no picking — used by "Fill Images" so a whole batch can
+  // Pexels top-hit, no picking — used by applyPosterSelection (the
+  // end-to-end "Generate" pipeline) and "Fill Images" so a whole batch can
   // be illustrated in one click instead of clicking through the picker grid
   // per poster. Never throws — a failed search/fetch just leaves imageUrl
-  // empty, same fallback behavior as the Gemini path.
+  // empty, same fallback as every other image path here.
   const fetchTopPexelsImage = async (query: string): Promise<string> => {
     if (!query.trim()) return "";
     try {
@@ -3391,7 +3400,9 @@ export function ContentCreatorPage() {
                         <span className="flex-1 min-w-0">
                           <span className="block text-[11.5px] font-bold text-white tracking-wide">AI News Batch</span>
                           <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
-                            Curate 8-12 distinct high-impact stories, deduped, with cover + outro. Select which slides to include.
+                            {fullyAutomated
+                              ? "Curate 8-12 distinct high-impact stories, deduped, with cover + outro — every story kept and illustrated automatically, no review step."
+                              : "Curate 8-12 distinct high-impact stories, deduped, with cover + outro. Select which slides to include."}
                           </span>
                         </span>
                       </button>
@@ -3403,6 +3414,22 @@ export function ContentCreatorPage() {
                         <Eye className="h-3.5 w-3.5" />
                       </button>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setFullyAutomated((v) => !v)}
+                      title="When on, News Batch keeps every curated story, fills images, and saves automatically — no selection modal."
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/[0.04] transition cursor-pointer text-left"
+                    >
+                      {fullyAutomated ? (
+                        <CheckSquare className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                      ) : (
+                        <Square className="h-3.5 w-3.5 text-white/30 shrink-0" />
+                      )}
+                      <span className={`text-[10px] font-semibold ${fullyAutomated ? "text-emerald-300/90" : "text-white/45"}`}>
+                        Fully Automated — skip selection, keep every story
+                      </span>
+                    </button>
 
                     <div className="w-full flex items-start gap-1 rounded-lg hover:bg-white/[0.05] transition border-t border-white/[0.03]">
                       <button
