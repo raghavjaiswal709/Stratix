@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Search, Loader2, X } from "lucide-react";
+import { parseJsonResponse } from "./apiUtils";
 
 interface WebImageResult {
   imageUrl: string;
@@ -36,7 +37,7 @@ export function WebImageSearch({ query, onSelect }: { query: string; onSelect: (
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) throw new Error(data?.error || "Search failed");
       setResults(Array.isArray(data.results) ? data.results : []);
     } catch (e) {
@@ -55,7 +56,7 @@ export function WebImageSearch({ query, onSelect }: { query: string; onSelect: (
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: result.imageUrl }),
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok || typeof data?.imageUrl !== "string") throw new Error(data?.error || "Could not fetch that image");
       onSelect(data.imageUrl);
       setOpen(false);

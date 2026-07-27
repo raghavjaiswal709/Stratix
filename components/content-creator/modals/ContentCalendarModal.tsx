@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, Check, ChevronRight, ChevronLeft, Sparkles, Loader2, Calendar, ClipboardCopy } from "lucide-react";
 import { CALENDAR_PLAN } from "@/lib/content-creator/calendar-plan";
+import { parseJsonResponse } from "../apiUtils";
 
 
 export const PILLAR_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -48,7 +49,7 @@ export function ContentCalendarModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(topicHint ? { previewOnly: true, topicHint } : { previewOnly: true }),
       });
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
 
       const text = `=== SYSTEM PROMPT ===\n${data.systemPrompt}\n\n${"─".repeat(60)}\n\n=== USER MESSAGE ===\n${data.userMessage}\n\n${"─".repeat(60)}\n\nINSTRUCTIONS: Paste this entire prompt (system + user message) into ChatGPT, Claude, or any capable AI. It replies with ONLY a JSON object in the exact shape spelled out at the end of the system prompt above — no markdown fences, no commentary. Back in Stratix Content Creator, switch to ${category === "news" ? "News Batch" : category === "facts" ? "Facts" : "Learnings"} mode and either paste that reply into the "Paste The AI's Reply" box in the eye-icon prompt panel, or straight into the JSON tab — either one converts it and renders the poster batch automatically.`;
