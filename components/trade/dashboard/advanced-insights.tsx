@@ -4,28 +4,10 @@ import { useMemo, useState } from "react";
 import {
   CalendarDays, CalendarClock, ShieldCheck, NotebookPen, Star, TrendingDown, Sparkles,
 } from "lucide-react";
-import { getISTDateKey, getISTWeekday, getStartOfISTWeek, toIST } from "@/lib/utils/ist-time";
-
-interface Trade {
-  _id: string;
-  direction: "buy" | "sell";
-  profit: number;
-  swap?: number;
-  commission?: number;
-  status: "open" | "closed";
-  entryTime: string;
-  exitTime?: string;
-  stopLoss?: number;
-  takeProfit?: number;
-  riskRatio?: number;
-  rewardRatio?: number;
-  rating?: number;
-  journaled?: boolean;
-  source?: "manual" | "mt5";
-}
+import { deriveAdvanced, type DashboardStats } from "@/lib/trades/dashboard-stats";
 
 interface Props {
-  trades: Trade[];
+  stats: DashboardStats;
 }
 
 const money = (n: number, withSign = false) => {
@@ -34,76 +16,15 @@ const money = (n: number, withSign = false) => {
 };
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-// JS getDay(): 0=Sun..6=Sat — remap to a Mon-first index.
-const toMonFirst = (jsDay: number) => (jsDay + 6) % 7;
 
-export function AdvancedInsights({ trades }: Props) {
+export function AdvancedInsights({ stats }: Props) {
   // Weekday Performance defaults to the current IST calendar week (Mon-Sun to
   // date) since that's what traders actually want to check day-to-day; "All
-  // Time" is available for the full-history breakdown.
+  // Time" is available for the full-history breakdown. Both tables are rolled
+  // up server-side, so flipping the toggle is a lookup, not a recompute.
   const [weekdayScope, setWeekdayScope] = useState<"week" | "all">("week");
 
-  const m = useMemo(() => {
-    const net = (t: Trade) => t.profit + (t.swap || 0) + (t.commission || 0);
-    const closed = trades.filter((t) => t.status === "closed");
-
-    // ── Best / worst single trading day (calendar day in true IST) ────────
-    const byDay = new Map<string, number>();
-    for (const t of closed) {
-      const key = getISTDateKey(t.exitTime || t.entryTime, t.source);
-      byDay.set(key, (byDay.get(key) || 0) + net(t));
-    }
-    const days = Array.from(byDay.entries()).map(([date, pnl]) => ({ date, pnl }));
-    const bestDay = days.length ? days.reduce((a, b) => (b.pnl > a.pnl ? b : a)) : null;
-    const worstDay = days.length ? days.reduce((a, b) => (b.pnl < a.pnl ? b : a)) : null;
-
-    // ── Weekday performance (weekday in true IST) ──────────────────────────
-    // Computed twice — this-week and all-time — so switching the toggle is
-    // instant with no recompute needed.
-    const weekStart = getStartOfISTWeek(new Date()).getTime();
-    const buildWeekday = (source: Trade[]) => {
-      const arr = Array.from({ length: 7 }, () => ({ net: 0, wins: 0, count: 0 }));
-      for (const t of source) {
-        const idx = toMonFirst(getISTWeekday(t.entryTime, t.source));
-        const n = net(t);
-        arr[idx].net += n;
-        arr[idx].count += 1;
-        if (n > 0) arr[idx].wins += 1;
-      }
-      return arr;
-    };
-    const closedThisWeek = closed.filter((t) => toIST(t.entryTime, t.source).getTime() >= weekStart);
-    const weekdayThisWeek = buildWeekday(closedThisWeek);
-    const weekdayAllTime = buildWeekday(closed);
-    const weekday = weekdayScope === "week" ? weekdayThisWeek : weekdayAllTime;
-    const maxAbsWeekdayNet = Math.max(1, ...weekday.map((w) => Math.abs(w.net)));
-
-    // ── Max drawdown (peak-to-trough of cumulative equity, chronological) ──
-    const chrono = [...closed].sort((a, b) =>
-      new Date(a.exitTime || a.entryTime).getTime() - new Date(b.exitTime || b.entryTime).getTime()
-    );
-    let equity = 0, peak = 0, maxDrawdown = 0;
-    for (const t of chrono) {
-      equity += net(t);
-      peak = Math.max(peak, equity);
-      maxDrawdown = Math.min(maxDrawdown, equity - peak);
-    }
-
-    // ── Risk discipline ────────────────────────────────────────────────────
-    const withPlan = closed.filter((t) => t.riskRatio && t.rewardRatio);
-    const avgPlannedRR = withPlan.length
-      ? withPlan.reduce((s, t) => s + (t.rewardRatio! / t.riskRatio!), 0) / withPlan.length
-      : 0;
-    const slSetPct = closed.length ? (closed.filter((t) => t.stopLoss).length / closed.length) * 100 : 0;
-    const tpSetPct = closed.length ? (closed.filter((t) => t.takeProfit).length / closed.length) * 100 : 0;
-
-    // ── Journaling health ──────────────────────────────────────────────────
-    const journaledPct = trades.length ? (trades.filter((t) => t.journaled).length / trades.length) * 100 : 0;
-    const rated = closed.filter((t) => typeof t.rating === "number" && t.rating! > 0);
-    const avgRating = rated.length ? rated.reduce((s, t) => s + (t.rating || 0), 0) / rated.length : 0;
-
-    return { bestDay, worstDay, weekday, maxAbsWeekdayNet, maxDrawdown, avgPlannedRR, slSetPct, tpSetPct, journaledPct, avgRating, closedCount: closed.length };
-  }, [trades, weekdayScope]);
+  const m = useMemo(() => deriveAdvanced(stats, weekdayScope), [stats, weekdayScope]);
 
   if (m.closedCount === 0) return null;
 
