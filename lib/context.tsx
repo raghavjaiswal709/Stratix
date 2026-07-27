@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import type { HabitData, TodoData, TradeData, ScoreWeights, DiaryData, NotesData, UserPreferences, ApiTrade, TradingProfile } from "@/types";
 import { ACCENT_PRESETS } from "@/types";
@@ -193,8 +193,11 @@ function writeAppDataCache(userId: string, data: AppData): void {
   }
 }
 
-function buildInitialData(initialMeta: InitialMeta | null, userId: string | null): AppData {
-  const base: AppData = initialMeta
+// Server-derived state only — no localStorage. This is what both the SSR render
+// and the client's first (hydrating) render must start from; see the cache
+// layout effect in AppProvider for how the snapshot gets applied.
+function buildBaseData(initialMeta: InitialMeta | null): AppData {
+  return initialMeta
     ? {
         ...defaultData,
         preferences: initialMeta.preferences ?? defaultPreferences,
@@ -204,12 +207,11 @@ function buildInitialData(initialMeta: InitialMeta | null, userId: string | null
         activeProfileId: initialMeta.activeProfileId ?? "",
       }
     : defaultData;
+}
 
-  const cached = userId ? readAppDataCache(userId) : null;
-  if (!cached) return base;
-
-  // Cache fills in content fields initialMeta never covered (habits/todos/
-  // trades/diary/notes); server-provided meta fields always win over it.
+// Cache fills in content fields initialMeta never covered (habits/todos/
+// trades/diary/notes); server-provided meta fields always win over it.
+function mergeCachedData(base: AppData, cached: AppData, initialMeta: InitialMeta | null): AppData {
   return {
     ...base,
     habitData: cached.habitData ?? base.habitData,
@@ -224,6 +226,10 @@ function buildInitialData(initialMeta: InitialMeta | null, userId: string | null
     activeProfileId: initialMeta?.activeProfileId ?? cached.activeProfileId ?? base.activeProfileId,
   };
 }
+
+// useLayoutEffect has no meaning on the server and warns if called there; the
+// pre-paint timing it buys us only matters in the browser anyway.
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 async function fetchWithRetry(url: string, options: RequestInit, maxAttempts = 3): Promise<Response> {
   let lastError: unknown;
@@ -253,11 +259,13 @@ export function AppProvider({
 }) {
   const { data: session, status } = useSession();
   const userId = session?.user?.id ?? initialUserId ?? null;
-  const [data, setData] = useState<AppData>(() => buildInitialData(initialMeta, userId));
-  // If a valid per-user snapshot was already found, skip the loading spinner
-  // entirely — the mount effect below still fetches in the background to
-  // reconcile/refresh (stale-while-revalidate), it just doesn't gate the UI.
-  const [loading, setLoading] = useState(() => !(userId && readAppDataCache(userId)));
+  // Both of these must start from server-derived state only. readAppDataCache()
+  // returns null on the server, so reading it in a useState initializer would
+  // give the client's first render a different `data`/`loading` than the SSR
+  // HTML and break hydration for every page. The snapshot is applied in the
+  // layout effect below instead.
+  const [data, setData] = useState<AppData>(() => buildBaseData(initialMeta));
+  const [loading, setLoading] = useState(true);
   // Meta (preferences, profiles, theme) is already resolved when the server
   // handed us initialMeta — dashboard & co. can render immediately.
   const [metaLoading, setMetaLoading] = useState(initialMeta === null);
@@ -271,6 +279,23 @@ export function AppProvider({
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  // Apply the cached snapshot after mount rather than during render, so the
+  // first client render still matches the SSR HTML. A layout effect runs before
+  // the browser paints, so returning users go straight to their cached content
+  // with no skeleton flash — the fetch effect below still refreshes in the
+  // background (stale-while-revalidate), it just no longer gates the UI.
+  // Guarded by a ref so a late-arriving userId can't overwrite fresher data
+  // that the network path already applied.
+  const cacheAppliedRef = useRef(false);
+  useIsomorphicLayoutEffect(() => {
+    if (cacheAppliedRef.current || !userId) return;
+    cacheAppliedRef.current = true;
+    const cached = readAppDataCache(userId);
+    if (!cached) return;
+    setData((prev) => mergeCachedData(prev, cached, initialMeta));
+    setLoading(false);
+  }, [userId, initialMeta]);
 
   // Load full data from API (content fields: habits, todos, diary, notes, tradeData)
   useEffect(() => {
@@ -304,6 +329,9 @@ export function AppProvider({
             activeProfileId: localActiveId || userData.activeProfileId || "",
           };
           setData(merged);
+          // Network data supersedes the cache — stop the cache effect from
+          // applying a stale snapshot on top of it if userId resolves late.
+          cacheAppliedRef.current = true;
           if (userId) writeAppDataCache(userId, merged);
           setLoading(false);
           setMetaLoading(false);
