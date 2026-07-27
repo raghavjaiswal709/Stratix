@@ -152,6 +152,14 @@ export default function TradeNotesPage() {
   const [editContent, setEditContent] = useState("");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
 
+  // `loading` from AppProvider is seeded from a localStorage snapshot read
+  // during render, so it is already false on the client's first render whenever
+  // a cached snapshot exists — while the server, with no localStorage, always
+  // renders the skeleton. Gating on a post-mount flag keeps hydration render #1
+  // identical to the server output; the real UI swaps in on the next commit.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Always-current snapshot of tradeData — prevents stale-closure overwrites
@@ -338,7 +346,7 @@ export default function TradeNotesPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   // Show skeleton while data is loading from API — prevents flash of hardcoded
   // default categories and empty note list before real data arrives.
-  if (loading) return <NotesSkeleton />;
+  if (!mounted || loading) return <NotesSkeleton />;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-background overflow-hidden">
