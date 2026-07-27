@@ -577,14 +577,31 @@ export function ContentCreatorPage() {
     setImageGenProgress({ done: 0, total: toIllustrate.length });
     setGeneratingImages(true);
     let illustrated: NewsItem[];
+    let imageError: string | null = null;
+    let imagesAborted = false;
     try {
       illustrated = await runWithConcurrency(toIllustrate, 4, async (story) => {
-        const imageUrl = story.imageUrl || (await fetchTopPexelsImage(buildWebSearchQuery(story)));
+        let next = story;
+        // Skip the lookup for posters that already carry art, and for every
+        // poster after a config-class failure — same short-circuit as
+        // fillAllImages. Note this never aborts the batch itself: the posters
+        // are still committed and saved, just without art, and the banner
+        // below explains why. Progress still ticks either way so the counter
+        // always reaches its total.
+        if (!story.imageUrl && !imagesAborted) {
+          const result = await fetchTopPexelsImage(buildWebSearchQuery(story));
+          if (result.error && !imageError) imageError = result.error;
+          if (result.fatal) imagesAborted = true;
+          if (result.imageUrl) next = { ...story, imageUrl: result.imageUrl };
+        }
         setImageGenProgress((p) => ({ ...p, done: p.done + 1 }));
-        return imageUrl ? { ...story, imageUrl } : story;
+        return next;
       });
     } finally {
       setGeneratingImages(false);
+    }
+    if (imageError) {
+      setGenerateError(`Batch created, but images couldn't be filled. ${imageError}`);
     }
 
     let cursor = 0;
@@ -650,25 +667,44 @@ export function ContentCreatorPage() {
       .filter(({ item }) => !item.isBento && !item.imageUrl && buildWebSearchQuery(item));
     if (targets.length === 0) return;
 
+    setGenerateError(null);
     setImageGenProgress({ done: 0, total: targets.length });
     setGeneratingImages(true);
-    let filled: { idx: number; imageUrl: string }[];
+    let filled: { idx: number; imageUrl: string }[] = [];
+    let firstError: string | null = null;
+    let aborted = false;
     try {
       const results = await runWithConcurrency(targets, 4, async ({ item, idx }) => {
-        const imageUrl = await fetchTopPexelsImage(buildWebSearchQuery(item));
+        // One config-class failure means every remaining poster would fail the
+        // same way, so stop rather than firing the rest at a dead endpoint.
+        if (aborted) return { idx, imageUrl: "" };
+        const result = await fetchTopPexelsImage(buildWebSearchQuery(item));
+        if (result.error && !firstError) firstError = result.error;
+        if (result.fatal) aborted = true;
         setImageGenProgress((p) => ({ ...p, done: p.done + 1 }));
-        return { idx, imageUrl };
+        return { idx, imageUrl: result.imageUrl };
       });
       filled = results.filter((r) => r.imageUrl);
     } finally {
       setGeneratingImages(false);
     }
-    if (filled.length === 0) return;
 
-    const next = [...newsData];
-    for (const { idx, imageUrl } of filled) next[idx] = { ...next[idx], imageUrl };
-    setNewsData(next);
-    setJsonText(JSON.stringify(next, null, 2));
+    if (filled.length > 0) {
+      const next = [...newsData];
+      for (const { idx, imageUrl } of filled) next[idx] = { ...next[idx], imageUrl };
+      setNewsData(next);
+      setJsonText(JSON.stringify(next, null, 2));
+    }
+
+    // Never fail silently: before this, a missing API key filled nothing and
+    // said nothing, leaving the button looking like it had simply worked.
+    if (firstError) {
+      setGenerateError(
+        filled.length > 0
+          ? `Filled ${filled.length} of ${targets.length} images — the rest failed. ${firstError}`
+          : `Couldn't fill any images. ${firstError}`
+      );
+    }
   };
 
   // Converts a pasted external-AI JSON reply (the nested {posters}/{facts}/
@@ -1069,10 +1105,19 @@ export function ContentCreatorPage() {
   // Pexels top-hit, no picking — used by applyPosterSelection (the
   // end-to-end "Generate" pipeline) and "Fill Images" so a whole batch can
   // be illustrated in one click instead of clicking through the picker grid
-  // per poster. Never throws — a failed search/fetch just leaves imageUrl
-  // empty, same fallback as every other image path here.
-  const fetchTopPexelsImage = async (query: string): Promise<string> => {
-    if (!query.trim()) return "";
+  // per poster. Never throws.
+  //
+  // Deliberately distinguishes three outcomes rather than collapsing them to
+  // an empty string: a search that simply found nothing (fine — that poster
+  // stays imageless), a one-off download failure, and a `fatal` config error
+  // like an unset PEXELS_API_KEY, which will fail identically for every other
+  // poster in the batch. Callers use `fatal` to stop firing a batch of doomed
+  // requests and to surface one clear message instead of filling nothing at
+  // all and saying nothing about it.
+  const fetchTopPexelsImage = async (
+    query: string
+  ): Promise<{ imageUrl: string; error?: string; fatal?: boolean }> => {
+    if (!query.trim()) return { imageUrl: "" };
     try {
       const searchRes = await fetch("/api/content-creator/search-image", {
         method: "POST",
@@ -1080,8 +1125,19 @@ export function ContentCreatorPage() {
         body: JSON.stringify({ query }),
       });
       const searchData = await parseJsonResponse(searchRes);
-      const top = searchRes.ok && Array.isArray(searchData.results) ? searchData.results[0] : null;
-      if (!top?.imageUrl) return "";
+      if (!searchRes.ok) {
+        return {
+          imageUrl: "",
+          error: searchData?.error || `Image search failed (HTTP ${searchRes.status}).`,
+          // search-image returns 500 only when PEXELS_API_KEY is missing, and
+          // 401/403 mean Pexels rejected the key itself — all three are
+          // configuration problems that retrying cannot get past.
+          fatal: searchRes.status === 500 || searchRes.status === 401 || searchRes.status === 403,
+        };
+      }
+
+      const top = Array.isArray(searchData.results) ? searchData.results[0] : null;
+      if (!top?.imageUrl) return { imageUrl: "" };
 
       const fetchRes = await fetch("/api/content-creator/fetch-image", {
         method: "POST",
@@ -1089,10 +1145,15 @@ export function ContentCreatorPage() {
         body: JSON.stringify({ url: top.imageUrl }),
       });
       const fetchData = await parseJsonResponse(fetchRes);
-      if (!fetchRes.ok || typeof fetchData?.imageUrl !== "string") return "";
-      return await compressImage(fetchData.imageUrl);
-    } catch {
-      return "";
+      if (!fetchRes.ok || typeof fetchData?.imageUrl !== "string") {
+        return {
+          imageUrl: "",
+          error: fetchData?.error || `Could not download that image (HTTP ${fetchRes.status}).`,
+        };
+      }
+      return { imageUrl: await compressImage(fetchData.imageUrl) };
+    } catch (e) {
+      return { imageUrl: "", error: e instanceof Error ? e.message : "Image lookup failed." };
     }
   };
 
