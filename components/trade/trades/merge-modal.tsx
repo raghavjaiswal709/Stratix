@@ -1,9 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { X, Puzzle, Check, Edit2, Crown, ChevronDown } from "lucide-react";
+import { useMemo, useState } from "react";
+import { X, Puzzle, Check, Edit2, Crown, ChevronDown, Sparkles, ListFilter } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
+
+// A compilation is one trading decision split across multiple broker
+// tickets (partial fills) — those land within seconds of each other, but
+// broker/EA clock drift and slow fills can push that out further, so the
+// "Recommended" tab uses a forgiving window rather than an exact match.
+// Deliberately time-only: price is NOT part of the recommendation, since a
+// partial fill's price can legitimately differ from the main trade's.
+const RECOMMENDED_WINDOW_MS = 2 * 60 * 1000;
+
+function formatTimeDelta(deltaMs: number): string {
+  const totalSeconds = Math.round(Math.abs(deltaMs) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const sign = deltaMs >= 0 ? "+" : "-";
+  return minutes > 0 ? `${sign}${minutes}m ${seconds}s` : `${sign}${seconds}s`;
+}
 
 interface SimpleTrade {
   _id: string;
@@ -25,7 +41,7 @@ interface SimpleTrade {
 
 interface MergeModalProps {
   parentTrade: SimpleTrade;
-  allTrades: SimpleTrade[]; // Pre-sorted and pre-filtered in the same order
+  allTrades: SimpleTrade[]; // Every other trade for this symbol — unfiltered by time
   onClose: () => void;
   onMerged: () => void;
 }
@@ -34,9 +50,29 @@ export function MergeModal({ parentTrade, allTrades, onClose, onMerged }: MergeM
   // Allow user to select which trade is the main parent trade
   const [currentParentId, setCurrentParentId] = useState<string>(parentTrade._id);
   const mainTrade = allTrades.find((t) => t._id === currentParentId) || parentTrade;
-  
-  // Candidates are all trades except the designated main trade
+
+  // Candidates are all trades except the designated main trade — this is the
+  // "All Trades" tab's full list.
   const candidates = allTrades.filter((t) => t._id !== mainTrade._id);
+
+  const [activeTab, setActiveTab] = useState<"recommended" | "all">("recommended");
+  const mainEntryMs = new Date(mainTrade.entryTime).getTime();
+
+  // "Recommended" — time-proximity only, never price: a partial fill can
+  // legitimately print at a different price than the main ticket, so price
+  // would only cause real matches to be filtered out. Sorted nearest-first so
+  // the most likely fills lead. Already-linked children are pinned in
+  // regardless of drift, matching the guarantee the old single-list view
+  // gave: re-saving a compilation must never silently drop a member.
+  const recommended = useMemo(() => {
+    return candidates
+      .map((t) => ({ trade: t, deltaMs: new Date(t.entryTime).getTime() - mainEntryMs }))
+      .filter(({ trade, deltaMs }) => trade.parentTradeId === mainTrade._id || Math.abs(deltaMs) <= RECOMMENDED_WINDOW_MS)
+      .sort((a, b) => Math.abs(a.deltaMs) - Math.abs(b.deltaMs));
+  }, [candidates, mainTrade._id, mainEntryMs]);
+
+  const visibleCandidates = activeTab === "recommended" ? recommended.map((r) => r.trade) : candidates;
+  const deltaById = useMemo(() => new Map(recommended.map((r) => [r.trade._id, r.deltaMs])), [recommended]);
   
   // Checked trade IDs: trades that belong to this compilation
   const [checkedIds, setCheckedIds] = useState<string[]>(
@@ -298,15 +334,57 @@ export function MergeModal({ parentTrade, allTrades, onClose, onMerged }: MergeM
           )}
         </div>
 
+        {/* Recommended / All Trades tabs */}
+        <div className="flex items-center gap-1 px-5 pt-3 border-b border-white/7 shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab("recommended")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold rounded-t-lg border-b-2 -mb-px transition",
+              activeTab === "recommended"
+                ? "text-amber-400 border-amber-400"
+                : "text-white/40 border-transparent hover:text-white/70"
+            )}
+          >
+            <Sparkles className="h-3 w-3" />
+            Recommended
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10">{recommended.length}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("all")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold rounded-t-lg border-b-2 -mb-px transition",
+              activeTab === "all"
+                ? "text-amber-400 border-amber-400"
+                : "text-white/40 border-transparent hover:text-white/70"
+            )}
+          >
+            <ListFilter className="h-3 w-3" />
+            All Trades
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10">{candidates.length}</span>
+          </button>
+        </div>
+        {activeTab === "recommended" && (
+          <p className="px-5 pt-2 text-[10px] text-white/30 shrink-0">
+            Matched by entry time only (within 2 minutes) — price isn&apos;t part of the match, since a partial fill can print at a different price.
+          </p>
+        )}
+
         {/* List of Trades to Compile */}
         <div className="flex-1 overflow-y-auto divide-y divide-white/5 p-2">
-          {candidates.length === 0 ? (
-            <div className="text-center py-10 text-white/20 text-[12px]">No other trades to merge with this main trade.</div>
+          {visibleCandidates.length === 0 ? (
+            <div className="text-center py-10 text-white/20 text-[12px]">
+              {activeTab === "recommended"
+                ? "No trades within 2 minutes of the main trade — try the All Trades tab."
+                : "No other trades of this instrument to merge with this main trade."}
+            </div>
           ) : (
-            candidates.map((trade) => {
+            visibleCandidates.map((trade) => {
               const isChecked = checkedIds.includes(trade._id);
               const hasDifferentParent = trade.parentTradeId && trade.parentTradeId !== mainTrade._id;
-              
+              const deltaMs = deltaById.get(trade._id);
+
               return (
                 <div
                   key={trade._id}
@@ -346,9 +424,17 @@ export function MergeModal({ parentTrade, allTrades, onClose, onMerged }: MergeM
                       {hasDifferentParent && (
                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">Merged elsewhere</span>
                       )}
+                      {activeTab === "recommended" && deltaMs !== undefined && (
+                        <span
+                          className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/5 text-white/45"
+                          title="Entry time vs. the main trade"
+                        >
+                          {deltaMs === 0 ? "same time" : formatTimeDelta(deltaMs)}
+                        </span>
+                      )}
                     </div>
                     <div className="text-[10px] text-white/35">
-                      Lots: {trade.lots} · Entry: ${trade.entryPrice} · {format(parseISO(trade.entryTime), "MMM d, yyyy, HH:mm")}
+                      Lots: {trade.lots} · Entry: ${trade.entryPrice} · {format(parseISO(trade.entryTime), "MMM d, yyyy, HH:mm:ss")}
                     </div>
                   </div>
 
