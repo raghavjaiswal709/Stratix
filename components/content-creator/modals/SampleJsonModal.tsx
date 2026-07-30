@@ -21,6 +21,38 @@ export function SampleJsonModal({
     indicator: SAMPLE,
     facts: SAMPLE_FACTS,
     learnings: SAMPLE_LEARNINGS,
+    watermark: [
+      {
+        title: "Market Setup 1",
+        description: "",
+        imageUrl: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800",
+        logoPosition: "top-right",
+        stratiColor: "#000000",
+        xColor: "#EF4444",
+        watermarkBgStyle: "glass",
+        logoScale: 1
+      }
+    ],
+    motion: {
+      backgroundUrl: "",
+      layers: [
+        {
+          id: "subject_foreground",
+          name: "Extracted Subject",
+          imageUrl: "",
+          x: 0.2,
+          y: 0.2,
+          w: 0.6,
+          h: 0.6,
+          opacity: 1,
+          scale: 1,
+          rotation: 0,
+          motionType: "parallax",
+          motionSpeed: 1,
+          motionDistance: 24
+        }
+      ]
+    }
   };
   const json = JSON.stringify(sampleData[mode], null, 2);
   const [copied, setCopied] = useState(false);
@@ -32,7 +64,7 @@ export function SampleJsonModal({
   }
 
   const modeLabels: Record<CreatorMode, string> = {
-    analysis: "Analysis", news: "News Batch", indicator: "Indicator", facts: "Facts", learnings: "Learnings",
+    analysis: "Analysis", news: "News Batch", indicator: "Indicator", facts: "Facts", learnings: "Learnings", watermark: "Logo Watermark", motion: "Motion Video",
   };
 
   return (

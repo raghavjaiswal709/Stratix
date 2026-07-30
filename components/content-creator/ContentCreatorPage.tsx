@@ -39,6 +39,10 @@ import {
   EyeOff,
   Star,
   Clapperboard,
+  Wand2,
+  LayoutGrid,
+  GripVertical,
+  Copy,
 } from "lucide-react";
 
 import type {
@@ -46,6 +50,12 @@ import type {
   AnalysisData,
   NewsItem,
   CreatorMode,
+  MotionVideoData,
+  MotionLayer,
+  MotionSlide,
+  MotionTextBlock,
+  LogoPosition,
+  AspectRatio,
   HistoryListItem,
   PosterColors,
   PosterConfig,
@@ -57,8 +67,10 @@ import {
   GRADIENT_PRESETS,
   EMPTY_ANALYSIS,
   EMPTY_INDICATOR,
+  EMPTY_MOTION_DATA,
 } from "./constants";
 import { buildInstagramCopyText } from "./promptBuilders";
+import { buildMotionLayoutJson, describeMotionSlide } from "./motionLayoutJson";
 import {
   buildBentoCard,
   withBentoImageFallback,
@@ -80,6 +92,7 @@ import { ContentCalendarModal } from "./modals/ContentCalendarModal";
 import { CopyButton } from "./modals/CopyButton";
 import { ReelStudioModal } from "./reel/ReelStudioModal";
 import { REEL_W, REEL_H, type ReelSlideSource } from "./reel/reelTypes";
+import { PromptBuilder } from "./prompt-builder/PromptBuilder";
 
 // Reels are consumed full-screen while scrolling and need to read at a
 // glance — bump headline/eyebrow/body text (and, since every measurement in
@@ -91,10 +104,10 @@ const REEL_TEXT_SCALE = 1.45;
 
 export function ContentCreatorPage() {
   const [creatorMode, setCreatorMode] = useState<CreatorMode>("analysis");
-  // News/Facts/Learnings all store their batch as an array in `newsData` and
+  // News/Facts/Learnings/Watermark all store their batch as an array in `newsData` and
   // share the carousel/download/editor plumbing below — "indicator" and
   // "analysis" are the odd ones out, each with a single object.
-  const isBatchMode = creatorMode === "news" || creatorMode === "facts" || creatorMode === "learnings";
+  const isBatchMode = creatorMode === "news" || creatorMode === "facts" || creatorMode === "learnings" || creatorMode === "watermark";
   const [ratioId, setRatioId] = useState("square");
 
   // Keep track of JSON states independently so switching modes doesn't lose modifications
@@ -102,6 +115,201 @@ export function ContentCreatorPage() {
   const [newsData, setNewsData] = useState<NewsItem[]>([]);
   const [parsedData, setParsedData] = useState<PosterData>(EMPTY_INDICATOR);
   const [activeNewsIndex, setActiveNewsIndex] = useState(0);
+
+  // Logo Watermark mode state
+  const [watermarkPosition, setWatermarkPosition] = useState<LogoPosition>("top-right");
+  const [watermarkStratiColor, setWatermarkStratiColor] = useState("#000000");
+  const [watermarkXColor, setWatermarkXColor] = useState("#EF4444");
+  const [watermarkBgStyle, setWatermarkBgStyle] = useState<"glass" | "light" | "dark" | "none" | "solid">("none");
+  const [watermarkScale, setWatermarkScale] = useState(1.0);
+  const [swapFromIndex, setSwapFromIndex] = useState<number>(0);
+  const [swapToIndex, setSwapToIndex] = useState<number>(1);
+  const [showGridView, setShowGridView] = useState(false);
+  const [isDraggingCanvasOver, setIsDraggingCanvasOver] = useState(false);
+  const [draggedGridItemIndex, setDraggedGridItemIndex] = useState<number | null>(null);
+  const [isDraggingLogo, setIsDraggingLogo] = useState(false);
+  const logoDragStateRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startLogoX: number;
+    startLogoY: number;
+    badgeW: number;
+    badgeH: number;
+    moved: boolean;
+    liveCustomX: number;
+    liveCustomY: number;
+  } | null>(null);
+  const watermarkFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Motion Video mode state & refs
+  //
+  // A batch upload becomes one slide per image. `motionData` is just a view of
+  // the active slide, so every existing setMotionData(...) call site keeps
+  // working while the other slides stay untouched in state.
+  const [motionSlides, setMotionSlides] = useState<MotionSlide[]>([]);
+  const [activeMotionIndex, setActiveMotionIndex] = useState(0);
+  const [isSegmenting, setIsSegmenting] = useState(false);
+  const [segmentProgress, setSegmentProgress] = useState<{ done: number; total: number } | null>(null);
+  const [segmentError, setSegmentError] = useState<string | null>(null);
+  const [isPlayingMotion, setIsPlayingMotion] = useState(true);
+  const [motionTimeMs, setMotionTimeMs] = useState(0);
+  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+  const motionFileInputRef = useRef<HTMLInputElement>(null);
+  const motionAnimFrameRef = useRef<number | null>(null);
+  // slideId -> layerId -> <img>. Layer ids repeat across slides, so they can
+  // never share one flat map without slides stealing each other's pixels.
+  const motionLayerImgElsRef = useRef<Record<string, Record<string, HTMLImageElement>>>({});
+  const [copiedMotionJson, setCopiedMotionJson] = useState(false);
+
+  const motionData: MotionVideoData = motionSlides[activeMotionIndex] ?? EMPTY_MOTION_DATA;
+  const activeMotionSlideId = motionSlides[activeMotionIndex]?.slideId ?? "";
+
+  const setMotionData = useCallback(
+    (updater: MotionVideoData | ((prev: MotionVideoData) => MotionVideoData)) => {
+      setMotionSlides((prev) => {
+        if (prev.length === 0) return prev;
+        const idx = Math.min(activeMotionIndex, prev.length - 1);
+        const current = prev[idx];
+        const next = typeof updater === "function" ? (updater as (p: MotionVideoData) => MotionVideoData)(current) : updater;
+        const copy = [...prev];
+        copy[idx] = { ...next, slideId: current.slideId };
+        return copy;
+      });
+    },
+    [activeMotionIndex]
+  );
+
+  const [isDraggingMotionLayer, setIsDraggingMotionLayer] = useState(false);
+  const motionLayerDragStateRef = useRef<{
+    layerId: string;
+    startClientX: number;
+    startClientY: number;
+    startLayerX: number;
+    startLayerY: number;
+  } | null>(null);
+
+  const handleStartMotionLayerDrag = (e: React.MouseEvent<HTMLDivElement>, hit: PosterElement) => {
+    if (creatorMode !== "motion") return;
+    const targetLayer = motionData.layers.find((l) => l.id === hit.id);
+    if (!targetLayer) return;
+
+    setMotionData((prev) => ({ ...prev, activeLayerId: hit.id }));
+
+    motionLayerDragStateRef.current = {
+      layerId: hit.id,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startLayerX: targetLayer.x,
+      startLayerY: targetLayer.y,
+    };
+    setIsDraggingMotionLayer(true);
+  };
+
+  const handleWatermarkFiles = (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    const promises = fileArray.map((file) => {
+      return new Promise<NewsItem>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          resolve({
+            title: file.name.replace(/\.[^/.]+$/, ""),
+            description: "",
+            imageUrl: e.target?.result as string,
+            logoPosition: watermarkPosition,
+            stratiColor: watermarkStratiColor,
+            xColor: watermarkXColor,
+            watermarkBgStyle: watermarkBgStyle,
+            logoScale: watermarkScale,
+            imageFocusX: 0.5,
+            imageFocusY: 0.5,
+            imageZoom: 1,
+          });
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(promises).then((newItems) => {
+      setNewsData((prev) => {
+        const next = [...prev, ...newItems];
+        setTimeout(() => setJsonText(JSON.stringify(next, null, 2)), 50);
+        return next;
+      });
+      setActiveNewsIndex((prevIndex) => (prevIndex >= 0 ? prevIndex : 0));
+    });
+  };
+
+  const handleSwapIndices = (fromIdx: number, toIdx: number) => {
+    if (
+      fromIdx < 0 ||
+      fromIdx >= newsData.length ||
+      toIdx < 0 ||
+      toIdx >= newsData.length ||
+      fromIdx === toIdx
+    ) {
+      return;
+    }
+    const next = [...newsData];
+    const temp = next[fromIdx];
+    next[fromIdx] = next[toIdx];
+    next[toIdx] = temp;
+    setNewsData(next);
+    setJsonText(JSON.stringify(next, null, 2));
+    setActiveNewsIndex(toIdx);
+  };
+
+  const handleMoveIndex = (index: number, direction: "up" | "down") => {
+    const target = direction === "up" ? index - 1 : index + 1;
+    handleSwapIndices(index, target);
+  };
+
+  const handleSetWatermarkPosition = (pos: LogoPosition, applyToAll = false) => {
+    setWatermarkPosition(pos);
+    if (applyToAll || newsData.length === 0) {
+      const next = newsData.map((item) => ({ ...item, logoPosition: pos }));
+      setNewsData(next);
+      if (next.length > 0) setJsonText(JSON.stringify(next, null, 2));
+    } else if (newsData[activeNewsIndex]) {
+      const next = [...newsData];
+      next[activeNewsIndex] = { ...next[activeNewsIndex], logoPosition: pos };
+      setNewsData(next);
+      setJsonText(JSON.stringify(next, null, 2));
+    }
+  };
+
+  const handleSetWatermarkColors = (strati: string, xColorVal: string, applyToAll = false) => {
+    setWatermarkStratiColor(strati);
+    setWatermarkXColor(xColorVal);
+    if (applyToAll || newsData.length === 0) {
+      const next = newsData.map((item) => ({ ...item, stratiColor: strati, xColor: xColorVal }));
+      setNewsData(next);
+      if (next.length > 0) setJsonText(JSON.stringify(next, null, 2));
+    } else if (newsData[activeNewsIndex]) {
+      const next = [...newsData];
+      next[activeNewsIndex] = {
+        ...next[activeNewsIndex],
+        stratiColor: strati,
+        xColor: xColorVal,
+      };
+      setNewsData(next);
+      setJsonText(JSON.stringify(next, null, 2));
+    }
+  };
+
+  const handleApplyAllWatermarkSettingsToBatch = () => {
+    const next = newsData.map((item) => ({
+      ...item,
+      logoPosition: watermarkPosition,
+      stratiColor: watermarkStratiColor,
+      xColor: watermarkXColor,
+      watermarkBgStyle: watermarkBgStyle,
+      logoScale: watermarkScale,
+    }));
+    setNewsData(next);
+    setJsonText(JSON.stringify(next, null, 2));
+  };
 
   // ── Bento explainer visibility + per-item ZIP selection ───────────────────
   // hideBento drops every isBento card from the preview carousel, its page
@@ -261,7 +469,8 @@ export function ContentCreatorPage() {
     title: string,
     itemCount: number,
     payload: unknown,
-    id: string | null = null
+    id: string | null = null,
+    previewUrl?: string
   ): Promise<string | null> => {
     try {
       const method = id ? "PUT" : "POST";
@@ -269,7 +478,7 @@ export function ContentCreatorPage() {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category, title, itemCount, payload }),
+        body: JSON.stringify({ category, title, itemCount, payload, previewUrl }),
       });
       const data = await parseJsonResponse(res);
       if (res.ok && data._id) {
@@ -309,27 +518,33 @@ export function ContentCreatorPage() {
     setSaveStatus("saving");
     try {
       let createdId: string | null = null;
+      const firstImg = isBatchMode ? newsData[0]?.imageUrl : (creatorMode === "analysis" ? analysisData.imageUrl : parsedData.imageUrl);
+      const previewUrl = firstImg && typeof firstImg === "string" && firstImg.length < 500000 ? firstImg : undefined;
+
       if (creatorMode === "news") {
         const first = newsData[0];
         const title = newsData.length > 1
           ? `News Batch · ${newsData.length} stories${first?.date ? ` · ${first.date}` : ""}`
           : (first?.title || "News Batch");
-        createdId = await saveToHistory("news-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
+        createdId = await saveToHistory("news-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
       } else if (creatorMode === "facts") {
         const title = `Facts · ${newsData.length} ${newsData.length === 1 ? "card" : "cards"}`;
-        createdId = await saveToHistory("facts-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
+        createdId = await saveToHistory("facts-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
       } else if (creatorMode === "learnings") {
         const concept = newsData.find((d) => d.concept)?.concept;
         const title = concept ? `Learnings · ${concept}` : "Learnings Batch";
-        createdId = await saveToHistory("learnings-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
+        createdId = await saveToHistory("learnings-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
+      } else if (creatorMode === "watermark") {
+        const title = `Watermark Batch · ${newsData.length} ${newsData.length === 1 ? "image" : "images"}`;
+        createdId = await saveToHistory("watermark-batch", title, newsData.length, { posters: newsData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
       } else if (creatorMode === "analysis") {
         const title = analysisData.instrument
           ? `${analysisData.instrument} · ${analysisData.levelName || "Daily Analysis"}`
           : "Daily Analysis";
-        createdId = await saveToHistory("daily-analysis", title, 1, { analysisData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
+        createdId = await saveToHistory("daily-analysis", title, 1, { analysisData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
       } else {
         const title = parsedData.title || parsedData.category || "Indicator Poster";
-        createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId);
+        createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
       }
       if (createdId) {
         setActiveHistoryId(createdId);
@@ -369,6 +584,12 @@ export function ContentCreatorPage() {
         setJsonText(JSON.stringify(payload.posters, null, 2));
       } else if (doc.category === "learnings-batch" && Array.isArray(payload.posters)) {
         setCreatorMode("learnings");
+        setNewsData(payload.posters);
+        setActiveNewsIndex(0);
+        setDeselectedForZip(new Set());
+        setJsonText(JSON.stringify(payload.posters, null, 2));
+      } else if (doc.category === "watermark-batch" && Array.isArray(payload.posters)) {
+        setCreatorMode("watermark");
         setNewsData(payload.posters);
         setActiveNewsIndex(0);
         setDeselectedForZip(new Set());
@@ -824,7 +1045,44 @@ export function ContentCreatorPage() {
     liveFocusY: number;
   } | null>(null);
 
-  const ar = RATIOS.find((r) => r.id === ratioId)!;
+  const activeItemImgUrl = isBatchMode && newsData[activeNewsIndex] ? newsData[activeNewsIndex].imageUrl : (creatorMode === "analysis" ? analysisData.imageUrl : parsedData.imageUrl);
+
+  const ar = useMemo<AspectRatio>(() => {
+    // Motion mode always renders at the decomposed pixel size. Anything else
+    // rescales every cut-out on the way to the canvas, and a poster that was
+    // reassembled to the pixel would come out soft.
+    if (creatorMode === "motion" && motionData.width && motionData.height) {
+      return {
+        id: "auto",
+        label: "Auto",
+        w: motionData.width,
+        h: motionData.height,
+        desc: `${motionData.width}×${motionData.height}`,
+      };
+    }
+    if (ratioId === "auto" || creatorMode === "watermark") {
+      const loadedImg = activeItemImgUrl ? loadedImagesRef.current[activeItemImgUrl] : null;
+      if (loadedImg && loadedImg.naturalWidth > 0 && loadedImg.naturalHeight > 0) {
+        return {
+          id: "auto",
+          label: "Auto",
+          w: loadedImg.naturalWidth,
+          h: loadedImg.naturalHeight,
+          desc: `${loadedImg.naturalWidth}×${loadedImg.naturalHeight}`,
+        };
+      }
+      if (activeImgRef.current && activeImgRef.current.naturalWidth > 0 && activeImgRef.current.naturalHeight > 0) {
+        return {
+          id: "auto",
+          label: "Auto",
+          w: activeImgRef.current.naturalWidth,
+          h: activeImgRef.current.naturalHeight,
+          desc: `${activeImgRef.current.naturalWidth}×${activeImgRef.current.naturalHeight}`,
+        };
+      }
+    }
+    return RATIOS.find((r) => r.id === ratioId) || RATIOS[0];
+  }, [ratioId, creatorMode, activeNewsIndex, newsData, activeItemImgUrl, motionData.width, motionData.height, activeImgRef.current?.naturalWidth, activeImgRef.current?.naturalHeight, loadedImagesRef.current]);
 
   // Compute CSS scale so canvas fits preview area
   // Load the user's saved "default settings" once on mount, if they've ever
@@ -1046,6 +1304,336 @@ export function ContentCreatorPage() {
       window.removeEventListener("mouseup", handleUp);
     };
   }, [isDraggingImage, scale, ar, colors, config, creatorMode, activeNewsIndex, newsData, posterStyle, activeGradient, editorialTheme, gradientFade, sentimentScheme, visibleNewsPosition, visibleNewsCount]);
+
+  // Click-drag-to-position for logo watermark directly on canvas.
+  const handleLogoMouseDown = (e: React.MouseEvent, box: PosterElement) => {
+    if (creatorMode !== "watermark") return;
+    e.preventDefault();
+    e.stopPropagation();
+    logoDragStateRef.current = {
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startLogoX: box.x,
+      startLogoY: box.y,
+      badgeW: box.w,
+      badgeH: box.h,
+      moved: false,
+      liveCustomX: box.x / ar.w,
+      liveCustomY: box.y / ar.h,
+    };
+    setIsDraggingLogo(true);
+  };
+
+  useEffect(() => {
+    if (!isDraggingLogo) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const ds = logoDragStateRef.current;
+      if (!ds) return;
+
+      const dxScreen = e.clientX - ds.startClientX;
+      const dyScreen = e.clientY - ds.startClientY;
+      if (Math.abs(dxScreen) > 2 || Math.abs(dyScreen) > 2) ds.moved = true;
+
+      const dxCanvas = dxScreen / scale;
+      const dyCanvas = dyScreen / scale;
+
+      const newX = Math.max(0, Math.min(ar.w - ds.badgeW, ds.startLogoX + dxCanvas));
+      const newY = Math.max(0, Math.min(ar.h - ds.badgeH, ds.startLogoY + dyCanvas));
+
+      ds.liveCustomX = newX / ar.w;
+      ds.liveCustomY = newY / ar.h;
+
+      const item = newsData[activeNewsIndex];
+      const img = activeImgRef.current;
+      if (item && canvasRef.current) {
+        const liveData = {
+          ...item,
+          logoPosition: "custom" as LogoPosition,
+          logoCustomX: ds.liveCustomX,
+          logoCustomY: ds.liveCustomY,
+        };
+        const bounds = drawPoster(
+          canvasRef.current,
+          liveData,
+          ar,
+          colors,
+          config,
+          img,
+          creatorMode,
+          visibleNewsPosition === -1 ? 0 : visibleNewsPosition,
+          visibleNewsCount,
+          posterStyle,
+          activeGradient,
+          editorialTheme,
+          gradientFade,
+          sentimentScheme
+        );
+        setElementBounds(bounds);
+      }
+    };
+
+    const handleUp = () => {
+      const ds = logoDragStateRef.current;
+      if (ds && newsData[activeNewsIndex]) {
+        const updated = [...newsData];
+        updated[activeNewsIndex] = {
+          ...updated[activeNewsIndex],
+          logoPosition: "custom" as LogoPosition,
+          logoCustomX: ds.liveCustomX,
+          logoCustomY: ds.liveCustomY,
+        };
+        setNewsData(updated);
+        setJsonText(JSON.stringify(updated, null, 2));
+      }
+      setIsDraggingLogo(false);
+      logoDragStateRef.current = null;
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [
+    isDraggingLogo,
+    scale,
+    ar,
+    colors,
+    config,
+    creatorMode,
+    activeNewsIndex,
+    newsData,
+    posterStyle,
+    activeGradient,
+    editorialTheme,
+    gradientFade,
+    sentimentScheme,
+    visibleNewsPosition,
+    visibleNewsCount,
+  ]);
+
+  // 60 FPS Motion Animation clock loop
+  useEffect(() => {
+    if (creatorMode !== "motion" || !isPlayingMotion) return;
+
+    let startTime = performance.now();
+    const tick = (now: number) => {
+      setMotionTimeMs(now - startTime);
+      motionAnimFrameRef.current = requestAnimationFrame(tick);
+    };
+
+    motionAnimFrameRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (motionAnimFrameRef.current) cancelAnimationFrame(motionAnimFrameRef.current);
+    };
+  }, [creatorMode, isPlayingMotion]);
+
+  // Render canvas on motionTimeMs change when in motion mode
+  useEffect(() => {
+    if (creatorMode === "motion" && canvasRef.current) {
+      const dataWithTime = {
+        ...motionData,
+        timeMs: motionTimeMs,
+        layerImgEls: motionLayerImgElsRef.current[activeMotionSlideId] || {},
+      };
+      const bgImg = motionData.backgroundUrl ? loadedImagesRef.current[motionData.backgroundUrl] : null;
+      const bounds = drawPoster(
+        canvasRef.current,
+        dataWithTime,
+        ar,
+        colors,
+        config,
+        bgImg,
+        "motion"
+      );
+      setElementBounds(bounds);
+    }
+  }, [creatorMode, motionTimeMs, motionData, activeMotionSlideId, ar, colors, config]);
+
+  // Motion Video Python segmentation handler.
+  //
+  // The original bytes go up untouched, as multipart. The old path re-drew
+  // every upload into a 1200px JPEG at q0.90 before the server ever saw it,
+  // which threw away detail the decomposer then could not recover.
+  const handleMotionFilesUpload = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (fileArray.length === 0) return;
+
+    const MAX_BATCH = 12;
+    const batch = fileArray.slice(0, MAX_BATCH);
+
+    setIsSegmenting(true);
+    setSegmentError(
+      fileArray.length > MAX_BATCH
+        ? `Processing the first ${MAX_BATCH} of ${fileArray.length} images — upload the rest in a second batch.`
+        : null
+    );
+    setSegmentProgress({ done: 0, total: batch.length });
+
+    try {
+      const form = new FormData();
+      batch.forEach((f) => form.append("images", f, f.name));
+
+      const res = await fetch("/api/content-creator/motion-segment", {
+        method: "POST",
+        body: form,
+      });
+      const payload = await res.json();
+
+      if (!res.ok) throw new Error(payload?.error || `Decomposition failed (${res.status})`);
+
+      const results: any[] = Array.isArray(payload?.results) ? payload.results : [payload];
+      const failures: string[] = [];
+      const slides: MotionSlide[] = [];
+
+      results.forEach((data, i) => {
+        const name = batch[i]?.name || `Image ${i + 1}`;
+        if (!data || data.error || !data.success) {
+          failures.push(`${name}: ${data?.error || "no result"}`);
+          return;
+        }
+
+        const slideId = `slide_${Date.now()}_${i}`;
+        const layers: MotionLayer[] = data.layers || [];
+
+        slides.push({
+          slideId,
+          fileName: name,
+          backgroundUrl: data.backgroundUrl,
+          originalUrl: data.originalUrl,
+          layers,
+          activeLayerId: layers[0]?.id,
+          width: data.width,
+          height: data.height,
+          sourceWidth: data.sourceWidth,
+          sourceHeight: data.sourceHeight,
+          text: data.text,
+          meta: data.meta,
+        });
+
+        if (data.backgroundUrl) {
+          const bgImg = new Image();
+          bgImg.src = data.backgroundUrl;
+          loadedImagesRef.current[data.backgroundUrl] = bgImg;
+        }
+        const perSlide: Record<string, HTMLImageElement> = {};
+        layers.forEach((l) => {
+          if (!l.imageUrl) return;
+          const lImg = new Image();
+          lImg.src = l.imageUrl;
+          perSlide[l.id] = lImg;
+        });
+        motionLayerImgElsRef.current[slideId] = perSlide;
+        setSegmentProgress({ done: slides.length, total: batch.length });
+      });
+
+      if (slides.length === 0) {
+        throw new Error(failures[0] || "No image could be decomposed");
+      }
+
+      setMotionSlides(slides);
+      setActiveMotionIndex(0);
+      setJsonText(JSON.stringify(buildMotionLayoutJson(slides), null, 2));
+      if (failures.length > 0) {
+        setSegmentError(`${failures.length} image(s) failed: ${failures.join("; ")}`);
+      }
+    } catch (err: any) {
+      console.error("Failed to decompose image(s):", err);
+      setSegmentError(err?.message || "Failed to decompose image(s)");
+    } finally {
+      setIsSegmenting(false);
+      setSegmentProgress(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!isDraggingMotionLayer) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const ds = motionLayerDragStateRef.current;
+      if (!ds) return;
+
+      const dxScreen = e.clientX - ds.startClientX;
+      const dyScreen = e.clientY - ds.startClientY;
+
+      const dxCanvas = dxScreen / scale;
+      const dyCanvas = dyScreen / scale;
+
+      const newX = ds.startLayerX + dxCanvas / ar.w;
+      const newY = ds.startLayerY + dyCanvas / ar.h;
+
+      setMotionData((prev: MotionVideoData) => {
+        const updated = prev.layers.map((l: MotionLayer) =>
+          l.id === ds.layerId ? { ...l, x: newX, y: newY } : l
+        );
+        return { ...prev, layers: updated };
+      });
+    };
+
+    const handleUp = () => {
+      setIsDraggingMotionLayer(false);
+      motionLayerDragStateRef.current = null;
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [isDraggingMotionLayer, scale, ar]);
+
+  // Motion Video Recording Exporter
+  const handleExportMotionVideo = async () => {
+    if (!canvasRef.current) return;
+    setIsRecordingVideo(true);
+
+    // Selection handles are editor chrome; without this they get recorded into
+    // the exported clip.
+    const restoreSelection = motionData.activeLayerId;
+    setMotionData((prev) => ({ ...prev, activeLayerId: undefined, isExporting: true }));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    try {
+      const canvas = canvasRef.current;
+      const stream = canvas.captureStream(60);
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+          ? "video/webm;codecs=vp9"
+          : "video/webm",
+        videoBitsPerSecond: 8000000,
+      });
+
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "video/webm" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const slideName = (motionData.fileName || "").replace(/\.[^.]+$/, "") || `slide-${activeMotionIndex + 1}`;
+        a.href = url;
+        a.download = `stratix-motion-${slideName}-${Date.now()}.webm`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setIsRecordingVideo(false);
+        setMotionData((prev) => ({ ...prev, activeLayerId: restoreSelection, isExporting: false }));
+      };
+
+      recorder.start();
+      setTimeout(() => {
+        recorder.stop();
+      }, 5000);
+    } catch (e) {
+      console.error("Failed to record motion video:", e);
+      setIsRecordingVideo(false);
+      setMotionData((prev) => ({ ...prev, activeLayerId: restoreSelection, isExporting: false }));
+    }
+  };
 
   // Scroll-to-zoom on the news poster image. React 19 attaches the delegated
   // "wheel" listener as passive by default, so preventDefault() inside a
@@ -1398,7 +1986,7 @@ export function ContentCreatorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newsData, activeHistoryId, isBatchMode, creatorMode, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme, batchMeta]);
 
-  function download() {
+  async function download() {
     if (!rendered) return;
 
     const tempCanvas = document.createElement("canvas");
@@ -1444,20 +2032,28 @@ export function ContentCreatorPage() {
       sentimentScheme
     );
 
-    let fileName = `stratix-poster-${ratioId}-${Date.now()}.png`;
+    let baseName = `stratix-poster-${ratioId}-${Date.now()}`;
     if (creatorMode === "analysis") {
       const symbol = (analysisData.instrument || "analysis").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      fileName = `stratix-analysis-${symbol}-${ratioId}-${Date.now()}.png`;
+      baseName = `stratix-analysis-${symbol}-${ratioId}-${Date.now()}`;
     } else if (isBatchMode && newsData[activeNewsIndex]) {
       const titleSlug = (newsData[activeNewsIndex].title || creatorMode).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 20);
-      fileName = `stratix-${creatorMode}-${activeNewsIndex + 1}-${titleSlug}-${ratioId}-${Date.now()}.png`;
+      baseName = `stratix-${creatorMode}-${activeNewsIndex + 1}-${titleSlug}-${ratioId}-${Date.now()}`;
     }
 
-    const a = document.createElement("a");
-    a.href = tempCanvas.toDataURL("image/png");
-    a.download = fileName;
-    a.click();
-  }
+    const blob = await new Promise<Blob | null>((resolve) => {
+      tempCanvas.toBlob((b) => resolve(b), "image/jpeg", 0.92);
+    });
+
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${baseName}.jpg`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  };
 
   // Preloads images in parallel and packages the SELECTED batch cards
   // (respecting hideBento + the per-item ZIP checkboxes) into a high-res ZIP.
@@ -1494,14 +2090,16 @@ export function ContentCreatorPage() {
       // the filename) is based on position within the included subset, so
       // exported files stay gap-free regardless of what was excluded.
       const zip = new JSZip();
-      const scaleFactor = 3.0; // 3x high resolution
+      const scaleFactor = 1.5;
       const highResAr = {
         ...ar,
-        w: ar.w * scaleFactor,
-        h: ar.h * scaleFactor
+        w: Math.round(ar.w * scaleFactor),
+        h: Math.round(ar.h * scaleFactor)
       };
 
       for (let pos = 0; pos < includedIndices.length; pos++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
         const idx = includedIndices[pos];
         const item = withBentoImageFallback(newsData[idx], newsData);
         const tempCanvas = document.createElement("canvas");
@@ -1524,26 +2122,28 @@ export function ContentCreatorPage() {
           sentimentScheme
         );
 
-        const dataUrl = tempCanvas.toDataURL("image/png");
-        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        const blob = await new Promise<Blob | null>((resolve) => {
+          tempCanvas.toBlob((b) => resolve(b), "image/jpeg", 0.92);
+        });
 
-        const titleSlug = (item.title || creatorMode)
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .slice(0, 20);
+        if (blob) {
+          const titleSlug = (item.title || creatorMode)
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .slice(0, 20);
 
-        const fileName = `stratix-${creatorMode}-${pos + 1}-${titleSlug}.png`;
-        zip.file(fileName, base64Data, { base64: true });
+          const fileName = `stratix-${creatorMode}-${pos + 1}-${titleSlug}.jpg`;
+          zip.file(fileName, blob);
+        }
       }
 
-      // 3. Generate ZIP and trigger browser download
-      const content = await zip.generateAsync({ type: "blob" });
+      const content = await zip.generateAsync({ type: "blob", compression: "STORE" });
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
       a.download = `stratix-${creatorMode}-batch-${ratioId}-${Date.now()}.zip`;
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
       console.error("ZIP Generation failed:", e);
     } finally {
@@ -1634,6 +2234,7 @@ export function ContentCreatorPage() {
     { id: "layout", label: "Layout", icon: Sliders },
     { id: "json", label: "JSON", icon: Code2 },
     { id: "ai-prompt", label: "AI Prompt", icon: Bot },
+    { id: "prompt-builder", label: "Prompt Builder", icon: Wand2 },
   ];
 
   return (
@@ -1715,7 +2316,7 @@ export function ContentCreatorPage() {
               mobile panel without wrapping onto 2 lines, so each pill sizes to
               its own text and the strip scrolls instead. */}
           <div className="flex gap-0.5 bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {(["analysis", "news", "indicator", "facts", "learnings"] as const).map((m) => {
+            {(["analysis", "news", "indicator", "facts", "learnings", "watermark", "motion"] as const).map((m) => {
               const active = creatorMode === m;
               const labels: Record<CreatorMode, string> = {
                 analysis: "Daily Analysis",
@@ -1723,6 +2324,8 @@ export function ContentCreatorPage() {
                 indicator: "Indicator",
                 facts: "Facts",
                 learnings: "Learnings",
+                watermark: "Logo Watermark",
+                motion: "Motion Video",
               };
               return (
                 <button
@@ -2653,6 +3256,831 @@ export function ContentCreatorPage() {
                 </>
               )}
 
+              {creatorMode === "watermark" && (
+                <div className="space-y-4">
+                  {/* Upload Section */}
+                  <div
+                    className="rounded-2xl border-2 border-dashed border-white/15 bg-white/[0.02] hover:bg-white/[0.04] p-5 text-center transition-all cursor-pointer group"
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (e.dataTransfer.files?.length) {
+                        handleWatermarkFiles(e.dataTransfer.files);
+                      }
+                    }}
+                    onClick={() => watermarkFileInputRef.current?.click()}
+                  >
+                    <input
+                      ref={watermarkFileInputRef}
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.length) {
+                          handleWatermarkFiles(e.target.files);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center mx-auto mb-2.5 group-hover:scale-110 transition-transform">
+                      <Upload className="h-5 w-5" />
+                    </div>
+                    <p className="text-xs font-bold text-white mb-0.5">Click or Drag &amp; Drop Images Here</p>
+                    <p className="text-[10px] text-white/40">Select single or multiple images (PNG, JPG, WEBP)</p>
+                  </div>
+
+                  {newsData.length > 0 && (
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        onClick={() => watermarkFileInputRef.current?.click()}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10.5px] font-bold border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-white transition-all cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add More Images
+                      </button>
+                      <button
+                        onClick={() => {
+                          setNewsData([]);
+                          setJsonText(JSON.stringify([], null, 2));
+                          setActiveNewsIndex(0);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10.5px] font-semibold border border-red-500/20 bg-red-500/10 hover:bg-red-500/20 text-red-300 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="h-3 w-3" /> Clear All ({newsData.length})
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Logo Position Selector */}
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold text-white/70 uppercase tracking-wider flex items-center gap-1.5">
+                        <Move className="h-3.5 w-3.5 text-red-400" /> Logo Position
+                      </label>
+                      <span className="text-[9.5px] font-mono text-red-400 font-bold bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
+                        {(newsData[activeNewsIndex]?.logoPosition || watermarkPosition).toUpperCase()}
+                      </span>
+                    </div>
+
+                    {/* 3x3 Position Matrix / Grid Buttons */}
+                    <div className="grid grid-cols-3 gap-1.5 bg-black/30 p-2 rounded-xl border border-white/[0.05]">
+                      {[
+                        { id: "top-left", label: "Top Left" },
+                        { id: "top-center", label: "Top Center" },
+                        { id: "top-right", label: "Top Right (Default)" },
+                        { id: "center", label: "Center" },
+                        { id: "bottom-left", label: "Bottom Left" },
+                        { id: "bottom-center", label: "Bottom Center" },
+                        { id: "bottom-right", label: "Bottom Right" },
+                      ].map((pos) => {
+                        const currentPos = newsData[activeNewsIndex]?.logoPosition || watermarkPosition;
+                        const active = currentPos === pos.id;
+                        return (
+                          <button
+                            key={pos.id}
+                            onClick={() => handleSetWatermarkPosition(pos.id as LogoPosition)}
+                            className={`py-2 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer border text-center ${
+                              pos.id === "center" ? "col-span-3 my-0.5" : ""
+                            } ${
+                              active
+                                ? "bg-red-500/20 border-red-500/50 text-white shadow-[0_0_12px_rgba(239,68,68,0.25)]"
+                                : "bg-white/[0.03] border-white/[0.06] text-white/50 hover:bg-white/[0.07] hover:text-white"
+                            }`}
+                          >
+                            {pos.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      onClick={() => handleSetWatermarkPosition(newsData[activeNewsIndex]?.logoPosition || watermarkPosition, true)}
+                      className="w-full py-1.5 rounded-lg text-[10px] font-bold border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-white/80 hover:text-white transition cursor-pointer"
+                    >
+                      Apply Position to All Images in Batch
+                    </button>
+                  </div>
+
+                  {/* Color & Style Controls */}
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-3.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold text-white/70 uppercase tracking-wider flex items-center gap-1.5">
+                        <Palette className="h-3.5 w-3.5 text-red-400" /> Logo Colors &amp; Style
+                      </label>
+                      <button
+                        onClick={() => handleSetWatermarkColors("#000000", "#EF4444", true)}
+                        className="text-[9.5px] font-bold text-red-400 hover:text-red-300 transition cursor-pointer"
+                      >
+                        Reset to Black &amp; Red
+                      </button>
+                    </div>
+
+                    {/* Strati Text Color */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="font-semibold text-white/70">STRATI Color (Default Black)</span>
+                        <span className="font-mono text-[9px] text-white/40">{newsData[activeNewsIndex]?.stratiColor || watermarkStratiColor}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={newsData[activeNewsIndex]?.stratiColor || watermarkStratiColor}
+                          onChange={(e) => handleSetWatermarkColors(e.target.value, newsData[activeNewsIndex]?.xColor || watermarkXColor)}
+                          className="w-8 h-8 rounded-lg border border-white/20 bg-transparent cursor-pointer shrink-0"
+                        />
+                        <div className="flex gap-1.5 flex-1 overflow-x-auto">
+                          {[
+                            { label: "Black", color: "#000000" },
+                            { label: "White", color: "#FFFFFF" },
+                            { label: "Dark Slate", color: "#0F172A" },
+                            { label: "Gold", color: "#F59E0B" },
+                          ].map((preset) => (
+                            <button
+                              key={preset.color}
+                              onClick={() => handleSetWatermarkColors(preset.color, newsData[activeNewsIndex]?.xColor || watermarkXColor)}
+                              className="px-2 py-1 rounded-md text-[9px] font-bold border border-white/10 hover:border-white/30 text-white/80 flex items-center gap-1 shrink-0 cursor-pointer"
+                              style={{ backgroundColor: preset.color === "#FFFFFF" ? "#333" : preset.color }}
+                            >
+                              <span className="w-2 h-2 rounded-full border border-white/20" style={{ backgroundColor: preset.color }} />
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* X Text Color */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="font-semibold text-white/70">X Color (Default Red)</span>
+                        <span className="font-mono text-[9px] text-red-400 font-bold">{newsData[activeNewsIndex]?.xColor || watermarkXColor}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={newsData[activeNewsIndex]?.xColor || watermarkXColor}
+                          onChange={(e) => handleSetWatermarkColors(newsData[activeNewsIndex]?.stratiColor || watermarkStratiColor, e.target.value)}
+                          className="w-8 h-8 rounded-lg border border-white/20 bg-transparent cursor-pointer shrink-0"
+                        />
+                        <div className="flex gap-1.5 flex-1 overflow-x-auto">
+                          {[
+                            { label: "Red", color: "#EF4444" },
+                            { label: "Crimson", color: "#DC2626" },
+                            { label: "Gold", color: "#F59E0B" },
+                            { label: "Cyan", color: "#06B6D4" },
+                            { label: "White", color: "#FFFFFF" },
+                          ].map((preset) => (
+                            <button
+                              key={preset.color}
+                              onClick={() => handleSetWatermarkColors(newsData[activeNewsIndex]?.stratiColor || watermarkStratiColor, preset.color)}
+                              className="px-2 py-1 rounded-md text-[9px] font-bold border border-white/10 hover:border-white/30 text-white/80 flex items-center gap-1 shrink-0 cursor-pointer"
+                              style={{ backgroundColor: "#1e1e24" }}
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full border border-white/20" style={{ backgroundColor: preset.color }} />
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Background Badge Style */}
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-semibold text-white/70 block">Logo Pill Style</span>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {[
+                          { id: "none", label: "Transparent (No Box)" },
+                          { id: "glass", label: "Frosted Glass" },
+                          { id: "light", label: "Solid Light" },
+                          { id: "dark", label: "Solid Dark" },
+                          { id: "solid", label: "Accent Border" },
+                        ].map((st) => {
+                          const currentSt = newsData[activeNewsIndex]?.watermarkBgStyle || watermarkBgStyle;
+                          const active = currentSt === st.id;
+                          return (
+                            <button
+                              key={st.id}
+                              onClick={() => {
+                                setWatermarkBgStyle(st.id as any);
+                                if (newsData[activeNewsIndex]) {
+                                  const updated = [...newsData];
+                                  updated[activeNewsIndex] = { ...updated[activeNewsIndex], watermarkBgStyle: st.id as any };
+                                  setNewsData(updated);
+                                  setJsonText(JSON.stringify(updated, null, 2));
+                                }
+                              }}
+                              className={`py-1.5 px-2 rounded-lg text-[9px] font-bold transition cursor-pointer border text-center ${
+                                active
+                                  ? "bg-white/15 border-white/40 text-white"
+                                  : "bg-white/[0.03] border-white/[0.06] text-white/50 hover:bg-white/[0.07] hover:text-white"
+                              }`}
+                            >
+                              {st.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Logo Scale Slider */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[9.5px] font-semibold text-white/70">
+                        <span>Logo Scale</span>
+                        <span className="font-mono text-white/50">{Math.round((newsData[activeNewsIndex]?.logoScale || watermarkScale) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.0"
+                        step="0.05"
+                        value={newsData[activeNewsIndex]?.logoScale || watermarkScale}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setWatermarkScale(val);
+                          if (newsData[activeNewsIndex]) {
+                            const updated = [...newsData];
+                            updated[activeNewsIndex] = { ...updated[activeNewsIndex], logoScale: val };
+                            setNewsData(updated);
+                            setJsonText(JSON.stringify(updated, null, 2));
+                          }
+                        }}
+                        className="w-full cursor-pointer"
+                        style={{ accentColor: "#ef4444" }}
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleApplyAllWatermarkSettingsToBatch}
+                      className="w-full py-1.5 rounded-lg text-[10px] font-bold border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 transition cursor-pointer"
+                    >
+                      Apply Colors &amp; Style to All Images in Batch
+                    </button>
+                  </div>
+
+                  {/* Image Pan/Zoom Adjustment */}
+                  {newsData[activeNewsIndex]?.imageUrl && (
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Move className="h-3.5 w-3.5 text-white/50" />
+                          <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider">Position &amp; Zoom Image</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            handleUpdateField("imageFocusX", 0.5);
+                            handleUpdateField("imageFocusY", 0.5);
+                            handleUpdateField("imageZoom", 1);
+                          }}
+                          className="text-[9.5px] font-bold text-white/40 hover:text-white transition cursor-pointer"
+                        >
+                          Reset Image
+                        </button>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
+                          <span className="flex items-center gap-1"><ZoomIn className="h-2.5 w-2.5" /> Zoom</span>
+                          <span>{Math.round((newsData[activeNewsIndex].imageZoom ?? 1) * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="1"
+                          max="2.5"
+                          step="0.05"
+                          value={newsData[activeNewsIndex].imageZoom ?? 1}
+                          onChange={(e) => handleUpdateField("imageZoom", parseFloat(e.target.value))}
+                          className="w-full cursor-pointer"
+                          style={{ accentColor: "#ffffff" }}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
+                            <span>Pan Horiz</span>
+                            <span>{Math.round((newsData[activeNewsIndex].imageFocusX ?? 0.5) * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.02"
+                            value={newsData[activeNewsIndex].imageFocusX ?? 0.5}
+                            onChange={(e) => handleUpdateField("imageFocusX", parseFloat(e.target.value))}
+                            className="w-full cursor-pointer"
+                            style={{ accentColor: "#ffffff" }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[9px] font-mono text-[#787870]">
+                            <span>Pan Vert</span>
+                            <span>{Math.round((newsData[activeNewsIndex].imageFocusY ?? 0.5) * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.02"
+                            value={newsData[activeNewsIndex].imageFocusY ?? 0.5}
+                            onChange={(e) => handleUpdateField("imageFocusY", parseFloat(e.target.value))}
+                            className="w-full cursor-pointer"
+                            style={{ accentColor: "#ffffff" }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Index Swapping & Reordering Section */}
+                  {newsData.length > 0 && (
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider">
+                          Reorder &amp; Swap Images ({newsData.length})
+                        </span>
+                        <span className="text-[9px] text-white/40 font-mono">Active: #{activeNewsIndex + 1}</span>
+                      </div>
+
+                      <button
+                        onClick={() => setShowGridView(true)}
+                        className="w-full py-2 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+                      >
+                        <LayoutGrid className="h-4 w-4" /> Open Interactive Grid View ({newsData.length})
+                      </button>
+
+                      {/* Quick Direct Swap Tool */}
+                      {newsData.length > 1 && (
+                        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2 flex items-center gap-2">
+                          <span className="text-[9.5px] font-bold text-white/70 shrink-0">Swap #</span>
+                          <select
+                            value={swapFromIndex}
+                            onChange={(e) => setSwapFromIndex(parseInt(e.target.value, 10))}
+                            className="bg-black/50 border border-white/20 rounded px-1.5 py-1 text-[10px] font-bold text-white cursor-pointer"
+                          >
+                            {newsData.map((_, idx) => (
+                              <option key={idx} value={idx}>
+                                #{idx + 1}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-[9.5px] font-bold text-white/70 shrink-0">with #</span>
+                          <select
+                            value={swapToIndex}
+                            onChange={(e) => setSwapToIndex(parseInt(e.target.value, 10))}
+                            className="bg-black/50 border border-white/20 rounded px-1.5 py-1 text-[10px] font-bold text-white cursor-pointer"
+                          >
+                            {newsData.map((_, idx) => (
+                              <option key={idx} value={idx}>
+                                #{idx + 1}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => handleSwapIndices(swapFromIndex, swapToIndex)}
+                            className="ml-auto px-2.5 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-bold text-[9.5px] transition cursor-pointer shrink-0"
+                          >
+                            Swap
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Thumbnail List with Swap Buttons */}
+                      <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                        {newsData.map((item, idx) => {
+                          const isCurrent = idx === activeNewsIndex;
+                          return (
+                            <div
+                              key={idx}
+                              className={`flex items-center justify-between p-2 rounded-xl border transition-all ${
+                                isCurrent
+                                  ? "bg-red-500/10 border-red-500/40 text-white"
+                                  : "bg-white/[0.015] border-white/[0.05] text-white/60 hover:bg-white/[0.04]"
+                              }`}
+                            >
+                              <div
+                                onClick={() => setActiveNewsIndex(idx)}
+                                className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+                              >
+                                <span className="w-5 h-5 rounded-md bg-white/10 text-white flex items-center justify-center text-[9.5px] font-mono font-bold shrink-0">
+                                  {idx + 1}
+                                </span>
+                                {item.imageUrl ? (
+                                  <img src={item.imageUrl} alt="" className="w-8 h-8 rounded object-cover shrink-0 border border-white/10" />
+                                ) : (
+                                  <div className="w-8 h-8 rounded bg-white/5 flex items-center justify-center shrink-0 border border-white/10">
+                                    <ImagePlus className="h-3.5 w-3.5 text-white/30" />
+                                  </div>
+                                )}
+                                <span className="truncate text-[10.5px] font-medium">{item.title || `Image ${idx + 1}`}</span>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0 ml-2">
+                                <button
+                                  disabled={idx === 0}
+                                  onClick={() => handleMoveIndex(idx, "up")}
+                                  title="Move Left / Up"
+                                  className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                                >
+                                  <ChevronLeft className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  disabled={idx === newsData.length - 1}
+                                  onClick={() => handleMoveIndex(idx, "down")}
+                                  title="Move Right / Down"
+                                  className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                                >
+                                  <ChevronRight className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const next = newsData.filter((_, i) => i !== idx);
+                                    setNewsData(next);
+                                    setJsonText(JSON.stringify(next, null, 2));
+                                    if (activeNewsIndex >= next.length) {
+                                      setActiveNewsIndex(Math.max(0, next.length - 1));
+                                    }
+                                  }}
+                                  title="Delete Image"
+                                  className="p-1 rounded hover:bg-red-500/20 text-red-400 hover:text-red-300 cursor-pointer"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {creatorMode === "motion" && (
+                <div className="space-y-4">
+                  {/* Header & Status Banner */}
+                  <div className="p-3.5 rounded-xl border border-purple-500/30 bg-purple-500/10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Clapperboard className="h-4 w-4 text-purple-400" />
+                        <span className="text-xs font-bold text-white uppercase tracking-wider">Python Motion Video</span>
+                      </div>
+                      <span className="text-[9px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/30">
+                        OPENCV CV (ZERO AI)
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-white/60 leading-relaxed">
+                      Upload up to 12 images at once. OpenCV + tesseract split each poster into text and graphic layers at full resolution — every pixel outside a detected element is left exactly as uploaded, and each text layer carries its literal words, position, size and colour.
+                    </p>
+                  </div>
+
+                  {/* File Upload Dropzone */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => {
+                      e.preventDefault(); e.stopPropagation();
+                      if (e.dataTransfer.files?.length) {
+                        handleMotionFilesUpload(e.dataTransfer.files);
+                      }
+                    }}
+                    onClick={() => motionFileInputRef.current?.click()}
+                    className="p-6 rounded-2xl border-2 border-dashed border-purple-500/40 bg-purple-500/[0.03] hover:bg-purple-500/[0.08] hover:border-purple-500/70 transition-all text-center cursor-pointer group"
+                  >
+                    <input
+                      ref={motionFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.length) {
+                          handleMotionFilesUpload(e.target.files);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <div className="w-12 h-12 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 flex items-center justify-center mx-auto mb-2.5 group-hover:scale-110 transition-transform">
+                      <Upload className="h-6 w-6" />
+                    </div>
+                    <p className="text-xs font-bold text-white mb-0.5">Click or Drag &amp; Drop Images to Decompose</p>
+                    <p className="text-[10px] text-white/40">Select 5–10 carousel slides together — each is processed identically</p>
+                  </div>
+
+                  {/* Segmentation Loading Spinner */}
+                  {isSegmenting && (
+                    <div className="p-4 rounded-xl border border-purple-500/40 bg-purple-500/15 flex items-center gap-3 text-white animate-pulse">
+                      <Loader2 className="h-5 w-5 text-purple-400 animate-spin shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-purple-200">
+                          Decomposing {segmentProgress ? `${segmentProgress.total} image${segmentProgress.total === 1 ? "" : "s"}` : "image"}…
+                        </p>
+                        <p className="text-[10px] text-white/50">Reading text with OCR &amp; cutting layers at full resolution</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {segmentError && (
+                    <div className="p-3 rounded-xl border border-amber-500/40 bg-amber-500/10 flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      <p className="text-[10.5px] text-amber-200/90 leading-relaxed break-words">{segmentError}</p>
+                    </div>
+                  )}
+
+                  {/* Slide Switcher — one entry per uploaded image */}
+                  {motionSlides.length > 1 && (
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider">
+                          Slides ({motionSlides.length})
+                        </span>
+                        <span className="text-[9.5px] font-mono text-white/40">
+                          {activeMotionIndex + 1} / {motionSlides.length}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                        {motionSlides.map((s, i) => (
+                          <button
+                            key={s.slideId}
+                            onClick={() => setActiveMotionIndex(i)}
+                            title={s.fileName}
+                            className={`relative rounded-lg border overflow-hidden transition cursor-pointer ${
+                              i === activeMotionIndex
+                                ? "border-purple-500/70 ring-1 ring-purple-500/40"
+                                : "border-white/10 hover:border-white/30"
+                            }`}
+                          >
+                            {s.originalUrl ? (
+                              <img src={s.originalUrl} alt="" className="w-full aspect-[4/5] object-cover" />
+                            ) : (
+                              <div className="w-full aspect-[4/5] bg-black/40" />
+                            )}
+                            <span className="absolute top-0.5 left-0.5 text-[8.5px] font-bold text-white bg-black/70 rounded px-1">
+                              {i + 1}
+                            </span>
+                            <span className="absolute bottom-0.5 right-0.5 text-[8px] font-mono text-purple-200 bg-black/70 rounded px-1">
+                              {s.layers.length}L
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Export Motion Video Button */}
+                  {motionData.layers.length > 0 && (
+                    <div className="space-y-3">
+                      <button
+                        disabled={isRecordingVideo}
+                        onClick={handleExportMotionVideo}
+                        className="w-full py-3 rounded-xl font-bold text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-lg border border-purple-400/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {isRecordingVideo ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin text-white" />
+                            <span>RECORDING MOTION VIDEO (5s)…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Clapperboard className="h-4 w-4" />
+                            <span>EXPORT MOTION VIDEO (.WEBM / .MP4)</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Global Preset Animations */}
+                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
+                        <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider block">Animation Style Preset</span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { id: "parallax_3d", label: "3D Parallax Depth", motionType: "parallax" },
+                            { id: "cinematic_float", label: "Floating Drift", motionType: "float" },
+                            { id: "pulse_zoom", label: "Breathing Pulse", motionType: "pulse" },
+                            { id: "dramatic_slide", label: "Slide Entrance", motionType: "slide_in" },
+                          ].map((preset) => (
+                            <button
+                              key={preset.id}
+                              onClick={() => {
+                                const updatedLayers = motionData.layers.map((l: MotionLayer) => ({ ...l, motionType: preset.motionType as any }));
+                                const updated: MotionVideoData = { ...motionData, layers: updatedLayers };
+                                setMotionData(updated);
+                                setJsonText(JSON.stringify(updated, null, 2));
+                              }}
+                              className="py-1.5 px-2 rounded-lg text-[9.5px] font-bold border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-white/80 transition cursor-pointer text-center"
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Extracted Text — the literal words OCR read off this slide */}
+                      {(motionData.text?.blocks?.length ?? 0) > 0 && (
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider">
+                              Extracted Text ({motionData.text!.blocks.length})
+                            </span>
+                            <span className="text-[9px] font-mono text-white/40">
+                              {motionData.meta?.ocr === "tesseract" ? "TESSERACT OCR" : (motionData.meta?.ocr ?? "").toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                            {motionData.text!.blocks.map((b: MotionTextBlock) => (
+                              <button
+                                key={b.id}
+                                onClick={() => setMotionData((prev: MotionVideoData) => ({ ...prev, activeLayerId: b.id }))}
+                                className={`w-full text-left p-2 rounded-lg border transition cursor-pointer ${
+                                  motionData.activeLayerId === b.id
+                                    ? "bg-purple-500/15 border-purple-500/50"
+                                    : "bg-black/30 border-white/10 hover:bg-white/[0.05]"
+                                }`}
+                              >
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-purple-300 bg-purple-500/15 border border-purple-500/30 rounded px-1 py-px">
+                                    {b.role}
+                                  </span>
+                                  {b.color && (
+                                    <span
+                                      className="w-2.5 h-2.5 rounded-sm border border-white/20"
+                                      style={{ background: b.color }}
+                                      title={b.color}
+                                    />
+                                  )}
+                                  <span className="text-[8.5px] font-mono text-white/35 ml-auto">
+                                    {Math.round(b.fontSizePx)}px · {b.textAlign} · {Math.round(b.ocrConfidence)}%
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-white leading-snug break-words">{b.text}</p>
+                                <p className="text-[8.5px] font-mono text-white/35 mt-0.5">
+                                  x {b.position.x.toFixed(3)} · y {b.position.y.toFixed(3)} · {b.pixelBounds.width}×{b.pixelBounds.height}px
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Decomposed Layer Manager */}
+                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-3">
+                        <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider block">
+                          Decomposed Layers ({motionData.layers.length})
+                          {motionData.meta && (
+                            <span className="ml-1.5 font-mono normal-case tracking-normal text-white/35">
+                              {motionData.meta.textLayers ?? 0} text · {motionData.meta.graphicLayers ?? 0} graphic
+                            </span>
+                          )}
+                        </span>
+
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                          {motionData.layers.map((layer: MotionLayer) => {
+                            const isSelected = motionData.activeLayerId === layer.id;
+                            return (
+                              <div
+                                key={layer.id}
+                                onClick={() => setMotionData((prev: MotionVideoData) => ({ ...prev, activeLayerId: layer.id }))}
+                                className={`p-2.5 rounded-xl border transition-all cursor-pointer space-y-2 ${
+                                  isSelected
+                                    ? "bg-purple-500/15 border-purple-500/50 text-white"
+                                    : "bg-white/[0.02] border-white/10 text-white/60 hover:bg-white/[0.05]"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    {layer.imageUrl ? (
+                                      <img src={layer.imageUrl} alt="" className="w-8 h-8 rounded object-contain bg-black/40 border border-white/10" />
+                                    ) : (
+                                      <Layers2 className="h-4 w-4 text-purple-400" />
+                                    )}
+                                    <span className="text-xs font-bold text-white truncate max-w-[120px]">{layer.name}</span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <select
+                                      value={layer.motionType}
+                                      onChange={(e) => {
+                                        const val = e.target.value as any;
+                                        const updated = motionData.layers.map((l: MotionLayer) => (l.id === layer.id ? { ...l, motionType: val } : l));
+                                        const next: MotionVideoData = { ...motionData, layers: updated };
+                                        setMotionData(next);
+                                        setJsonText(JSON.stringify(next, null, 2));
+                                      }}
+                                      className="bg-black/60 border border-white/20 rounded px-1.5 py-0.5 text-[9.5px] font-bold text-purple-300 cursor-pointer"
+                                    >
+                                      <option value="parallax">Parallax</option>
+                                      <option value="float">Float</option>
+                                      <option value="pulse">Pulse</option>
+                                      <option value="rotate">Sway</option>
+                                      <option value="slide_in">Slide In</option>
+                                      <option value="none">Static</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                {/* Motion Speed & Distance Sliders */}
+                                {isSelected && (
+                                  <div className="pt-2 border-t border-white/10 space-y-2">
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between text-[9px] font-mono text-white/60">
+                                        <span>Motion Speed</span>
+                                        <span>{layer.motionSpeed ?? 1}x</span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min="0.2"
+                                        max="3.0"
+                                        step="0.1"
+                                        value={layer.motionSpeed ?? 1}
+                                        onChange={(e) => {
+                                          const val = parseFloat(e.target.value);
+                                          const updated = motionData.layers.map((l: MotionLayer) => (l.id === layer.id ? { ...l, motionSpeed: val } : l));
+                                          const next: MotionVideoData = { ...motionData, layers: updated };
+                                          setMotionData(next);
+                                          setJsonText(JSON.stringify(next, null, 2));
+                                        }}
+                                        className="w-full cursor-pointer"
+                                        style={{ accentColor: "#a855f7" }}
+                                      />
+                                    </div>
+
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between text-[9px] font-mono text-white/60">
+                                        <span>Motion Distance</span>
+                                        <span>{layer.motionDistance ?? 20}px</span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min="5"
+                                        max="80"
+                                        step="2"
+                                        value={layer.motionDistance ?? 20}
+                                        onChange={(e) => {
+                                          const val = parseInt(e.target.value, 10);
+                                          const updated = motionData.layers.map((l: MotionLayer) => (l.id === layer.id ? { ...l, motionDistance: val } : l));
+                                          const next: MotionVideoData = { ...motionData, layers: updated };
+                                          setMotionData(next);
+                                          setJsonText(JSON.stringify(next, null, 2));
+                                        }}
+                                        className="w-full cursor-pointer"
+                                        style={{ accentColor: "#a855f7" }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Element Layout, Text & Position JSON with 1-Click Copy */}
+                      <div className="rounded-xl border border-purple-500/30 bg-purple-500/[0.04] p-3.5 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Code2 className="h-4 w-4 text-purple-400" />
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">Layout, Text &amp; Positions JSON</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(
+                                JSON.stringify(buildMotionLayoutJson(motionSlides), null, 2)
+                              );
+                              setCopiedMotionJson(true);
+                              setTimeout(() => setCopiedMotionJson(false), 2000);
+                            }}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border border-purple-500/40 bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 transition cursor-pointer"
+                          >
+                            {copiedMotionJson ? (
+                              <>
+                                <Check className="h-3 w-3 text-emerald-400" />
+                                <span className="text-emerald-400">COPIED ALL {motionSlides.length} SLIDE{motionSlides.length === 1 ? "" : "S"}!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3" />
+                                <span>COPY JSON{motionSlides.length > 1 ? ` (${motionSlides.length})` : ""}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        <p className="text-[9.5px] text-white/40 leading-relaxed">
+                          Copy takes every slide. The preview below shows slide {activeMotionIndex + 1}. Each text element carries its literal words next to its position, font size and colour.
+                        </p>
+
+                        <div className="relative rounded-lg border border-white/10 bg-black/60 p-2.5 max-h-48 overflow-y-auto font-mono text-[10px] text-purple-200/90 leading-relaxed [scrollbar-width:thin]">
+                          <pre className="whitespace-pre-wrap break-all">
+                            {JSON.stringify(describeMotionSlide(motionData, activeMotionIndex), null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {creatorMode === "indicator" && (
                 <>
                   {/* Category & Index */}
@@ -3430,6 +4858,9 @@ export function ContentCreatorPage() {
               </div>
             </div>
           )}
+
+          {/* PROMPT BUILDER TAB */}
+          {activeTab === "prompt-builder" && <PromptBuilder />}
         </div>
 
         {/* Generate + Re-render (Left panel footer) */}
@@ -3804,20 +5235,60 @@ export function ContentCreatorPage() {
                 <ChevronRight className="h-3 w-3 shrink-0 xs:hidden" />
                 <span className="hidden xs:inline">Next</span>
               </button>
+
+              {creatorMode === "watermark" && newsData.length > 0 && (
+                <button
+                  onClick={() => setShowGridView(true)}
+                  title="Open Grid View to manage and rearrange images"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-red-500/30 bg-red-500/15 hover:bg-red-500/25 text-red-300 transition-all text-[10px] font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap shadow-sm"
+                >
+                  <LayoutGrid className="h-3 w-3 shrink-0" />
+                  <span>Grid View ({newsData.length})</span>
+                </button>
+              )}
             </div>
           </div>
         )}
 
-        {/* Canvas preview area with clickable element overlay */}
-        {/* Padding is trimmed on phones/tablets — on a ~375px-wide screen a
-            full p-6 (48px) eats ~13% of the width the poster could otherwise
-            use, and the poster is almost always width-bound there (portrait
-            phone vs. square/landscape posters), so every px of padding
-            directly costs displayed size. */}
+        {/* Canvas preview area with direct Drag & Drop image upload */}
         <div
           ref={previewRef}
-          className="relative flex-1 flex items-center justify-center overflow-hidden p-2 sm:p-4 md:p-6 select-none z-10"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingCanvasOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingCanvasOver(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingCanvasOver(false);
+            if (e.dataTransfer.files?.length) {
+              if (creatorMode === "watermark") {
+                handleWatermarkFiles(e.dataTransfer.files);
+              } else {
+                processImageFile(e.dataTransfer.files[0]);
+              }
+            }
+          }}
+          className={`relative flex-1 flex items-center justify-center overflow-hidden p-2 sm:p-4 md:p-6 select-none z-10 transition-colors ${
+            isDraggingCanvasOver ? "bg-red-500/10 border-2 border-dashed border-red-500/50" : ""
+          }`}
         >
+          {/* Direct Poster Drag-and-Drop Dropzone Overlay */}
+          {isDraggingCanvasOver && (
+            <div className="absolute inset-4 z-50 rounded-2xl border-4 border-dashed border-red-500 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center text-white space-y-3 pointer-events-none animate-in fade-in duration-150">
+              <div className="p-4 rounded-full bg-red-500/20 border border-red-500/30 text-red-400">
+                <Upload className="h-10 w-10 animate-bounce" />
+              </div>
+              <p className="text-lg font-bold text-white">Drop Image(s) Direct onto Poster</p>
+              <p className="text-xs text-white/60">Release to add logo watermark to image(s)</p>
+            </div>
+          )}
           {/* Carousel nav — real app buttons, not baked into the poster image.
               Changes which poster is being previewed/edited/exported. */}
           {isBatchMode && visibleNewsCount > 1 && (
@@ -3875,6 +5346,7 @@ export function ContentCreatorPage() {
               }}
             >
               {elementBounds.map((box, i) => {
+                const isWatermarkLogo = box.id === "watermarkLogo";
                 const isNewsImage = box.id === "imageUrl" && isBatchMode;
                 const hasImage = isNewsImage && !!newsData[activeNewsIndex]?.imageUrl;
 
@@ -3883,22 +5355,46 @@ export function ContentCreatorPage() {
                     key={`${box.id}-${i}-${box.x}-${box.y}`}
                     ref={hasImage ? setImageWheelRef : undefined}
                     onClick={() => handleElementClick(box.id)}
-                    onMouseDown={hasImage ? (e) => handleImageMouseDown(e, box) : undefined}
-                    className="absolute pointer-events-auto border border-transparent border-dashed group transition-all duration-200 rounded"
+                    onMouseDown={
+                      isWatermarkLogo
+                        ? (e) => handleLogoMouseDown(e, box)
+                        : creatorMode === "motion"
+                        ? (e) => handleStartMotionLayerDrag(e, box)
+                        : hasImage
+                        ? (e) => handleImageMouseDown(e, box)
+                        : undefined
+                    }
+                    className={`absolute pointer-events-auto border border-dashed group transition-all duration-200 rounded ${
+                      isWatermarkLogo
+                        ? "border-red-500/40 bg-red-500/[0.08] hover:border-red-500 hover:bg-red-500/20"
+                        : creatorMode === "motion"
+                        ? "border-purple-500/40 bg-purple-500/[0.05] hover:border-purple-500 hover:bg-purple-500/15"
+                        : "border-transparent"
+                    }`}
                     style={{
                       left: box.x * scale,
                       top: box.y * scale,
                       width: box.w * scale,
                       height: box.h * scale,
-                      cursor: hasImage ? (isDraggingImage ? "grabbing" : "grab") : "pointer",
+                      cursor: isWatermarkLogo
+                        ? (isDraggingLogo ? "grabbing" : "move")
+                        : creatorMode === "motion"
+                        ? (isDraggingMotionLayer ? "grabbing" : "move")
+                        : hasImage
+                        ? (isDraggingImage ? "grabbing" : "grab")
+                        : "pointer",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = colors.accent;
-                      e.currentTarget.style.backgroundColor = `${colors.accent}15`;
+                      if (!isWatermarkLogo) {
+                        e.currentTarget.style.borderColor = colors.accent;
+                        e.currentTarget.style.backgroundColor = `${colors.accent}15`;
+                      }
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "transparent";
-                      e.currentTarget.style.backgroundColor = "transparent";
+                      if (!isWatermarkLogo) {
+                        e.currentTarget.style.borderColor = "transparent";
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }
                     }}
                     onDragOver={box.id === "imageUrl" ? (e) => handleImageDragOver(e, colors.accent) : undefined}
                     onDragLeave={box.id === "imageUrl" ? handleImageDragLeave : undefined}
@@ -3917,7 +5413,11 @@ export function ContentCreatorPage() {
                         boxShadow: "0 4px 10px rgba(0,0,0,0.3)",
                       }}
                     >
-                      {hasImage ? "Drag to Pan · Scroll to Zoom" : `Edit ${box.label}`}
+                      {isWatermarkLogo
+                        ? "Drag Logo Anywhere on Image"
+                        : hasImage
+                        ? "Drag to Pan · Scroll to Zoom"
+                        : `Edit ${box.label}`}
                     </div>
 
                     {/* Dedicated replace-image button — only once an image exists;
@@ -4047,6 +5547,197 @@ export function ContentCreatorPage() {
           generateSlides={generateReelSlides}
           onClose={() => setShowReelStudio(false)}
         />
+      )}
+      {/* Grid View Modal for Batch Rearranging */}
+      {showGridView && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-6xl max-h-[90vh] flex flex-col rounded-2xl border border-white/10 bg-[#0c0d0e] shadow-[0_20px_60px_rgba(0,0,0,0.9)] overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-white/[0.02]">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
+                  <LayoutGrid className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white flex items-center gap-2">
+                    Watermark Batch Grid View
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30">
+                      {newsData.length} {newsData.length === 1 ? "Image" : "Images"}
+                    </span>
+                  </h2>
+                  <p className="text-[11px] text-white/50">
+                    Drag &amp; drop cards to reorder images manually, or click any card to open in canvas.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => watermarkFileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/15 text-white border border-white/10 transition cursor-pointer"
+                >
+                  <Upload className="h-3.5 w-3.5" /> Upload More
+                </button>
+                <button
+                  onClick={() => setShowGridView(false)}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition border border-white/10 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Grid Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {newsData.length === 0 ? (
+                <div className="text-center py-16 space-y-3">
+                  <Upload className="h-10 w-10 text-white/30 mx-auto" />
+                  <p className="text-sm font-semibold text-white/60">No images uploaded in batch yet</p>
+                  <button
+                    onClick={() => watermarkFileInputRef.current?.click()}
+                    className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-xs transition cursor-pointer inline-flex items-center gap-2"
+                  >
+                    <Upload className="h-4 w-4" /> Upload Images Now
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {newsData.map((item, idx) => {
+                    const isCurrent = idx === activeNewsIndex;
+                    const isBeingDragged = draggedGridItemIndex === idx;
+
+                    return (
+                      <div
+                        key={idx}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/plain", String(idx));
+                          setDraggedGridItemIndex(idx);
+                        }}
+                        onDragEnd={() => setDraggedGridItemIndex(null)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const fromIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
+                          if (!isNaN(fromIdx) && fromIdx !== idx) {
+                            handleSwapIndices(fromIdx, idx);
+                          }
+                          setDraggedGridItemIndex(null);
+                        }}
+                        className={`relative flex flex-col rounded-2xl border transition-all overflow-hidden group ${
+                          isBeingDragged ? "opacity-30 scale-95 border-red-500" : ""
+                        } ${
+                          isCurrent
+                            ? "bg-red-500/10 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.2)]"
+                            : "bg-white/[0.02] border-white/10 hover:border-white/20 hover:bg-white/[0.04]"
+                        }`}
+                      >
+                        {/* Card Header Badge */}
+                        <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between bg-black/40">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="w-6 h-6 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30 flex items-center justify-center text-xs font-mono font-bold shrink-0">
+                              #{idx + 1}
+                            </span>
+                            <span className="truncate text-xs font-semibold text-white/90">
+                              {item.title || `Image ${idx + 1}`}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1 cursor-grab active:cursor-grabbing text-white/40 hover:text-white shrink-0 ml-1">
+                            <GripVertical className="h-4 w-4" />
+                          </div>
+                        </div>
+
+                        {/* Thumbnail Image Container */}
+                        <div
+                          onClick={() => {
+                            setActiveNewsIndex(idx);
+                            setShowGridView(false);
+                          }}
+                          className="relative aspect-square w-full bg-black/60 overflow-hidden flex items-center justify-center cursor-pointer group-hover:brightness-105"
+                        >
+                          {item.imageUrl ? (
+                            <img src={item.imageUrl} alt="" className="w-full h-full object-contain" />
+                          ) : (
+                            <ImagePlus className="h-8 w-8 text-white/20" />
+                          )}
+
+                          {/* Active Overlay Badge */}
+                          {isCurrent && (
+                            <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-red-500 text-white text-[9.5px] font-bold shadow-md">
+                              Active
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card Controls Footer */}
+                        <div className="p-2.5 bg-black/50 border-t border-white/5 flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1">
+                            <button
+                              disabled={idx === 0}
+                              onClick={() => handleMoveIndex(idx, "up")}
+                              title="Move Left"
+                              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed border border-white/5"
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              disabled={idx === newsData.length - 1}
+                              onClick={() => handleMoveIndex(idx, "down")}
+                              title="Move Right"
+                              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed border border-white/5"
+                            >
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => {
+                                setActiveNewsIndex(idx);
+                                setShowGridView(false);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold border border-white/10 transition cursor-pointer"
+                            >
+                              Preview
+                            </button>
+                            <button
+                              onClick={() => {
+                                const next = newsData.filter((_, i) => i !== idx);
+                                setNewsData(next);
+                                setJsonText(JSON.stringify(next, null, 2));
+                                if (activeNewsIndex >= next.length) {
+                                  setActiveNewsIndex(Math.max(0, next.length - 1));
+                                }
+                              }}
+                              title="Delete"
+                              className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 cursor-pointer border border-red-500/20"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-white/10 bg-black/40 flex items-center justify-between shrink-0">
+              <span className="text-xs text-white/40">
+                Tip: Drag &amp; drop cards directly to rearrange sequence, or click any card to select for canvas editing.
+              </span>
+              <button
+                onClick={() => setShowGridView(false)}
+                className="px-4 py-2 rounded-xl bg-white text-black hover:bg-white/90 font-bold text-xs transition cursor-pointer shadow-lg"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

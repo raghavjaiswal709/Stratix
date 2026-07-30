@@ -5,7 +5,7 @@ import { ContentCreatorGenerationModel } from "@/lib/models/ContentCreatorGenera
 
 export const dynamic = "force-dynamic";
 
-const VALID_CATEGORIES = new Set(["news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch"]);
+const VALID_CATEGORIES = new Set(["news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch", "watermark-batch", "motion-video"]);
 
 // GET /api/content-creator/history — list every saved generation for this
 // user, newest first. Payload is excluded so the list stays light even with
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let body: { category?: string; title?: string; itemCount?: number; payload?: unknown };
+  let body: { category?: string; title?: string; itemCount?: number; payload?: unknown; previewUrl?: string };
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
       title: body.title.slice(0, 200),
       itemCount: Number.isFinite(body.itemCount) ? body.itemCount : 1,
       payload: body.payload,
+      previewUrl: body.previewUrl,
     });
 
     return NextResponse.json({ _id: String(doc._id), createdAt: doc.createdAt }, { status: 201 });

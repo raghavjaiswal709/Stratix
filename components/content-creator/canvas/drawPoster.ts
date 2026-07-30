@@ -7,7 +7,8 @@ import { drawBoldPoster } from "./drawBoldPoster";
 import { drawTradingNewsPoster } from "./drawTradingNewsPoster";
 import { drawEducationalCard } from "./drawEducationalCard";
 import { drawChaseStylePoster } from "./drawChaseStylePoster";
-
+import { drawWatermarkPoster } from "./drawWatermarkPoster";
+import { drawMotionVideoPoster } from "./drawMotionVideoPoster";
 
 export function drawPoster(
   canvas: HTMLCanvasElement,
@@ -24,15 +25,7 @@ export function drawPoster(
   editorialTheme: EditorialTheme = "light",
   fadeIntensity: number = 100,
   sentimentScheme: SentimentScheme = "emerald",
-  // Every size in every draw variant below flows through the `r()` helper,
-  // which is just this one scale factor — so a uniform boost here (used only
-  // by the reel exporter, everywhere else defaults to 1 / no change) makes
-  // headline/eyebrow/body text bigger while padding, gutters, and image
-  // boxes grow in lockstep, so alignment stays exact instead of overflowing.
   textScale: number = 1,
-  // Reel-only: centers the eyebrow pill/label instead of its normal
-  // left/right-aligned static-poster position. Default false leaves every
-  // existing poster ratio's layout untouched.
   isReel: boolean = false
 ): PosterElement[] {
   const W = ar.w, H = ar.h;
@@ -52,17 +45,22 @@ export function drawPoster(
   const GUT = r(24);
   const CX = PAD + GUT, CXR = W - PAD - GUT, CW = CXR - CX;
 
-  // Outro is a batch-level card kind, not a creator mode — check it first so
-  // News/Facts/Learnings all close on the exact same brand sign-off.
+  // Outro is a batch-level card kind, not a creator mode
   if (data?.isOutro) {
     return drawOutroCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, posterStyle === "bold" ? gradient : undefined);
   }
 
-  // Same idea as isOutro — a bento explainer is a card kind, not a style, so
-  // it always renders in its own plain-language grid regardless of whether
-  // the batch is Editorial or Bold.
+  // Bento explainer card
   if (data?.isBento) {
     return drawBentoExplainerCard(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, posterStyle === "bold" ? gradient : undefined, sentimentScheme, isReel);
+  }
+
+  if (mode === "watermark") {
+    return drawWatermarkPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount);
+  }
+
+  if (mode === "motion") {
+    return drawMotionVideoPoster(canvas, data, ar, img ?? null, data?.layerImgEls);
   }
 
   if (mode === "news") {

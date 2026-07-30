@@ -91,18 +91,156 @@ export interface NewsItem {
   caption?: string;
   /** 25+ hashtags: a fixed brand set plus deeply-researched, trending/relevant tags for this story. Not rendered on the poster itself. */
   hashtags?: string[];
+  /** Logo Watermark properties */
+  logoPosition?: LogoPosition;
+  logoCustomX?: number;
+  logoCustomY?: number;
+  stratiColor?: string;
+  xColor?: string;
+  watermarkBgStyle?: "glass" | "light" | "dark" | "none" | "solid";
+  logoScale?: number;
+  showTagline?: boolean;
+  taglineText?: string;
 }
+
+export type LogoPosition = "top-right" | "top-left" | "top-center" | "bottom-right" | "bottom-left" | "bottom-center" | "center" | "custom";
 
 export interface AspectRatio { id: string; label: string; w: number; h: number; desc: string; }
 
-export type CreatorMode = "analysis" | "news" | "indicator" | "facts" | "learnings";
+export type CreatorMode = "analysis" | "news" | "indicator" | "facts" | "learnings" | "watermark" | "motion";
+
+export interface PixelBounds { left: number; top: number; width: number; height: number; }
+
+export interface MotionTextWord {
+  text: string;
+  confidence: number;
+  pixelBounds: PixelBounds;
+}
+
+export interface MotionTextLine {
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  pixelBounds: PixelBounds;
+  fontSizePx: number;
+  words: MotionTextWord[];
+}
+
+export type MotionTextRole =
+  | "title" | "heading" | "subtitle" | "body" | "caption"
+  | "eyebrow" | "badge" | "tag" | "footer" | "footer-badge";
+
+export interface MotionLayer {
+  id: string;
+  name: string;
+  imageUrl: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  opacity: number;
+  scale: number;
+  rotation: number;
+  motionType: "parallax" | "float" | "pulse" | "rotate" | "slide_in" | "none";
+  motionSpeed: number;
+  motionDistance: number;
+
+  /* Everything below is emitted by scripts/motion_segment.py. Optional so that
+     layers restored from older saved generations still type-check. */
+  type?: "text" | "graphic";
+  role?: MotionTextRole | string;
+  slug?: string;
+  zIndex?: number;
+  kind?: "text" | "graphic";
+  hasAlpha?: boolean;
+  hasBackground?: boolean;
+  pixelBounds?: PixelBounds;
+  sourceSize?: { width: number; height: number };
+  positionLabel?: string;
+  backgroundColor?: string;
+  color?: string | null;
+  aspectRatio?: number;
+
+  /* Text layers only. */
+  text?: string;
+  textLines?: string[];
+  lines?: MotionTextLine[];
+  lineCount?: number;
+  wordCount?: number;
+  fontSizePx?: number;
+  fontSizeRel?: number;
+  isUppercase?: boolean;
+  textAlign?: "left" | "center" | "right";
+  ocrConfidence?: number;
+}
+
+/** One OCR'd text block, in reading order, with everything needed to place it. */
+export interface MotionTextBlock {
+  id: string;
+  role: string;
+  positionLabel?: string;
+  text: string;
+  textLines: string[];
+  position: { x: number; y: number; w: number; h: number };
+  pixelBounds: PixelBounds;
+  fontSizePx: number;
+  fontSizeRel: number;
+  textAlign: string;
+  color: string | null;
+  backgroundColor: string;
+  hasBackground?: boolean;
+  isUppercase: boolean;
+  ocrConfidence: number;
+}
+
+export interface MotionTextData {
+  fullText: string;
+  blockCount?: number;
+  blocks: MotionTextBlock[];
+}
+
+export interface MotionMeta {
+  ocr: string;
+  wordsDetected?: number;
+  linesDetected?: number;
+  textLayers?: number;
+  graphicLayers?: number;
+  mattedLayers?: number;
+  processedAtSourceResolution?: boolean;
+  note?: string;
+}
+
+export interface MotionVideoData {
+  backgroundUrl?: string;
+  originalUrl?: string;
+  layers: MotionLayer[];
+  activeLayerId?: string;
+  timeMs?: number;
+  isExporting?: boolean;
+  /** Decomposed pixel size — the canvas renders 1:1 with this so nothing is resampled. */
+  width?: number;
+  height?: number;
+  sourceWidth?: number;
+  sourceHeight?: number;
+  text?: MotionTextData;
+  meta?: MotionMeta;
+  fileName?: string;
+}
+
+/** One uploaded image in a motion batch. */
+export interface MotionSlide extends MotionVideoData {
+  slideId: string;
+}
 
 export interface HistoryListItem {
   _id: string;
-  category: "news-batch" | "daily-analysis" | "indicator" | "facts-batch" | "learnings-batch";
+  category: "news-batch" | "daily-analysis" | "indicator" | "facts-batch" | "learnings-batch" | "watermark-batch" | "motion-video";
   title: string;
   itemCount: number;
   createdAt: string;
+  previewUrl?: string;
 }
 
 export interface PosterColors {
