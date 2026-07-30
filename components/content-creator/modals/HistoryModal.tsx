@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, AlertCircle, Layers2, Trash2, Loader2, History, Newspaper, LineChart, Lightbulb, BookOpen } from "lucide-react";
+import { X, AlertCircle, Layers2, Trash2, Loader2, History, Newspaper, LineChart, Lightbulb, BookOpen, Clapperboard } from "lucide-react";
 import type { HistoryListItem } from "../types";
 
 
@@ -11,6 +11,8 @@ export const HISTORY_CATEGORY_META: Record<HistoryListItem["category"], { label:
   "indicator":        { label: "Indicator",      icon: Layers2,    color: "#8b93a1" },
   "facts-batch":      { label: "Facts",          icon: Lightbulb,  color: "#10b981" },
   "learnings-batch":  { label: "Learnings",      icon: BookOpen,   color: "#10b981" },
+  "watermark-batch":  { label: "Logo Watermark", icon: Layers2,    color: "#ef4444" },
+  "motion-video":     { label: "Motion Video",   icon: Clapperboard, color: "#a855f7" },
 };
 
 export function relativeTime(iso: string): string {
@@ -63,9 +65,9 @@ export function HistoryModal({
 
         {/* Category filter */}
         <div className="flex items-center gap-1.5 px-5 py-3 border-b border-white/[0.06] shrink-0 flex-wrap">
-          {(["all", "news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch"] as const).map((cat) => {
+          {(["all", "watermark-batch", "news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch"] as const).map((cat) => {
             const active = filter === cat;
-            const label = cat === "all" ? "All" : HISTORY_CATEGORY_META[cat].label;
+            const label = cat === "all" ? "All" : HISTORY_CATEGORY_META[cat]?.label || cat;
             const count = cat === "all" ? items.length : (counts[cat] || 0);
             return (
               <button
@@ -97,11 +99,11 @@ export function HistoryModal({
             <div className="flex flex-col items-center justify-center py-14 text-white/30 gap-2">
               <History className="h-6 w-6 opacity-40" />
               <p className="text-[12px]">No saved generations yet.</p>
-              <p className="text-[10.5px] text-white/20">News batches auto-save here. Use the Save icon to store Daily Analysis / Indicator posters too.</p>
+              <p className="text-[10.5px] text-white/20">News &amp; Watermark batches save here. Use the Save button to store custom posters.</p>
             </div>
           ) : (
             filtered.map((item) => {
-              const meta = HISTORY_CATEGORY_META[item.category];
+              const meta = HISTORY_CATEGORY_META[item.category] || { label: item.category, icon: Newspaper, color: "#8b93a1" };
               const Icon = meta.icon;
               const busy = busyId === item._id;
               return (
@@ -109,12 +111,16 @@ export function HistoryModal({
                   key={item._id}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-white/[0.05] bg-white/[0.015] hover:bg-white/[0.035] transition-all group"
                 >
-                  <div
-                    className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0"
-                    style={{ background: `${meta.color}1f`, border: `1px solid ${meta.color}33` }}
-                  >
-                    <Icon className="h-3.5 w-3.5" style={{ color: meta.color }} />
-                  </div>
+                  {item.previewUrl ? (
+                    <img src={item.previewUrl} alt="" className="h-9 w-9 rounded-lg object-cover border border-white/10 shrink-0" />
+                  ) : (
+                    <div
+                      className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ background: `${meta.color}1f`, border: `1px solid ${meta.color}33` }}
+                    >
+                      <Icon className="h-3.5 w-3.5" style={{ color: meta.color }} />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] font-semibold text-white/90 truncate">{item.title}</p>
                     <p className="text-[10px] text-white/35">

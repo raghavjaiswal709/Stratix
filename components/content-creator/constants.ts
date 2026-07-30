@@ -1,7 +1,8 @@
-import type { AspectRatio, PosterColors, AnalysisData, PosterData, NewsItem } from "./types";
+import type { AspectRatio, PosterColors, AnalysisData, PosterData, NewsItem, MotionVideoData } from "./types";
 
 
 export const RATIOS: AspectRatio[] = [
+  { id: "auto",      label: "Auto", w: 1080, h: 1080, desc: "Original" },
   { id: "square",    label: "1:1",  w: 800,  h: 800,  desc: "Post"     },
   { id: "portrait",  label: "4:5",  w: 800,  h: 1000, desc: "Portrait" },
   { id: "story",     label: "9:16", w: 800,  h: 1422, desc: "Story"    },
@@ -322,6 +323,10 @@ export const GRADIENT_PRESETS: GradientPreset[] = [
   { id: "jet-black",     name: "Jet Black",     stops: ["#0a0a0a", "#000000"], accent: "#ffffff", pillAccent: "#111111", monochrome: true },
   { id: "pure-white",    name: "Pure White",    stops: ["#ffffff", "#e5e5e5"], accent: "#000000", isLight: true, pillAccent: "#ffffff", monochrome: true },
 ];
+
+/** Stable identity for "no motion slide loaded" — a fresh object literal here
+ *  would retrigger every effect that depends on motionData on each render. */
+export const EMPTY_MOTION_DATA: MotionVideoData = { layers: [] };
 
 export const EMPTY_ANALYSIS: AnalysisData = {
   category: "DAILY ANALYSIS",

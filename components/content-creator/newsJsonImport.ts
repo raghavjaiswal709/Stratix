@@ -402,7 +402,14 @@ export function importLearningsJson(raw: unknown): NewsItem[] {
 }
 
 /** Dispatches a pasted external-AI JSON payload (already `JSON.parse`d) to the right category transform. */
-export function importAiJson(category: "news" | "facts" | "learnings", raw: unknown): NewsItem[] {
+export function importAiJson(category: "news" | "facts" | "learnings" | "watermark", raw: unknown): NewsItem[] {
+  if (category === "watermark") {
+    if (Array.isArray(raw)) return raw as NewsItem[];
+    if (raw && typeof raw === "object" && raw !== null && "items" in raw && Array.isArray((raw as any).items)) {
+      return (raw as any).items as NewsItem[];
+    }
+    return [];
+  }
   if (category === "news") return importNewsJson(raw);
   if (category === "facts") return importFactsJson(raw);
   return importLearningsJson(raw);

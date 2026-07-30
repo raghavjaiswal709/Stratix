@@ -6,10 +6,11 @@ import mongoose, { Schema } from "mongoose";
 // array/object, ratioId, colors and config, so "Load" is a single round trip.
 const ContentCreatorGenerationSchema = new Schema({
   userId:     { type: String, required: true, index: true },
-  category:   { type: String, enum: ["news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch"], required: true },
+  category:   { type: String, enum: ["news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch", "watermark-batch", "motion-video"], required: true },
   title:      { type: String, required: true },
   itemCount:  { type: Number, default: 1 },
   payload:    { type: Schema.Types.Mixed, required: true },
+  previewUrl: { type: String },
   createdAt:  { type: Date, default: Date.now },
 });
 
