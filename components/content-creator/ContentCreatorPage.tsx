@@ -81,6 +81,18 @@ import { compressImage, runWithConcurrency } from "./imageUtils";
 import { WebImageSearch } from "./WebImageSearch";
 import { parseJsonResponse } from "./apiUtils";
 import { drawPoster } from "./canvas/drawPoster";
+import { drawMotionTimelineFrame } from "./canvas/drawMotionTimelineFrame";
+import { MotionTimelinePanel } from "./motion/MotionTimelinePanel";
+import {
+  parseMotionTimeline,
+  parseTranscriptCsv,
+  sampleTimeline,
+  wordAt,
+  type CompiledTimeline,
+  type TimelineReport,
+  type TranscriptWord,
+} from "@/lib/motion-timeline";
+import { MOTION_TIMELINE_TEMPLATE } from "@/lib/prompt-templates/motion-timeline-template";
 import { computeCoverFitSlack, getAntonFontFamily } from "./canvas/canvasUtils";
 import type { SentimentScheme } from "./canvas/canvasUtils";
 import { SampleJsonModal } from "./modals/SampleJsonModal";
@@ -160,6 +172,31 @@ export function ContentCreatorPage() {
   // never share one flat map without slides stealing each other's pixels.
   const motionLayerImgElsRef = useRef<Record<string, Record<string, HTMLImageElement>>>({});
   const [copiedMotionJson, setCopiedMotionJson] = useState(false);
+
+  // AI Timeline — audio-synced choreography.
+  //
+  // Without one, motion mode animates procedurally off a free-running clock
+  // and can only loop. With one applied, every element's state at time t comes
+  // from the timeline instead, which is what makes the result line up with a
+  // voiceover word for word.
+  const [motionTimelineText, setMotionTimelineText] = useState("");
+  const [motionTimeline, setMotionTimeline] = useState<CompiledTimeline | null>(null);
+  const [motionTimelineReport, setMotionTimelineReport] = useState<TimelineReport | null>(null);
+  const [motionLoop, setMotionLoop] = useState(true);
+  const [motionTranscript, setMotionTranscript] = useState<TranscriptWord[] | null>(null);
+  const [motionTranscriptName, setMotionTranscriptName] = useState<string | null>(null);
+  const [motionTranscriptNote, setMotionTranscriptNote] = useState<string | null>(null);
+  const [motionAudioName, setMotionAudioName] = useState<string | null>(null);
+  const [copiedMotionPrompt, setCopiedMotionPrompt] = useState(false);
+  const [isExportingTimeline, setIsExportingTimeline] = useState(false);
+  const [timelineExportElapsed, setTimelineExportElapsed] = useState<number | null>(null);
+  // Mirrors of state the rAF loop reads: touching them must not tear down and
+  // rebuild the clock effect mid-playback.
+  const motionTimeRef = useRef(0);
+  const motionClockOriginRef = useRef(0);
+  const motionLoopRef = useRef(true);
+  const motionAudioRef = useRef<HTMLAudioElement | null>(null);
+  const motionAudioUrlRef = useRef<string | null>(null);
 
   const motionData: MotionVideoData = motionSlides[activeMotionIndex] ?? EMPTY_MOTION_DATA;
   const activeMotionSlideId = motionSlides[activeMotionIndex]?.slideId ?? "";
@@ -518,7 +555,13 @@ export function ContentCreatorPage() {
     setSaveStatus("saving");
     try {
       let createdId: string | null = null;
-      const firstImg = isBatchMode ? newsData[0]?.imageUrl : (creatorMode === "analysis" ? analysisData.imageUrl : parsedData.imageUrl);
+      const firstImg = isBatchMode
+        ? newsData[0]?.imageUrl
+        : creatorMode === "analysis"
+        ? analysisData.imageUrl
+        : creatorMode === "motion"
+        ? motionSlides[0]?.backgroundUrl || motionSlides[0]?.originalUrl
+        : parsedData.imageUrl;
       const previewUrl = firstImg && typeof firstImg === "string" && firstImg.length < 500000 ? firstImg : undefined;
 
       if (creatorMode === "news") {
@@ -542,6 +585,12 @@ export function ContentCreatorPage() {
           ? `${analysisData.instrument} · ${analysisData.levelName || "Daily Analysis"}`
           : "Daily Analysis";
         createdId = await saveToHistory("daily-analysis", title, 1, { analysisData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
+      } else if (creatorMode === "motion") {
+        const firstName = motionSlides[0]?.fileName?.replace(/\.[^.]+$/, "");
+        const title = motionSlides.length > 1
+          ? `Motion Video · ${motionSlides.length} slides`
+          : (firstName || "Motion Video");
+        createdId = await saveToHistory("motion-video", title, motionSlides.length, { slides: motionSlides, timelineText: motionTimelineText, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
       } else {
         const title = parsedData.title || parsedData.category || "Indicator Poster";
         createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
@@ -598,6 +647,30 @@ export function ContentCreatorPage() {
         setCreatorMode("analysis");
         setAnalysisData(payload.analysisData);
         setJsonText(JSON.stringify(payload.analysisData, null, 2));
+      } else if (doc.category === "motion-video" && Array.isArray(payload.slides)) {
+        setCreatorMode("motion");
+        const slides: MotionSlide[] = payload.slides;
+        slides.forEach(preloadMotionSlideImages);
+        setMotionSlides(slides);
+        setActiveMotionIndex(0);
+        setMotionTimeMs(0);
+        motionTimeRef.current = 0;
+        setSegmentError(null);
+        setJsonText(JSON.stringify(buildMotionLayoutJson(slides), null, 2));
+
+        // The saved timeline is re-compiled against the restored slides rather
+        // than trusted, so a payload from an older schema surfaces as a report
+        // instead of a broken playhead.
+        const savedTimeline = typeof payload.timelineText === "string" ? payload.timelineText : "";
+        setMotionTimelineText(savedTimeline);
+        if (savedTimeline.trim()) {
+          const { timeline, report } = parseMotionTimeline(savedTimeline, slides);
+          setMotionTimeline(timeline);
+          setMotionTimelineReport(report);
+        } else {
+          setMotionTimeline(null);
+          setMotionTimelineReport(null);
+        }
       } else if (payload.parsedData) {
         setCreatorMode("indicator");
         setParsedData(payload.parsedData);
@@ -1051,6 +1124,15 @@ export function ContentCreatorPage() {
     // Motion mode always renders at the decomposed pixel size. Anything else
     // rescales every cut-out on the way to the canvas, and a poster that was
     // reassembled to the pixel would come out soft.
+    // A timeline cuts between slides mid-playback, and a canvas that resizes
+    // mid-recording produces a broken file — so the whole video is locked to
+    // the first scene's slide and any odd-sized slide is contain-fitted into it.
+    if (creatorMode === "motion" && motionTimeline) {
+      const first = motionSlides[motionTimeline.scenes[0]?.slideIndex ?? 0];
+      if (first?.width && first?.height) {
+        return { id: "auto", label: "Auto", w: first.width, h: first.height, desc: `${first.width}×${first.height}` };
+      }
+    }
     if (creatorMode === "motion" && motionData.width && motionData.height) {
       return {
         id: "auto",
@@ -1082,7 +1164,7 @@ export function ContentCreatorPage() {
       }
     }
     return RATIOS.find((r) => r.id === ratioId) || RATIOS[0];
-  }, [ratioId, creatorMode, activeNewsIndex, newsData, activeItemImgUrl, motionData.width, motionData.height, activeImgRef.current?.naturalWidth, activeImgRef.current?.naturalHeight, loadedImagesRef.current]);
+  }, [ratioId, creatorMode, activeNewsIndex, newsData, activeItemImgUrl, motionData.width, motionData.height, motionTimeline, motionSlides, activeImgRef.current?.naturalWidth, activeImgRef.current?.naturalHeight, loadedImagesRef.current]);
 
   // Compute CSS scale so canvas fits preview area
   // Load the user's saved "default settings" once on mount, if they've ever
@@ -1414,43 +1496,159 @@ export function ContentCreatorPage() {
     visibleNewsCount,
   ]);
 
-  // 60 FPS Motion Animation clock loop
+  useEffect(() => {
+    motionLoopRef.current = motionLoop;
+  }, [motionLoop]);
+
+  /** Moves the playhead (and the voiceover with it) without restarting the clock. */
+  const seekMotionTo = useCallback(
+    (ms: number) => {
+      const duration = motionTimeline?.durationMs ?? Infinity;
+      const clamped = Math.max(0, Math.min(ms, duration));
+      motionTimeRef.current = clamped;
+      motionClockOriginRef.current = performance.now() - clamped;
+      const audio = motionAudioRef.current;
+      if (audio) {
+        try {
+          audio.currentTime = clamped / 1000;
+        } catch {
+          /* audio not seekable yet — the clock still moves */
+        }
+      }
+      setMotionTimeMs(clamped);
+    },
+    [motionTimeline]
+  );
+
+  // 60 FPS motion clock. Free-running when no timeline is applied (the
+  // procedural preview loops forever); bounded by the timeline's duration
+  // otherwise, and slaved to the voiceover whenever one is loaded — audio is
+  // the only clock that cannot drift against itself.
   useEffect(() => {
     if (creatorMode !== "motion" || !isPlayingMotion) return;
 
-    let startTime = performance.now();
+    const audio = motionAudioRef.current;
+    const duration = motionTimeline?.durationMs ?? 0;
+    motionClockOriginRef.current = performance.now() - motionTimeRef.current;
+
+    if (audio && motionTimeline) {
+      void audio.play().catch(() => {
+        /* autoplay refused — the performance clock carries on alone */
+      });
+    }
+
+    const advance = (value: number) => {
+      motionTimeRef.current = value;
+      setMotionTimeMs(value);
+    };
+
     const tick = (now: number) => {
-      setMotionTimeMs(now - startTime);
+      const fromAudio = audio && !audio.paused && !audio.ended ? audio.currentTime * 1000 : null;
+      let t = fromAudio ?? now - motionClockOriginRef.current;
+
+      if (duration > 0 && t >= duration) {
+        if (motionLoopRef.current) {
+          t = 0;
+          motionClockOriginRef.current = now;
+          if (audio) {
+            try {
+              audio.currentTime = 0;
+            } catch {
+              /* ignore */
+            }
+            void audio.play().catch(() => {});
+          }
+        } else {
+          advance(duration);
+          setIsPlayingMotion(false);
+          return;
+        }
+      }
+
+      advance(t);
       motionAnimFrameRef.current = requestAnimationFrame(tick);
     };
 
     motionAnimFrameRef.current = requestAnimationFrame(tick);
     return () => {
       if (motionAnimFrameRef.current) cancelAnimationFrame(motionAnimFrameRef.current);
+      audio?.pause();
     };
-  }, [creatorMode, isPlayingMotion]);
+  }, [creatorMode, isPlayingMotion, motionTimeline]);
 
   // Render canvas on motionTimeMs change when in motion mode
   useEffect(() => {
-    if (creatorMode === "motion" && canvasRef.current) {
-      const dataWithTime = {
-        ...motionData,
-        timeMs: motionTimeMs,
-        layerImgEls: motionLayerImgElsRef.current[activeMotionSlideId] || {},
-      };
-      const bgImg = motionData.backgroundUrl ? loadedImagesRef.current[motionData.backgroundUrl] : null;
-      const bounds = drawPoster(
+    if (creatorMode !== "motion" || !canvasRef.current) return;
+
+    // Timeline applied: the whole batch is one video. The frame decides which
+    // slide is on screen, so the slide switcher follows playback rather than
+    // driving it.
+    if (motionTimeline) {
+      const frame = sampleTimeline(motionTimeline, motionTimeMs);
+      const bounds = drawMotionTimelineFrame(
         canvasRef.current,
-        dataWithTime,
-        ar,
-        colors,
-        config,
-        bgImg,
-        "motion"
+        frame,
+        {
+          slides: motionSlides,
+          layerImgEls: motionLayerImgElsRef.current,
+          bgImgs: loadedImagesRef.current,
+        },
+        { w: ar.w, h: ar.h },
+        {
+          activeLayerId: motionData.activeLayerId,
+          showSelection: !isPlayingMotion && !isExportingTimeline,
+        }
       );
       setElementBounds(bounds);
+      if (frame.activeSlideIndex !== activeMotionIndex && motionSlides[frame.activeSlideIndex]) {
+        setActiveMotionIndex(frame.activeSlideIndex);
+      }
+      return;
     }
-  }, [creatorMode, motionTimeMs, motionData, activeMotionSlideId, ar, colors, config]);
+
+    const dataWithTime = {
+      ...motionData,
+      timeMs: motionTimeMs,
+      layerImgEls: motionLayerImgElsRef.current[activeMotionSlideId] || {},
+    };
+    const bgImg = motionData.backgroundUrl ? loadedImagesRef.current[motionData.backgroundUrl] : null;
+    const bounds = drawPoster(canvasRef.current, dataWithTime, ar, colors, config, bgImg, "motion");
+    setElementBounds(bounds);
+  }, [
+    creatorMode,
+    motionTimeMs,
+    motionData,
+    motionSlides,
+    activeMotionIndex,
+    activeMotionSlideId,
+    motionTimeline,
+    isPlayingMotion,
+    isExportingTimeline,
+    ar,
+    colors,
+    config,
+  ]);
+
+  // Warms loadedImagesRef/motionLayerImgElsRef for one slide's background +
+  // layer images so the motion canvas (which, unlike the poster renderer,
+  // never lazy-loads a missing entry — see the render effect above) can draw
+  // it immediately. Shared by the upload handler and by history restore,
+  // since a slide reaching state either way needs the exact same warm-up.
+  const preloadMotionSlideImages = (slide: MotionSlide) => {
+    if (slide.backgroundUrl && !loadedImagesRef.current[slide.backgroundUrl]) {
+      const bgImg = new Image();
+      bgImg.src = slide.backgroundUrl;
+      loadedImagesRef.current[slide.backgroundUrl] = bgImg;
+    }
+    const perSlide: Record<string, HTMLImageElement> = {};
+    (slide.layers || []).forEach((l) => {
+      if (!l.imageUrl) return;
+      const lImg = new Image();
+      lImg.src = l.imageUrl;
+      perSlide[l.id] = lImg;
+    });
+    motionLayerImgElsRef.current[slide.slideId] = perSlide;
+  };
 
   // Motion Video Python segmentation handler.
   //
@@ -1471,6 +1669,12 @@ export function ContentCreatorPage() {
         : null
     );
     setSegmentProgress({ done: 0, total: batch.length });
+    // A fresh upload is a new workflow, not a continuation of whatever was
+    // loaded before — same reasoning as generateNewsBatch/generateFactsBatch.
+    setActiveHistoryId(null);
+    // Element ids are per-decomposition, so a timeline written against the
+    // previous batch addresses layers that no longer exist.
+    clearMotionTimeline();
 
     try {
       const form = new FormData();
@@ -1498,7 +1702,7 @@ export function ContentCreatorPage() {
         const slideId = `slide_${Date.now()}_${i}`;
         const layers: MotionLayer[] = data.layers || [];
 
-        slides.push({
+        const slide: MotionSlide = {
           slideId,
           fileName: name,
           backgroundUrl: data.backgroundUrl,
@@ -1511,21 +1715,9 @@ export function ContentCreatorPage() {
           sourceHeight: data.sourceHeight,
           text: data.text,
           meta: data.meta,
-        });
-
-        if (data.backgroundUrl) {
-          const bgImg = new Image();
-          bgImg.src = data.backgroundUrl;
-          loadedImagesRef.current[data.backgroundUrl] = bgImg;
-        }
-        const perSlide: Record<string, HTMLImageElement> = {};
-        layers.forEach((l) => {
-          if (!l.imageUrl) return;
-          const lImg = new Image();
-          lImg.src = l.imageUrl;
-          perSlide[l.id] = lImg;
-        });
-        motionLayerImgElsRef.current[slideId] = perSlide;
+        };
+        slides.push(slide);
+        preloadMotionSlideImages(slide);
         setSegmentProgress({ done: slides.length, total: batch.length });
       });
 
@@ -1536,8 +1728,35 @@ export function ContentCreatorPage() {
       setMotionSlides(slides);
       setActiveMotionIndex(0);
       setJsonText(JSON.stringify(buildMotionLayoutJson(slides), null, 2));
-      if (failures.length > 0) {
-        setSegmentError(`${failures.length} image(s) failed: ${failures.join("; ")}`);
+
+      const decodeFailureMsg = failures.length > 0 ? `${failures.length} image(s) failed: ${failures.join("; ")}` : null;
+
+      // Decomposition is destructive to whatever was on screen before it, so
+      // it must be persisted the moment it succeeds — same "auto-save
+      // immediately" contract as generateNewsBatch/generateFactsBatch. Every
+      // image URL here is already an R2-backed proxy path (never base64), so
+      // this payload stays small regardless of batch size.
+      const firstName = slides[0]?.fileName?.replace(/\.[^.]+$/, "");
+      const title = slides.length > 1 ? `Motion Video · ${slides.length} slides` : (firstName || "Motion Video");
+      const previewUrl = slides[0]?.backgroundUrl || slides[0]?.originalUrl;
+      const createdId = await saveToHistory(
+        "motion-video",
+        title,
+        slides.length,
+        { slides, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme },
+        null,
+        previewUrl
+      );
+
+      if (createdId) {
+        setActiveHistoryId(createdId);
+        setSegmentError(decodeFailureMsg);
+      } else {
+        setSegmentError(
+          [decodeFailureMsg, "Decomposed successfully, but saving to History failed — use Save manually."]
+            .filter(Boolean)
+            .join(" ")
+        );
       }
     } catch (err: any) {
       console.error("Failed to decompose image(s):", err);
@@ -1584,6 +1803,202 @@ export function ContentCreatorPage() {
       window.removeEventListener("mouseup", handleUp);
     };
   }, [isDraggingMotionLayer, scale, ar]);
+
+  /* ── AI Timeline: apply, inputs, export ──────────────────────────────── */
+
+  const applyMotionTimeline = useCallback(() => {
+    const { timeline, report } = parseMotionTimeline(motionTimelineText, motionSlides);
+    setMotionTimelineReport(report);
+    setMotionTimeline(timeline);
+    if (!timeline) return;
+
+    // Start the new timeline from the top rather than wherever the old
+    // playhead happened to sit.
+    motionTimeRef.current = 0;
+    motionClockOriginRef.current = performance.now();
+    setMotionTimeMs(0);
+    setActiveMotionIndex(timeline.scenes[0]?.slideIndex ?? 0);
+    setMotionData((prev) => ({ ...prev, activeLayerId: undefined }));
+    const audio = motionAudioRef.current;
+    if (audio) {
+      try {
+        audio.currentTime = 0;
+      } catch {
+        /* not seekable yet */
+      }
+    }
+    setIsPlayingMotion(true);
+  }, [motionTimelineText, motionSlides, setMotionData]);
+
+  const clearMotionTimeline = useCallback(() => {
+    setMotionTimeline(null);
+    setMotionTimelineReport(null);
+    setMotionTimelineText("");
+    motionTimeRef.current = 0;
+    motionClockOriginRef.current = performance.now();
+    setMotionTimeMs(0);
+  }, []);
+
+  const handleCopyMotionPrompt = useCallback(() => {
+    if (motionSlides.length === 0) return;
+    const layout = JSON.stringify(buildMotionLayoutJson(motionSlides), null, 2);
+    const text = [
+      MOTION_TIMELINE_TEMPLATE,
+      "",
+      "=== INPUT (A) — LAYOUT JSON ===",
+      layout,
+      "",
+      "=== INPUT (B) — TRANSCRIPT CSV ===",
+      "<paste your word-by-word timestamped CSV here, then send>",
+    ].join("\n");
+    navigator.clipboard.writeText(text);
+    setCopiedMotionPrompt(true);
+    setTimeout(() => setCopiedMotionPrompt(false), 3000);
+  }, [motionSlides]);
+
+  const handleMotionTranscriptFile = useCallback(async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = parseTranscriptCsv(text);
+      if (parsed.words.length === 0) {
+        setMotionTranscript(null);
+        setMotionTranscriptName(null);
+        setMotionTranscriptNote(parsed.warnings[0] || "No timed words found in that file.");
+        return;
+      }
+      setMotionTranscript(parsed.words);
+      setMotionTranscriptName(file.name);
+      setMotionTranscriptNote(
+        [parsed.unit === "s" ? "Read as seconds." : "Read as milliseconds.", ...parsed.warnings].join(" ")
+      );
+    } catch {
+      setMotionTranscriptNote("Could not read that file.");
+    }
+  }, []);
+
+  const clearMotionTranscript = useCallback(() => {
+    setMotionTranscript(null);
+    setMotionTranscriptName(null);
+    setMotionTranscriptNote(null);
+  }, []);
+
+  // The voiceover never leaves the browser — it exists only as an object URL,
+  // to drive the clock and to be muxed into the recording.
+  const handleMotionAudioFile = useCallback((file: File) => {
+    if (motionAudioUrlRef.current) URL.revokeObjectURL(motionAudioUrlRef.current);
+    motionAudioRef.current?.pause();
+
+    const url = URL.createObjectURL(file);
+    motionAudioUrlRef.current = url;
+    const audio = new Audio(url);
+    audio.preload = "auto";
+    motionAudioRef.current = audio;
+    setMotionAudioName(file.name);
+    seekMotionTo(0);
+  }, [seekMotionTo]);
+
+  const clearMotionAudio = useCallback(() => {
+    motionAudioRef.current?.pause();
+    if (motionAudioUrlRef.current) URL.revokeObjectURL(motionAudioUrlRef.current);
+    motionAudioUrlRef.current = null;
+    motionAudioRef.current = null;
+    setMotionAudioName(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      motionAudioRef.current?.pause();
+      if (motionAudioUrlRef.current) URL.revokeObjectURL(motionAudioUrlRef.current);
+    };
+  }, []);
+
+  const motionActiveWord = useMemo(
+    () => (motionTranscript ? wordAt(motionTranscript, motionTimeMs) : null),
+    [motionTranscript, motionTimeMs]
+  );
+
+  /**
+   * Records the timeline end to end.
+   *
+   * MediaRecorder captures a live canvas, so this runs in real time — the clip
+   * takes as long as the video does. The voiceover, when loaded, is captured
+   * off the same <audio> element that is driving the clock, which is what makes
+   * the exported file self-consistent instead of merely close.
+   */
+  const handleExportTimelineVideo = async () => {
+    if (!canvasRef.current || !motionTimeline || isExportingTimeline) return;
+    const duration = motionTimeline.durationMs;
+
+    setIsExportingTimeline(true);
+    setTimelineExportElapsed(0);
+    setMotionData((prev) => ({ ...prev, activeLayerId: undefined }));
+
+    // A loop restart mid-take would splice the opening frames onto the end.
+    const restoreLoop = motionLoopRef.current;
+    motionLoopRef.current = false;
+
+    seekMotionTo(0);
+    setIsPlayingMotion(true);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    let progressTimer: number | null = null;
+    const finish = () => {
+      if (progressTimer !== null) window.clearInterval(progressTimer);
+      motionLoopRef.current = restoreLoop;
+      setIsExportingTimeline(false);
+      setTimelineExportElapsed(null);
+    };
+
+    try {
+      const canvas = canvasRef.current;
+      const stream = canvas.captureStream(motionTimeline.fps);
+
+      const audio = motionAudioRef.current as (HTMLAudioElement & { captureStream?: () => MediaStream }) | null;
+      if (audio?.captureStream) {
+        try {
+          audio.captureStream().getAudioTracks().forEach((track) => stream.addTrack(track));
+        } catch {
+          /* video-only export — the timeline is still frame-accurate */
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+          ? "video/webm;codecs=vp9,opus"
+          : "video/webm",
+        videoBitsPerSecond: 12_000_000,
+      });
+
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "video/webm" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `stratix-motion-synced-${Date.now()}.webm`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        finish();
+      };
+
+      recorder.start();
+      const startedAt = performance.now();
+      progressTimer = window.setInterval(() => {
+        setTimelineExportElapsed(performance.now() - startedAt);
+      }, 100);
+
+      // A short tail keeps the final frame (and any exit fade) in the file.
+      window.setTimeout(() => {
+        if (recorder.state !== "inactive") recorder.stop();
+      }, duration + 300);
+    } catch (e) {
+      console.error("Failed to record synced motion video:", e);
+      finish();
+    }
+  };
 
   // Motion Video Recording Exporter
   const handleExportMotionVideo = async () => {
@@ -1873,6 +2288,13 @@ export function ContentCreatorPage() {
 
   // Render poster to canvas
   const render = useCallback(() => {
+    // Motion mode owns the canvas from its own effect: its frames need the
+    // decoded layer images, which this path has no access to. Letting it run
+    // here repaints the poster from `jsonText` (the layout JSON) and wipes the
+    // frame down to a bare background — visible as a blank preview the moment
+    // anything else re-renders, e.g. a viewport resize changing `ar`.
+    if (creatorMode === "motion") return;
+
     let activeData: any;
     try {
       const parsed = JSON.parse(jsonText);
@@ -3804,7 +4226,13 @@ export function ContentCreatorPage() {
                         {motionSlides.map((s, i) => (
                           <button
                             key={s.slideId}
-                            onClick={() => setActiveMotionIndex(i)}
+                            onClick={() => {
+                              // Under a timeline the slide order is the video's
+                              // own — picking a slide means jumping to its scene.
+                              const scene = motionTimeline?.scenes.find((sc) => sc.slideIndex === i);
+                              if (scene) seekMotionTo(scene.startMs);
+                              else setActiveMotionIndex(i);
+                            }}
                             title={s.fileName}
                             className={`relative rounded-lg border overflow-hidden transition cursor-pointer ${
                               i === activeMotionIndex
@@ -3829,9 +4257,46 @@ export function ContentCreatorPage() {
                     </div>
                   )}
 
+                  {/* AI Timeline — paste an audio-synced choreography and play it */}
+                  {motionSlides.length > 0 && (
+                    <MotionTimelinePanel
+                      slideCount={motionSlides.length}
+                      timelineText={motionTimelineText}
+                      onTimelineTextChange={setMotionTimelineText}
+                      timeline={motionTimeline}
+                      report={motionTimelineReport}
+                      onApply={applyMotionTimeline}
+                      onClear={clearMotionTimeline}
+                      timeMs={motionTimeMs}
+                      onSeek={seekMotionTo}
+                      isPlaying={isPlayingMotion}
+                      onTogglePlay={() => setIsPlayingMotion((p) => !p)}
+                      loop={motionLoop}
+                      onToggleLoop={() => setMotionLoop((l) => !l)}
+                      transcript={motionTranscript}
+                      transcriptName={motionTranscriptName}
+                      transcriptNote={motionTranscriptNote}
+                      onTranscriptFile={handleMotionTranscriptFile}
+                      onClearTranscript={clearMotionTranscript}
+                      activeWord={motionActiveWord}
+                      audioName={motionAudioName}
+                      onAudioFile={handleMotionAudioFile}
+                      onClearAudio={clearMotionAudio}
+                      onCopyPrompt={handleCopyMotionPrompt}
+                      copiedPrompt={copiedMotionPrompt}
+                      onExport={handleExportTimelineVideo}
+                      isExporting={isExportingTimeline}
+                      exportElapsedMs={timelineExportElapsed}
+                    />
+                  )}
+
                   {/* Export Motion Video Button */}
                   {motionData.layers.length > 0 && (
                     <div className="space-y-3">
+                      {/* Procedural loop preview — replaced entirely by the
+                          AI timeline once one is applied. */}
+                      {!motionTimeline && (
+                      <>
                       <button
                         disabled={isRecordingVideo}
                         onClick={handleExportMotionVideo}
@@ -3875,6 +4340,8 @@ export function ContentCreatorPage() {
                           ))}
                         </div>
                       </div>
+                      </>
+                      )}
 
                       {/* Extracted Text — the literal words OCR read off this slide */}
                       {(motionData.text?.blocks?.length ?? 0) > 0 && (

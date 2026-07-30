@@ -65,7 +65,7 @@ export function HistoryModal({
 
         {/* Category filter */}
         <div className="flex items-center gap-1.5 px-5 py-3 border-b border-white/[0.06] shrink-0 flex-wrap">
-          {(["all", "watermark-batch", "news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch"] as const).map((cat) => {
+          {(["all", "watermark-batch", "news-batch", "daily-analysis", "indicator", "facts-batch", "learnings-batch", "motion-video"] as const).map((cat) => {
             const active = filter === cat;
             const label = cat === "all" ? "All" : HISTORY_CATEGORY_META[cat]?.label || cat;
             const count = cat === "all" ? items.length : (counts[cat] || 0);
@@ -124,7 +124,7 @@ export function HistoryModal({
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] font-semibold text-white/90 truncate">{item.title}</p>
                     <p className="text-[10px] text-white/35">
-                      {meta.label} · {item.itemCount} {item.itemCount === 1 ? "poster" : "posters"} · {relativeTime(item.createdAt)}
+                      {meta.label} · {item.itemCount} {item.category === "motion-video" ? (item.itemCount === 1 ? "slide" : "slides") : (item.itemCount === 1 ? "poster" : "posters")} · {relativeTime(item.createdAt)}
                     </p>
                   </div>
                   {confirmDeleteId === item._id ? (
