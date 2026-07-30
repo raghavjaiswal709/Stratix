@@ -5,12 +5,15 @@ import { Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CAROUSEL_TEMPLATE } from "@/lib/prompt-templates/carousel-template";
 import { VIDEO_TEMPLATE } from "@/lib/prompt-templates/video-template";
+import { MOTION_TIMELINE_TEMPLATE } from "@/lib/prompt-templates/motion-timeline-template";
 import { buildPrompt } from "@/lib/buildPrompt";
 import { CarouselPromptForm } from "./CarouselPromptForm";
 import { VideoPromptForm } from "./VideoPromptForm";
 import { PromptOutput } from "./PromptOutput";
 
-type Mode = "carousel" | "video";
+type Mode = "carousel" | "video" | "motion";
+
+const MOTION_PACE_OPTIONS = ["Balanced", "Subtle / editorial", "Punchy / high-energy"] as const;
 
 const STYLE_OPTIONS = ["Auto (recommended)", "notebook-doodle", "editorial-serif"] as const;
 const STORAGE_KEY = "stratix:content-creator:prompt-builder";
@@ -28,6 +31,8 @@ export function PromptBuilder() {
   const [carouselLanguage, setCarouselLanguage] = useState("Hinglish");
   const [duration, setDuration] = useState(45);
   const [videoLanguage, setVideoLanguage] = useState("Hinglish");
+  const [motionPace, setMotionPace] = useState<string>(MOTION_PACE_OPTIONS[0]);
+  const [motionNotes, setMotionNotes] = useState("");
   const [output, setOutput] = useState<string | null>(null);
 
   // Hydrate last-used selections (§3.6 nice-to-have) post-mount only, so the
@@ -38,7 +43,7 @@ export function PromptBuilder() {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
-      if (saved.mode === "carousel" || saved.mode === "video") setMode(saved.mode);
+      if (saved.mode === "carousel" || saved.mode === "video" || saved.mode === "motion") setMode(saved.mode);
       if (typeof saved.topic === "string") setTopic(saved.topic);
       if (typeof saved.style === "string") setStyle(saved.style);
       if (typeof saved.part === "string") setPart(saved.part);
@@ -49,6 +54,8 @@ export function PromptBuilder() {
       if (typeof saved.carouselLanguage === "string") setCarouselLanguage(saved.carouselLanguage);
       if (typeof saved.duration === "number") setDuration(saved.duration);
       if (typeof saved.videoLanguage === "string") setVideoLanguage(saved.videoLanguage);
+      if (typeof saved.motionPace === "string") setMotionPace(saved.motionPace);
+      if (typeof saved.motionNotes === "string") setMotionNotes(saved.motionNotes);
     } catch {
       // corrupt/blocked storage — keep defaults
     }
@@ -71,12 +78,14 @@ export function PromptBuilder() {
           carouselLanguage,
           duration,
           videoLanguage,
+          motionPace,
+          motionNotes,
         })
       );
     } catch {
       // quota/blocked storage — not essential, ignore
     }
-  }, [mode, topic, style, part, book, author, point, slides, carouselLanguage, duration, videoLanguage]);
+  }, [mode, topic, style, part, book, author, point, slides, carouselLanguage, duration, videoLanguage, motionPace, motionNotes]);
 
   const trimmedTopic = topic.trim();
   const trimmedBook = book.trim();
@@ -85,10 +94,23 @@ export function PromptBuilder() {
   const canBuild =
     mode === "carousel"
       ? trimmedBook.length > 0 && trimmedAuthor.length > 0 && trimmedPoint.length >= MIN_TOPIC_LENGTH
+      : mode === "motion"
+      ? true
       : trimmedTopic.length >= MIN_TOPIC_LENGTH;
 
   function handleBuild() {
     if (!canBuild) return;
+    // The motion timeline prompt needs no topic — its inputs are the layout
+    // JSON and the transcript the user pastes underneath it.
+    if (mode === "motion") {
+      setOutput(
+        buildPrompt(MOTION_TIMELINE_TEMPLATE, {
+          PACE: motionPace,
+          NOTES: motionNotes.trim(),
+        })
+      );
+      return;
+    }
     if (mode === "carousel") {
       setOutput(
         buildPrompt(CAROUSEL_TEMPLATE, {
@@ -123,6 +145,8 @@ export function PromptBuilder() {
     setCarouselLanguage("Hinglish");
     setDuration(45);
     setVideoLanguage("Hinglish");
+    setMotionPace(MOTION_PACE_OPTIONS[0]);
+    setMotionNotes("");
     setOutput(null);
   }
 
@@ -141,7 +165,7 @@ export function PromptBuilder() {
 
       {/* Mode selector */}
       <div className="flex items-center gap-1 p-0.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-        {(["carousel", "video"] as const).map((m) => (
+        {(["carousel", "video", "motion"] as const).map((m) => (
           <button
             key={m}
             type="button"
@@ -153,14 +177,62 @@ export function PromptBuilder() {
                 : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
             )}
           >
-            {m === "carousel" ? "Carousel" : "Video Reel"}
+            {m === "carousel" ? "Carousel" : m === "video" ? "Video Reel" : "Motion Sync"}
           </button>
         ))}
       </div>
 
       {/* Shared + mode-specific fields */}
       <div className="space-y-3">
-        {mode === "carousel" ? (
+        {mode === "motion" ? (
+          <>
+            <div className="p-3 rounded-xl border border-white/[0.08] bg-white/[0.02] space-y-1.5">
+              <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider block">
+                What this prompt does
+              </span>
+              <p className="text-[10.5px] text-white/40 leading-relaxed">
+                It turns a decomposed motion-video batch plus a word-level transcript into a timeline Stratix can play
+                back frame-accurately. Build it, copy it, then paste it into an AI chat followed by the layout JSON (Motion
+                Video → Copy JSON) and your timestamped CSV. Paste the JSON it returns into Motion Video → AI Timeline.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-white/20 uppercase tracking-widest block mb-1.5">
+                Animation pace
+              </label>
+              <select
+                value={motionPace}
+                onChange={(e) => setMotionPace(e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-white/[0.05] border border-white/[0.10] text-white/70 focus:outline-none focus:border-white/[0.25] cursor-pointer appearance-none pr-6"
+                style={{
+                  backgroundImage:
+                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23ffffff44' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "right 8px center",
+                }}
+              >
+                {MOTION_PACE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt} className="bg-[#1a1a1a] text-white">
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-white/20 uppercase tracking-widest block mb-1.5">
+                Direction notes <span className="text-white/30 normal-case font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={motionNotes}
+                onChange={(e) => setMotionNotes(e.target.value)}
+                placeholder="e.g. hold slide 1 through the whole hook; no camera moves on the chart slides"
+                className="w-full min-h-[64px] resize-y px-3 py-2 rounded-lg text-[12px] font-medium bg-white/[0.03] border border-white/[0.08] text-white placeholder:text-white/25 focus:outline-none focus:border-white/[0.25]"
+              />
+            </div>
+          </>
+        ) : mode === "carousel" ? (
           <CarouselPromptForm
             book={book}
             onBookChange={setBook}

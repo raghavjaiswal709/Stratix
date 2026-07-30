@@ -3,6 +3,8 @@ import { execFile } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import { auth } from "@/lib/auth";
+import { uploadBufferToR2 } from "@/lib/r2";
 
 export const dynamic = "force-dynamic";
 // Decomposition runs OCR + CV per image; a 10-image batch takes ~12s locally
@@ -23,7 +25,49 @@ async function toBuffer(imageUrl: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
+const DATA_URL_RE = /^data:([^;]+);base64,([\s\S]*)$/;
+
+/**
+ * Uploads one base64 `data:` URL to R2 under this user and returns the
+ * same-origin proxy path that serves it back — never the R2 URL directly.
+ * Same-origin is load-bearing: the motion canvas later draws these images
+ * onto a <canvas> and reads it back (export, thumbnails), which a
+ * cross-origin image source would taint. Non-data-URL input (already a
+ * proxy path, or absent) passes through untouched.
+ */
+async function persistDataUrlToR2(userId: string, dataUrl: string | undefined): Promise<string | undefined> {
+  if (!dataUrl || !dataUrl.startsWith("data:")) return dataUrl;
+  const match = DATA_URL_RE.exec(dataUrl);
+  if (!match) return dataUrl;
+  const [, contentType, b64] = match;
+  const ext = contentType.split("/")[1]?.split("+")[0] || "png";
+  const key = `${userId}/motion-video/${crypto.randomUUID()}.${ext}`;
+  await uploadBufferToR2(key, Buffer.from(b64, "base64"), contentType);
+  return `/api/uploads/${key}`;
+}
+
+/** Replaces every embedded base64 image in one decomposition result with an R2-backed proxy URL. Failed results (no images) pass through untouched. */
+async function persistResultToR2(userId: string, result: any): Promise<any> {
+  if (!result || result.error || !result.success) return result;
+  const [backgroundUrl, originalUrl, layers] = await Promise.all([
+    persistDataUrlToR2(userId, result.backgroundUrl),
+    persistDataUrlToR2(userId, result.originalUrl),
+    Promise.all(
+      (result.layers || []).map(async (l: any) => ({
+        ...l,
+        imageUrl: await persistDataUrlToR2(userId, l.imageUrl),
+      }))
+    ),
+  ]);
+  return { ...result, backgroundUrl, originalUrl, layers };
+}
+
 export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const tmpFiles: string[] = [];
   try {
     // Two shapes are accepted:
@@ -115,11 +159,17 @@ export async function POST(req: NextRequest) {
 
     // The script emits a bare object for one image and {results:[...]} for many.
     // Callers that sent imageUrls always get an array back, whatever the count.
+    // Every background/original/layer image comes back from Python as a base64
+    // data URL — persisted to R2 here so the client never holds or saves the
+    // raw bytes itself; only small same-origin proxy paths cross the wire from
+    // this point on.
     if (batch) {
-      const results = Array.isArray(parsed?.results) ? parsed.results : [parsed];
+      const rawResults = Array.isArray(parsed?.results) ? parsed.results : [parsed];
+      const results = await Promise.all(rawResults.map((r: any) => persistResultToR2(session.user.id, r)));
       return NextResponse.json({ success: true, count: results.length, results });
     }
-    return NextResponse.json(parsed);
+    const single = await persistResultToR2(session.user.id, parsed);
+    return NextResponse.json(single);
   } catch (err: any) {
     console.error("Motion Segmentation error:", err);
     return NextResponse.json(
