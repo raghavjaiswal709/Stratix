@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import { Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CAROUSEL_TEMPLATE } from "@/lib/prompt-templates/carousel-template";
+import { EXPLAINER_TEMPLATE } from "@/lib/prompt-templates/explainer-template";
+import { BOOK_CAROUSEL_TEMPLATE } from "@/lib/prompt-templates/book-carousel-template";
+import { TOPIC_FINDER_TEMPLATE } from "@/lib/prompt-templates/topic-finder-template";
+import { SINGLE_SLIDE_TEMPLATE } from "@/lib/prompt-templates/single-slide-template";
 import { VIDEO_TEMPLATE } from "@/lib/prompt-templates/video-template";
 import { MOTION_TIMELINE_TEMPLATE } from "@/lib/prompt-templates/motion-timeline-template";
 import { buildPrompt } from "@/lib/buildPrompt";
-import { CarouselPromptForm } from "./CarouselPromptForm";
+import { CarouselPromptForm, type CarouselSource } from "./CarouselPromptForm";
 import { VideoPromptForm } from "./VideoPromptForm";
 import { PromptOutput } from "./PromptOutput";
 
@@ -15,15 +18,16 @@ type Mode = "carousel" | "video" | "motion";
 
 const MOTION_PACE_OPTIONS = ["Balanced", "Subtle / editorial", "Punchy / high-energy"] as const;
 
-const STYLE_OPTIONS = ["Auto (recommended)", "notebook-doodle", "editorial-serif"] as const;
 const STORAGE_KEY = "stratix:content-creator:prompt-builder";
 const MIN_TOPIC_LENGTH = 3;
 
 export function PromptBuilder() {
   const [mode, setMode] = useState<Mode>("carousel");
   const [topic, setTopic] = useState("");
-  const [style, setStyle] = useState<string>(STYLE_OPTIONS[0]);
   const [part, setPart] = useState("");
+  const [carouselSource, setCarouselSource] = useState<CarouselSource>("concept");
+  const [carouselTopic, setCarouselTopic] = useState("");
+  const [carouselDescription, setCarouselDescription] = useState("");
   const [book, setBook] = useState("");
   const [author, setAuthor] = useState("");
   const [point, setPoint] = useState("");
@@ -45,8 +49,11 @@ export function PromptBuilder() {
       const saved = JSON.parse(raw);
       if (saved.mode === "carousel" || saved.mode === "video" || saved.mode === "motion") setMode(saved.mode);
       if (typeof saved.topic === "string") setTopic(saved.topic);
-      if (typeof saved.style === "string") setStyle(saved.style);
       if (typeof saved.part === "string") setPart(saved.part);
+      if (saved.carouselSource === "concept" || saved.carouselSource === "book")
+        setCarouselSource(saved.carouselSource);
+      if (typeof saved.carouselTopic === "string") setCarouselTopic(saved.carouselTopic);
+      if (typeof saved.carouselDescription === "string") setCarouselDescription(saved.carouselDescription);
       if (typeof saved.book === "string") setBook(saved.book);
       if (typeof saved.author === "string") setAuthor(saved.author);
       if (typeof saved.point === "string") setPoint(saved.point);
@@ -69,8 +76,10 @@ export function PromptBuilder() {
         JSON.stringify({
           mode,
           topic,
-          style,
           part,
+          carouselSource,
+          carouselTopic,
+          carouselDescription,
           book,
           author,
           point,
@@ -85,15 +94,35 @@ export function PromptBuilder() {
     } catch {
       // quota/blocked storage — not essential, ignore
     }
-  }, [mode, topic, style, part, book, author, point, slides, carouselLanguage, duration, videoLanguage, motionPace, motionNotes]);
+  }, [
+    mode,
+    topic,
+    part,
+    carouselSource,
+    carouselTopic,
+    carouselDescription,
+    book,
+    author,
+    point,
+    slides,
+    carouselLanguage,
+    duration,
+    videoLanguage,
+    motionPace,
+    motionNotes,
+  ]);
 
   const trimmedTopic = topic.trim();
+  const trimmedCarouselTopic = carouselTopic.trim();
+  const trimmedCarouselDescription = carouselDescription.trim();
   const trimmedBook = book.trim();
   const trimmedAuthor = author.trim();
   const trimmedPoint = point.trim();
   const canBuild =
     mode === "carousel"
-      ? trimmedBook.length > 0 && trimmedAuthor.length > 0 && trimmedPoint.length >= MIN_TOPIC_LENGTH
+      ? carouselSource === "book"
+        ? trimmedBook.length > 0 && trimmedAuthor.length > 0 && trimmedPoint.length >= MIN_TOPIC_LENGTH
+        : trimmedCarouselTopic.length >= MIN_TOPIC_LENGTH
       : mode === "motion"
       ? true
       : trimmedTopic.length >= MIN_TOPIC_LENGTH;
@@ -111,22 +140,30 @@ export function PromptBuilder() {
       );
       return;
     }
+    // Each carousel source has its own self-contained template, so the built
+    // prompt only ever carries the params that source actually declares.
     if (mode === "carousel") {
       setOutput(
-        buildPrompt(CAROUSEL_TEMPLATE, {
-          BOOK: trimmedBook,
-          AUTHOR: trimmedAuthor,
-          POINT: trimmedPoint,
-          SLIDES: slides,
-          LANGUAGE: carouselLanguage,
-        })
+        carouselSource === "book"
+          ? buildPrompt(BOOK_CAROUSEL_TEMPLATE, {
+              BOOK: trimmedBook,
+              AUTHOR: trimmedAuthor,
+              POINT: trimmedPoint,
+              SLIDES: slides,
+              LANGUAGE: carouselLanguage,
+            })
+          : buildPrompt(EXPLAINER_TEMPLATE, {
+              TOPIC: trimmedCarouselTopic,
+              DESCRIPTION: trimmedCarouselDescription,
+              SLIDES: slides,
+              LANGUAGE: carouselLanguage,
+            })
       );
       return;
     }
     setOutput(
       buildPrompt(VIDEO_TEMPLATE, {
         TOPIC: trimmedTopic,
-        STYLE: style,
         DURATION: duration,
         LANGUAGE: videoLanguage,
         PART: part.trim(),
@@ -136,8 +173,10 @@ export function PromptBuilder() {
 
   function handleReset() {
     setTopic("");
-    setStyle(STYLE_OPTIONS[0]);
     setPart("");
+    setCarouselSource("concept");
+    setCarouselTopic("");
+    setCarouselDescription("");
     setBook("");
     setAuthor("");
     setPoint("");
@@ -159,7 +198,7 @@ export function PromptBuilder() {
           <span className="text-[11px] font-bold text-white uppercase tracking-wider">Prompt Builder</span>
         </div>
         <p className="text-[11px] text-white/40 leading-relaxed">
-          Assembles a ready-to-paste meta-prompt from the Carousel or Video Reel template. Pick your options, hit Build Prompt, then copy the result into your own AI chat or image generator — nothing here calls an AI or generates an image.
+          Assembles a ready-to-paste meta-prompt for Carousel, Video Reel, or Motion Sync. Carousels explain any concept or fact from a topic alone, or optionally build around one insight from a book. Video Reel prompts generate voiceover scripts that actively present on-screen images 1:1 in sequence, complete with destructed layer sync maps.
         </p>
       </div>
 
@@ -234,6 +273,12 @@ export function PromptBuilder() {
           </>
         ) : mode === "carousel" ? (
           <CarouselPromptForm
+            source={carouselSource}
+            onSourceChange={setCarouselSource}
+            topic={carouselTopic}
+            onTopicChange={setCarouselTopic}
+            description={carouselDescription}
+            onDescriptionChange={setCarouselDescription}
             book={book}
             onBookChange={setBook}
             author={author}
@@ -247,6 +292,15 @@ export function PromptBuilder() {
           />
         ) : (
           <>
+            <div className="p-3 rounded-xl border border-white/[0.08] bg-white/[0.02] space-y-1.5 mb-1">
+              <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider block">
+                Speech & Destructed Image Element Sync
+              </span>
+              <p className="text-[10.5px] text-white/40 leading-relaxed">
+                Generates a spoken script that actively presents image visuals in 1:1 sequence, paired with a Destructed Layer Sync Map linking decomposed image elements directly to spoken trigger words.
+              </p>
+            </div>
+
             <div>
               <label className="text-[10px] font-bold text-white/20 uppercase tracking-widest block mb-1.5">
                 Topic <span className="text-white/30 normal-case font-normal">(required)</span>
@@ -263,27 +317,6 @@ export function PromptBuilder() {
                   {canBuild ? `${trimmedTopic.length} characters` : `Enter at least ${MIN_TOPIC_LENGTH} characters`}
                 </span>
               </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-white/20 uppercase tracking-widest block mb-1.5">Style</label>
-              <select
-                value={style}
-                onChange={(e) => setStyle(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-white/[0.05] border border-white/[0.10] text-white/70 focus:outline-none focus:border-white/[0.25] cursor-pointer appearance-none pr-6"
-                style={{
-                  backgroundImage:
-                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23ffffff44' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
-                  backgroundRepeat: "no-repeat",
-                  backgroundPosition: "right 8px center",
-                }}
-              >
-                {STYLE_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt} className="bg-[#1a1a1a] text-white">
-                    {opt}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <VideoPromptForm
@@ -337,6 +370,30 @@ export function PromptBuilder() {
 
       {/* Output */}
       <PromptOutput text={output} />
+
+      {/* Topic research companion — only meaningful when you don't have a topic
+          yet, which is the concept/fact path. Static prompt, needs no inputs. */}
+      {mode === "carousel" && carouselSource === "concept" ? (
+        <PromptOutput
+          text={TOPIC_FINDER_TEMPLATE}
+          label="Niche Topic Finder"
+          hint="Don't have a topic yet? Copy this into a research-capable AI (deep research / web search on). It returns 10 ranked, source-checked forex topics — geopolitical, macro, micro, plus evergreen facts and learnings — each scored for how well a non-trader would read it to the end. Paste a winner's TOPIC and DESCRIPTION back into the fields above."
+          collapsible
+          defaultOpen={false}
+        />
+      ) : null}
+
+      {/* One-slide look test — same design system as a real slide, so whatever
+          this renders is exactly what a full carousel will look like. */}
+      {mode !== "motion" ? (
+        <PromptOutput
+          text={SINGLE_SLIDE_TEMPLATE}
+          label="Single-Slide Test"
+          hint="Checking the look before committing to a full run? Copy this into any AI, give it a TOPIC (and optionally a SLIDE like &quot;the hook&quot; or &quot;slide 4&quot;, plus RATIO 9:16 to test a video frame). It returns exactly one image prompt — same design system as a real slide."
+          collapsible
+          defaultOpen={false}
+        />
+      ) : null}
     </div>
   );
 }
