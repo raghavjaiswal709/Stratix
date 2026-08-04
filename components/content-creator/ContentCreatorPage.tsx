@@ -70,7 +70,7 @@ import {
   EMPTY_MOTION_DATA,
 } from "./constants";
 import { buildInstagramCopyText } from "./promptBuilders";
-import { buildMotionLayoutJson, describeMotionSlide } from "./motionLayoutJson";
+import { buildLeanMotionLayout, buildMotionLayoutJson, describeMotionSlide } from "./motionLayoutJson";
 import {
   buildBentoCard,
   withBentoImageFallback,
@@ -84,7 +84,9 @@ import { drawPoster } from "./canvas/drawPoster";
 import { drawMotionTimelineFrame } from "./canvas/drawMotionTimelineFrame";
 import { MotionTimelinePanel } from "./motion/MotionTimelinePanel";
 import {
+  buildTimelineFromManifest,
   parseMotionTimeline,
+  parseSyncManifest,
   parseTranscriptCsv,
   sampleTimeline,
   wordAt,
@@ -186,6 +188,11 @@ export function ContentCreatorPage() {
   const [motionTranscript, setMotionTranscript] = useState<TranscriptWord[] | null>(null);
   const [motionTranscriptName, setMotionTranscriptName] = useState<string | null>(null);
   const [motionTranscriptNote, setMotionTranscriptNote] = useState<string | null>(null);
+  // PART D of the video prompt. With this plus the transcript, the timeline is
+  // arithmetic — Stratix builds it locally and no second AI pass happens.
+  const [motionManifestText, setMotionManifestText] = useState("");
+  const [motionManifestNote, setMotionManifestNote] = useState<string | null>(null);
+  const [motionManifestWarnings, setMotionManifestWarnings] = useState<string[]>([]);
   const [motionAudioName, setMotionAudioName] = useState<string | null>(null);
   const [copiedMotionPrompt, setCopiedMotionPrompt] = useState(false);
   const [isExportingTimeline, setIsExportingTimeline] = useState(false);
@@ -590,7 +597,7 @@ export function ContentCreatorPage() {
         const title = motionSlides.length > 1
           ? `Motion Video · ${motionSlides.length} slides`
           : (firstName || "Motion Video");
-        createdId = await saveToHistory("motion-video", title, motionSlides.length, { slides: motionSlides, timelineText: motionTimelineText, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
+        createdId = await saveToHistory("motion-video", title, motionSlides.length, { slides: motionSlides, timelineText: motionTimelineText, manifestText: motionManifestText, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
       } else {
         const title = parsedData.title || parsedData.category || "Indicator Poster";
         createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
@@ -663,6 +670,9 @@ export function ContentCreatorPage() {
         // instead of a broken playhead.
         const savedTimeline = typeof payload.timelineText === "string" ? payload.timelineText : "";
         setMotionTimelineText(savedTimeline);
+        setMotionManifestText(typeof payload.manifestText === "string" ? payload.manifestText : "");
+        setMotionManifestNote(null);
+        setMotionManifestWarnings([]);
         if (savedTimeline.trim()) {
           const { timeline, report } = parseMotionTimeline(savedTimeline, slides);
           setMotionTimeline(timeline);
@@ -1807,7 +1817,11 @@ export function ContentCreatorPage() {
   /* ── AI Timeline: apply, inputs, export ──────────────────────────────── */
 
   const applyMotionTimeline = useCallback(() => {
-    const { timeline, report } = parseMotionTimeline(motionTimelineText, motionSlides);
+    // The transcript is passed in so every cue carrying a `word` is retimed
+    // from real audio rather than trusted — see compile.ts snapToWord.
+    const { timeline, report } = parseMotionTimeline(motionTimelineText, motionSlides, {
+      transcript: motionTranscript,
+    });
     setMotionTimelineReport(report);
     setMotionTimeline(timeline);
     if (!timeline) return;
@@ -1828,7 +1842,60 @@ export function ContentCreatorPage() {
       }
     }
     setIsPlayingMotion(true);
-  }, [motionTimelineText, motionSlides, setMotionData]);
+  }, [motionTimelineText, motionSlides, motionTranscript, setMotionData]);
+
+  /**
+   * The zero-token path: the sync manifest already says which element enters on
+   * which word, and the transcript says when every word is spoken — so the
+   * timeline is built here rather than bought from a second AI pass. The result
+   * is written into the same textarea so it stays inspectable and editable.
+   */
+  const buildMotionTimelineFromManifest = useCallback(() => {
+    setMotionManifestWarnings([]);
+
+    const parsed = parseSyncManifest(motionManifestText);
+    if (!parsed.manifest) {
+      setMotionManifestNote(parsed.error ?? "Could not read that as a sync manifest.");
+      return;
+    }
+    if (!motionTranscript || motionTranscript.length === 0) {
+      setMotionManifestNote("Load the word-level transcript CSV first — the manifest supplies the words, the CSV supplies the timings.");
+      return;
+    }
+
+    const { timeline, report } = buildTimelineFromManifest(parsed.manifest, motionSlides, motionTranscript);
+    setMotionManifestWarnings([...parsed.warnings, ...report.warnings]);
+
+    if (!timeline) {
+      setMotionManifestNote("The manifest produced no usable scenes.");
+      return;
+    }
+
+    setMotionManifestNote(
+      `Built ${parsed.manifest.beats.length} beats · ${report.boundElements}/${report.totalElements} elements bound to a layer.`
+    );
+    setMotionTimelineText(JSON.stringify(timeline, null, 2));
+
+    const compiled = parseMotionTimeline(JSON.stringify(timeline), motionSlides, { transcript: motionTranscript });
+    setMotionTimelineReport(compiled.report);
+    setMotionTimeline(compiled.timeline);
+    if (!compiled.timeline) return;
+
+    motionTimeRef.current = 0;
+    motionClockOriginRef.current = performance.now();
+    setMotionTimeMs(0);
+    setActiveMotionIndex(compiled.timeline.scenes[0]?.slideIndex ?? 0);
+    setMotionData((prev) => ({ ...prev, activeLayerId: undefined }));
+    const audio = motionAudioRef.current;
+    if (audio) {
+      try {
+        audio.currentTime = 0;
+      } catch {
+        /* not seekable yet */
+      }
+    }
+    setIsPlayingMotion(true);
+  }, [motionManifestText, motionTranscript, motionSlides, setMotionData]);
 
   const clearMotionTimeline = useCallback(() => {
     setMotionTimeline(null);
@@ -1841,20 +1908,36 @@ export function ContentCreatorPage() {
 
   const handleCopyMotionPrompt = useCallback(() => {
     if (motionSlides.length === 0) return;
-    const layout = JSON.stringify(buildMotionLayoutJson(motionSlides), null, 2);
+
+    // Lean layout, printed compact: the full layout runs ~11.8k characters per
+    // slide, and none of the weight it sheds (duplicated text blocks, per-line
+    // boxes, pixel bounds, loop-preview settings) can change an animation
+    // decision. See buildLeanMotionLayout.
+    const layout = JSON.stringify(buildLeanMotionLayout(motionSlides));
+
+    // The transcript goes in verbatim when one is loaded, so the AI keys its
+    // cues to the same words this app will later resolve them against.
+    const transcriptSection = motionTranscript?.length
+      ? ["word,startMs,endMs", ...motionTranscript.map((w) => `${JSON.stringify(w.text)},${Math.round(w.startMs)},${Math.round(w.endMs)}`)].join("\n")
+      : "<paste your word-by-word timestamped CSV here, then send>";
+
     const text = [
       MOTION_TIMELINE_TEMPLATE,
       "",
       "=== INPUT (A) — LAYOUT JSON ===",
       layout,
       "",
-      "=== INPUT (B) — TRANSCRIPT CSV ===",
-      "<paste your word-by-word timestamped CSV here, then send>",
+      "=== INPUT (B) — SYNC MANIFEST ===",
+      motionManifestText.trim() || "<none supplied — derive the sync from the transcript and the slide text>",
+      "",
+      "=== INPUT (C) — TRANSCRIPT CSV ===",
+      transcriptSection,
     ].join("\n");
+
     navigator.clipboard.writeText(text);
     setCopiedMotionPrompt(true);
     setTimeout(() => setCopiedMotionPrompt(false), 3000);
-  }, [motionSlides]);
+  }, [motionSlides, motionTranscript, motionManifestText]);
 
   const handleMotionTranscriptFile = useCallback(async (file: File) => {
     try {
@@ -4282,6 +4365,11 @@ export function ContentCreatorPage() {
                       audioName={motionAudioName}
                       onAudioFile={handleMotionAudioFile}
                       onClearAudio={clearMotionAudio}
+                      manifestText={motionManifestText}
+                      onManifestTextChange={setMotionManifestText}
+                      onBuildFromManifest={buildMotionTimelineFromManifest}
+                      manifestNote={motionManifestNote}
+                      manifestWarnings={motionManifestWarnings}
                       onCopyPrompt={handleCopyMotionPrompt}
                       copiedPrompt={copiedMotionPrompt}
                       onExport={handleExportTimelineVideo}

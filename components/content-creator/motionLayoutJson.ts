@@ -96,3 +96,61 @@ export function buildMotionLayoutJson(slides: MotionVideoData[]) {
 
 export type MotionLayoutJson = ReturnType<typeof buildMotionLayoutJson>;
 export type { MotionSlide };
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Lean layout — what actually goes to an AI
+ *
+ * The full layout above exists for humans and for round-tripping; pasted into
+ * a chat it is ~11.8k characters per slide, and a 10-slide batch runs to
+ * ~38k tokens before the prompt or the transcript is added. Most of that
+ * weight cannot change any animation decision:
+ *
+ *   textBlocks[]  — a verbatim duplicate of the text already in elements[]
+ *   lines[]       — per-line boxes; a track animates whole elements only
+ *   pixelBounds   — normalizedPosition × canvas, and both are present
+ *   motionSettings— the loop-preview settings, which a timeline overrides
+ *   extraction, ocrConfidence, fontSizeRelativeToHeight, sourceWidth/Height
+ *
+ * Dropping those and printing compact leaves the same decisions available on
+ * roughly a fifth of the tokens.
+ * ────────────────────────────────────────────────────────────────────────*/
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+function leanElement(l: MotionLayer) {
+  const box = [r2(l.x), r2(l.y), r2(l.w), r2(l.h)];
+  if (l.type === "text") {
+    return {
+      id: l.id,
+      kind: "text",
+      role: l.role ?? null,
+      at: l.positionLabel ?? null,
+      box,
+      text: l.text ?? "",
+    };
+  }
+  return {
+    id: l.id,
+    kind: "graphic",
+    role: l.role ?? null,
+    at: l.positionLabel ?? null,
+    box,
+  };
+}
+
+/**
+ * The slide list an AI needs to bind a sync manifest to real layer ids.
+ * `box` is [x, y, w, h] normalised 0–1; `at` is the same nine-cell grid the
+ * manifest uses, which is what makes a graphic bindable at all.
+ */
+export function buildLeanMotionLayout(slides: MotionVideoData[]) {
+  return {
+    version: 3,
+    note: "box = [x,y,w,h] normalised 0-1. at = 9-cell grid. Graphics carry no text by nature — bind them by kind, at and box.",
+    slides: slides.map((slide, i) => ({
+      slide: i + 1,
+      canvas: [slide.width ?? 0, slide.height ?? 0],
+      elements: (slide.layers ?? []).map(leanElement),
+    })),
+  };
+}
