@@ -163,6 +163,16 @@ export interface MotionLayer {
   color?: string | null;
   aspectRatio?: number;
 
+  /* Graphic layers only — what the detector measured the object to be.
+     Emitted by scripts/motion_segment.py · _classify_object, and read by the
+     auto-sync choreographer to pick an entrance that suits the object. */
+  objectType?: "circle" | "panel" | "banner" | "divider" | "icon" | "photo" | "illustration" | "chart" | "graphic" | string;
+  fillRatio?: number;
+  circularity?: number;
+  solidity?: number;
+  colorCount?: number;
+  edgeDensity?: number;
+
   /* Text layers only. */
   text?: string;
   textLines?: string[];

@@ -61,6 +61,14 @@ const MIN_SCENE_MS = 900;
 const DEFAULT_STAGGER_MS = 190;
 /** Rhythm for elements with nothing to anchor to, compressed only if it must. */
 const IDEAL_STEP_MS = 430;
+/**
+ * Paper mode. Images land as the slide opens, dealt rather than fired at once —
+ * a stack of sheets put down in quick succession reads as deliberate, whereas a
+ * dozen things appearing on the same frame reads as a cut.
+ */
+const PAPER_STAGGER_MS = 75;
+/** Everything is down within this long, however many images there are. */
+const PAPER_WINDOW_MS = 460;
 /** Unanchored elements must all be in place by this share of their scene. */
 const SETTLE_FRACTION = 0.82;
 
@@ -94,6 +102,17 @@ export interface AutoSyncOptions {
   bandFraction?: number;
   /** Minimum spacing between two entrances. Default 190ms. */
   minStaggerMs?: number;
+  /**
+   * Sync only the words; let the artwork arrive with its slide. Default true.
+   *
+   * A graphic has nothing quotable in it, so pacing it across the slide is
+   * guesswork dressed up as choreography — the bank illustration slides in
+   * halfway through a sentence for no reason anybody watching can hear. With
+   * this on, every image is simply *there* from the top of its slide, settling
+   * into place like a sheet of paper being laid down, and only the text waits
+   * for the word it belongs to.
+   */
+  textOnlySync?: boolean;
 }
 
 export interface AutoSyncSceneReport {
@@ -140,6 +159,8 @@ interface AutoLayer {
   role: string;
   text: string;
   lineCount: number;
+  /** What the detector measured a graphic to be — "chart", "circle", "photo"… */
+  objectType: string;
   x: number;
   y: number;
   w: number;
@@ -176,6 +197,7 @@ function readLayers(slide: TimelineSlideLike): AutoLayer[] {
       label: (typeof anyLayer.name === "string" && anyLayer.name) || text.slice(0, 40) || l.id,
       type: (l.type === "text" ? "text" : "graphic") as "text" | "graphic",
       role: typeof l.role === "string" ? l.role : "graphic",
+      objectType: typeof anyLayer.objectType === "string" ? anyLayer.objectType : "graphic",
       text,
       lineCount: Math.max(1, lines),
       x: numOr(l.x, 0),
@@ -466,6 +488,8 @@ interface Placement {
   anchored: boolean;
   /** Second mention of the element's strongest word, for an emphasis hit. */
   hitWordIndex: number | null;
+  /** Laid down with the slide rather than scheduled against a word. */
+  paper?: boolean;
 }
 
 /**
@@ -656,6 +680,32 @@ interface Entrance {
   durMs: number;
   wipeFrom?: WipeDirection;
   params: Record<string, number>;
+  /**
+   * A second cue fired at the same instant, on channels the first one does not
+   * touch. That is the only way to compose a richer move out of the existing
+   * catalog without inventing a cue the renderer would have to learn.
+   */
+  extra?: { action: string; durMs: number; params: Record<string, number> };
+}
+
+/**
+ * A sheet of paper being laid down.
+ *
+ * `popIn` settles the scale from slightly oversized while fading up — the way
+ * something coming toward the page reads — and `tilt` rotates a couple of
+ * degrees back to square. The two write to different channels (opacity+scale
+ * versus rotate), so they compose instead of fighting. Alternating the lean by
+ * index means a stack of images lands like dealt sheets rather than a set of
+ * identical stamps.
+ */
+function paperEntrance(index: number): Entrance {
+  const lean = index % 2 === 0 ? -1.8 : 1.8;
+  return {
+    action: "popIn",
+    durMs: 520,
+    params: { fromScale: 1.05 },
+    extra: { action: "tilt", durMs: 560, params: { deg: lean } },
+  };
 }
 
 /**
@@ -691,6 +741,43 @@ function chooseEntrance(layer: AutoLayer): Entrance {
     }
     if (role === "footer") return { action: "fadeIn", durMs: 320, params: {} };
     return { action: cy < 0.18 ? "fadeInDown" : "fadeInUp", durMs: base, params: { distancePct } };
+  }
+
+  // The detector measured what this object is; use it before falling back to
+  // geometry. A chart that wipes on, a rule that draws itself and a photograph
+  // that resolves out of blur each read as deliberate — the same three objects
+  // all sliding in from the left read as a template.
+  switch (layer.objectType) {
+    case "divider":
+      // A rule draws itself along its own length.
+      return {
+        action: "wipeIn",
+        durMs: 420,
+        wipeFrom: layer.w >= layer.h ? (cx <= 0.5 ? "left" : "right") : "top",
+        params: {},
+      };
+    case "chart":
+      // Bars and columns grow from their baseline.
+      return { action: "wipeIn", durMs: 620, wipeFrom: aspect >= 1 ? "left" : "bottom", params: {} };
+    case "circle":
+      return { action: "popIn", durMs: 420, params: { fromScale: 0.7 } };
+    case "icon":
+      return { action: "popIn", durMs: 340, params: { fromScale: 0.78 } };
+    case "photo":
+      return { action: "blurIn", durMs: 640, params: { amount: 14 } };
+    case "panel":
+      // A card is a surface: it arrives as one plane, from the nearest edge.
+      return cx <= 0.34
+        ? { action: "fadeInLeft", durMs: 460, params: { distancePct: 2.4 } }
+        : cx >= 0.66
+        ? { action: "fadeInRight", durMs: 460, params: { distancePct: 2.4 } }
+        : { action: "fadeInUp", durMs: 460, params: { distancePct: 2.2 } };
+    case "banner":
+      return { action: "wipeIn", durMs: 500, wipeFrom: cx <= 0.5 ? "left" : "right", params: {} };
+    case "illustration":
+      return { action: "blurIn", durMs: 560, params: { amount: 10 } };
+    default:
+      break;
   }
 
   if (aspect >= 2.6) {
@@ -747,6 +834,7 @@ export function autoSyncTimeline(
   const ambient = options.ambient ?? true;
   const staggerMs = options.minStaggerMs ?? DEFAULT_STAGGER_MS;
   const bandFraction = options.bandFraction ?? 0.3;
+  const textOnlySync = options.textOnlySync ?? true;
 
   const index = buildTranscriptIndex(transcript);
   const audioEndMs = index.durationMs;
@@ -788,7 +876,24 @@ export function autoSyncTimeline(
     const from = cuts[i];
     const to = cuts[i + 1];
 
-    const placements = schedule(profile.content, index, from, to, startMs, endMs, staggerMs);
+    // In paper mode the artwork is not scheduled at all — it belongs to the
+    // slide, not to a word — so only the text goes through anchoring and
+    // pacing. Everything else is laid down as the scene opens.
+    const scheduledLayers = textOnlySync ? profile.content.filter((l) => l.type === "text") : profile.content;
+    const paperLayers = textOnlySync ? profile.content.filter((l) => l.type !== "text") : [];
+
+    const placements = schedule(scheduledLayers, index, from, to, startMs, endMs, staggerMs);
+    const paperPlacements: Placement[] = paperLayers.map((layer, k) => ({
+      layer,
+      onMs: startMs + Math.min(k * PAPER_STAGGER_MS, PAPER_WINDOW_MS),
+      wordIndex: null,
+      anchored: false,
+      hitWordIndex: null,
+      paper: true,
+    }));
+
+    // Artwork first: it is the ground the words land on.
+    const allPlacements = [...paperPlacements, ...placements];
     const tracks: AuthoredTrack[] = [];
 
     // Furniture is simply present: a quick fade at the top of the scene, out of
@@ -803,7 +908,7 @@ export function autoSyncTimeline(
       });
     });
 
-    placements.forEach((p) => {
+    allPlacements.forEach((p) => {
       totalElements++;
       if (p.anchored) anchoredElements++;
       else pacedElements++;
@@ -813,7 +918,7 @@ export function autoSyncTimeline(
         if (!spoken && !silentText.includes(p.layer.text)) silentText.push(p.layer.text);
       }
 
-      const entrance = chooseEntrance(p.layer);
+      const entrance = p.paper ? paperEntrance(paperLayers.indexOf(p.layer)) : chooseEntrance(p.layer);
       if (!CUE_NAMES.includes(entrance.action)) {
         warnings.push(`Unknown cue "${entrance.action}" — used fadeInUp instead.`);
         entrance.action = "fadeInUp";
@@ -844,6 +949,16 @@ export function autoSyncTimeline(
         ...entrance.params,
       });
 
+      // The companion cue rides the same instant on a different channel.
+      if (entrance.extra) {
+        cues.push({
+          action: entrance.extra.action,
+          atMs: enterAt,
+          durMs: Math.max(140, Math.min(entrance.extra.durMs, endMs - enterAt - 40)),
+          ...entrance.extra.params,
+        });
+      }
+
       if (p.hitWordIndex !== null) {
         const hit = index.words[p.hitWordIndex];
         const hitWord = normalizeToken(hit.text) ? hit.text : undefined;
@@ -864,7 +979,7 @@ export function autoSyncTimeline(
         p.layer.w * p.layer.h >= 0.06 &&
         endMs - (enterAt + durMs) > 2600 &&
         p.hitWordIndex === null &&
-        !placements.some((q) => q !== p && q.layer.type === "graphic" && q.layer.w * q.layer.h > p.layer.w * p.layer.h)
+        !allPlacements.some((q) => q !== p && q.layer.type === "graphic" && q.layer.w * q.layer.h > p.layer.w * p.layer.h)
       ) {
         const floatStart = enterAt + durMs + 120;
         const floatDur = Math.max(1800, endMs - floatStart - 120);
@@ -915,7 +1030,7 @@ export function autoSyncTimeline(
       placedBy: coverages[i] >= 0.35 && profile.tokenWeight >= SEGMENT_MIN_WEIGHT ? "text" : "paced",
       coverage: coverages[i],
       elementCount: profile.content.length + profile.furniture.length,
-      anchoredCount: placements.filter((p) => p.anchored).length,
+      anchoredCount: allPlacements.filter((p) => p.anchored).length,
       openingLine: index.words
         .slice(from, Math.min(to, from + 7))
         .map((w) => w.text)

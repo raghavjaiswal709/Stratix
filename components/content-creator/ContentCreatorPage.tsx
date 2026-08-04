@@ -83,6 +83,7 @@ import { parseJsonResponse } from "./apiUtils";
 import { drawPoster } from "./canvas/drawPoster";
 import { drawMotionTimelineFrame } from "./canvas/drawMotionTimelineFrame";
 import { MotionTimelinePanel } from "./motion/MotionTimelinePanel";
+import { TimelineEditor } from "./motion/TimelineEditor";
 import {
   autoSyncTimeline,
   buildTimelineFromManifest,
@@ -90,6 +91,8 @@ import {
   parseSyncManifest,
   sampleTimeline,
   wordAt,
+  parseLooseJson,
+  type AuthoredTimeline,
   type AutoSyncReport,
   type CompiledTimeline,
   type TimelineReport,
@@ -99,6 +102,7 @@ import {
 // every transcript load, and a barrel re-export of it was the kind of thing
 // Turbopack kept serving a stale export list for.
 import { parseTranscriptFile } from "@/lib/motion-timeline/transcript";
+import { toAuthored, toEditable, type EditableTimeline } from "@/lib/motion-timeline/edit";
 import { MOTION_TIMELINE_TEMPLATE } from "@/lib/prompt-templates/motion-timeline-template";
 import { computeCoverFitSlack, getAntonFontFamily } from "./canvas/canvasUtils";
 import type { SentimentScheme } from "./canvas/canvasUtils";
@@ -120,6 +124,28 @@ import { PromptBuilder } from "./prompt-builder/PromptBuilder";
 // only ever reaches drawPoster's reel-only `textScale` param (default 1
 // everywhere else), so normal posters/downloads are completely unaffected.
 const REEL_TEXT_SCALE = 1.45;
+
+/**
+ * MP4 only, by preference order.
+ *
+ * The export used to be WebM, which is not what social platforms, Premiere or
+ * a phone's camera roll expect. MediaRecorder can produce H.264/AAC in an MP4
+ * container directly, so no transcode is involved — but only on browsers that
+ * ship the encoder, hence the probe and the explicit failure rather than a
+ * silent fall back to a container nobody asked for.
+ */
+const MP4_MIME_CANDIDATES = [
+  // High Profile first, then Main, then Baseline: at the same bitrate the
+  // extra encoding tools (CABAC, B-frames) buy visibly better quality, and a
+  // poster full of flat colour and hard type is exactly where blocking shows.
+  // Same ordering the Reel Studio exporter settled on.
+  "video/mp4;codecs=avc1.640028,mp4a.40.2",
+  "video/mp4;codecs=avc1.4d0028,mp4a.40.2",
+  "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+  "video/mp4;codecs=avc1,mp4a.40.2",
+  "video/mp4;codecs=avc1",
+  "video/mp4",
+];
 
 export function ContentCreatorPage() {
   const [creatorMode, setCreatorMode] = useState<CreatorMode>("analysis");
@@ -178,6 +204,11 @@ export function ContentCreatorPage() {
   // slideId -> layerId -> <img>. Layer ids repeat across slides, so they can
   // never share one flat map without slides stealing each other's pixels.
   const motionLayerImgElsRef = useRef<Record<string, Record<string, HTMLImageElement>>>({});
+  /** URL → in-flight (or settled) decode job, so an asset loads exactly once. */
+  const motionAssetJobsRef = useRef<Map<string, Promise<void>>>(new Map());
+  /** Bumped as each image becomes paint-ready, purely to trigger a repaint. */
+  const [motionAssetVersion, setMotionAssetVersion] = useState(0);
+  const [motionAssetProgress, setMotionAssetProgress] = useState<{ done: number; total: number } | null>(null);
   const [copiedMotionJson, setCopiedMotionJson] = useState(false);
 
   // AI Timeline — audio-synced choreography.
@@ -202,7 +233,32 @@ export function ContentCreatorPage() {
   // posters and the CSV already timed the words, so the timeline is derivable.
   const [motionAutoSyncReport, setMotionAutoSyncReport] = useState<AutoSyncReport | null>(null);
   const [motionAutoSyncNote, setMotionAutoSyncNote] = useState<string | null>(null);
+  // On by default: artwork belongs to its slide, words belong to the voiceover.
+  const [motionTextOnlySync, setMotionTextOnlySync] = useState(true);
+
+  /**
+   * The editable document.
+   *
+   * Playback runs on the compiled timeline, which cannot be edited — cues have
+   * already become keyframes by then. So the editor owns an authored-shape
+   * document, and every edit re-serialises and re-compiles it. That keeps one
+   * source of truth: the JSON in the textarea, the timeline on screen and the
+   * record in the database are always the same thing.
+   */
+  const [motionDoc, setMotionDoc] = useState<EditableTimeline | null>(null);
+  const motionUndoRef = useRef<EditableTimeline[]>([]);
+  const motionRedoRef = useRef<EditableTimeline[]>([]);
+  const [motionHistoryTick, setMotionHistoryTick] = useState(0);
+  const [motionSaveState, setMotionSaveState] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
+  const motionSaveTimerRef = useRef<number | null>(null);
   const [motionAudioName, setMotionAudioName] = useState<string | null>(null);
+  // Background music rides under the voiceover. 20% by default — present, not
+  // competing with the narration.
+  const [motionMusicName, setMotionMusicName] = useState<string | null>(null);
+  const [motionMusicVolume, setMotionMusicVolume] = useState(0.2);
+  // Export speed. The clock and both audio elements are scaled by it, so the
+  // recording is genuinely faster rather than a fast-forwarded playback.
+  const [motionExportSpeed, setMotionExportSpeed] = useState(1);
   const [copiedMotionPrompt, setCopiedMotionPrompt] = useState(false);
   const [isExportingTimeline, setIsExportingTimeline] = useState(false);
   const [timelineExportElapsed, setTimelineExportElapsed] = useState<number | null>(null);
@@ -213,6 +269,30 @@ export function ContentCreatorPage() {
   const motionLoopRef = useRef(true);
   const motionAudioRef = useRef<HTMLAudioElement | null>(null);
   const motionAudioUrlRef = useRef<string | null>(null);
+  const motionMusicRef = useRef<HTMLAudioElement | null>(null);
+  const motionMusicUrlRef = useRef<string | null>(null);
+  const motionSpeedRef = useRef(1);
+  /**
+   * The mixing graph.
+   *
+   * Voiceover and music are routed through gain nodes into two destinations at
+   * once: the speakers, and a MediaStream the recorder can capture. That second
+   * destination is the only way to get *both* sources into one exported audio
+   * track — `captureStream()` on an element yields that element alone, which is
+   * why music could never have reached the file without this.
+   *
+   * `createMediaElementSource` may be called once per element and permanently
+   * re-routes it, so the nodes are cached here and rebuilt only when the file
+   * behind them changes.
+   */
+  const motionMixRef = useRef<{
+    ctx: AudioContext;
+    dest: MediaStreamAudioDestinationNode;
+    voiceGain: GainNode;
+    musicGain: GainNode;
+    voiceEl: HTMLAudioElement | null;
+    musicEl: HTMLAudioElement | null;
+  } | null>(null);
 
   const motionData: MotionVideoData = motionSlides[activeMotionIndex] ?? EMPTY_MOTION_DATA;
   const activeMotionSlideId = motionSlides[activeMotionIndex]?.slideId ?? "";
@@ -682,13 +762,23 @@ export function ContentCreatorPage() {
         setMotionManifestText(typeof payload.manifestText === "string" ? payload.manifestText : "");
         setMotionManifestNote(null);
         setMotionManifestWarnings([]);
+        // Restore the editor alongside playback — a project reopened from
+        // history has to come back editable, not just watchable.
+        motionUndoRef.current = [];
+        motionRedoRef.current = [];
+        setMotionHistoryTick((t) => t + 1);
+        setMotionSaveState("idle");
+
         if (savedTimeline.trim()) {
           const { timeline, report } = parseMotionTimeline(savedTimeline, slides);
           setMotionTimeline(timeline);
           setMotionTimelineReport(report);
+          const restoredDoc = parseLooseJson<AuthoredTimeline>(savedTimeline).value;
+          setMotionDoc(restoredDoc ? toEditable(restoredDoc, slides.length) : null);
         } else {
           setMotionTimeline(null);
           setMotionTimelineReport(null);
+          setMotionDoc(null);
         }
       } else if (payload.parsedData) {
         setCreatorMode("indicator");
@@ -1525,7 +1615,9 @@ export function ContentCreatorPage() {
       const duration = motionTimeline?.durationMs ?? Infinity;
       const clamped = Math.max(0, Math.min(ms, duration));
       motionTimeRef.current = clamped;
-      motionClockOriginRef.current = performance.now() - clamped;
+      // Wall time advances `speed` times slower than timeline time, so the
+      // origin has to be scaled with it or a seek would jump on resume.
+      motionClockOriginRef.current = performance.now() - clamped / Math.max(0.01, motionSpeedRef.current);
       const audio = motionAudioRef.current;
       if (audio) {
         try {
@@ -1534,10 +1626,68 @@ export function ContentCreatorPage() {
           /* audio not seekable yet — the clock still moves */
         }
       }
+      const music = motionMusicRef.current;
+      if (music) {
+        try {
+          // The bed loops, so it is positioned within its own length.
+          music.currentTime = music.duration ? (clamped / 1000) % music.duration : 0;
+        } catch {
+          /* not seekable yet */
+        }
+      }
       setMotionTimeMs(clamped);
     },
     [motionTimeline]
   );
+
+  /**
+   * Builds (or extends) the mixing graph so both audio elements reach the
+   * speakers and the recorder. Safe to call repeatedly: each element is wired
+   * in once, on the call that first sees it.
+   */
+  const ensureMotionMix = useCallback(() => {
+    const voiceEl = motionAudioRef.current;
+    const musicEl = motionMusicRef.current;
+    if (!voiceEl && !musicEl) return null;
+
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return null;
+
+    let mix = motionMixRef.current;
+    if (!mix) {
+      const ctx = new Ctor();
+      const dest = ctx.createMediaStreamDestination();
+      const voiceGain = ctx.createGain();
+      const musicGain = ctx.createGain();
+      [voiceGain, musicGain].forEach((g) => {
+        g.connect(ctx.destination);
+        g.connect(dest);
+      });
+      mix = { ctx, dest, voiceGain, musicGain, voiceEl: null, musicEl: null };
+      motionMixRef.current = mix;
+    }
+
+    if (voiceEl && mix.voiceEl !== voiceEl) {
+      try {
+        mix.ctx.createMediaElementSource(voiceEl).connect(mix.voiceGain);
+        mix.voiceEl = voiceEl;
+      } catch {
+        /* already routed through another graph — leave it on the default output */
+      }
+    }
+    if (musicEl && mix.musicEl !== musicEl) {
+      try {
+        mix.ctx.createMediaElementSource(musicEl).connect(mix.musicGain);
+        mix.musicEl = musicEl;
+      } catch {
+        /* as above */
+      }
+    }
+
+    mix.musicGain.gain.value = motionMusicVolume;
+    if (mix.ctx.state === "suspended") void mix.ctx.resume();
+    return mix;
+  }, [motionMusicVolume]);
 
   // 60 FPS motion clock. Free-running when no timeline is applied (the
   // procedural preview loops forever); bounded by the timeline's duration
@@ -1547,13 +1697,24 @@ export function ContentCreatorPage() {
     if (creatorMode !== "motion" || !isPlayingMotion) return;
 
     const audio = motionAudioRef.current;
+    const music = motionMusicRef.current;
     const duration = motionTimeline?.durationMs ?? 0;
-    motionClockOriginRef.current = performance.now() - motionTimeRef.current;
+    const speed = Math.max(0.01, motionSpeedRef.current);
+    motionClockOriginRef.current = performance.now() - motionTimeRef.current / speed;
 
-    if (audio && motionTimeline) {
-      void audio.play().catch(() => {
-        /* autoplay refused — the performance clock carries on alone */
-      });
+    // Routing both sources through the mixer here, rather than only at export,
+    // means what you hear while scrubbing is exactly what gets recorded.
+    ensureMotionMix();
+
+    if (motionTimeline) {
+      if (audio) {
+        void audio.play().catch(() => {
+          /* autoplay refused — the performance clock carries on alone */
+        });
+      }
+      if (music) {
+        void music.play().catch(() => {});
+      }
     }
 
     const advance = (value: number) => {
@@ -1562,21 +1723,24 @@ export function ContentCreatorPage() {
     };
 
     const tick = (now: number) => {
+      // Audio position is already in timeline time whatever the playback rate,
+      // so it needs no scaling; the wall clock does.
       const fromAudio = audio && !audio.paused && !audio.ended ? audio.currentTime * 1000 : null;
-      let t = fromAudio ?? now - motionClockOriginRef.current;
+      let t = fromAudio ?? (now - motionClockOriginRef.current) * speed;
 
       if (duration > 0 && t >= duration) {
         if (motionLoopRef.current) {
           t = 0;
           motionClockOriginRef.current = now;
-          if (audio) {
+          [audio, music].forEach((el) => {
+            if (!el) return;
             try {
-              audio.currentTime = 0;
+              el.currentTime = 0;
             } catch {
               /* ignore */
             }
-            void audio.play().catch(() => {});
-          }
+            void el.play().catch(() => {});
+          });
         } else {
           advance(duration);
           setIsPlayingMotion(false);
@@ -1592,8 +1756,9 @@ export function ContentCreatorPage() {
     return () => {
       if (motionAnimFrameRef.current) cancelAnimationFrame(motionAnimFrameRef.current);
       audio?.pause();
+      music?.pause();
     };
-  }, [creatorMode, isPlayingMotion, motionTimeline]);
+  }, [creatorMode, isPlayingMotion, motionTimeline, ensureMotionMix]);
 
   // Render canvas on motionTimeMs change when in motion mode
   useEffect(() => {
@@ -1643,31 +1808,129 @@ export function ContentCreatorPage() {
     motionTimeline,
     isPlayingMotion,
     isExportingTimeline,
+    // A paused canvas has no other reason to redraw, so a late-decoding image
+    // would otherwise never appear until the playhead moved.
+    motionAssetVersion,
     ar,
     colors,
     config,
   ]);
+
+  /**
+   * Loads one image to the point where drawing it is guaranteed to paint.
+   *
+   * `onload` is not that point: the bitmap may still be undecoded, and the
+   * first `drawImage` either stalls the frame or draws nothing. `decode()` is,
+   * which is the difference between a video that opens on its content and one
+   * that opens on black.
+   *
+   * Deduplicated by URL and cached forever — the same job is shared by every
+   * caller that wants the asset, so a re-render cannot restart a download.
+   */
+  const loadMotionImage = useCallback((url: string): Promise<void> => {
+    if (!url) return Promise.resolve();
+    const jobs = motionAssetJobsRef.current;
+    const running = jobs.get(url);
+    if (running) return running;
+
+    const job = (async () => {
+      let img = loadedImagesRef.current[url];
+      if (!img) {
+        img = new Image();
+        img.decoding = "async";
+        loadedImagesRef.current[url] = img;
+        img.src = url;
+      }
+      try {
+        if (!(img.complete && img.naturalWidth > 0)) {
+          await new Promise<void>((resolve, reject) => {
+            img!.addEventListener("load", () => resolve(), { once: true });
+            img!.addEventListener("error", () => reject(new Error(url)), { once: true });
+          });
+        }
+        if (img.decode) await img.decode().catch(() => {});
+      } catch {
+        // One broken asset must not wedge the batch. The renderer falls back to
+        // the flattened poster, so the frame is still complete.
+      } finally {
+        // Repaint: a paused canvas has no other reason to redraw, so without
+        // this an image that arrives late is simply never shown.
+        setMotionAssetVersion((v) => v + 1);
+      }
+    })();
+
+    jobs.set(url, job);
+    return job;
+  }, []);
 
   // Warms loadedImagesRef/motionLayerImgElsRef for one slide's background +
   // layer images so the motion canvas (which, unlike the poster renderer,
   // never lazy-loads a missing entry — see the render effect above) can draw
   // it immediately. Shared by the upload handler and by history restore,
   // since a slide reaching state either way needs the exact same warm-up.
-  const preloadMotionSlideImages = (slide: MotionSlide) => {
-    if (slide.backgroundUrl && !loadedImagesRef.current[slide.backgroundUrl]) {
-      const bgImg = new Image();
-      bgImg.src = slide.backgroundUrl;
-      loadedImagesRef.current[slide.backgroundUrl] = bgImg;
-    }
-    const perSlide: Record<string, HTMLImageElement> = {};
-    (slide.layers || []).forEach((l) => {
-      if (!l.imageUrl) return;
-      const lImg = new Image();
-      lImg.src = l.imageUrl;
-      perSlide[l.id] = lImg;
-    });
-    motionLayerImgElsRef.current[slide.slideId] = perSlide;
-  };
+  const preloadMotionSlideImages = useCallback(
+    (slide: MotionSlide): Promise<void> => {
+      const urls: string[] = [];
+      if (slide.backgroundUrl) urls.push(slide.backgroundUrl);
+      // The flattened poster is what the renderer paints while the decomposed
+      // pieces are still arriving, so it is an asset in its own right — not
+      // loading it was why an incomplete slide had nothing to fall back to.
+      if (slide.originalUrl) urls.push(slide.originalUrl);
+      (slide.layers || []).forEach((l) => {
+        if (l.imageUrl) urls.push(l.imageUrl);
+      });
+
+      const jobs = urls.map((u) => loadMotionImage(u));
+
+      // Point the per-layer map at the same cached elements the URL cache holds,
+      // so a layer reused across slides is downloaded and decoded once.
+      const perSlide: Record<string, HTMLImageElement> = motionLayerImgElsRef.current[slide.slideId] ?? {};
+      (slide.layers || []).forEach((l) => {
+        if (!l.imageUrl) return;
+        const el = loadedImagesRef.current[l.imageUrl];
+        if (el) perSlide[l.id] = el;
+      });
+      motionLayerImgElsRef.current[slide.slideId] = perSlide;
+
+      return Promise.all(jobs).then(() => undefined);
+    },
+    [loadMotionImage]
+  );
+
+  /**
+   * Blocks until every slide can actually be drawn.
+   *
+   * Playback and recording both call this before they start. Firing the loads
+   * and hoping — which is what used to happen — meant the first seconds of a
+   * take were whatever had happened to arrive, and on a cold cache that was
+   * nothing at all.
+   */
+  const ensureMotionAssets = useCallback(
+    async (slides: MotionSlide[], timeoutMs = 30_000): Promise<boolean> => {
+      if (slides.length === 0) return true;
+
+      let done = 0;
+      setMotionAssetProgress({ done: 0, total: slides.length });
+
+      const tracked = slides.map((slide) =>
+        preloadMotionSlideImages(slide).then(() => {
+          done += 1;
+          setMotionAssetProgress({ done, total: slides.length });
+        })
+      );
+
+      // A stalled CDN must not hold the export hostage forever; past the
+      // deadline we go ahead and let the renderer's fallback carry it.
+      const finished = await Promise.race([
+        Promise.all(tracked).then(() => true),
+        new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), timeoutMs)),
+      ]);
+
+      setMotionAssetProgress(null);
+      return finished;
+    },
+    [preloadMotionSlideImages]
+  );
 
   // Motion Video Python segmentation handler.
   //
@@ -1846,7 +2109,7 @@ export function ContentCreatorPage() {
 
   /* ── AI Timeline: apply, inputs, export ──────────────────────────────── */
 
-  const applyMotionTimeline = useCallback(() => {
+  const applyMotionTimeline = useCallback(async () => {
     // The transcript is passed in so every cue carrying a `word` is retimed
     // from real audio rather than trusted — see compile.ts snapToWord.
     const { timeline, report } = parseMotionTimeline(motionTimelineText, motionSlides, {
@@ -1871,8 +2134,12 @@ export function ContentCreatorPage() {
         /* not seekable yet */
       }
     }
+    await ensureMotionAssets(motionSlides);
+    motionTimeRef.current = 0;
+    motionClockOriginRef.current = performance.now();
+    setMotionTimeMs(0);
     setIsPlayingMotion(true);
-  }, [motionTimelineText, motionSlides, motionTranscript, setMotionData]);
+  }, [motionTimelineText, motionSlides, motionTranscript, setMotionData, ensureMotionAssets]);
 
   /**
    * Installs a locally-built timeline.
@@ -1883,13 +2150,23 @@ export function ContentCreatorPage() {
    * transcript and the validation report.
    */
   const applyBuiltTimeline = useCallback(
-    (timelineJson: string): CompiledTimeline | null => {
+    async (timelineJson: string): Promise<CompiledTimeline | null> => {
       setMotionTimelineText(timelineJson);
 
       const compiled = parseMotionTimeline(timelineJson, motionSlides, { transcript: motionTranscript });
       setMotionTimelineReport(compiled.report);
       setMotionTimeline(compiled.timeline);
       if (!compiled.timeline) return null;
+
+      // Seed the editor from the same JSON, so the timeline strip, the textarea
+      // and the compiled playback can never disagree about what the video is.
+      const parsedDoc = parseLooseJson<AuthoredTimeline>(timelineJson).value;
+      if (parsedDoc) {
+        setMotionDoc(toEditable(parsedDoc, motionSlides.length));
+        motionUndoRef.current = [];
+        motionRedoRef.current = [];
+        setMotionHistoryTick((t) => t + 1);
+      }
 
       motionTimeRef.current = 0;
       motionClockOriginRef.current = performance.now();
@@ -1904,10 +2181,17 @@ export function ContentCreatorPage() {
           /* not seekable yet */
         }
       }
+
+      // Do not start the reel over assets that cannot be drawn yet — that is
+      // exactly how playback used to open on an empty frame.
+      await ensureMotionAssets(motionSlides);
+      motionTimeRef.current = 0;
+      motionClockOriginRef.current = performance.now();
+      setMotionTimeMs(0);
       setIsPlayingMotion(true);
       return compiled.timeline;
     },
-    [motionSlides, motionTranscript, setMotionData]
+    [motionSlides, motionTranscript, setMotionData, ensureMotionAssets]
   );
 
   /**
@@ -1918,7 +2202,7 @@ export function ContentCreatorPage() {
    * audio — and where each element belongs inside its slide — is a search over
    * two documents this app already holds. See lib/motion-timeline/autosync.ts.
    */
-  const autoSyncMotionTimeline = useCallback(() => {
+  const autoSyncMotionTimeline = useCallback(async () => {
     if (motionSlides.length === 0) {
       setMotionAutoSyncReport(null);
       setMotionAutoSyncNote("Upload your posters first — auto-sync animates the decomposed layers.");
@@ -1930,7 +2214,9 @@ export function ContentCreatorPage() {
       return;
     }
 
-    const { timeline, report } = autoSyncTimeline(motionSlides, motionTranscript);
+    const { timeline, report } = autoSyncTimeline(motionSlides, motionTranscript, {
+      textOnlySync: motionTextOnlySync,
+    });
     setMotionAutoSyncReport(report);
 
     if (!timeline) {
@@ -1938,7 +2224,7 @@ export function ContentCreatorPage() {
       return;
     }
 
-    applyBuiltTimeline(JSON.stringify(timeline, null, 2));
+    await applyBuiltTimeline(JSON.stringify(timeline, null, 2));
 
     const onWords = report.scenes.filter((s) => s.placedBy === "text").length;
     setMotionAutoSyncNote(
@@ -1949,7 +2235,7 @@ export function ContentCreatorPage() {
     // The manifest report below now describes an older timeline.
     setMotionManifestNote(null);
     setMotionManifestWarnings([]);
-  }, [motionSlides, motionTranscript, applyBuiltTimeline]);
+  }, [motionSlides, motionTranscript, applyBuiltTimeline, motionTextOnlySync]);
 
   /**
    * The zero-token path: the sync manifest already says which element enters on
@@ -1957,7 +2243,7 @@ export function ContentCreatorPage() {
    * timeline is built here rather than bought from a second AI pass. The result
    * is written into the same textarea so it stays inspectable and editable.
    */
-  const buildMotionTimelineFromManifest = useCallback(() => {
+  const buildMotionTimelineFromManifest = useCallback(async () => {
     setMotionManifestWarnings([]);
 
     const parsed = parseSyncManifest(motionManifestText);
@@ -1981,11 +2267,123 @@ export function ContentCreatorPage() {
     setMotionManifestNote(
       `Built ${parsed.manifest.beats.length} beats · ${report.boundElements}/${report.totalElements} elements bound to a layer.`
     );
-    applyBuiltTimeline(JSON.stringify(timeline, null, 2));
+    await applyBuiltTimeline(JSON.stringify(timeline, null, 2));
     // The auto-sync report below now describes an older timeline.
     setMotionAutoSyncReport(null);
     setMotionAutoSyncNote(null);
   }, [motionManifestText, motionTranscript, motionSlides, applyBuiltTimeline]);
+
+  /**
+   * Persists the current motion document.
+   *
+   * The editor is a live surface — nobody is going to remember to press save
+   * after nudging a cue — so every committed edit schedules one of these. The
+   * existing history record is updated in place when there is one, so a session
+   * stays a single entry instead of littering the list with a row per keystroke.
+   */
+  const persistMotionState = useCallback(
+    async (timelineText: string) => {
+      if (motionSlides.length === 0) return;
+      setMotionSaveState("saving");
+      const firstName = motionSlides[0]?.fileName?.replace(/\.[^.]+$/, "");
+      const title =
+        motionSlides.length > 1 ? `Motion Video · ${motionSlides.length} slides` : firstName || "Motion Video";
+      const id = await saveToHistory(
+        "motion-video",
+        title,
+        motionSlides.length,
+        {
+          slides: motionSlides,
+          timelineText,
+          manifestText: motionManifestText,
+          ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme,
+        },
+        activeHistoryId,
+        motionSlides[0]?.backgroundUrl || motionSlides[0]?.originalUrl
+      );
+      if (id) {
+        if (!activeHistoryId) setActiveHistoryId(id);
+        setMotionSaveState("saved");
+      } else {
+        setMotionSaveState("error");
+      }
+    },
+    [motionSlides, motionManifestText, activeHistoryId, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme]
+  );
+
+  /** Snapshot for undo, taken at the start of a gesture rather than per frame. */
+  const beginMotionGesture = useCallback(() => {
+    if (!motionDoc) return;
+    motionUndoRef.current = [...motionUndoRef.current.slice(-49), motionDoc];
+    motionRedoRef.current = [];
+    setMotionHistoryTick((t) => t + 1);
+  }, [motionDoc]);
+
+  /**
+   * Applies an edit: recompile for playback, rewrite the JSON, and — once the
+   * gesture ends — schedule the save. Recompiling on every drag frame is what
+   * makes the preview track the drag instead of lagging a gesture behind.
+   */
+  const applyMotionDocEdit = useCallback(
+    (next: EditableTimeline, opts?: { commit?: boolean }) => {
+      setMotionDoc(next);
+
+      const authored = toAuthored(next);
+      const json = JSON.stringify(authored, null, 2);
+      setMotionTimelineText(json);
+
+      const compiled = parseMotionTimeline(json, motionSlides, { transcript: motionTranscript });
+      setMotionTimelineReport(compiled.report);
+      if (compiled.timeline) setMotionTimeline(compiled.timeline);
+
+      if (!opts?.commit) return;
+
+      setMotionSaveState("dirty");
+      if (motionSaveTimerRef.current) window.clearTimeout(motionSaveTimerRef.current);
+      motionSaveTimerRef.current = window.setTimeout(() => {
+        void persistMotionState(json);
+      }, 1200);
+    },
+    [motionSlides, motionTranscript, persistMotionState]
+  );
+
+  const undoMotionEdit = useCallback(() => {
+    const prev = motionUndoRef.current.pop();
+    if (!prev || !motionDoc) return;
+    motionRedoRef.current = [...motionRedoRef.current, motionDoc];
+    setMotionHistoryTick((t) => t + 1);
+    applyMotionDocEdit(prev, { commit: true });
+  }, [motionDoc, applyMotionDocEdit]);
+
+  const redoMotionEdit = useCallback(() => {
+    const next = motionRedoRef.current.pop();
+    if (!next || !motionDoc) return;
+    motionUndoRef.current = [...motionUndoRef.current, motionDoc];
+    setMotionHistoryTick((t) => t + 1);
+    applyMotionDocEdit(next, { commit: true });
+  }, [motionDoc, applyMotionDocEdit]);
+
+  // ⌘Z / ⇧⌘Z anywhere in motion mode.
+  useEffect(() => {
+    if (creatorMode !== "motion") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      if (e.shiftKey) redoMotionEdit();
+      else undoMotionEdit();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [creatorMode, undoMotionEdit, redoMotionEdit]);
+
+  // A pending save must not be lost to a tab close.
+  useEffect(() => {
+    return () => {
+      if (motionSaveTimerRef.current) window.clearTimeout(motionSaveTimerRef.current);
+    };
+  }, []);
 
   const clearMotionTimeline = useCallback(() => {
     setMotionTimeline(null);
@@ -1993,6 +2391,9 @@ export function ContentCreatorPage() {
     setMotionTimelineText("");
     setMotionAutoSyncReport(null);
     setMotionAutoSyncNote(null);
+    setMotionDoc(null);
+    motionUndoRef.current = [];
+    motionRedoRef.current = [];
     motionTimeRef.current = 0;
     motionClockOriginRef.current = performance.now();
     setMotionTimeMs(0);
@@ -2086,6 +2487,62 @@ export function ContentCreatorPage() {
     setMotionAudioName(null);
   }, []);
 
+
+  // The music bed never leaves the browser either — an object URL, looped so a
+  // 30-second track still covers a two-minute reel.
+  const handleMotionMusicFile = useCallback((file: File) => {
+    if (motionMusicUrlRef.current) URL.revokeObjectURL(motionMusicUrlRef.current);
+    motionMusicRef.current?.pause();
+    // A new element needs a new graph: an old one is permanently bound to the
+    // element it was created from.
+    motionMixRef.current = null;
+
+    const url = URL.createObjectURL(file);
+    motionMusicUrlRef.current = url;
+    const audio = new Audio(url);
+    audio.preload = "auto";
+    audio.loop = true;
+    motionMusicRef.current = audio;
+    setMotionMusicName(file.name);
+  }, []);
+
+  const clearMotionMusic = useCallback(() => {
+    motionMusicRef.current?.pause();
+    if (motionMusicUrlRef.current) URL.revokeObjectURL(motionMusicUrlRef.current);
+    motionMusicUrlRef.current = null;
+    motionMusicRef.current = null;
+    motionMixRef.current = null;
+    setMotionMusicName(null);
+  }, []);
+
+  // Live volume: the gain node when the graph exists, the element otherwise.
+  useEffect(() => {
+    const mix = motionMixRef.current;
+    if (mix) mix.musicGain.gain.value = motionMusicVolume;
+    else if (motionMusicRef.current) motionMusicRef.current.volume = motionMusicVolume;
+  }, [motionMusicVolume]);
+
+  useEffect(() => {
+    motionSpeedRef.current = motionExportSpeed;
+    const rate = Math.max(0.25, Math.min(4, motionExportSpeed));
+    [motionAudioRef.current, motionMusicRef.current].forEach((el) => {
+      if (!el) return;
+      try {
+        el.playbackRate = rate;
+      } catch {
+        /* rate out of range for this element */
+      }
+    });
+  }, [motionExportSpeed]);
+
+  useEffect(() => {
+    return () => {
+      motionMusicRef.current?.pause();
+      if (motionMusicUrlRef.current) URL.revokeObjectURL(motionMusicUrlRef.current);
+      void motionMixRef.current?.ctx.close();
+    };
+  }, []);
+
   useEffect(() => {
     return () => {
       motionAudioRef.current?.pause();
@@ -2109,6 +2566,7 @@ export function ContentCreatorPage() {
   const handleExportTimelineVideo = async () => {
     if (!canvasRef.current || !motionTimeline || isExportingTimeline) return;
     const duration = motionTimeline.durationMs;
+    const speed = Math.max(0.25, Math.min(4, motionExportSpeed));
 
     setIsExportingTimeline(true);
     setTimelineExportElapsed(0);
@@ -2118,9 +2576,33 @@ export function ContentCreatorPage() {
     const restoreLoop = motionLoopRef.current;
     motionLoopRef.current = false;
 
+    // Every pixel of every slide has to be decoded before the tape rolls. This
+    // is the difference between a recording that opens on the first poster and
+    // one that opens on black while the images are still arriving — and unlike
+    // playback, an export cannot be re-watched once it is wrong.
+    const assetsReady = await ensureMotionAssets(motionSlides);
+    if (!assetsReady) {
+      setSegmentError(
+        "Some slide images were still loading after 30s — recording anyway, and any unfinished slide will hold on its full poster instead of animating."
+      );
+    }
+
     seekMotionTo(0);
     setIsPlayingMotion(true);
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // Wait for the rewound frame to be on the canvas before recording — but
+    // never wait forever. A backgrounded or throttled tab stops firing
+    // animation frames entirely, and a bare double-rAF await there leaves the
+    // export wedged on "RECORDING 0:00" with no error and no way out.
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      requestAnimationFrame(() => requestAnimationFrame(done));
+      window.setTimeout(done, 250);
+    });
 
     let progressTimer: number | null = null;
     const finish = () => {
@@ -2134,32 +2616,42 @@ export function ContentCreatorPage() {
       const canvas = canvasRef.current;
       const stream = canvas.captureStream(motionTimeline.fps);
 
-      const audio = motionAudioRef.current as (HTMLAudioElement & { captureStream?: () => MediaStream }) | null;
-      if (audio?.captureStream) {
-        try {
-          audio.captureStream().getAudioTracks().forEach((track) => stream.addTrack(track));
-        } catch {
-          /* video-only export — the timeline is still frame-accurate */
+      // One mixed audio track, not one per source: the voiceover and the music
+      // bed are summed in the graph and captured together.
+      const mix = ensureMotionMix();
+      if (mix) {
+        mix.dest.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
+      } else {
+        const audio = motionAudioRef.current as (HTMLAudioElement & { captureStream?: () => MediaStream }) | null;
+        if (audio?.captureStream) {
+          try {
+            audio.captureStream().getAudioTracks().forEach((track) => stream.addTrack(track));
+          } catch {
+            /* video-only export — the timeline is still frame-accurate */
+          }
         }
       }
 
-      const recorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-          ? "video/webm;codecs=vp9,opus"
-          : "video/webm",
-        videoBitsPerSecond: 12_000_000,
-      });
+      const mimeType = MP4_MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
+      if (!mimeType) {
+        throw new Error(
+          "This browser cannot record MP4. Chrome 126+, Edge or Safari can — open the app there and export again."
+        );
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 12_000_000 });
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "video/webm" });
+        const blob = new Blob(chunks, { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
+        const tag = speed === 1 ? "" : `-${String(speed).replace(".", "_")}x`;
         a.href = url;
-        a.download = `stratix-motion-synced-${Date.now()}.webm`;
+        a.download = `stratix-motion-synced${tag}-${Date.now()}.mp4`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         finish();
@@ -2168,15 +2660,17 @@ export function ContentCreatorPage() {
       recorder.start();
       const startedAt = performance.now();
       progressTimer = window.setInterval(() => {
-        setTimelineExportElapsed(performance.now() - startedAt);
+        setTimelineExportElapsed((performance.now() - startedAt) * speed);
       }, 100);
 
-      // A short tail keeps the final frame (and any exit fade) in the file.
+      // Recording happens in real time, so a 2x export finishes in half the
+      // wall time. A short tail keeps the final frame (and any exit fade).
       window.setTimeout(() => {
         if (recorder.state !== "inactive") recorder.stop();
-      }, duration + 300);
-    } catch (e) {
+      }, duration / speed + 300);
+    } catch (e: any) {
       console.error("Failed to record synced motion video:", e);
+      setSegmentError(e?.message || "Failed to record the video.");
       finish();
     }
   };
@@ -2195,12 +2689,13 @@ export function ContentCreatorPage() {
     try {
       const canvas = canvasRef.current;
       const stream = canvas.captureStream(60);
-      const recorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-          ? "video/webm;codecs=vp9"
-          : "video/webm",
-        videoBitsPerSecond: 8000000,
-      });
+      const mimeType = MP4_MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
+      if (!mimeType) {
+        throw new Error(
+          "This browser cannot record MP4. Chrome 126+, Edge or Safari can — open the app there and export again."
+        );
+      }
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
@@ -2208,12 +2703,12 @@ export function ContentCreatorPage() {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "video/webm" });
+        const blob = new Blob(chunks, { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         const slideName = (motionData.fileName || "").replace(/\.[^.]+$/, "") || `slide-${activeMotionIndex + 1}`;
         a.href = url;
-        a.download = `stratix-motion-${slideName}-${Date.now()}.webm`;
+        a.download = `stratix-motion-${slideName}-${Date.now()}.mp4`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         setIsRecordingVideo(false);
@@ -4463,7 +4958,16 @@ export function ContentCreatorPage() {
                       audioName={motionAudioName}
                       onAudioFile={handleMotionAudioFile}
                       onClearAudio={clearMotionAudio}
+                      musicName={motionMusicName}
+                      onMusicFile={handleMotionMusicFile}
+                      onClearMusic={clearMotionMusic}
+                      musicVolume={motionMusicVolume}
+                      onMusicVolumeChange={setMotionMusicVolume}
+                      exportSpeed={motionExportSpeed}
+                      onExportSpeedChange={setMotionExportSpeed}
                       onAutoSync={autoSyncMotionTimeline}
+                      textOnlySync={motionTextOnlySync}
+                      onTextOnlySyncChange={setMotionTextOnlySync}
                       autoSyncReport={motionAutoSyncReport}
                       autoSyncNote={motionAutoSyncNote}
                       manifestText={motionManifestText}
@@ -4476,6 +4980,7 @@ export function ContentCreatorPage() {
                       onExport={handleExportTimelineVideo}
                       isExporting={isExportingTimeline}
                       exportElapsedMs={timelineExportElapsed}
+                      assetProgress={motionAssetProgress}
                     />
                   )}
 
@@ -6104,6 +6609,27 @@ export function ContentCreatorPage() {
             </div>
           </div>
         </div>
+
+        {/* Timeline editor — macro (scenes) over micro (elements and their
+            cues), directly under the frame it is editing. */}
+        {creatorMode === "motion" && motionDoc && motionDoc.scenes.length > 0 && (
+          <TimelineEditor
+            doc={motionDoc}
+            onChange={applyMotionDocEdit}
+            onBeginGesture={beginMotionGesture}
+            timeMs={motionTimeMs}
+            onSeek={seekMotionTo}
+            isPlaying={isPlayingMotion}
+            onTogglePlay={() => setIsPlayingMotion((p) => !p)}
+            words={motionTranscript ?? []}
+            slideNames={motionSlides.map((s) => s.fileName || "")}
+            canUndo={motionHistoryTick >= 0 && motionUndoRef.current.length > 0}
+            canRedo={motionHistoryTick >= 0 && motionRedoRef.current.length > 0}
+            onUndo={undoMotionEdit}
+            onRedo={redoMotionEdit}
+            saveState={motionSaveState}
+          />
+        )}
 
         {/* Bottom hint */}
         <div
