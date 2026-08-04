@@ -162,6 +162,105 @@ export function parseTranscriptCsv(raw: string): TranscriptParseResult {
   };
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+ * Trigger-word lookup
+ *
+ * A cue that carries `"word": "balti"` is stating an intent the transcript can
+ * verify: land this animation on that syllable. Resolving the word here and
+ * overwriting the authored `atMs` is what turns sync from "the model did the
+ * arithmetic right" into "the model named the right word" — a far easier job,
+ * and the only one it is actually good at.
+ * ────────────────────────────────────────────────────────────────────────*/
+
+/** Lowercase, strip accents and every non-alphanumeric — "Bal-ti," → "balti". */
+function normalizeToken(s: string): string {
+  // NFD splits "é" into "e" + a combining mark, and the alphanumeric filter
+  // then drops the mark — so accented spellings still match their plain form.
+  return s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+}
+
+export interface WordMatch {
+  /** Start of the first word of the match. */
+  startMs: number;
+  /** End of the last word of the match. */
+  endMs: number;
+  /** Index into `words` of the first matched word. */
+  index: number;
+  /** How the match was found — exact run, or a single fuzzy fallback. */
+  kind: "exact" | "prefix";
+}
+
+/**
+ * Finds when `phrase` is spoken. Multi-word phrases match a consecutive run,
+ * so `"stop loss"` lands on the "stop", not on whichever "loss" came first.
+ *
+ * `hintMs` breaks ties: a word repeated five times in a reel resolves to the
+ * occurrence nearest where the author thought it was, which is what makes a
+ * roughly-right authored `atMs` still useful even when it is off by a second.
+ */
+export function findWordTime(
+  words: TranscriptWord[],
+  phrase: string,
+  hintMs?: number,
+  minMs?: number
+): WordMatch | null {
+  if (words.length === 0) return null;
+
+  const needles = phrase.split(/\s+/).map(normalizeToken).filter(Boolean);
+  if (needles.length === 0) return null;
+
+  const haystack = words.map((w) => normalizeToken(w.text));
+  const candidates: WordMatch[] = [];
+
+  for (let i = 0; i + needles.length <= haystack.length; i++) {
+    let hit = true;
+    for (let k = 0; k < needles.length; k++) {
+      if (haystack[i + k] !== needles[k]) {
+        hit = false;
+        break;
+      }
+    }
+    if (hit) {
+      candidates.push({
+        startMs: words[i].startMs,
+        endMs: words[i + needles.length - 1].endMs,
+        index: i,
+        kind: "exact",
+      });
+    }
+  }
+
+  // Nothing exact: allow one word to stand in via prefix, which covers the
+  // inflections a transcriber and a scriptwriter disagree about ("liquidity"
+  // vs "liquiditys", "dekho" vs "dekh").
+  if (candidates.length === 0) {
+    const head = needles[0];
+    if (head.length >= 4) {
+      haystack.forEach((h, i) => {
+        if (h.startsWith(head) || head.startsWith(h)) {
+          if (Math.min(h.length, head.length) >= 4) {
+            candidates.push({ startMs: words[i].startMs, endMs: words[i].endMs, index: i, kind: "prefix" });
+          }
+        }
+      });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // A hard floor, for callers walking the audio forwards: a beat's opening
+  // word must be found at or after where the previous beat began, or a
+  // repeated opener ("Dekho", "Lekin") drags the scene order backwards.
+  const inRange = minMs === undefined ? candidates : candidates.filter((c) => c.startMs >= minMs);
+  const pool = inRange.length > 0 ? inRange : candidates;
+
+  if (pool.length === 1 || hintMs === undefined) return pool[0];
+
+  return pool.reduce((best, c) =>
+    Math.abs(c.startMs - hintMs) < Math.abs(best.startMs - hintMs) ? c : best
+  );
+}
+
 /** Word under the playhead, or the one most recently spoken. */
 export function wordAt(words: TranscriptWord[], tMs: number): TranscriptWord | null {
   if (words.length === 0) return null;

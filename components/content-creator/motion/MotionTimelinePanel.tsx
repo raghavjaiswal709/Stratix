@@ -37,6 +37,13 @@ export interface MotionTimelinePanelProps {
   onApply: () => void;
   onClear: () => void;
 
+  /** PART D of the video prompt — drives the local, zero-token build. */
+  manifestText: string;
+  onManifestTextChange: (value: string) => void;
+  onBuildFromManifest: () => void;
+  manifestNote: string | null;
+  manifestWarnings: string[];
+
   timeMs: number;
   onSeek: (ms: number) => void;
   isPlaying: boolean;
@@ -72,6 +79,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     report,
     onApply,
     onClear,
+    manifestText,
+    onManifestTextChange,
+    onBuildFromManifest,
+    manifestNote,
+    manifestWarnings,
     timeMs,
     onSeek,
     isPlaying,
@@ -122,10 +134,53 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
       </div>
 
       <p className="text-[10.5px] text-white/45 leading-relaxed">
-        Copy the prompt below, paste it into any capable AI chat together with this batch&rsquo;s layout JSON and your
-        word-level transcript CSV, then paste the timeline it returns back in here. Playback and export then follow that
-        timeline to the millisecond.
+        Paste PART D (the sync manifest) from your video prompt, load the word-level transcript, and Stratix builds the
+        timeline itself &mdash; no second AI pass. Every element lands on the word it was written for, resolved against
+        the real audio timings.
       </p>
+
+      {/* Primary path — build locally from the manifest */}
+      <div className="rounded-lg border border-white/[0.10] bg-white/[0.02] p-2.5 space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+            Sync manifest &middot; PART D
+          </label>
+          <span className="text-[8.5px] font-bold px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300/90">
+            0 TOKENS
+          </span>
+        </div>
+        <textarea
+          value={manifestText}
+          onChange={(e) => onManifestTextChange(e.target.value)}
+          spellCheck={false}
+          placeholder={'{\n  "format": "stratix.sync.manifest",\n  "beats": [ … ]\n}'}
+          className="w-full h-24 resize-y rounded-lg border border-white/[0.10] bg-black/50 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-white/[0.28] [scrollbar-width:thin]"
+        />
+        <button
+          onClick={onBuildFromManifest}
+          disabled={!manifestText.trim() || !transcript?.length}
+          title={!transcript?.length ? "Load the word-level transcript CSV first" : "Build the timeline from the manifest"}
+          className="w-full py-2 rounded-lg text-[11px] font-bold border border-white/[0.12] bg-white text-black hover:bg-white/90 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/30"
+        >
+          BUILD SYNCED TIMELINE
+        </button>
+        {manifestNote && <p className="text-[9.5px] text-white/50 leading-snug">{manifestNote}</p>}
+        {manifestWarnings.length > 0 && (
+          <div className="space-y-0.5 max-h-28 overflow-y-auto pr-1 [scrollbar-width:thin]">
+            {manifestWarnings.map((w, i) => (
+              <p key={i} className="text-[9px] text-amber-200/70 leading-snug">
+                {w}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 pt-0.5">
+        <div className="h-px flex-1 bg-white/[0.07]" />
+        <span className="text-[8.5px] uppercase tracking-widest text-white/20">or hand it to an AI</span>
+        <div className="h-px flex-1 bg-white/[0.07]" />
+      </div>
 
       {/* Step 1 — the prompt */}
       <button
@@ -210,6 +265,37 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
               </div>
             ))}
           </div>
+
+          {/* Sync proof: how many cues were retimed off the transcript, and how
+              far off the authored times were. A high drift is not a problem —
+              it is the fix working. */}
+          {report.wordKeyedCues > 0 && (
+            <div className="flex items-center justify-between rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
+              <span className="text-[9.5px] text-white/45">
+                <span className="font-mono text-white/80">{report.syncedCues}</span>
+                <span className="text-white/25">/{report.wordKeyedCues}</span> cues locked to their spoken word
+              </span>
+              {report.maxDriftMs > 0 && (
+                <span className="text-[9px] font-mono text-emerald-300/70" title="Largest timing correction applied">
+                  −{formatTimecode(report.maxDriftMs)} drift
+                </span>
+              )}
+            </div>
+          )}
+
+          {report.unmatchedWords.length > 0 && (
+            <p className="text-[9.5px] text-amber-200/70 leading-snug">
+              Not spoken in the transcript: {report.unmatchedWords.slice(0, 8).map((w) => `"${w}"`).join(", ")}
+              {report.unmatchedWords.length > 8 ? ` +${report.unmatchedWords.length - 8} more` : ""}. Those cues kept
+              their authored times.
+            </p>
+          )}
+
+          {transcript && transcript.length === 0 && (
+            <p className="text-[9.5px] text-amber-200/70 leading-snug">
+              No transcript loaded — cue times are taken on trust instead of resolved against the audio.
+            </p>
+          )}
 
           {warnings.length > 0 && (
             <div className="space-y-1 max-h-32 overflow-y-auto pr-1 [scrollbar-width:thin]">

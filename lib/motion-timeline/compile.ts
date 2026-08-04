@@ -1,6 +1,7 @@
 import { CAMERA_CUE_BUILDERS, CUE_BUILDERS, CUE_CHANNELS, type CueDefaults, type NormalizedCue } from "./cues";
 import { DEFAULT_EASE, resolveEase, type EaseName } from "./easing";
 import { parseLooseJson } from "./parse";
+import { findWordTime, type TranscriptWord } from "./transcript";
 import {
   TIMELINE_FORMAT,
   type AuthoredCue,
@@ -24,7 +25,21 @@ import {
 
 /** Structural view of a motion slide — keeps this module free of UI imports. */
 export interface TimelineSlideLike {
-  layers: Array<{ id: string; name?: string; slug?: string; text?: string; zIndex?: number }>;
+  layers: Array<{
+    id: string;
+    name?: string;
+    slug?: string;
+    text?: string;
+    zIndex?: number;
+    /* Used by the manifest binder to identify a layer by what and where it is. */
+    type?: string;
+    role?: string;
+    positionLabel?: string;
+    x?: number;
+    y?: number;
+    w?: number;
+    h?: number;
+  }>;
   width?: number;
   height?: number;
   fileName?: string;
@@ -59,6 +74,28 @@ const NOOP_ACTIONS = new Set(["hold", "stay", "none", "keep", "static"]);
 const INSTANT_ACTIONS = new Set(["show", "hide"]);
 
 const DEFAULT_CUE_DURATION_MS = 400;
+
+/**
+ * How far ahead of its spoken word an entrance starts, so the element has
+ * landed by the time the syllable is heard rather than arriving after it.
+ */
+export const DEFAULT_LEAD_IN_MS = 90;
+
+/** Cues that should sit *on* the word, not ahead of it — they are the hit. */
+const ON_BEAT_ACTIONS = new Set(["emphasize", "pulse", "shake", "tilt", "cameraPunch", "show", "hide"]);
+
+/** Cues whose `word` marks the moment the element leaves, so no lead-in. */
+const EXIT_ACTIONS = new Set([
+  "fadeOut",
+  "slideOutUp",
+  "slideOutDown",
+  "slideOutLeft",
+  "slideOutRight",
+  "popOut",
+  "wipeOut",
+  "blurOut",
+  "dim",
+]);
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
@@ -179,11 +216,83 @@ function collectTimeValues(authored: AuthoredTimeline): number[] {
  * Compilation
  * ────────────────────────────────────────────────────────────────────────*/
 
+/** Everything the compiler needs beyond the document and the slides. */
+export interface CompileOptions {
+  /**
+   * Word-level transcript of the voiceover. When present, any cue carrying a
+   * `word` is retimed from it — the model's millisecond arithmetic stops
+   * mattering and sync becomes a property of the audio.
+   */
+  transcript?: TranscriptWord[] | null;
+  /** Lead-in for entrances, so they land *by* the word. Default 90ms. */
+  leadInMs?: number;
+}
+
 interface Ctx {
   issues: TimelineIssue[];
   defaults: CueDefaults;
   timeScale: number;
   cueCount: number;
+  /** Word-level transcript, when one is loaded — enables trigger-word snapping. */
+  transcript: TranscriptWord[] | null;
+  leadInMs: number;
+  wordKeyedCues: number;
+  syncedCues: number;
+  /** Trigger words the transcript does not contain, in first-seen order. */
+  unmatchedWords: string[];
+  /** Largest correction a snap applied, for the "how far off was it" readout. */
+  maxDriftMs: number;
+}
+
+/**
+ * Resolves a cue's `word` against the transcript and returns the time the cue
+ * should actually fire at, or null when there is nothing to snap to.
+ *
+ * The authored `atMs` is kept as a hint rather than an answer: it disambiguates
+ * a word spoken several times, and it survives untouched when no transcript is
+ * loaded. This is the whole sync fix — the model only has to name the right
+ * word, and the millisecond is computed here from real audio timings.
+ */
+function snapToWord(
+  action: string,
+  word: string,
+  authoredAtMs: number,
+  ctx: Ctx,
+  where: string
+): number | null {
+  if (!ctx.transcript || ctx.transcript.length === 0) return null;
+
+  const match = findWordTime(ctx.transcript, word, authoredAtMs);
+  if (!match) {
+    if (!ctx.unmatchedWords.includes(word)) ctx.unmatchedWords.push(word);
+    addIssue(
+      ctx,
+      "warning",
+      `Cue "${action}" is keyed to the word "${word}", which is not in the transcript — kept its authored time instead.`,
+      where
+    );
+    return null;
+  }
+
+  // An exit is triggered BY the word, so it starts as the word lands. An
+  // emphasis IS the word. Everything else is an entrance and must be finished
+  // by the time the word is heard.
+  const lead = ON_BEAT_ACTIONS.has(action) || EXIT_ACTIONS.has(action) ? 0 : ctx.leadInMs;
+  const snapped = Math.max(0, match.startMs - lead);
+
+  const drift = Math.abs(snapped - authoredAtMs);
+  if (drift > ctx.maxDriftMs) ctx.maxDriftMs = drift;
+  ctx.syncedCues++;
+
+  if (match.kind === "prefix") {
+    addIssue(
+      ctx,
+      "warning",
+      `Trigger word "${word}" had no exact match — snapped to the closest spelling in the transcript.`,
+      where
+    );
+  }
+  return snapped;
 }
 
 function addIssue(ctx: Ctx, level: TimelineIssue["level"], message: string, where?: string) {
@@ -219,15 +328,24 @@ function normalizeCue(raw: AuthoredCue, ctx: Ctx, offsetMs: number, where: strin
   // Everything that is not a reserved field is a cue parameter (amount,
   // distancePct, dxPct, …), passed straight through to the builder.
   const params: Record<string, number | string> = {};
-  const reserved = new Set(["action", "type", "name", "atMs", "at", "tMs", "t", "durMs", "durationMs", "duration", "ease", "note", "word", "comment"]);
+  const reserved = new Set(["action", "type", "name", "atMs", "at", "tMs", "t", "durMs", "durationMs", "duration", "ease", "note", "word", "phrase", "onWord", "syllable", "comment"]);
   Object.entries(raw).forEach(([k, v]) => {
     if (reserved.has(k)) return;
     if (typeof v === "number" || typeof v === "string") params[k] = v;
   });
 
+  const authoredAtMs = at * ctx.timeScale + offsetMs;
+
+  // The trigger word outranks the authored millisecond whenever a transcript
+  // is loaded — see snapToWord. A snapped time is already absolute, so it must
+  // not be shifted again by a scene-relative offset.
+  const word = firstStr(raw.word, raw.phrase, raw.onWord, raw.syllable);
+  if (word) ctx.wordKeyedCues++;
+  const snapped = word ? snapToWord(action, word, authoredAtMs, ctx, where) : null;
+
   return {
     action,
-    atMs: at * ctx.timeScale + offsetMs,
+    atMs: snapped ?? authoredAtMs,
     durMs,
     ease: ease ?? undefined,
     params,
@@ -321,7 +439,13 @@ function compileKeyframeList(kfs: AuthoredKeyframe[], ctx: Ctx, offsetMs: number
     }
     const easeName = firstStr(raw.ease);
     const ease: EaseName = (easeName ? resolveEase(easeName) : null) ?? ctx.defaults.ease;
-    const tMs = t * ctx.timeScale + offsetMs;
+    const authoredTMs = t * ctx.timeScale + offsetMs;
+
+    // A keyframe may carry a trigger word too, so the escape hatch is no less
+    // synced than the cue catalog. "keyframe" is not an entrance or an exit,
+    // so it lands exactly on the word.
+    const word = firstStr(raw.word, raw.phrase, raw.onWord, raw.syllable);
+    const tMs = (word ? snapToWord("show", word, authoredTMs, ctx, where) : null) ?? authoredTMs;
 
     Object.entries(raw).forEach(([key, value]) => {
       const channel = KEYFRAME_ALIASES[key];
@@ -377,13 +501,20 @@ function resolveWipeDirection(raw: unknown): WipeDirection {
  */
 export function compileTimeline(
   authoredInput: AuthoredTimeline,
-  slides: TimelineSlideLike[]
+  slides: TimelineSlideLike[],
+  options: CompileOptions = {}
 ): ParsedTimelineResult {
   const ctx: Ctx = {
     issues: [],
     defaults: { ease: DEFAULT_EASE, distancePct: 4 },
     timeScale: 1,
     cueCount: 0,
+    transcript: options.transcript?.length ? options.transcript : null,
+    leadInMs: options.leadInMs ?? DEFAULT_LEAD_IN_MS,
+    wordKeyedCues: 0,
+    syncedCues: 0,
+    unmatchedWords: [],
+    maxDriftMs: 0,
   };
 
   const emptyReport = (extra?: Partial<ParsedTimelineResult["report"]>) => ({
@@ -397,6 +528,10 @@ export function compileTimeline(
       durationMs: 0,
       unmatchedIds: [],
       untouchedLayers: [],
+      syncedCues: 0,
+      wordKeyedCues: 0,
+      unmatchedWords: [],
+      maxDriftMs: 0,
       ...extra,
     },
   });
@@ -680,12 +815,20 @@ export function compileTimeline(
       durationMs: Math.max(durationMs, lastEnd),
       unmatchedIds: [...unmatched],
       untouchedLayers: untouched,
+      syncedCues: ctx.syncedCues,
+      wordKeyedCues: ctx.wordKeyedCues,
+      unmatchedWords: ctx.unmatchedWords,
+      maxDriftMs: Math.round(ctx.maxDriftMs),
     },
   };
 }
 
 /** Text in, playable timeline out — the one call the UI needs. */
-export function parseMotionTimeline(raw: string, slides: TimelineSlideLike[]): ParsedTimelineResult {
+export function parseMotionTimeline(
+  raw: string,
+  slides: TimelineSlideLike[],
+  options: CompileOptions = {}
+): ParsedTimelineResult {
   const { value, error } = parseLooseJson<AuthoredTimeline>(raw);
   if (!value) {
     return {
@@ -699,10 +842,14 @@ export function parseMotionTimeline(raw: string, slides: TimelineSlideLike[]): P
         durationMs: 0,
         unmatchedIds: [],
         untouchedLayers: [],
+        syncedCues: 0,
+        wordKeyedCues: 0,
+        unmatchedWords: [],
+        maxDriftMs: 0,
       },
     };
   }
-  return compileTimeline(value, slides);
+  return compileTimeline(value, slides, options);
 }
 
 /** Unused channel keys are re-exported so the sampler stays in step. */

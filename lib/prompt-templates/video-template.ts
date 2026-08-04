@@ -1,6 +1,13 @@
 // Verbatim meta-prompt text — do not paraphrase or edit. See PromptBuilder's
 // "HOW TO USE THIS" section for the manual-usage instructions this mirrors.
 import { AVOID_LINE, COLOR_PALETTE_LINE, DESIGN_SYSTEM, HANDLE, PROP_UNIVERSE, STYLE_TAGS_BASE, VOICE_RULES } from "./design-system";
+import { CUE_NAMES } from "@/lib/motion-timeline/cues";
+
+// Entrance cues the renderer can actually execute. Generated from its own
+// table so the manifest can never name a cue Stratix will silently drop.
+const ENTRANCE_CUES = CUE_NAMES.filter((n) =>
+  ["fadeIn", "fadeInUp", "fadeInDown", "fadeInLeft", "fadeInRight", "popIn", "blurIn", "wipeIn", "zoomIn"].includes(n)
+).join(", ");
 
 export const VIDEO_TEMPLATE = `1. HOW TO USE THIS
 Paste this entire prompt into a new chat with a capable AI. On a new line, give it:
@@ -19,6 +26,10 @@ CRITICAL REQUIREMENT — AUDIO-VISUAL & DESTRUCTED ELEMENT COHERENCE:
 2. 1-TO-1 PERFECT SEQUENCE: Whatever visual element appears in an image prompt (headline, dominant drawn object, chart/diagram, supporting prop, accent mark) MUST be explicitly presented in the spoken script line for that beat in exact sequence. No orphaned visual elements (shown in image but omitted from speech) and no orphaned spoken ideas (spoken in speech but absent from image).
 3. DESTRUCTED IMAGE ELEMENTS SYNC: The creator will destruct (decompose) each generated image frame into individual movable layers (Headline, Dominant Drawn Object, Graphic/Chart, Accents, Callouts). For every beat, you MUST provide a dedicated "DESTRUCTED ELEMENTS & SPEECH SYNC MAP" mapping each decomposed layer to the EXACT trigger word in the spoken script where that element enters, animates, or highlights.
 
+4. THE NAMING LAW — this is the rule the whole pipeline stands on. Every drawn object you put in a frame must be NAMED OUT LOUD in that beat's spoken line, as a literal word, at the moment it should appear. If you draw a piggy bank, the script must contain the word "piggy bank" (or "gullak") — not "savings", not "yeh cheez", not "this". If you cannot name it out loud, do not draw it. The trigger word you list for an element MUST be a word that appears verbatim in that beat's spoken line, spelled identically. A trigger word that is not in the script is a broken frame: the software matches on that exact word and will leave the element sitting still.
+5. ONE OBJECT, ONE WORD, ONE MOMENT: never introduce two drawn objects on the same word, and never let a beat's script mention an object before the beat that draws it.
+6. NO PROCRASTINATION IN THE FRAME: an element whose trigger word falls in the last 15% of its own beat is arriving too late to be seen. Order the spoken line so each element's word lands early enough for the element to live on screen for at least 1.2 seconds before the beat cuts.
+
 3. WORKFLOW — DO THIS IN ORDER
 
 1. Read TOPIC + any optional params. Apply defaults for anything missing. Proceed immediately, no clarifying questions.
@@ -28,7 +39,8 @@ CRITICAL REQUIREMENT — AUDIO-VISUAL & DESTRUCTED ELEMENT COHERENCE:
 5. Draft the visual frame and spoken script IN LOCKSTEP for each beat: as you define the visual elements of a frame, write the voiceover line so it explicitly speaks every element in that visual frame in exact chronological sequence.
 6. Deconstruct each visual frame into discrete destructible layers (LAYER_1 Background Canvas, LAYER_2 Hero Headline, LAYER_3 Dominant Drawn Object, LAYER_4 Diagram/Chart, LAYER_5 Accents/Callouts).
 7. Build the DESTRUCTED ELEMENTS & SPEECH SYNC MAP for each beat, linking each layer to the exact spoken word where it enters/animates.
-8. Self-check against §13 quality checklist before returning output.
+8. Emit the SYNC MANIFEST (§11b) — the same information as step 7, in the JSON shape Stratix executes directly. Verify every trigger word against the script before writing it.
+9. Self-check against §13 quality checklist before returning output.
 
 4. VIDEO FORMAT SPECS, SAFE-ZONE GRID & DESTRUCTED LAYER STRUCTURE
 Every visual is 1080×1920px (9:16 portrait, Reels/Shorts standard), single focal composition.
@@ -127,8 +139,54 @@ DESTRUCTED ELEMENTS & SPEECH SYNC MAP:
 
 MOTION SUGGESTION: Quick punch-in zoom (5%) right as "Ruko" is spoken, holding steady while the coins fall and the candlestick draws in.
 
+11b. THE SYNC MANIFEST — the machine-readable half of your answer
+Stratix reads this block directly and builds the animation from it without any further AI. It is not a summary of the sync map; it IS the sync, in a form software can execute. Get it exactly right.
+
+Emit ONE fenced json block, after all the beats, in exactly this shape:
+
+\`\`\`json
+{
+  "format": "stratix.sync.manifest",
+  "version": 1,
+  "language": "Hinglish",
+  "beats": [
+    {
+      "beat": 1,
+      "label": "HOOK — the leak",
+      "line": "Ruko — yeh do lafz, STOP LOSS. Dekho is gullak ko, tumhara account isi tarah khaali hota hai.",
+      "elements": [
+        { "label": "STOP LOSS headline", "kind": "headline", "pos": "top-center",    "sizePct": 84, "text": "STOP LOSS", "word": "Ruko",   "in": "popIn" },
+        { "label": "piggy bank",         "kind": "object",   "pos": "middle-center", "sizePct": 45, "word": "gullak",   "in": "popIn", "hit": "khaali" },
+        { "label": "red underline",      "kind": "accent",   "pos": "bottom-center", "sizePct": 22, "word": "khaali",   "in": "wipeIn" }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+FIELD RULES — every one of these is load-bearing:
+• "line" — the beat's spoken line, verbatim and complete, exactly as it appears in PART A. The software finds the beat in the audio by searching for these words, so a paraphrase here desynchronises the entire scene.
+• "label" — plain English name of the element ("piggy bank", "cracked wall"). For your reader, not for matching.
+• "kind" — one of exactly: headline, subhead, caption, badge, footer, object, chart, accent, logo. The first five are TEXT elements; the last four are DRAWN elements. Get this right or the element binds to the wrong layer.
+• "pos" — which ninth of the frame the element's CENTRE sits in, from exactly: top-left, top-center, top-right, middle-left, middle-center, middle-right, bottom-left, bottom-center, bottom-right. This must agree with where you placed it in the image prompt. For a drawn object this is the ONLY way the software can identify it — a decomposed sketch carries no words, so position and size are its entire identity. Two drawn objects in one beat must never share a "pos".
+• "sizePct" — the element's width as a percentage of the frame width (integer). Again, must match the image prompt.
+• "text" — for TEXT kinds only: the on-screen copy, verbatim and character-for-character identical to the TEXT TO RENDER line of that beat's image prompt. Omit for drawn elements.
+• "word" — the single spoken word this element enters on. MUST appear verbatim in this beat's "line". One word, not a phrase, unless the phrase is two words that are always spoken together.
+• "in" — the entrance, from exactly: ${ENTRANCE_CUES}. Use popIn for objects and badges, fadeInUp for headlines and body text, wipeIn for underlines/rules/arrows that should draw on, blurIn for a soft reveal.
+• "hit" — optional, a later word in the same line to punch the element on. Use it for the payoff word, at most one per beat.
+• "out" — optional, the word at which the element leaves. Usually omit; the cut carries it.
+
+MANIFEST SELF-CHECK — fix anything that fails before you answer:
+□ Every "word" and every "hit"/"out" appears verbatim, same spelling, inside that beat's own "line".
+□ Every "line" is character-identical to that beat's line in PART A.
+□ Every element in a beat's image prompt appears in that beat's manifest elements, and nothing appears in the manifest that is not in the image.
+□ Every drawn object's "label" is spoken aloud somewhere in its own line (the Naming Law, §2.4).
+□ No two elements in one beat share a "pos".
+□ "kind" matches text-vs-drawn correctly for every element.
+□ Beat count in the manifest equals the beat count in PART B and PART C.
+
 12. OUTPUT FORMAT — strict
-Return exactly these three parts, nothing else before, between, or after them:
+Return exactly these four parts, nothing else before, between, or after them:
 PART A — FULL SPOKEN PRESENTATION SCRIPT
 A single clean block of the entire spoken voiceover script, written to actively present the on-screen images in sequence. Beat breaks marked only with " / " or line breaks (no timestamps or labels interrupting the read). End with: Word count: [n] · Estimated runtime: [n] sec.
 
@@ -136,7 +194,10 @@ PART B — BEAT TIMING & AUDIO-VISUAL SEQUENCE BREAKDOWN
 A numbered list: \`[Beat name] — [start]–[end] — Spoken Line: "[exact line]" → Visual Sequence: [Element 1 -> Element 2 -> Element 3]\` for every beat in order.
 
 PART C — IMAGE PROMPTS & DESTRUCTED ELEMENT SYNC MAPS
-Exactly one prompt per beat, in order, each built per §10 including the full Image Prompt, TEXT TO RENDER, CHARACTER, ICONS, COLOR PALETTE, STYLE TAGS, AVOID, the DESTRUCTED ELEMENTS & SPEECH SYNC MAP, and MOTION SUGGESTION. No commentary, no summary — only these three labeled parts.
+Exactly one prompt per beat, in order, each built per §10 including the full Image Prompt, TEXT TO RENDER, CHARACTER, ICONS, COLOR PALETTE, STYLE TAGS, AVOID, the DESTRUCTED ELEMENTS & SPEECH SYNC MAP, and MOTION SUGGESTION.
+
+PART D — SYNC MANIFEST
+The single fenced json block specified in §11b, covering every beat. No commentary, no summary — only these four labeled parts.
 
 13. QUALITY CHECKLIST — verify before returning output
 1. The spoken script actively PRESENTS the image visuals (uses visual-pointing cues like "Dekho...", "Notice this...", "Look at...") so speech and images work as a video.
@@ -155,5 +216,6 @@ Exactly one prompt per beat, in order, each built per §10 including the full Im
 14. DESIGN: the background is a flat cool pale blue-grey, never textured, aged or cream; all type is typeset (modern serif display + clean sans), never hand-lettered; the cyan highlight is precise-edged and the red underline thin and clean; nothing warm appears anywhere.
 15. DESIGN: props are chosen by meaning from §7 with one dominant object per frame at 30–50% of frame width, frame types vary (never the same one three beats running), the palette is exactly the seven stated hexes plus cool graphite, and the handle reads exactly "${HANDLE}".
 16. No mascot or recurring character appears in any beat. Human figures, where used, are generic pencil-sketched people with non-specific faces.
-17. CLARITY: every spoken and on-screen line obeys §7b — plain speech, no banned phrasing, no stacked abstractions, one idea per line, read-aloud tested. Nothing sounds machine-written.`;
+17. CLARITY: every spoken and on-screen line obeys §7b — plain speech, no banned phrasing, no stacked abstractions, one idea per line, read-aloud tested. Nothing sounds machine-written.
+18. SYNC: PART D is present, is valid JSON, and passes the §11b manifest self-check in full. Every drawn object is named out loud in its own beat's line, and every trigger word appears verbatim in that line.`;
 

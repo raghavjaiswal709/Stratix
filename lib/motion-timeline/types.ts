@@ -48,6 +48,12 @@ export interface AuthoredCue {
   durationMs?: number;
   duration?: number;
   ease?: string;
+  /**
+   * The spoken word this cue lands on. When a transcript is loaded this
+   * *overrides* `atMs` — the compiler looks the word up and fires the cue at
+   * the real audio timing, using `atMs` only to disambiguate a repeated word.
+   */
+  word?: string;
   [key: string]: unknown;
 }
 
@@ -250,6 +256,14 @@ export interface TimelineReport {
   unmatchedIds: string[];
   /** Layers on used slides that the timeline never mentions. */
   untouchedLayers: string[];
+  /** Cues whose time was resolved from their trigger word against the transcript. */
+  syncedCues: number;
+  /** Cues carrying a trigger word, whether or not it resolved. */
+  wordKeyedCues: number;
+  /** Trigger words the transcript did not contain. */
+  unmatchedWords: string[];
+  /** Largest correction word-snapping applied, in ms — how far off the AI was. */
+  maxDriftMs: number;
 }
 
 export interface ParsedTimelineResult {
