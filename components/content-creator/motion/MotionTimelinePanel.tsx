@@ -16,8 +16,9 @@ import {
   Sparkles,
   Trash2,
   TriangleAlert,
+  Wand2,
 } from "lucide-react";
-import type { CompiledTimeline, TimelineReport, TranscriptWord } from "@/lib/motion-timeline";
+import type { AutoSyncReport, CompiledTimeline, TimelineReport, TranscriptWord } from "@/lib/motion-timeline";
 
 /** mm:ss.cc — centiseconds, because sync arguments happen below the second. */
 export function formatTimecode(ms: number): string {
@@ -36,6 +37,11 @@ export interface MotionTimelinePanelProps {
   report: TimelineReport | null;
   onApply: () => void;
   onClear: () => void;
+
+  /** Slides + CSV → timeline, with nothing in between. */
+  onAutoSync: () => void;
+  autoSyncReport: AutoSyncReport | null;
+  autoSyncNote: string | null;
 
   /** PART D of the video prompt — drives the local, zero-token build. */
   manifestText: string;
@@ -79,6 +85,9 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     report,
     onApply,
     onClear,
+    onAutoSync,
+    autoSyncReport,
+    autoSyncNote,
     manifestText,
     onManifestTextChange,
     onBuildFromManifest,
@@ -120,7 +129,7 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-white/50" />
-          <span className="text-xs font-bold text-white uppercase tracking-wider">AI Timeline</span>
+          <span className="text-xs font-bold text-white uppercase tracking-wider">Timeline</span>
         </div>
         <span
           className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
@@ -134,12 +143,212 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
       </div>
 
       <p className="text-[10.5px] text-white/45 leading-relaxed">
-        Paste PART D (the sync manifest) from your video prompt, load the word-level transcript, and Stratix builds the
-        timeline itself &mdash; no second AI pass. Every element lands on the word it was written for, resolved against
-        the real audio timings.
+        Load the word-level transcript and hit auto-sync. Stratix reads the words your decomposer already found on each
+        poster, finds where the voiceover says them, and cuts the whole video to that &mdash; no AI, no manifest, no
+        tokens. Every millisecond traces back to a row in your CSV.
       </p>
 
-      {/* Primary path — build locally from the manifest */}
+      {/* Step one — the CSV the whole sync is derived from, and the audio it came from */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <FileSpreadsheet className="h-3 w-3 text-white/40" />
+            <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Transcript</span>
+          </div>
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,.tsv,.txt,.srt,.vtt,.json,text/csv,text/plain,application/json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onTranscriptFile(file);
+              e.target.value = "";
+            }}
+          />
+          {transcript ? (
+            <>
+              <p className="text-[9.5px] text-white/60 truncate" title={transcriptName ?? ""}>
+                {transcriptName}
+              </p>
+              <p className="text-[9px] text-white/30">{transcript.length} words</p>
+              {transcriptNote && <p className="text-[9px] text-amber-300/60 leading-snug">{transcriptNote}</p>}
+              <button
+                onClick={onClearTranscript}
+                className="text-[9px] text-white/35 hover:text-white/70 cursor-pointer underline underline-offset-2"
+              >
+                remove
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => csvInputRef.current?.click()}
+                className="w-full py-1.5 rounded-md text-[9.5px] font-semibold border border-white/[0.10] bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white transition cursor-pointer"
+              >
+                Load CSV
+              </button>
+              {/* A file that failed to parse used to land here silently — the
+                  reason was set and never rendered, so the disabled auto-sync
+                  button was the only symptom. */}
+              {transcriptNote && (
+                <p className="text-[9px] text-red-300/80 leading-snug break-words">{transcriptNote}</p>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <Music className="h-3 w-3 text-white/40" />
+            <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Voiceover</span>
+          </div>
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept="audio/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onAudioFile(file);
+              e.target.value = "";
+            }}
+          />
+          {audioName ? (
+            <>
+              <p className="text-[9.5px] text-white/60 truncate" title={audioName}>
+                {audioName}
+              </p>
+              <p className="text-[9px] text-white/30">Drives the clock &amp; is muxed into the export</p>
+              <button
+                onClick={onClearAudio}
+                className="text-[9px] text-white/35 hover:text-white/70 cursor-pointer underline underline-offset-2"
+              >
+                remove
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => audioInputRef.current?.click()}
+              className="w-full py-1.5 rounded-md text-[9.5px] font-semibold border border-white/[0.10] bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white transition cursor-pointer"
+            >
+              Load audio
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Primary path — slides + CSV, nothing else */}
+      <div className="rounded-lg border border-white/[0.14] bg-white/[0.04] p-2.5 space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] font-bold text-white/55 uppercase tracking-widest">
+            Auto-sync &middot; slides &times; transcript
+          </label>
+          <span className="text-[8.5px] font-bold px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300/90">
+            NO AI
+          </span>
+        </div>
+
+        <button
+          onClick={onAutoSync}
+          disabled={slideCount === 0 || !transcript?.length}
+          title={
+            slideCount === 0
+              ? "Upload and decompose your posters first"
+              : !transcript?.length
+              ? "Load the word-level transcript CSV first"
+              : "Cut the video to the voiceover"
+          }
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-[11px] font-bold border border-white/[0.12] bg-white text-black hover:bg-white/90 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/30"
+        >
+          <Wand2 className="h-3.5 w-3.5" />
+          <span>
+            AUTO-SYNC {slideCount} SLIDE{slideCount === 1 ? "" : "S"} TO THE VOICEOVER
+          </span>
+        </button>
+
+        {autoSyncNote && <p className="text-[9.5px] text-white/55 leading-snug">{autoSyncNote}</p>}
+
+        {autoSyncReport && (
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              {[
+                { label: "Confidence", value: `${Math.round(autoSyncReport.confidence * 100)}%` },
+                {
+                  label: "On their word",
+                  value: `${autoSyncReport.anchoredElements}/${autoSyncReport.totalElements}`,
+                },
+                { label: "Runtime", value: formatTimecode(autoSyncReport.durationMs) },
+              ].map((stat) => (
+                <div key={stat.label} className="rounded-md bg-white/[0.03] border border-white/[0.06] py-1.5">
+                  <div className="text-[11px] font-bold text-white font-mono">{stat.value}</div>
+                  <div className="text-[8.5px] uppercase tracking-wider text-white/30">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-slide proof: where the cut landed, and on which words. */}
+            <div className="space-y-1 max-h-44 overflow-y-auto pr-1 [scrollbar-width:thin]">
+              {autoSyncReport.scenes.map((scene) => (
+                <button
+                  key={scene.slideIndex}
+                  onClick={() => onSeek(scene.startMs)}
+                  title="Jump to this slide"
+                  className="w-full text-left rounded-md border border-white/[0.06] bg-black/30 px-2 py-1.5 hover:bg-white/[0.05] transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-mono text-white/70 tabular-nums">
+                      {formatTimecode(scene.startMs)}
+                    </span>
+                    <span className="text-[9px] font-bold text-white/85 truncate flex-1">{scene.label}</span>
+                    <span
+                      className={`text-[8px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${
+                        scene.placedBy === "text"
+                          ? "text-emerald-300/90 bg-emerald-500/10 border-emerald-500/25"
+                          : "text-white/40 bg-white/[0.04] border-white/[0.08]"
+                      }`}
+                    >
+                      {scene.placedBy === "text" ? `${Math.round(scene.coverage * 100)}% MATCH` : "PACED"}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5">
+                    <span className="text-[9px] text-white/30 shrink-0 tabular-nums">
+                      {scene.anchoredCount}/{scene.elementCount}
+                    </span>
+                    <span className="text-[9px] text-white/40 italic truncate">&ldquo;{scene.openingLine}&rdquo;</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {autoSyncReport.warnings.length > 0 && (
+              <div className="space-y-0.5 max-h-24 overflow-y-auto pr-1 [scrollbar-width:thin]">
+                {autoSyncReport.warnings.map((w, i) => (
+                  <p key={i} className="text-[9px] text-amber-200/70 leading-snug">
+                    {w}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {autoSyncReport.silentText.length > 0 && (
+              <p className="text-[9px] text-white/35 leading-snug">
+                Never spoken:{" "}
+                {autoSyncReport.silentText.slice(0, 4).map((t) => `"${t.slice(0, 24)}"`).join(", ")}
+                {autoSyncReport.silentText.length > 4 ? ` +${autoSyncReport.silentText.length - 4} more` : ""}.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 pt-0.5">
+        <div className="h-px flex-1 bg-white/[0.07]" />
+        <span className="text-[8.5px] uppercase tracking-widest text-white/20">or drive it from a manifest</span>
+        <div className="h-px flex-1 bg-white/[0.07]" />
+      </div>
+
+      {/* Second path — build locally from the manifest */}
       <div className="rounded-lg border border-white/[0.10] bg-white/[0.02] p-2.5 space-y-1.5">
         <div className="flex items-center justify-between">
           <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
@@ -412,87 +621,6 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
         </div>
       )}
 
-      {/* Optional inputs — transcript & audio */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <FileSpreadsheet className="h-3 w-3 text-white/40" />
-            <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Transcript</span>
-          </div>
-          <input
-            ref={csvInputRef}
-            type="file"
-            accept=".csv,.tsv,.txt,text/csv,text/plain"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onTranscriptFile(file);
-              e.target.value = "";
-            }}
-          />
-          {transcript ? (
-            <>
-              <p className="text-[9.5px] text-white/60 truncate" title={transcriptName ?? ""}>
-                {transcriptName}
-              </p>
-              <p className="text-[9px] text-white/30">{transcript.length} words</p>
-              {transcriptNote && <p className="text-[9px] text-amber-300/60 leading-snug">{transcriptNote}</p>}
-              <button
-                onClick={onClearTranscript}
-                className="text-[9px] text-white/35 hover:text-white/70 cursor-pointer underline underline-offset-2"
-              >
-                remove
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => csvInputRef.current?.click()}
-              className="w-full py-1.5 rounded-md text-[9.5px] font-semibold border border-white/[0.10] bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white transition cursor-pointer"
-            >
-              Load CSV
-            </button>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <Music className="h-3 w-3 text-white/40" />
-            <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Voiceover</span>
-          </div>
-          <input
-            ref={audioInputRef}
-            type="file"
-            accept="audio/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onAudioFile(file);
-              e.target.value = "";
-            }}
-          />
-          {audioName ? (
-            <>
-              <p className="text-[9.5px] text-white/60 truncate" title={audioName}>
-                {audioName}
-              </p>
-              <p className="text-[9px] text-white/30">Drives the clock &amp; is muxed into the export</p>
-              <button
-                onClick={onClearAudio}
-                className="text-[9px] text-white/35 hover:text-white/70 cursor-pointer underline underline-offset-2"
-              >
-                remove
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => audioInputRef.current?.click()}
-              className="w-full py-1.5 rounded-md text-[9.5px] font-semibold border border-white/[0.10] bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white transition cursor-pointer"
-            >
-              Load audio
-            </button>
-          )}
-        </div>
-      </div>
 
       {/* Export */}
       {timeline && (
