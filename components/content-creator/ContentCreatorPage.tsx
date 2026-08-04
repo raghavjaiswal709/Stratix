@@ -84,16 +84,21 @@ import { drawPoster } from "./canvas/drawPoster";
 import { drawMotionTimelineFrame } from "./canvas/drawMotionTimelineFrame";
 import { MotionTimelinePanel } from "./motion/MotionTimelinePanel";
 import {
+  autoSyncTimeline,
   buildTimelineFromManifest,
   parseMotionTimeline,
   parseSyncManifest,
-  parseTranscriptCsv,
   sampleTimeline,
   wordAt,
+  type AutoSyncReport,
   type CompiledTimeline,
   type TimelineReport,
   type TranscriptWord,
 } from "@/lib/motion-timeline";
+// Straight from the leaf module rather than the barrel: this one is reached on
+// every transcript load, and a barrel re-export of it was the kind of thing
+// Turbopack kept serving a stale export list for.
+import { parseTranscriptFile } from "@/lib/motion-timeline/transcript";
 import { MOTION_TIMELINE_TEMPLATE } from "@/lib/prompt-templates/motion-timeline-template";
 import { computeCoverFitSlack, getAntonFontFamily } from "./canvas/canvasUtils";
 import type { SentimentScheme } from "./canvas/canvasUtils";
@@ -193,6 +198,10 @@ export function ContentCreatorPage() {
   const [motionManifestText, setMotionManifestText] = useState("");
   const [motionManifestNote, setMotionManifestNote] = useState<string | null>(null);
   const [motionManifestWarnings, setMotionManifestWarnings] = useState<string[]>([]);
+  // Auto-sync needs neither of the above: the decomposer already read the
+  // posters and the CSV already timed the words, so the timeline is derivable.
+  const [motionAutoSyncReport, setMotionAutoSyncReport] = useState<AutoSyncReport | null>(null);
+  const [motionAutoSyncNote, setMotionAutoSyncNote] = useState<string | null>(null);
   const [motionAudioName, setMotionAudioName] = useState<string | null>(null);
   const [copiedMotionPrompt, setCopiedMotionPrompt] = useState(false);
   const [isExportingTimeline, setIsExportingTimeline] = useState(false);
@@ -1669,7 +1678,7 @@ export function ContentCreatorPage() {
     const fileArray = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (fileArray.length === 0) return;
 
-    const MAX_BATCH = 12;
+    const MAX_BATCH = 30;
     const batch = fileArray.slice(0, MAX_BATCH);
 
     setIsSegmenting(true);
@@ -1687,49 +1696,70 @@ export function ContentCreatorPage() {
     clearMotionTimeline();
 
     try {
-      const form = new FormData();
-      batch.forEach((f) => form.append("images", f, f.name));
-
-      const res = await fetch("/api/content-creator/motion-segment", {
-        method: "POST",
-        body: form,
-      });
-      const payload = await res.json();
-
-      if (!res.ok) throw new Error(payload?.error || `Decomposition failed (${res.status})`);
-
-      const results: any[] = Array.isArray(payload?.results) ? payload.results : [payload];
+      // Chunked, not one giant request. Every layer comes back from python as a
+      // base64 PNG before the route moves it to R2, so a 30-poster batch in a
+      // single spawn would push hundreds of megabytes through one stdout pipe
+      // and sit on one function timeout. Six at a time keeps each request the
+      // size the 12-image path already proved out, and the deck grows on screen
+      // as it lands instead of after everything finishes.
+      const CHUNK_SIZE = 6;
       const failures: string[] = [];
       const slides: MotionSlide[] = [];
 
-      results.forEach((data, i) => {
-        const name = batch[i]?.name || `Image ${i + 1}`;
-        if (!data || data.error || !data.success) {
-          failures.push(`${name}: ${data?.error || "no result"}`);
-          return;
+      for (let offset = 0; offset < batch.length; offset += CHUNK_SIZE) {
+        const chunk = batch.slice(offset, offset + CHUNK_SIZE);
+
+        const form = new FormData();
+        chunk.forEach((f) => form.append("images", f, f.name));
+
+        const res = await fetch("/api/content-creator/motion-segment", {
+          method: "POST",
+          body: form,
+        });
+        const payload = await res.json();
+
+        if (!res.ok) {
+          const reason = payload?.error || `Decomposition failed (${res.status})`;
+          // A later chunk failing must not throw away the posters that already
+          // decomposed — record it and keep what we have.
+          if (slides.length === 0 && offset + CHUNK_SIZE >= batch.length) throw new Error(reason);
+          failures.push(`Images ${offset + 1}–${offset + chunk.length}: ${reason}`);
+          continue;
         }
 
-        const slideId = `slide_${Date.now()}_${i}`;
-        const layers: MotionLayer[] = data.layers || [];
+        const results: any[] = Array.isArray(payload?.results) ? payload.results : [payload];
 
-        const slide: MotionSlide = {
-          slideId,
-          fileName: name,
-          backgroundUrl: data.backgroundUrl,
-          originalUrl: data.originalUrl,
-          layers,
-          activeLayerId: layers[0]?.id,
-          width: data.width,
-          height: data.height,
-          sourceWidth: data.sourceWidth,
-          sourceHeight: data.sourceHeight,
-          text: data.text,
-          meta: data.meta,
-        };
-        slides.push(slide);
-        preloadMotionSlideImages(slide);
-        setSegmentProgress({ done: slides.length, total: batch.length });
-      });
+        results.forEach((data, i) => {
+          const name = chunk[i]?.name || `Image ${offset + i + 1}`;
+          if (!data || data.error || !data.success) {
+            failures.push(`${name}: ${data?.error || "no result"}`);
+            return;
+          }
+
+          const layers: MotionLayer[] = data.layers || [];
+
+          const slide: MotionSlide = {
+            slideId: `slide_${Date.now()}_${offset + i}`,
+            fileName: name,
+            backgroundUrl: data.backgroundUrl,
+            originalUrl: data.originalUrl,
+            layers,
+            activeLayerId: layers[0]?.id,
+            width: data.width,
+            height: data.height,
+            sourceWidth: data.sourceWidth,
+            sourceHeight: data.sourceHeight,
+            text: data.text,
+            meta: data.meta,
+          };
+          slides.push(slide);
+          preloadMotionSlideImages(slide);
+        });
+
+        // Progress counts images attempted, not images that survived, so the
+        // bar still reaches the end when one poster fails.
+        setSegmentProgress({ done: Math.min(offset + chunk.length, batch.length), total: batch.length });
+      }
 
       if (slides.length === 0) {
         throw new Error(failures[0] || "No image could be decomposed");
@@ -1845,6 +1875,83 @@ export function ContentCreatorPage() {
   }, [motionTimelineText, motionSlides, motionTranscript, setMotionData]);
 
   /**
+   * Installs a locally-built timeline.
+   *
+   * It goes through the textarea and back out through the same compiler a
+   * pasted timeline uses, so a built timeline and a hand-written one are
+   * indistinguishable from here on — including the re-snap against the
+   * transcript and the validation report.
+   */
+  const applyBuiltTimeline = useCallback(
+    (timelineJson: string): CompiledTimeline | null => {
+      setMotionTimelineText(timelineJson);
+
+      const compiled = parseMotionTimeline(timelineJson, motionSlides, { transcript: motionTranscript });
+      setMotionTimelineReport(compiled.report);
+      setMotionTimeline(compiled.timeline);
+      if (!compiled.timeline) return null;
+
+      motionTimeRef.current = 0;
+      motionClockOriginRef.current = performance.now();
+      setMotionTimeMs(0);
+      setActiveMotionIndex(compiled.timeline.scenes[0]?.slideIndex ?? 0);
+      setMotionData((prev) => ({ ...prev, activeLayerId: undefined }));
+      const audio = motionAudioRef.current;
+      if (audio) {
+        try {
+          audio.currentTime = 0;
+        } catch {
+          /* not seekable yet */
+        }
+      }
+      setIsPlayingMotion(true);
+      return compiled.timeline;
+    },
+    [motionSlides, motionTranscript, setMotionData]
+  );
+
+  /**
+   * The no-input path: nothing is pasted, nothing is asked of a model.
+   *
+   * The decomposer has already read every word printed on every poster and the
+   * CSV says when every word is spoken, so where each slide belongs in the
+   * audio — and where each element belongs inside its slide — is a search over
+   * two documents this app already holds. See lib/motion-timeline/autosync.ts.
+   */
+  const autoSyncMotionTimeline = useCallback(() => {
+    if (motionSlides.length === 0) {
+      setMotionAutoSyncReport(null);
+      setMotionAutoSyncNote("Upload your posters first — auto-sync animates the decomposed layers.");
+      return;
+    }
+    if (!motionTranscript || motionTranscript.length === 0) {
+      setMotionAutoSyncReport(null);
+      setMotionAutoSyncNote("Load the word-level transcript CSV first — it is the only clock auto-sync has.");
+      return;
+    }
+
+    const { timeline, report } = autoSyncTimeline(motionSlides, motionTranscript);
+    setMotionAutoSyncReport(report);
+
+    if (!timeline) {
+      setMotionAutoSyncNote(report.warnings[0] ?? "Auto-sync produced no usable scenes.");
+      return;
+    }
+
+    applyBuiltTimeline(JSON.stringify(timeline, null, 2));
+
+    const onWords = report.scenes.filter((s) => s.placedBy === "text").length;
+    setMotionAutoSyncNote(
+      `${report.scenes.length} scene${report.scenes.length === 1 ? "" : "s"} · ` +
+        `${onWords} cut on their own words · ` +
+        `${report.anchoredElements}/${report.totalElements} elements enter on a word they print.`
+    );
+    // The manifest report below now describes an older timeline.
+    setMotionManifestNote(null);
+    setMotionManifestWarnings([]);
+  }, [motionSlides, motionTranscript, applyBuiltTimeline]);
+
+  /**
    * The zero-token path: the sync manifest already says which element enters on
    * which word, and the transcript says when every word is spoken — so the
    * timeline is built here rather than bought from a second AI pass. The result
@@ -1874,33 +1981,18 @@ export function ContentCreatorPage() {
     setMotionManifestNote(
       `Built ${parsed.manifest.beats.length} beats · ${report.boundElements}/${report.totalElements} elements bound to a layer.`
     );
-    setMotionTimelineText(JSON.stringify(timeline, null, 2));
-
-    const compiled = parseMotionTimeline(JSON.stringify(timeline), motionSlides, { transcript: motionTranscript });
-    setMotionTimelineReport(compiled.report);
-    setMotionTimeline(compiled.timeline);
-    if (!compiled.timeline) return;
-
-    motionTimeRef.current = 0;
-    motionClockOriginRef.current = performance.now();
-    setMotionTimeMs(0);
-    setActiveMotionIndex(compiled.timeline.scenes[0]?.slideIndex ?? 0);
-    setMotionData((prev) => ({ ...prev, activeLayerId: undefined }));
-    const audio = motionAudioRef.current;
-    if (audio) {
-      try {
-        audio.currentTime = 0;
-      } catch {
-        /* not seekable yet */
-      }
-    }
-    setIsPlayingMotion(true);
-  }, [motionManifestText, motionTranscript, motionSlides, setMotionData]);
+    applyBuiltTimeline(JSON.stringify(timeline, null, 2));
+    // The auto-sync report below now describes an older timeline.
+    setMotionAutoSyncReport(null);
+    setMotionAutoSyncNote(null);
+  }, [motionManifestText, motionTranscript, motionSlides, applyBuiltTimeline]);
 
   const clearMotionTimeline = useCallback(() => {
     setMotionTimeline(null);
     setMotionTimelineReport(null);
     setMotionTimelineText("");
+    setMotionAutoSyncReport(null);
+    setMotionAutoSyncNote(null);
     motionTimeRef.current = 0;
     motionClockOriginRef.current = performance.now();
     setMotionTimeMs(0);
@@ -1942,11 +2034,15 @@ export function ContentCreatorPage() {
   const handleMotionTranscriptFile = useCallback(async (file: File) => {
     try {
       const text = await file.text();
-      const parsed = parseTranscriptCsv(text);
+      // Dispatches on content, not extension: CSV/TSV tables, SRT/VTT captions
+      // and Whisper-style JSON all land here.
+      const parsed = parseTranscriptFile(text);
       if (parsed.words.length === 0) {
         setMotionTranscript(null);
         setMotionTranscriptName(null);
-        setMotionTranscriptNote(parsed.warnings[0] || "No timed words found in that file.");
+        setMotionTranscriptNote(
+          `${file.name}: ${parsed.warnings[0] || "no timed words found in that file."}`
+        );
         return;
       }
       setMotionTranscript(parsed.words);
@@ -1954,8 +2050,10 @@ export function ContentCreatorPage() {
       setMotionTranscriptNote(
         [parsed.unit === "s" ? "Read as seconds." : "Read as milliseconds.", ...parsed.warnings].join(" ")
       );
-    } catch {
-      setMotionTranscriptNote("Could not read that file.");
+    } catch (err: any) {
+      setMotionTranscript(null);
+      setMotionTranscriptName(null);
+      setMotionTranscriptNote(`Could not read ${file.name}: ${err?.message || "unknown error"}.`);
     }
   }, []);
 
@@ -4238,7 +4336,7 @@ export function ContentCreatorPage() {
                       </span>
                     </div>
                     <p className="text-[10.5px] text-white/60 leading-relaxed">
-                      Upload up to 12 images at once. OpenCV + tesseract split each poster into text and graphic layers at full resolution — every pixel outside a detected element is left exactly as uploaded, and each text layer carries its literal words, position, size and colour.
+                      Upload up to 30 images at once, processed in batches. OpenCV + tesseract split each poster into text and graphic layers at full resolution — every pixel outside a detected element is left exactly as uploaded, and each text layer carries its literal words, position, size and colour.
                     </p>
                   </div>
 
@@ -4271,7 +4369,7 @@ export function ContentCreatorPage() {
                       <Upload className="h-6 w-6" />
                     </div>
                     <p className="text-xs font-bold text-white mb-0.5">Click or Drag &amp; Drop Images to Decompose</p>
-                    <p className="text-[10px] text-white/40">Select 5–10 carousel slides together — each is processed identically</p>
+                    <p className="text-[10px] text-white/40">Select up to 30 carousel slides together — each is processed identically</p>
                   </div>
 
                   {/* Segmentation Loading Spinner */}
@@ -4365,6 +4463,9 @@ export function ContentCreatorPage() {
                       audioName={motionAudioName}
                       onAudioFile={handleMotionAudioFile}
                       onClearAudio={clearMotionAudio}
+                      onAutoSync={autoSyncMotionTimeline}
+                      autoSyncReport={motionAutoSyncReport}
+                      autoSyncNote={motionAutoSyncNote}
                       manifestText={motionManifestText}
                       onManifestTextChange={setMotionManifestText}
                       onBuildFromManifest={buildMotionTimelineFromManifest}

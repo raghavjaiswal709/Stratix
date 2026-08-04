@@ -16,7 +16,23 @@ export {
 } from "./manifest";
 export { buildTimelineFromManifest, type BuildOptions, type BuildResult, type BuildReport } from "./build";
 export {
+  autoSyncTimeline,
+  type AutoSyncOptions,
+  type AutoSyncResult,
+  type AutoSyncReport,
+  type AutoSyncSceneReport,
+} from "./autosync";
+export {
+  buildTranscriptIndex,
+  locatePhrase,
+  tokenize,
+  normalizeToken as normalizePrintedToken,
+  type TranscriptIndex,
+  type PhraseLocation,
+} from "./text-match";
+export {
   parseTranscriptCsv,
+  parseTranscriptFile,
   wordAt,
   findWordTime,
   type TranscriptWord,

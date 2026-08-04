@@ -11,7 +11,16 @@ export const dynamic = "force-dynamic";
 // but slower machines and bigger posters need room.
 export const maxDuration = 300;
 
-const MAX_IMAGES = 12;
+/**
+ * Per-request cap.
+ *
+ * The client sends a 30-slide deck in chunks well under this — one spawn per
+ * chunk keeps python's peak memory and this process's stdout buffer bounded,
+ * since every layer comes back as a base64 PNG before it is moved to R2. The
+ * cap here is the safety rail for a direct API call, not the batch size the UI
+ * actually uses.
+ */
+const MAX_IMAGES = 30;
 
 /** Decode a data URL or fetch a remote URL into raw bytes. */
 async function toBuffer(imageUrl: string): Promise<Buffer> {
@@ -129,7 +138,11 @@ export async function POST(req: NextRequest) {
     // One spawn for the whole batch: python imports (cv2, tesseract) stay warm,
     // so every image is processed by the exact same code path and the 5th
     // poster comes back identical in quality to the 1st.
-    const timeout = Math.min(280_000, 30_000 + tmpFiles.length * 25_000);
+    //
+    // 40s a poster, because the budget has to hold for the slowest image in the
+    // batch rather than the average — a dense 2200px poster with a lot of small
+    // type runs several OCR passes.
+    const timeout = Math.min(280_000, 30_000 + tmpFiles.length * 40_000);
 
     const resultJson = await new Promise<string>((resolve, reject) => {
       execFile(

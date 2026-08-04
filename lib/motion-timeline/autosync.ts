@@ -1,0 +1,1018 @@
+/**
+ * Auto-sync: slides + transcript → a finished timeline, with nothing in between.
+ *
+ * The manifest path (build.ts) still needs a model to say which element enters
+ * on which word. This one does not ask, because it does not have to: the
+ * decomposer has already read every word printed on every poster, and the CSV
+ * says when every word is spoken. If the script was written for these images in
+ * this order — the premise of the whole format — then the slide's own words
+ * appear in the narration, and where they appear IS the sync.
+ *
+ * Three deterministic stages:
+ *
+ *   1. Segmentation. Each slide claims a contiguous span of the audio. Chosen
+ *      by dynamic programming over the whole reel at once, scoring how much of
+ *      each slide's printed text is spoken inside its own span, how close the
+ *      span is to the slide's fair share of the runtime, and whether the cut
+ *      lands in a pause. Solving it globally rather than greedily is what stops
+ *      one confident match on slide 2 from shoving slides 3–8 off the road.
+ *
+ *   2. Scheduling. Inside a span, a text element enters on the word it prints.
+ *      Elements with nothing quotable (graphics, icons) are dealt into the gaps
+ *      between those anchors in reading order and snapped to word starts, so
+ *      even an unanchored entrance lands on speech instead of between it.
+ *
+ *   3. Choreography. The cue is read off the element itself — role, position,
+ *      size, aspect — by a fixed table. Same poster in, same animation out.
+ *
+ * Nothing here is heuristic about *time*: every millisecond traces back to a
+ * row in the CSV.
+ */
+
+import { DEFAULT_LEAD_IN_MS as LEAD_IN_MS, type TimelineSlideLike } from "./compile";
+import { CUE_NAMES } from "./cues";
+import {
+  buildTranscriptIndex,
+  locatePhrase,
+  nearestWordIndex,
+  normalizeToken,
+  strongestSpokenToken,
+  weighPhrase,
+  type TranscriptIndex,
+} from "./text-match";
+import type { TranscriptWord } from "./transcript";
+import { TIMELINE_FORMAT, type AuthoredCue, type AuthoredScene, type AuthoredTimeline, type AuthoredTrack, type WipeDirection } from "./types";
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Tunables
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+/** Silence held after the last spoken word so the video does not snap shut. */
+const DEFAULT_TAIL_MS = 600;
+/**
+ * A scene opens slightly ahead of its first spoken word, so the first
+ * entrance's lead-in has somewhere to live. Without it that lead-in would fall
+ * inside the previous scene, where the element does not exist.
+ */
+const PRE_ROLL_MS = 140;
+/** Shortest span a slide may own. Below this a cut is a flash, not a scene. */
+const MIN_SCENE_MS = 900;
+/** Two elements closer together than this read as one event, not two. */
+const DEFAULT_STAGGER_MS = 190;
+/** Rhythm for elements with nothing to anchor to, compressed only if it must. */
+const IDEAL_STEP_MS = 430;
+/** Unanchored elements must all be in place by this share of their scene. */
+const SETTLE_FRACTION = 0.82;
+
+/** Anchoring thresholds — how much of an element's text must be spoken. */
+const ANCHOR_MIN_SCORE = 0.5;
+const ANCHOR_MIN_WEIGHT = 1.4;
+/** A slide's window is judged on the same evidence, a little more leniently. */
+const SEGMENT_MIN_WEIGHT = 0.6;
+
+/** DP scoring weights. Coverage dominates when there is text to go on. */
+const W_COVERAGE = 10;
+const W_DURATION = 3.2;
+const W_GAP = 1.7;
+const W_SENTENCE = 1.3;
+
+/** Cut candidates are decimated above this many words to bound the DP. */
+const MAX_CUT_CANDIDATES = 420;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Public shape
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+export interface AutoSyncOptions {
+  /** Silence held after the last spoken word. Default 600ms. */
+  tailMs?: number;
+  /** Ambient camera push. 1 leaves the frame still. Default 1.05. */
+  kenBurnsTo?: number;
+  /** Gentle idle drift on the biggest graphic of a long scene. Default true. */
+  ambient?: boolean;
+  /** How far a slide may stray from its proportional share, 0–1. Default 0.3. */
+  bandFraction?: number;
+  /** Minimum spacing between two entrances. Default 190ms. */
+  minStaggerMs?: number;
+}
+
+export interface AutoSyncSceneReport {
+  slideIndex: number;
+  label: string;
+  startMs: number;
+  endMs: number;
+  /** "text" when the slide's own words placed it, "paced" when arithmetic did. */
+  placedBy: "text" | "paced";
+  /** Share of this slide's spoken text that falls inside its own window, 0–1. */
+  coverage: number;
+  elementCount: number;
+  /** Elements that entered on a word they actually print. */
+  anchoredCount: number;
+  /** The first few words spoken under this slide — proof of where the cut fell. */
+  openingLine: string;
+}
+
+export interface AutoSyncReport {
+  scenes: AutoSyncSceneReport[];
+  durationMs: number;
+  totalElements: number;
+  /** Elements whose entrance landed on their own printed words. */
+  anchoredElements: number;
+  /** Elements placed by pacing and snapped to a word start. */
+  pacedElements: number;
+  /** Text elements whose printed words are nowhere in the transcript. */
+  silentText: string[];
+  /** Weighted mean coverage — one number for "did this work". */
+  confidence: number;
+  warnings: string[];
+}
+
+export interface AutoSyncResult {
+  timeline: AuthoredTimeline | null;
+  report: AutoSyncReport;
+}
+
+/** A decomposed layer, as much of it as the scheduler reads. */
+interface AutoLayer {
+  id: string;
+  label: string;
+  type: "text" | "graphic";
+  role: string;
+  text: string;
+  lineCount: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Reading-order rank inside its slide. */
+  order: number;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Layer reading
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+const FURNITURE_ROLES = new Set(["footer", "footer-badge", "footer-graphic", "logo", "watermark"]);
+
+/**
+ * Brand furniture — the handle, the page counter, the logo — is part of the
+ * frame rather than part of the argument. It arrives with the slide instead of
+ * consuming one of the sync slots the actual content needs.
+ */
+function isFurniture(layer: AutoLayer): boolean {
+  if (FURNITURE_ROLES.has(layer.role)) return true;
+  // Anything tiny pinned to the very bottom edge is decoration by position,
+  // whatever the decomposer decided to call it.
+  return layer.y + layer.h > 0.93 && layer.w < 0.4 && layer.h < 0.07;
+}
+
+function readLayers(slide: TimelineSlideLike): AutoLayer[] {
+  const raw = (slide.layers ?? []).map((l, i) => {
+    const anyLayer = l as Record<string, unknown>;
+    const text = typeof anyLayer.text === "string" ? anyLayer.text : "";
+    const lines = Array.isArray(anyLayer.textLines) ? anyLayer.textLines.length : 0;
+    return {
+      id: l.id,
+      label: (typeof anyLayer.name === "string" && anyLayer.name) || text.slice(0, 40) || l.id,
+      type: (l.type === "text" ? "text" : "graphic") as "text" | "graphic",
+      role: typeof l.role === "string" ? l.role : "graphic",
+      text,
+      lineCount: Math.max(1, lines),
+      x: numOr(l.x, 0),
+      y: numOr(l.y, 0),
+      w: numOr(l.w, 0.1),
+      h: numOr(l.h, 0.1),
+      order: i,
+    };
+  });
+
+  return orderForReading(raw);
+}
+
+const numOr = (v: unknown, fallback: number): number =>
+  typeof v === "number" && Number.isFinite(v) ? v : fallback;
+
+/**
+ * Reading order: down the page, then across.
+ *
+ * Rows are banded rather than compared exactly, because two elements sitting
+ * side by side are never pixel-aligned — without the band a caption 4px lower
+ * than the icon beside it would be treated as a whole row later and the pair
+ * would animate out of order.
+ */
+function orderForReading(layers: AutoLayer[]): AutoLayer[] {
+  const sorted = [...layers].sort((a, b) => {
+    const ca = a.y + a.h / 2;
+    const cb = b.y + b.h / 2;
+    const band = Math.max(0.045, Math.min(a.h, b.h) * 0.6);
+    if (Math.abs(ca - cb) > band) return ca - cb;
+    return a.x - b.x;
+  });
+  return sorted.map((l, i) => ({ ...l, order: i }));
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Stage 1 — segmentation
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+/** Everything the DP needs to know about one slide. */
+interface SlideProfile {
+  slideIndex: number;
+  layers: AutoLayer[];
+  content: AutoLayer[];
+  furniture: AutoLayer[];
+  /** Distinct spoken tokens this slide prints, with prefix counts over words. */
+  tokens: Array<{ weight: number; prefix: Uint32Array }>;
+  /** Sum of the weights above — total evidence available for this slide. */
+  tokenWeight: number;
+  /** How much of the runtime this slide deserves, before any text is consulted. */
+  shareWeight: number;
+}
+
+function profileSlides(slides: TimelineSlideLike[], index: TranscriptIndex): SlideProfile[] {
+  const W = index.words.length;
+
+  return slides.map((slide, slideIndex) => {
+    const layers = readLayers(slide);
+    const furniture = layers.filter(isFurniture);
+    const content = layers.filter((l) => !isFurniture(l));
+
+    // Furniture text ("@stratix", "1/10") is on every slide, so it identifies
+    // none of them — the segmenter only reads what the slide is actually about.
+    const printed = content
+      .filter((l) => l.type === "text" && l.text)
+      .map((l) => l.text)
+      .join(" ");
+
+    const seen = new Set<string>();
+    const tokens: SlideProfile["tokens"] = [];
+    let tokenWeight = 0;
+
+    weighPhrase(index, printed).forEach((wt) => {
+      if (wt.positions.length === 0 || seen.has(wt.token)) return;
+      seen.add(wt.token);
+      // Prefix counts make "is this token spoken inside [a, b)?" a subtraction,
+      // which is what keeps the O(cuts²) inner loop affordable. `positions` is
+      // ascending, so one cursor walk builds the whole array.
+      const prefix = new Uint32Array(W + 1);
+      let cursor = 0;
+      let seenCount = 0;
+      for (let i = 0; i < W; i++) {
+        prefix[i] = seenCount;
+        if (cursor < wt.positions.length && wt.positions[cursor] === i) {
+          seenCount++;
+          cursor++;
+        }
+      }
+      prefix[W] = seenCount;
+      tokens.push({ weight: wt.weight, prefix });
+      tokenWeight += wt.weight;
+    });
+
+    const chars = content.reduce((sum, l) => sum + (l.type === "text" ? l.text.length : 0), 0);
+    // A fair share, before the audio gets a say: how much there is to read out,
+    // plus a floor so a wordless slide still gets screen time.
+    const shareWeight = 8 + chars * 0.45 + content.length * 2.5;
+
+    return { slideIndex, layers, content, furniture, tokens, tokenWeight, shareWeight };
+  });
+}
+
+/** Share of this slide's evidence spoken inside `[a, b)`, 0–1. */
+function coverageOf(profile: SlideProfile, a: number, b: number): number {
+  if (profile.tokenWeight <= 0) return 0;
+  let hit = 0;
+  for (const t of profile.tokens) {
+    if (t.prefix[b] - t.prefix[a] > 0) hit += t.weight;
+  }
+  return hit / profile.tokenWeight;
+}
+
+/**
+ * Where the cuts are allowed to fall.
+ *
+ * Every word boundary is a legal cut, but evaluating all of them is quadratic
+ * for no gain — two adjacent boundaries in the middle of a phrase score the
+ * same. So the candidates are a stride through the reel, plus every boundary
+ * that is interesting on its own terms: a real pause, or the end of a sentence.
+ * Those are exactly the cuts a human editor would reach for, so they are never
+ * decimated away.
+ */
+function cutCandidates(index: TranscriptIndex): number[] {
+  const W = index.words.length;
+  const stride = Math.max(1, Math.ceil(W / MAX_CUT_CANDIDATES));
+  const set = new Set<number>([0, W]);
+
+  for (let i = stride; i < W; i += stride) set.add(i);
+  for (let i = 1; i < W; i++) {
+    if (index.gapBeforeMs[i] >= 220 || index.sentenceEndBefore[i]) set.add(i);
+  }
+
+  return [...set].sort((a, b) => a - b);
+}
+
+interface Segmentation {
+  /** N+1 word indices: slide i owns words [cuts[i], cuts[i+1]). */
+  cuts: number[];
+  coverages: number[];
+}
+
+function segment(
+  profiles: SlideProfile[],
+  index: TranscriptIndex,
+  bandFraction: number
+): Segmentation {
+  const N = profiles.length;
+  const W = index.words.length;
+  const candidates = cutCandidates(index);
+  const C = candidates.length;
+
+  const startMs = (i: number) => (i >= W ? index.durationMs : index.words[i].startMs);
+  const totalMs = Math.max(1, index.durationMs);
+
+  // Fair-share cumulative fractions — the spine the band is drawn around.
+  const totalShare = profiles.reduce((s, p) => s + p.shareWeight, 0) || 1;
+  const expected: number[] = [0];
+  profiles.forEach((p) => expected.push(expected[expected.length - 1] + p.shareWeight / totalShare));
+
+  const allowed: number[][] = [];
+  for (let i = 0; i <= N; i++) {
+    if (i === 0) {
+      allowed.push([0]);
+      continue;
+    }
+    if (i === N) {
+      allowed.push([C - 1]);
+      continue;
+    }
+    let band = bandFraction;
+    let list: number[] = [];
+    // Widen rather than fail: a badly proportioned deck still has to produce a
+    // timeline, it just gets less help from the prior.
+    while (list.length === 0 && band <= 1) {
+      list = [];
+      for (let c = 0; c < C; c++) {
+        const frac = startMs(candidates[c]) / totalMs;
+        if (Math.abs(frac - expected[i]) <= band && candidates[c] > 0 && candidates[c] < W) list.push(c);
+      }
+      band += 0.15;
+    }
+    allowed.push(list.length ? list : [Math.floor(C / 2)]);
+  }
+
+  const boundaryBonus = (c: number): number => {
+    const wordIdx = candidates[c];
+    if (wordIdx <= 0 || wordIdx >= W) return 0;
+    const gap = Math.min(1, index.gapBeforeMs[wordIdx] / 450);
+    return W_GAP * gap + W_SENTENCE * index.sentenceEndBefore[wordIdx];
+  };
+
+  const sceneScore = (slide: number, ca: number, cb: number): number => {
+    const a = candidates[ca];
+    const b = candidates[cb];
+    if (b <= a) return -Infinity;
+
+    const durMs = startMs(b) - startMs(a);
+    if (durMs < MIN_SCENE_MS) return -Infinity;
+
+    const profile = profiles[slide];
+    const coverage = coverageOf(profile, a, b);
+    // A slide with two readable words cannot outvote one with a paragraph, so
+    // its coverage is scaled by how much evidence it brought.
+    const evidence = Math.min(1, profile.tokenWeight / 5);
+
+    const expectedMs = (profile.shareWeight / totalShare) * totalMs;
+    const dev = (durMs - expectedMs) / Math.max(expectedMs, 900);
+
+    return W_COVERAGE * coverage * evidence - W_DURATION * dev * dev;
+  };
+
+  // dp[i][j]: best score for placing slides 0..i-1 with a cut at candidates[j].
+  const NEG = -Infinity;
+  const dp: Float64Array[] = [];
+  const back: Int32Array[] = [];
+  for (let i = 0; i <= N; i++) {
+    dp.push(new Float64Array(C).fill(NEG));
+    back.push(new Int32Array(C).fill(-1));
+  }
+  dp[0][0] = 0;
+
+  for (let i = 1; i <= N; i++) {
+    for (const j of allowed[i]) {
+      let best = NEG;
+      let bestFrom = -1;
+      for (const k of allowed[i - 1]) {
+        const prev = dp[i - 1][k];
+        if (prev === NEG) continue;
+        const s = sceneScore(i - 1, k, j);
+        if (s === NEG) continue;
+        const total = prev + s;
+        if (total > best) {
+          best = total;
+          bestFrom = k;
+        }
+      }
+      if (bestFrom >= 0) {
+        dp[i][j] = best + boundaryBonus(j);
+        back[i][j] = bestFrom;
+      }
+    }
+  }
+
+  // Backtrack. If the constraints made the exact solution unreachable — a reel
+  // too short for its slide count, say — fall back to an even split rather
+  // than returning nothing.
+  const cuts: number[] = new Array(N + 1);
+  const endCandidate = C - 1;
+  if (dp[N][endCandidate] === NEG) {
+    for (let i = 0; i <= N; i++) cuts[i] = Math.round((i / N) * W);
+  } else {
+    let j = endCandidate;
+    for (let i = N; i >= 1; i--) {
+      cuts[i] = candidates[j];
+      j = back[i][j];
+      if (j < 0) {
+        for (let k = i - 1; k >= 0; k--) cuts[k] = Math.round((k / N) * W);
+        j = 0;
+        break;
+      }
+    }
+    cuts[0] = 0;
+  }
+
+  // Guarantee strict monotonicity even on the fallback paths above.
+  for (let i = 1; i <= N; i++) {
+    if (cuts[i] <= cuts[i - 1]) cuts[i] = Math.min(W, cuts[i - 1] + 1);
+  }
+  cuts[N] = W;
+  for (let i = N - 1; i >= 1; i--) {
+    if (cuts[i] >= cuts[i + 1]) cuts[i] = Math.max(0, cuts[i + 1] - 1);
+  }
+
+  const coverages = profiles.map((p, i) => coverageOf(p, cuts[i], cuts[i + 1]));
+  return { cuts, coverages };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Stage 2 — scheduling inside one scene
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+interface Placement {
+  layer: AutoLayer;
+  /** Time the element should be fully arrived — the word it lands on. */
+  onMs: number;
+  /** Transcript index it was locked to, or null when it is pure pacing. */
+  wordIndex: number | null;
+  anchored: boolean;
+  /** Second mention of the element's strongest word, for an emphasis hit. */
+  hitWordIndex: number | null;
+}
+
+/**
+ * Anchors every element that prints something the narration says.
+ *
+ * No consistency filter against reading order, deliberately. If the script
+ * names the sub-line before the headline then the sub-line *should* arrive
+ * first — that is what syncing to speech means, and the premise of the whole
+ * format is that the script was written for these images. Reading order is the
+ * fallback for elements with nothing quotable, not an order to be enforced on
+ * elements that have earned a time of their own.
+ */
+function anchorElements(
+  content: AutoLayer[],
+  index: TranscriptIndex,
+  from: number,
+  to: number
+): Map<number, { wordIndex: number; score: number }> {
+  const found = new Map<number, { wordIndex: number; score: number }>();
+
+  content.forEach((layer, i) => {
+    if (layer.type !== "text" || !layer.text.trim()) return;
+    const hit = locatePhrase(index, layer.text, {
+      fromIndex: from,
+      toIndex: to,
+      minScore: ANCHOR_MIN_SCORE,
+      minWeight: ANCHOR_MIN_WEIGHT,
+    });
+    if (hit) found.set(i, { wordIndex: hit.index, score: hit.score });
+  });
+
+  // Two elements cannot both own the same word. The more confident reading
+  // keeps it; the other falls back to pacing, where it will be dealt into the
+  // gap beside its neighbour anyway.
+  const byWord = new Map<number, number>();
+  [...found.entries()]
+    .sort((a, b) => b[1].score - a[1].score || a[0] - b[0])
+    .forEach(([order, hit]) => {
+      const holder = byWord.get(hit.wordIndex);
+      if (holder === undefined) byWord.set(hit.wordIndex, order);
+      else found.delete(order);
+    });
+
+  return found;
+}
+
+/**
+ * Fills the gaps between anchors.
+ *
+ * Unanchored elements are spread evenly through the speech their neighbours
+ * leave free, then pulled onto the nearest word start. That last step is what
+ * separates this from a slideshow timer: an icon with nothing quotable about it
+ * still enters *on* a word, so it reads as deliberate rather than arbitrary.
+ */
+function schedule(
+  content: AutoLayer[],
+  index: TranscriptIndex,
+  from: number,
+  to: number,
+  sceneStartMs: number,
+  sceneEndMs: number,
+  staggerMs: number
+): Placement[] {
+  const anchors = anchorElements(content, index, from, to);
+  const n = content.length;
+  if (n === 0) return [];
+
+  const windowMs = Math.max(1, sceneEndMs - sceneStartMs);
+  const settleMs = sceneStartMs + windowMs * SETTLE_FRACTION;
+  const firstWordMs = index.words[Math.min(from, index.words.length - 1)]?.startMs ?? sceneStartMs;
+
+  const onMs = new Array<number | null>(n).fill(null);
+  const wordIdx = new Array<number | null>(n).fill(null);
+
+  anchors.forEach((a, order) => {
+    onMs[order] = index.words[a.wordIndex].startMs;
+    wordIdx[order] = a.wordIndex;
+  });
+
+  // Walk each unanchored run and deal it into the time its neighbours left.
+  let i = 0;
+  while (i < n) {
+    if (onMs[i] !== null) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < n && onMs[j] === null) j++;
+
+    const runLength = j - i;
+    const lowerMs = i === 0 ? firstWordMs : (onMs[i - 1] as number) + staggerMs;
+    const upperMs = j < n ? (onMs[j] as number) - staggerMs : Math.max(lowerMs, Math.min(settleMs, sceneEndMs));
+    const span = Math.max(0, upperMs - lowerMs);
+
+    // Pace at a fixed rhythm and only compress when the span cannot hold it, so
+    // a 3-second scene and a 12-second one stagger their elements the same way
+    // instead of one crawling. The run keeps a gap at whichever end abuts an
+    // anchor; where it abuts the scene opening, the first element enters with
+    // the slide.
+    const leading = i === 0 ? 0 : 1;
+    const trailing = j < n ? 1 : 0;
+    const gaps = Math.max(1, runLength - 1 + leading + trailing);
+    const step = Math.min(IDEAL_STEP_MS, span / gaps);
+
+    for (let k = 0; k < runLength; k++) {
+      const t = lowerMs + step * (leading + k);
+      const snapTo = nearestWordIndex(index, t, from, to);
+      onMs[i + k] = snapTo >= 0 ? index.words[snapTo].startMs : t;
+      wordIdx[i + k] = snapTo >= 0 ? snapTo : null;
+    }
+    i = j;
+  }
+
+  // Elements now enter in the order they are *spoken about*, not the order they
+  // are printed. Reading order survives as the tie-break inside one beat, so
+  // two elements the narration reaches in the same breath still animate top
+  // to bottom rather than by a few milliseconds of transcription noise.
+  const BEAT_MS = 250;
+  const plan = content
+    .map((layer, k) => ({
+      layer,
+      onMs: onMs[k] as number,
+      wordIndex: wordIdx[k],
+      anchored: anchors.has(k),
+      readingOrder: k,
+    }))
+    .sort((a, b) => {
+      const beatDelta = Math.round(a.onMs / BEAT_MS) - Math.round(b.onMs / BEAT_MS);
+      return beatDelta !== 0 ? beatDelta : a.readingOrder - b.readingOrder;
+    });
+
+  // Monotonic and never bunched: snapping can land two elements on the same
+  // word, and an entrance that has not visibly happened is a wasted one.
+  plan.forEach((p, k) => {
+    const floor = k === 0 ? sceneStartMs : plan[k - 1].onMs + staggerMs;
+    if (p.onMs < floor) {
+      p.onMs = floor;
+      // The time no longer belongs to the word it was snapped to — unless the
+      // element was anchored, in which case its own words outrank the spacing.
+      if (!p.anchored) p.wordIndex = null;
+    }
+  });
+
+  // A slide with more elements than its span can stagger would push the last of
+  // them past the cut, where they would never be seen. Squeeze the whole run
+  // back inside instead: crowded is recoverable, invisible is not.
+  const lastAllowedMs = sceneEndMs - 200;
+  if (plan[n - 1].onMs > lastAllowedMs) {
+    const first = plan[0].onMs;
+    const spanMs = Math.max(1, plan[n - 1].onMs - first);
+    const squeeze = Math.max(0, (lastAllowedMs - first) / spanMs);
+    for (let k = 1; k < n; k++) {
+      const shifted = first + (plan[k].onMs - first) * squeeze;
+      plan[k].onMs = Math.min(plan[k].onMs, Math.max(sceneStartMs, shifted));
+      // Squeezed times no longer sit on the word they were resolved from, so
+      // the anchor is dropped rather than reported as a sync that held.
+      plan[k].wordIndex = null;
+      plan[k].anchored = false;
+    }
+  }
+
+  return plan.map((p) => {
+    // An emphasis hit only exists when the element's own key word comes back
+    // later in the same scene — a second mention the viewer can be pointed at.
+    let hitWordIndex: number | null = null;
+    if (p.anchored && p.layer.text) {
+      const after = nearestWordIndex(index, p.onMs + 700, from, to);
+      const again = strongestSpokenToken(index, p.layer.text, Math.max(after, (p.wordIndex ?? from) + 1), to);
+      if (
+        again &&
+        index.words[again.wordIndex].startMs > p.onMs + 700 &&
+        index.words[again.wordIndex].startMs < sceneEndMs - 300
+      ) {
+        hitWordIndex = again.wordIndex;
+      }
+    }
+
+    return { layer: p.layer, onMs: p.onMs, wordIndex: p.wordIndex, anchored: p.anchored, hitWordIndex };
+  });
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Stage 3 — choreography
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+interface Entrance {
+  action: string;
+  durMs: number;
+  wipeFrom?: WipeDirection;
+  params: Record<string, number>;
+}
+
+/**
+ * The cue an element gets, read off the element.
+ *
+ * Fixed table, no randomness: the same poster always animates the same way, so
+ * a re-run after fixing one slide does not reshuffle the other nine. Direction
+ * comes from where the element sits — something on the left edge enters from
+ * the left, because that is where it came from.
+ */
+function chooseEntrance(layer: AutoLayer): Entrance {
+  const cx = layer.x + layer.w / 2;
+  const cy = layer.y + layer.h / 2;
+  const area = Math.max(0.0001, layer.w * layer.h);
+  const aspect = layer.w / Math.max(0.0001, layer.h);
+
+  // Small type travels further than big type: 3% of the frame is a nudge under
+  // a headline and a real move under a caption.
+  const distancePct = layer.h <= 0.05 ? 3.6 : layer.h <= 0.12 ? 2.8 : 2.0;
+  const base = Math.round(340 + Math.min(160, area * 900));
+
+  if (layer.type === "text") {
+    const role = layer.role;
+    if (role === "title" || role === "heading") {
+      // A single wide line reads best written on rather than moved in.
+      if (layer.lineCount === 1 && layer.w >= 0.55) {
+        return { action: "wipeIn", durMs: 520, wipeFrom: "left", params: {} };
+      }
+      return { action: cy < 0.18 ? "fadeInDown" : "fadeInUp", durMs: base, params: { distancePct } };
+    }
+    if (role === "badge" || role === "eyebrow" || role === "tag" || role === "footer-badge") {
+      return { action: "popIn", durMs: 360, params: { fromScale: 0.82 } };
+    }
+    if (role === "footer") return { action: "fadeIn", durMs: 320, params: {} };
+    return { action: cy < 0.18 ? "fadeInDown" : "fadeInUp", durMs: base, params: { distancePct } };
+  }
+
+  if (aspect >= 2.6) {
+    return { action: "wipeIn", durMs: 460, wipeFrom: cx <= 0.5 ? "left" : "right", params: {} };
+  }
+  if (area <= 0.02) return { action: "popIn", durMs: 340, params: { fromScale: 0.8 } };
+  if (cx <= 0.34) return { action: "fadeInLeft", durMs: base, params: { distancePct } };
+  if (cx >= 0.66) return { action: "fadeInRight", durMs: base, params: { distancePct } };
+  if (area >= 0.1) return { action: "blurIn", durMs: 520, params: { amount: 10 } };
+  return { action: "popIn", durMs: base, params: { fromScale: 0.88 } };
+}
+
+/** Entrances that already start invisible — no `hide` needed before them. */
+const SELF_HIDING = new Set([
+  "fadeIn", "fadeInUp", "fadeInDown", "fadeInLeft", "fadeInRight",
+  "popIn", "blurIn", "wipeIn",
+]);
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The engine
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+export function autoSyncTimeline(
+  slides: TimelineSlideLike[],
+  transcript: TranscriptWord[],
+  options: AutoSyncOptions = {}
+): AutoSyncResult {
+  const warnings: string[] = [];
+  const empty = (): AutoSyncResult => ({
+    timeline: null,
+    report: {
+      scenes: [],
+      durationMs: 0,
+      totalElements: 0,
+      anchoredElements: 0,
+      pacedElements: 0,
+      silentText: [],
+      confidence: 0,
+      warnings,
+    },
+  });
+
+  if (slides.length === 0) {
+    warnings.push("Upload and decompose your posters first — there are no slides to animate.");
+    return empty();
+  }
+  if (transcript.length === 0) {
+    warnings.push("Load the word-level transcript CSV — without it there is nothing to sync to.");
+    return empty();
+  }
+
+  const tailMs = options.tailMs ?? DEFAULT_TAIL_MS;
+  const kenBurnsTo = options.kenBurnsTo ?? 1.05;
+  const ambient = options.ambient ?? true;
+  const staggerMs = options.minStaggerMs ?? DEFAULT_STAGGER_MS;
+  const bandFraction = options.bandFraction ?? 0.3;
+
+  const index = buildTranscriptIndex(transcript);
+  const audioEndMs = index.durationMs;
+
+  if (audioEndMs < slides.length * MIN_SCENE_MS) {
+    warnings.push(
+      `${slides.length} slides in ${(audioEndMs / 1000).toFixed(1)}s of audio leaves under ${MIN_SCENE_MS}ms each — the scenes will be tight.`
+    );
+  }
+
+  const profiles = profileSlides(slides, index);
+  const { cuts, coverages } = segment(profiles, index, bandFraction);
+
+  const scenes: AuthoredScene[] = [];
+  const sceneReports: AutoSyncSceneReport[] = [];
+  const silentText: string[] = [];
+  let totalElements = 0;
+  let anchoredElements = 0;
+  let pacedElements = 0;
+
+  // Scene boundaries in ms, taken from the words the cuts landed on and pulled
+  // back so the first entrance's lead-in lives inside its own scene.
+  const boundaries: number[] = cuts.map((c, i) => {
+    if (i === 0) return 0;
+    if (c >= index.words.length) return Math.round(audioEndMs + tailMs);
+    return Math.round(Math.max(0, index.words[c].startMs - PRE_ROLL_MS));
+  });
+  for (let i = 1; i < boundaries.length; i++) {
+    if (boundaries[i] <= boundaries[i - 1]) boundaries[i] = boundaries[i - 1] + MIN_SCENE_MS;
+  }
+  boundaries[boundaries.length - 1] = Math.max(
+    boundaries[boundaries.length - 1],
+    Math.round(audioEndMs + tailMs)
+  );
+
+  profiles.forEach((profile, i) => {
+    const startMs = boundaries[i];
+    const endMs = boundaries[i + 1];
+    const from = cuts[i];
+    const to = cuts[i + 1];
+
+    const placements = schedule(profile.content, index, from, to, startMs, endMs, staggerMs);
+    const tracks: AuthoredTrack[] = [];
+
+    // Furniture is simply present: a quick fade at the top of the scene, out of
+    // the way of the sync.
+    profile.furniture.forEach((layer) => {
+      totalElements++;
+      pacedElements++;
+      tracks.push({
+        id: layer.id,
+        name: layer.label,
+        cues: [{ action: "fadeIn", atMs: startMs, durMs: 300 }],
+      });
+    });
+
+    placements.forEach((p) => {
+      totalElements++;
+      if (p.anchored) anchoredElements++;
+      else pacedElements++;
+
+      if (p.layer.type === "text" && p.layer.text.trim() && !p.anchored) {
+        const spoken = weighPhrase(index, p.layer.text).some((w) => w.positions.length > 0);
+        if (!spoken && !silentText.includes(p.layer.text)) silentText.push(p.layer.text);
+      }
+
+      const entrance = chooseEntrance(p.layer);
+      if (!CUE_NAMES.includes(entrance.action)) {
+        warnings.push(`Unknown cue "${entrance.action}" — used fadeInUp instead.`);
+        entrance.action = "fadeInUp";
+      }
+
+      // The entrance starts before the word so it has landed by the time the
+      // word is heard. Never before the scene opens.
+      const enterAt = Math.max(startMs, Math.round(p.onMs - LEAD_IN_MS));
+      // And it must finish inside its own scene, however tight the scene is.
+      const durMs = Math.max(140, Math.min(entrance.durMs, endMs - enterAt - 40));
+
+      const cues: AuthoredCue[] = [];
+      if (!SELF_HIDING.has(entrance.action)) cues.push({ action: "hide", atMs: startMs });
+
+      // The trigger word rides along in the transcript's own spelling, so the
+      // compiler can re-verify the timing against the CSV on every reload —
+      // see compile.ts · snapToWord.
+      const triggerWord =
+        p.wordIndex !== null && normalizeToken(index.words[p.wordIndex].text)
+          ? index.words[p.wordIndex].text
+          : undefined;
+
+      cues.push({
+        action: entrance.action,
+        atMs: enterAt,
+        durMs,
+        ...(triggerWord ? { word: triggerWord } : {}),
+        ...entrance.params,
+      });
+
+      if (p.hitWordIndex !== null) {
+        const hit = index.words[p.hitWordIndex];
+        const hitWord = normalizeToken(hit.text) ? hit.text : undefined;
+        cues.push({
+          action: "emphasize",
+          atMs: Math.round(hit.startMs),
+          durMs: 360,
+          amount: 1.06,
+          ...(hitWord ? { word: hitWord } : {}),
+        });
+      }
+
+      // A slow idle drift on the scene's largest graphic, once it has settled.
+      // Only on scenes long enough to look still without it.
+      if (
+        ambient &&
+        p.layer.type === "graphic" &&
+        p.layer.w * p.layer.h >= 0.06 &&
+        endMs - (enterAt + durMs) > 2600 &&
+        p.hitWordIndex === null &&
+        !placements.some((q) => q !== p && q.layer.type === "graphic" && q.layer.w * q.layer.h > p.layer.w * p.layer.h)
+      ) {
+        const floatStart = enterAt + durMs + 120;
+        const floatDur = Math.max(1800, endMs - floatStart - 120);
+        cues.push({
+          action: "float",
+          atMs: Math.round(floatStart),
+          durMs: Math.round(floatDur),
+          amountPct: 0.55,
+          cycles: Math.max(1, Math.round(floatDur / 2600)),
+        });
+      }
+
+      const track: AuthoredTrack = { id: p.layer.id, name: p.layer.label, cues };
+      if (entrance.wipeFrom) track.wipeFrom = entrance.wipeFrom;
+      tracks.push(track);
+    });
+
+    // Ken Burns pans toward whatever the slide put on screen, and alternates
+    // direction between slides so a long reel does not feel like one long push.
+    const camera = buildCamera(profile.content, startMs, endMs, i, kenBurnsTo);
+
+    // A cut is the default; a real pause in the narration earns a short
+    // dissolve, because the speaker already signalled the beat.
+    const gapBefore = i === 0 ? Infinity : index.gapBeforeMs[from] ?? 0;
+    const enter =
+      i === 0
+        ? { type: "fade", durationMs: 320 }
+        : gapBefore >= 350
+        ? { type: "fade", durationMs: 200 }
+        : { type: "cut", durationMs: 0 };
+
+    scenes.push({
+      slide: i + 1,
+      label: sceneLabel(profile, i),
+      startMs,
+      endMs,
+      enter,
+      exit: i === profiles.length - 1 ? { type: "fade", durationMs: 400 } : { type: "cut", durationMs: 0 },
+      camera,
+      tracks,
+    });
+
+    sceneReports.push({
+      slideIndex: i,
+      label: sceneLabel(profile, i),
+      startMs,
+      endMs,
+      placedBy: coverages[i] >= 0.35 && profile.tokenWeight >= SEGMENT_MIN_WEIGHT ? "text" : "paced",
+      coverage: coverages[i],
+      elementCount: profile.content.length + profile.furniture.length,
+      anchoredCount: placements.filter((p) => p.anchored).length,
+      openingLine: index.words
+        .slice(from, Math.min(to, from + 7))
+        .map((w) => w.text)
+        .join(" "),
+    });
+
+    if (profile.content.length === 0) {
+      warnings.push(`Slide ${i + 1} has no decomposed elements — it holds as a still.`);
+    }
+  });
+
+  if (scenes.length === 0) {
+    warnings.push("No slide produced a usable scene.");
+    return empty();
+  }
+
+  const durationMs = scenes[scenes.length - 1].endMs ?? Math.round(audioEndMs + tailMs);
+  const totalWindow = scenes.reduce((s, sc) => s + ((sc.endMs ?? 0) - (sc.startMs ?? 0)), 0) || 1;
+  const confidence =
+    sceneReports.reduce((s, r) => s + r.coverage * (r.endMs - r.startMs), 0) / totalWindow;
+
+  if (silentText.length > 0) {
+    warnings.push(
+      `${silentText.length} text element${silentText.length === 1 ? "" : "s"} print words that are never spoken — they were paced instead of anchored.`
+    );
+  }
+
+  return {
+    timeline: {
+      format: TIMELINE_FORMAT,
+      version: 1,
+      fps: 60,
+      durationMs,
+      timeBase: "absolute",
+      defaults: { ease: "easeOutCubic", distancePct: 3 },
+      scenes,
+    } as AuthoredTimeline,
+    report: {
+      scenes: sceneReports,
+      durationMs,
+      totalElements,
+      anchoredElements,
+      pacedElements,
+      silentText,
+      confidence,
+      warnings,
+    },
+  };
+}
+
+function sceneLabel(profile: SlideProfile, i: number): string {
+  const headline = profile.content.find((l) => l.type === "text" && (l.role === "title" || l.role === "heading"));
+  const text = headline?.text?.trim();
+  return text ? `Slide ${i + 1} · ${text.slice(0, 32)}` : `Slide ${i + 1}`;
+}
+
+function buildCamera(
+  content: AutoLayer[],
+  startMs: number,
+  endMs: number,
+  sceneIndex: number,
+  kenBurnsTo: number
+): AuthoredScene["camera"] {
+  if (kenBurnsTo <= 1) return undefined;
+
+  // Area-weighted centre of everything on the slide.
+  let wx = 0;
+  let wy = 0;
+  let mass = 0;
+  content.forEach((l) => {
+    const a = l.w * l.h;
+    wx += (l.x + l.w / 2) * a;
+    wy += (l.y + l.h / 2) * a;
+    mass += a;
+  });
+  const cx = mass > 0 ? wx / mass : 0.5;
+  const cy = mass > 0 ? wy / mass : 0.5;
+
+  const clamp = (n: number) => Math.max(-1.5, Math.min(1.5, n));
+  // Positive panX moves the view right, so pushing toward content on the left
+  // means a negative pan.
+  const panXPct = Number(clamp((cx - 0.5) * 3).toFixed(2));
+  const panYPct = Number(clamp((cy - 0.5) * 2).toFixed(2));
+
+  // Alternate push-in and pull-out so consecutive slides do not share a move.
+  const pushIn = sceneIndex % 2 === 0;
+  return {
+    cues: [
+      {
+        action: "kenBurns",
+        atMs: startMs,
+        durMs: Math.max(400, endMs - startMs),
+        from: pushIn ? 1 : kenBurnsTo,
+        to: pushIn ? kenBurnsTo : 1,
+        panXPct: pushIn ? panXPct : -panXPct,
+        panYPct: pushIn ? panYPct : -panYPct,
+      },
+    ],
+  };
+}
