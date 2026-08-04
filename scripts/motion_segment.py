@@ -39,6 +39,28 @@ OCR_MAX_DIM = 2200
 MIN_WORD_CONF = 45.0
 MAX_LAYERS = 40
 
+# ---- object detection ----------------------------------------------------
+# Floor for "this pixel differs from the page background", in 0-255 max-channel
+# distance. Otsu decides the real level per poster; this only stops a perfectly
+# flat page from thresholding on compression noise.
+FOREGROUND_MIN_DIST = 10.0
+# Morphological close, as a fraction of the short edge. Big enough to seal an
+# outline icon, small enough not to weld neighbouring objects together.
+OBJECT_CLOSE_FRAC = 0.011
+# Fragments closer than this (short-edge fraction) and similar in colour are one
+# object. Illustrations arrive as dozens of strokes; this reassembles them.
+MERGE_GAP_FRAC = 0.018
+MERGE_COLOR_DIST = 46.0
+# A swarm of this many fragments within this reach is one object, whatever their
+# colours - a chart, a photograph, a multi-coloured illustration.
+CLUSTER_GAP_FRAC = 0.045
+CLUSTER_MIN_MEMBERS = 3
+# Below this share of the page an object is speckle.
+MIN_OBJECT_PIXELS_FRAC = 0.00035
+# Distinct 5-bit colours before something reads as photographic rather than drawn.
+PHOTO_COLOR_COUNT = 220
+MAX_OBJECTS = 28
+
 # Alpha matte ramp, in 0-255 max-channel distance from the local background.
 MATTE_LO = 3.0
 MATTE_HI = 42.0
@@ -268,11 +290,58 @@ def _is_junk_word(text, conf):
         return True
     if len(text) <= 2 and conf < 85.0:
         return True
+
+    # One character repeated is a texture being spelled out, not a word.
+    if len(text) >= 3 and len(set(text.lower())) == 1:
+        return True
     return False
 
 
+# Plausible width-to-height ratio of a single Latin glyph. Anything far outside
+# this is not type.
+MIN_GLYPH_ASPECT = 0.30
+MAX_GLYPH_ASPECT = 2.20
+
+
+def _implausible_word_box(text, box):
+    """Reject 'words' whose box could not hold those letters.
+
+    This is what stops drawn objects being read as type. A bar chart comes back
+    as a confident "alll" in a 323x301 box - four characters in a box taller
+    than it is wide, i.e. glyphs of aspect 0.27, which no font produces. Judging
+    the geometry rather than the spelling keeps real words of any language and
+    kills the confident nonsense that costs a whole region of the poster.
+    """
+    n = len(text.strip())
+    if n < 3:
+        return False
+    bw, bh = box[2], box[3]
+    if bh <= 0:
+        return True
+    per_glyph = (bw / float(n)) / float(bh)
+    return per_glyph < MIN_GLYPH_ASPECT or per_glyph > MAX_GLYPH_ASPECT
+
+
+def _ocr_prepare(cv2, gray):
+    """Local contrast normalisation before OCR.
+
+    Posters put type on gradients, photographs and coloured panels, where a
+    single global threshold loses whichever end of the ramp it is not tuned for.
+    CLAHE equalises in tiles, so pale type on a light wash and white type on a
+    dark panel both come back with the contrast tesseract wants.
+    """
+    return cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+
+
 def _ocr_words(np, cv2, arr_rgb):
-    """Every readable word on the page, boxed in processed-image coordinates."""
+    """Every readable word on the page, boxed in processed-image coordinates.
+
+    Several passes, deliberately ordered by trustworthiness: the native-scale
+    sparse read first, then progressively more speculative ones that may only
+    contribute words no earlier pass saw. Each pass is cheap relative to the CV
+    work, and the failure they exist to prevent - a headline that decomposes as
+    an anonymous rectangle because OCR never read it - is expensive.
+    """
     pytesseract, Output = _tesseract()
     if pytesseract is None:
         return [], "pytesseract-missing"
@@ -292,6 +361,7 @@ def _ocr_words(np, cv2, arr_rgb):
         ocr_img = arr_rgb
 
     gray = cv2.cvtColor(ocr_img, cv2.COLOR_RGB2GRAY)
+    even = _ocr_prepare(cv2, gray)
 
     def run(image, config):
         try:
@@ -301,7 +371,7 @@ def _ocr_words(np, cv2, arr_rgb):
 
     words = []
 
-    def collect(data, pass_scale):
+    def collect(data, pass_scale, min_conf=MIN_WORD_CONF):
         if not data:
             return 0
         n = len(data.get("text", []))
@@ -314,7 +384,7 @@ def _ocr_words(np, cv2, arr_rgb):
                 conf = float(data["conf"][i])
             except (TypeError, ValueError):
                 conf = -1.0
-            if conf < MIN_WORD_CONF or _is_junk_word(txt, conf):
+            if conf < min_conf or _is_junk_word(txt, conf):
                 continue
             bw = int(data["width"][i])
             bh = int(data["height"][i])
@@ -323,6 +393,8 @@ def _ocr_words(np, cv2, arr_rgb):
             box = (int(data["left"][i] / pass_scale), int(data["top"][i] / pass_scale),
                    int(bw / pass_scale), int(bh / pass_scale))
             if _area(box) <= 0:
+                continue
+            if _implausible_word_box(txt, box):
                 continue
             # Type too small to read at this resolution is usually a texture -
             # a dot grid, a hatch pattern - being spelled out. Let it through
@@ -337,19 +409,29 @@ def _ocr_words(np, cv2, arr_rgb):
             added += 1
         return added
 
-    # sparse-text mode: posters are islands of text, not paragraphs
-    collect(run(gray, "--oem 3 --psm 11"), scale)
+    # 1. Sparse text at native scale: posters are islands of type, not prose.
+    collect(run(even, "--oem 3 --psm 11"), scale)
+    # 2. Block and column modes, for decks that really are laid out as prose.
     if len(words) < 3:
-        collect(run(gray, "--oem 3 --psm 6"), scale)
+        collect(run(even, "--oem 3 --psm 6"), scale)
+        collect(run(even, "--oem 3 --psm 4"), scale)
 
-    # Second look, enlarged. Small type - badges, page counters, footnotes -
-    # is often below tesseract's comfortable size at native resolution; at
-    # ~1.7x it reads cleanly. Anything already found above is kept as-is.
+    # 3. Inverted. Tesseract normalises polarity per region, but a page that is
+    #    mostly dark with white type biases the sparse pass toward reading the
+    #    light areas as background; the inverse image gives the same detector a
+    #    conventional dark-on-light page.
+    collect(run(cv2.bitwise_not(even), "--oem 3 --psm 11"), scale)
+
+    # 4. Enlarged. Small type - badges, page counters, footnotes - sits below
+    #    tesseract's comfortable size at native resolution and reads cleanly at
+    #    ~1.7x. Anything found above is kept as-is.
     up = scale * 1.7
     if max(w, h) * up <= 3400:
         big = cv2.resize(arr_rgb, (max(1, int(w * up)), max(1, int(h * up))),
                          interpolation=cv2.INTER_CUBIC)
-        collect(run(cv2.cvtColor(big, cv2.COLOR_RGB2GRAY), "--oem 3 --psm 11"), up)
+        big_even = _ocr_prepare(cv2, cv2.cvtColor(big, cv2.COLOR_RGB2GRAY))
+        collect(run(big_even, "--oem 3 --psm 11"), up)
+        collect(run(cv2.bitwise_not(big_even), "--oem 3 --psm 11"), up)
 
     return words, "tesseract"
 
@@ -416,6 +498,8 @@ def _ocr_region(np, cv2, arr_rgb, box, min_conf=52.0):
                 continue
             if conf < min_conf or _is_junk_word(txt, conf):
                 continue
+            if _implausible_word_box(txt, (0, 0, int(data["width"][i] / s), int(data["height"][i] / s))):
+                continue
             wx = x0 + int((data["left"][i] - m) / s)
             wy = y0 + int((data["top"][i] - m) / s)
             ww = max(1, int(data["width"][i] / s))
@@ -458,10 +542,22 @@ def _same_visual_line(a, b):
     splits them, a centre test does not. The horizontal gap keeps separate
     columns ("BID" / "ASK") apart.
     """
-    hmax = float(max(a[3], b[3]))
+    ha, hb = float(a[3]), float(b[3])
+    hmin = min(ha, hb)
+    hmax = max(ha, hb)
+
+    # Two boxes of wildly different height are not one printed line. Without
+    # this, a single mis-read box tall enough to cover a whole region drags
+    # every nearby word into its "line", and the block that results masks off
+    # the part of the poster those words came from.
+    if hmax > 2.4 * hmin:
+        return False
+
     ca = a[1] + a[3] / 2.0
     cb = b[1] + b[3] / 2.0
-    if abs(ca - cb) > 0.55 * hmax:
+    # Tolerance from the SMALLER box: a tall neighbour must not widen the window
+    # it is allowed to capture short words through.
+    if abs(ca - cb) > 0.6 * hmin:
         return False
     gap = max(a[0] - (b[0] + b[2]), b[0] - (a[0] + a[2]))
     return gap <= 1.8 * hmax
@@ -643,43 +739,372 @@ def _slug(text, fallback):
 # graphic (non-text) element detection
 # --------------------------------------------------------------------------
 
-def _detect_graphics(np, cv2, arr_rgb, text_mask):
+def _background_estimate(np, cv2, arr_rgb):
+    """A model of the page behind everything, fitted globally and robustly.
+
+    Posters have one background: a flat fill or a smooth wash across the whole
+    canvas. So it is fitted as a single quadratic surface per channel, by least
+    squares over pixels that currently look like background, re-selected a few
+    times so that drawn objects - which are outliers, however large - fall out
+    of the fit instead of bending it.
+
+    Doing this *globally* is the whole point. Any local estimator (a blur, a
+    block median) absorbs an object bigger than its own window, and then the
+    object silently stops existing: a 200px circle vanished into a 24x-
+    downsampled background and was never detected at all.
+    """
+    h, w = arr_rgb.shape[:2]
+
+    # Fit on a subsampled grid - a quadratic has six coefficients and does not
+    # need a million samples to pin them down.
+    step = max(1, int(min(w, h) / 220))
+    ys = np.arange(0, h, step)
+    xs = np.arange(0, w, step)
+    grid = arr_rgb[np.ix_(ys, xs)].astype(np.float32)
+    gh, gw = grid.shape[:2]
+
+    yy, xx = np.meshgrid(ys.astype(np.float32) / h, xs.astype(np.float32) / w, indexing="ij")
+    basis = np.stack([np.ones_like(xx), xx, yy, xx * xx, yy * yy, xx * yy], axis=-1).reshape(-1, 6)
+    flat = grid.reshape(-1, 3)
+
+    # Seed from the border ring: whatever else a poster does, its outer frame is
+    # nearly always page.
+    border = np.concatenate([grid[0, :, :], grid[-1, :, :], grid[:, 0, :], grid[:, -1, :]], axis=0)
+    seed = _modal_color(np, border.astype(np.uint8))
+    if seed is None:
+        seed = np.array([245, 245, 245], dtype=np.uint8)
+    inliers = np.abs(flat - seed.astype(np.float32)).max(axis=1) < 48.0
+    if inliers.sum() < 24:
+        inliers = np.ones(len(flat), dtype=bool)
+
+    coef = None
+    for _ in range(3):
+        try:
+            coef, _res, _rank, _sv = np.linalg.lstsq(basis[inliers], flat[inliers], rcond=None)
+        except np.linalg.LinAlgError:
+            break
+        resid = np.abs(flat - basis @ coef).max(axis=1)
+        # Keep the well-explained majority; the threshold adapts so a busy page
+        # does not throw away its own background.
+        thr = max(12.0, float(np.percentile(resid, 60)) * 1.5)
+        nxt = resid < thr
+        if nxt.sum() < 24:
+            break
+        inliers = nxt
+
+    if coef is None:
+        return np.repeat(np.repeat(seed.reshape(1, 1, 3), h, axis=0), w, axis=1).astype(np.uint8)
+
+    fitted = np.clip(basis @ coef, 0, 255).reshape(gh, gw, 3).astype(np.uint8)
+    return cv2.resize(fitted, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
+def _foreground_mask(np, cv2, arr_rgb, text_mask):
+    """Everything that is not page background, minus everything OCR claimed."""
+    h, w = arr_rgb.shape[:2]
+
+    bg = _background_estimate(np, cv2, arr_rgb)
+    dist = np.abs(arr_rgb.astype(np.int16) - bg.astype(np.int16)).max(axis=2).astype(np.uint8)
+
+    # Otsu picks the split between "page" and "ink" for this particular poster,
+    # so a low-contrast pastel deck and a high-contrast dark one both work. The
+    # floor stops a perfectly flat poster from thresholding on sensor noise.
+    # Otsu splits "page" from "ink" for this poster; taking well under it keeps
+    # low-contrast furniture - hairline rules, tinted panels, pale dividers -
+    # which sit far closer to the page than the headline does and were being
+    # thresholded away with it. Speckle from going this low is removed by the
+    # opening and the minimum-area filter below.
+    otsu, _ = cv2.threshold(dist, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    level = max(FOREGROUND_MIN_DIST, min(otsu * 0.5, 34.0))
+    mask = (dist >= level).astype(np.uint8) * 255
+
+    if text_mask is not None:
+        pad = max(3, int(0.008 * min(w, h)))
+        grown = cv2.dilate(text_mask, np.ones((pad, pad), np.uint8))
+        mask[grown > 0] = 0
+
+    # A full-bleed photograph or a heavy texture is not a surface any quadratic
+    # can fit, so the residual lights up everywhere and "foreground" stops
+    # meaning anything. Fall back to edges, which is the right tool for a page
+    # that has no page colour.
+    if float((mask > 0).sum()) / float(w * h) > 0.72:
+        gray = cv2.cvtColor(arr_rgb, cv2.COLOR_RGB2GRAY)
+        edges = cv2.Canny(cv2.GaussianBlur(gray, (3, 3), 0), 40, 130)
+        if text_mask is not None:
+            pad = max(3, int(0.008 * min(w, h)))
+            edges[cv2.dilate(text_mask, np.ones((pad, pad), np.uint8)) > 0] = 0
+        mask = edges
+
+    # Close gaps inside one object (an outline icon, a dashed rule, the gap
+    # between a chart's bars) without welding neighbouring objects together.
+    k = max(3, int(OBJECT_CLOSE_FRAC * min(w, h)))
+    if k % 2 == 0:
+        k += 1
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    # Drop single-pixel speckle that survived the threshold.
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    return mask
+
+
+def _dominant_color(np, arr_rgb, mask, box):
+    x, y, bw, bh = box
+    patch = arr_rgb[y:y + bh, x:x + bw].reshape(-1, 3)
+    sub = mask[y:y + bh, x:x + bw].reshape(-1) > 0
+    px = patch[sub] if sub.any() else patch
+    col = _modal_color(np, px)
+    return col if col is not None else np.array([128, 128, 128], dtype=np.uint8)
+
+
+def _merge_fragments(np, items, w, h):
+    """Fold neighbouring fragments of one object back together.
+
+    An illustration is not one connected component: it is a stack of strokes,
+    highlights and shadows that morphology alone will not join without also
+    welding it to whatever sits beside it. Distance plus colour agreement is the
+    honest test - close AND similar means one object, close but differently
+    coloured means two.
+    """
+    gap = max(4.0, MERGE_GAP_FRAC * min(w, h))
+    changed = True
+    while changed and len(items) > 1:
+        changed = False
+        for i in range(len(items)):
+            if items[i] is None:
+                continue
+            for j in range(i + 1, len(items)):
+                if items[j] is None:
+                    continue
+                a, b = items[i], items[j]
+                ax, ay, aw, ah = a["box"]
+                bx, by, bw_, bh_ = b["box"]
+                dx = max(0, max(ax - (bx + bw_), bx - (ax + aw)))
+                dy = max(0, max(ay - (by + bh_), by - (ay + ah)))
+                if dx > gap or dy > gap:
+                    continue
+                colour_delta = float(np.abs(a["color"].astype(np.int16) - b["color"].astype(np.int16)).max())
+                # Interleaved boxes are one object whatever their colours say -
+                # that is a highlight sitting on a shape, or the speckle of a
+                # photograph, not two separate things anyone would animate
+                # apart. Colour only arbitrates between neighbours that merely
+                # sit near each other.
+                overlapping = _inter(a["box"], b["box"]) > 0
+                if colour_delta > MERGE_COLOR_DIST and not overlapping:
+                    continue
+                merged = _union(a["box"], b["box"])
+                # Never let merging manufacture a box that swallows the page.
+                if merged[2] > 0.96 * w or merged[3] > 0.96 * h:
+                    continue
+                a["box"] = merged
+                a["pixels"] += b["pixels"]
+                items[j] = None
+                changed = True
+    return [it for it in items if it is not None]
+
+
+def _merge_clusters(np, items, w, h):
+    """Collapse a dense cluster of fragments into the one object it depicts.
+
+    Colour agreement reassembles a single drawn shape, but it will not
+    reassemble a bar chart (five bars, deliberately different colours) or a
+    photograph (hundreds of unrelated colours). Those are still one thing to
+    anyone watching, and one thing is what should animate: a chart that wipes on
+    reads as a chart, whereas five bars arriving separately reads as a bug.
+
+    So proximity alone merges, but only where fragments genuinely swarm - three
+    or more within a short reach. Two isolated objects that happen to sit near
+    each other are left alone.
+    """
+    reach = max(6.0, CLUSTER_GAP_FRAC * min(w, h))
+
+    parent = list(range(len(items)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            ax, ay, aw, ah = items[i]["box"]
+            bx, by, bw_, bh_ = items[j]["box"]
+            dx = max(0, max(ax - (bx + bw_), bx - (ax + aw)))
+            dy = max(0, max(ay - (by + bh_), by - (ay + ah)))
+            if dx <= reach and dy <= reach:
+                union(i, j)
+
+    groups = {}
+    for i in range(len(items)):
+        groups.setdefault(find(i), []).append(i)
+
+    out = []
+    for members in groups.values():
+        if len(members) < CLUSTER_MIN_MEMBERS:
+            out.extend(items[i] for i in members)
+            continue
+        box = items[members[0]]["box"]
+        pixels = 0
+        for i in members:
+            box = _union(box, items[i]["box"])
+            pixels += items[i]["pixels"]
+        if box[2] > 0.96 * w or box[3] > 0.96 * h:
+            out.extend(items[i] for i in members)
+            continue
+        out.append({"box": _clip(box, w, h), "pixels": pixels, "color": items[members[0]]["color"]})
+    return out
+
+
+def _classify_object(np, cv2, arr_rgb, mask, item, w, h):
+    """Name the object from what it measurably is.
+
+    Every field here is also emitted on the layer, because the animator reads
+    them: a chart earns a wipe, an icon earns a pop, a full-bleed photograph
+    earns a slow blur rather than either.
+    """
+    x, y, bw, bh = item["box"]
+    sub = mask[y:y + bh, x:x + bw]
+    patch = arr_rgb[y:y + bh, x:x + bw]
+    area = float(max(1, bw * bh))
+    total = float(w * h)
+
+    fill = float((sub > 0).sum()) / area
+    aspect = bw / float(max(1, bh))
+    rel_area = area / total
+    rel_y = y / float(h)
+
+    # Shape descriptors from the largest contour in the component.
+    circularity = 0.0
+    solidity = 0.0
+    contours, _ = cv2.findContours((sub > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        c = max(contours, key=cv2.contourArea)
+        c_area = float(cv2.contourArea(c))
+        perim = float(cv2.arcLength(c, True))
+        if perim > 0:
+            circularity = min(1.0, 4.0 * np.pi * c_area / (perim * perim))
+        hull = cv2.convexHull(c)
+        hull_area = float(cv2.contourArea(hull))
+        if hull_area > 0:
+            solidity = min(1.0, c_area / hull_area)
+
+    # How many colours the object actually uses, at 5-bit precision. A flat icon
+    # uses a handful; a photograph uses hundreds.
+    q = (patch.astype(np.uint16) >> 3)
+    keys = (q[:, :, 0].astype(np.uint32) << 10) | (q[:, :, 1].astype(np.uint32) << 5) | q[:, :, 2].astype(np.uint32)
+    inside = keys[sub > 0] if (sub > 0).any() else keys.reshape(-1)
+    color_count = int(np.unique(inside).size)
+
+    gray = cv2.cvtColor(patch, cv2.COLOR_RGB2GRAY)
+    edge_density = float((cv2.Canny(gray, 50, 150) > 0).sum()) / area
+
+    thin = min(bw, bh) <= max(3.0, 0.012 * min(w, h))
+    kind = "graphic"
+    if thin and max(bw, bh) >= 0.18 * max(w, h):
+        kind = "divider"
+    elif circularity >= 0.78 and 0.7 <= aspect <= 1.4:
+        kind = "circle"
+    elif color_count >= PHOTO_COLOR_COUNT and edge_density >= 0.06 and fill >= 0.75:
+        kind = "photo"
+    elif fill >= 0.90 and solidity >= 0.95 and color_count <= 40 and rel_area >= 0.02:
+        kind = "panel"
+    elif aspect >= 2.6 or (aspect <= 0.38 and bh > bw):
+        kind = "banner"
+    elif rel_area <= 0.022 and color_count <= 60:
+        kind = "icon"
+    elif edge_density >= 0.10 and color_count >= 24:
+        kind = "chart"
+    elif color_count >= 24:
+        kind = "illustration"
+
+    # The role vocabulary the animator and the manifest binder already speak.
+    if kind == "divider":
+        role = "banner"
+    elif kind == "icon":
+        role = "icon"
+    elif kind == "banner":
+        role = "banner"
+    elif rel_y > 0.72:
+        role = "footer-graphic"
+    elif rel_y < 0.16:
+        role = "header-graphic"
+    else:
+        role = "graphic"
+
+    return {
+        "objectType": kind,
+        "role": role,
+        "fillRatio": round(fill, 4),
+        "circularity": round(circularity, 4),
+        "solidity": round(solidity, 4),
+        "colorCount": color_count,
+        "edgeDensity": round(edge_density, 4),
+    }
+
+
+def _detect_objects(np, cv2, arr_rgb, text_mask):
+    """Discrete drawn objects on the page, classified.
+
+    Returns dicts of {box, objectType, role, ...} rather than bare boxes: the
+    measurements are made here, where the mask is in hand, and travel with the
+    layer so nothing downstream has to re-derive them from pixels it no longer
+    has.
+    """
     h, w = arr_rgb.shape[:2]
     total = float(w * h)
 
-    gray = cv2.cvtColor(arr_rgb, cv2.COLOR_RGB2GRAY)
-    blur = cv2.GaussianBlur(gray, (3, 3), 0)
+    mask = _foreground_mask(np, cv2, arr_rgb, text_mask)
 
-    edges = cv2.Canny(blur, 30, 120)
-    adapt = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                  cv2.THRESH_BINARY_INV, 21, 6)
-    combined = cv2.bitwise_or(edges, adapt)
-
-    # anything OCR already claimed is not a graphic
-    if text_mask is not None:
-        pad = max(3, int(0.006 * min(w, h)))
-        grown = cv2.dilate(text_mask, np.ones((pad, pad), np.uint8))
-        combined[grown > 0] = 0
-
-    k = max(5, int(0.014 * min(w, h)))
-    if k % 2 == 0:
-        k += 1
-    closed = cv2.morphologyEx(combined, cv2.MORPH_CLOSE,
-                              cv2.getStructuringElement(cv2.MORPH_RECT, (k, k)))
-
-    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    boxes = []
-    for c in contours:
-        x, y, bw, bh = cv2.boundingRect(c)
-        a = bw * bh
-        if a < total * 0.0008 or a > total * 0.30:
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    items = []
+    for i in range(1, count):
+        x = int(stats[i, cv2.CC_STAT_LEFT])
+        y = int(stats[i, cv2.CC_STAT_TOP])
+        bw = int(stats[i, cv2.CC_STAT_WIDTH])
+        bh = int(stats[i, cv2.CC_STAT_HEIGHT])
+        pixels = int(stats[i, cv2.CC_STAT_AREA])
+        if pixels < MIN_OBJECT_PIXELS_FRAC * total:
             continue
-        if bw > w * 0.93 or bh > h * 0.93:
+        if bw < 6 or bh < 6:
             continue
-        if bw < 8 or bh < 8:
+        # A component covering nearly the whole page is the background the
+        # estimate failed to model, not an object anyone wants to animate.
+        if bw > 0.96 * w and bh > 0.96 * h:
             continue
-        boxes.append((x, y, bw, bh))
-    return boxes
+        box = _clip((x, y, bw, bh), w, h)
+        items.append({"box": box, "pixels": pixels, "color": _dominant_color(np, arr_rgb, mask, box)})
+
+    if not items:
+        return []
+
+    items = _merge_fragments(np, items, w, h)
+    items = _merge_clusters(np, items, w, h)
+
+    out = []
+    for it in items:
+        box = it["box"]
+        if _area(box) > 0.55 * total:
+            continue
+        if _area(box) < 0.0006 * total:
+            continue
+        meta = _classify_object(np, cv2, arr_rgb, mask, it, w, h)
+        # A box that is mostly empty is a bounding box around scattered noise,
+        # not an object - except for dividers and outline art, which are
+        # legitimately sparse.
+        if meta["fillRatio"] < 0.10 and meta["objectType"] not in ("divider", "illustration", "chart"):
+            continue
+        entry = {"box": box}
+        entry.update(meta)
+        out.append(entry)
+
+    # Biggest first, so the layer cap spends itself on the objects that carry
+    # the page rather than on decoration.
+    out.sort(key=lambda it: -_area(it["box"]))
+    return out[:MAX_OBJECTS]
 
 
 # --------------------------------------------------------------------------
@@ -746,9 +1171,23 @@ def process_image(input_bytes):
         text_items.append({"box": box, "kind": "text", "block": b, "hasBackground": False})
     text_items = _resolve_overlaps(text_items)
 
-    # ---- graphics ---------------------------------------------------------
+    # ---- objects ----------------------------------------------------------
+    detected = _detect_objects(np, cv2, arr, text_mask)
     graphic_items = _resolve_overlaps(
-        [{"box": _clip(gb, W, H), "kind": "graphic"} for gb in _detect_graphics(np, cv2, arr, text_mask)]
+        [
+            {
+                "box": _clip(d["box"], W, H),
+                "kind": "graphic",
+                "objectType": d["objectType"],
+                "objectRole": d["role"],
+                "fillRatio": d["fillRatio"],
+                "circularity": d["circularity"],
+                "solidity": d["solidity"],
+                "colorCount": d["colorCount"],
+                "edgeDensity": d["edgeDensity"],
+            }
+            for d in detected
+        ]
     )
 
     # ---- reconcile text and graphics -------------------------------------
@@ -952,16 +1391,27 @@ def process_image(input_bytes):
                 "ocrConfidence": b["conf"],
             })
         else:
-            role = _graphic_role(rel_y, aspect, rel_area)
+            # The classifier measured this object against its own mask; fall
+            # back to geometry only for boxes that never went through it (a
+            # panel that swallowed its text, say).
+            object_type = it.get("objectType", "graphic")
+            role = it.get("objectRole") or _graphic_role(rel_y, aspect, rel_area)
+            label = object_type if object_type != "graphic" else role
             layer.update({
                 "type": "graphic",
                 "role": role,
-                "name": "{} ({})".format(role.replace("-", " ").title(), layer["positionLabel"]),
-                "slug": "{}_{}".format(role.replace("-", "_"), idx + 1),
+                "objectType": object_type,
+                "name": "{} ({})".format(label.replace("-", " ").title(), layer["positionLabel"]),
+                "slug": "{}_{}".format(object_type.replace("-", "_"), idx + 1),
                 "text": "",
                 "textLines": [],
                 "color": _hex(ink_col) if ink_col is not None else None,
                 "aspectRatio": round(aspect, 3),
+                "fillRatio": it.get("fillRatio"),
+                "circularity": it.get("circularity"),
+                "solidity": it.get("solidity"),
+                "colorCount": it.get("colorCount"),
+                "edgeDensity": it.get("edgeDensity"),
             })
 
         layers.append(layer)
@@ -990,6 +1440,8 @@ def process_image(input_bytes):
             "textLayers": sum(1 for l in layers if l["type"] == "text"),
             "graphicLayers": sum(1 for l in layers if l["type"] == "graphic"),
             "mattedLayers": sum(1 for l in layers if l["hasAlpha"]),
+            "objectsDetected": len(detected),
+            "objectTypes": sorted({l.get("objectType") for l in layers if l["type"] == "graphic" and l.get("objectType")}),
             "processedAtSourceResolution": long_edge <= MAX_PROCESS_DIM,
         },
     }

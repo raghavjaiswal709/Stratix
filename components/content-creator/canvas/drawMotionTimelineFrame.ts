@@ -104,10 +104,14 @@ function drawScene(
 
   // 1. Background — animatable like any other element (dim it, drift it, blur
   //    it behind a foreground beat) but never selectable.
+  const flatImg = slide.originalUrl ? assets.bgImgs[slide.originalUrl] : null;
   const bgUrl = slide.backgroundUrl || slide.originalUrl;
-  const bgImg = bgUrl ? assets.bgImgs[bgUrl] : null;
+  // The punched-out background is preferred, but the flattened poster stands in
+  // while it is still decoding — anything is better than a hole.
+  const bgImg = ready(bgUrl ? assets.bgImgs[bgUrl] : null) ? assets.bgImgs[bgUrl!] : flatImg;
   const bg = scene.background;
-  if (ready(bgImg) && bg.opacity > 0.001) {
+
+  const paintBase = (image: HTMLImageElement) => {
     const bw = sw * fit * bg.scale;
     const bh = sh * fit * bg.scale;
     const bx = originX - (bw - sw * fit) / 2 + (bg.xPct / 100) * W;
@@ -115,13 +119,30 @@ function drawScene(
     ctx.save();
     ctx.globalAlpha = scene.alpha * bg.opacity;
     if (bg.blur > 0.01) ctx.filter = `blur(${bg.blur}px)`;
-    ctx.drawImage(bgImg, bx, by, bw, bh);
+    ctx.drawImage(image, bx, by, bw, bh);
     ctx.restore();
+  };
+
+  const perSlide = assets.layerImgEls[slide.slideId] || {};
+  const allLayers = slide.layers || [];
+
+  // A slide whose cut-outs have not all decoded cannot be composited: the
+  // background has holes exactly where those elements belong, so drawing the
+  // ready ones leaves gaps in the poster. The flattened original is the same
+  // artwork with nothing missing, so it is painted whole instead — the frame
+  // still moves with the camera, it simply holds until the pieces arrive.
+  const incomplete = allLayers.some((l) => l.imageUrl && !ready(perSlide[l.id]));
+  if (incomplete) {
+    if (ready(flatImg)) paintBase(flatImg);
+    else if (ready(bgImg)) paintBase(bgImg);
+    ctx.restore();
+    return [];
   }
 
+  if (ready(bgImg) && bg.opacity > 0.001) paintBase(bgImg);
+
   // 2. Elements, in the z-order the decomposer assigned.
-  const perSlide = assets.layerImgEls[slide.slideId] || {};
-  const ordered = [...(slide.layers || [])].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+  const ordered = [...allLayers].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
   ordered.forEach((layer: MotionLayer) => {
     const img = perSlide[layer.id];

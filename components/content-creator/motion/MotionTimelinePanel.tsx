@@ -8,7 +8,9 @@ import {
   Download,
   FileSpreadsheet,
   Loader2,
+  Gauge,
   Music,
+  Music2,
   Pause,
   Play,
   Repeat,
@@ -19,6 +21,9 @@ import {
   Wand2,
 } from "lucide-react";
 import type { AutoSyncReport, CompiledTimeline, TimelineReport, TranscriptWord } from "@/lib/motion-timeline";
+
+/** The speeds people actually reach for, plus the slider for everything else. */
+const SPEED_PRESETS = [1, 1.3, 1.5, 1.7, 2] as const;
 
 /** mm:ss.cc — centiseconds, because sync arguments happen below the second. */
 export function formatTimecode(ms: number): string {
@@ -40,6 +45,8 @@ export interface MotionTimelinePanelProps {
 
   /** Slides + CSV → timeline, with nothing in between. */
   onAutoSync: () => void;
+  textOnlySync: boolean;
+  onTextOnlySyncChange: (value: boolean) => void;
   autoSyncReport: AutoSyncReport | null;
   autoSyncNote: string | null;
 
@@ -68,12 +75,23 @@ export interface MotionTimelinePanelProps {
   onAudioFile: (file: File) => void;
   onClearAudio: () => void;
 
+  musicName: string | null;
+  onMusicFile: (file: File) => void;
+  onClearMusic: () => void;
+  musicVolume: number;
+  onMusicVolumeChange: (value: number) => void;
+
+  exportSpeed: number;
+  onExportSpeedChange: (value: number) => void;
+
   onCopyPrompt: () => void;
   copiedPrompt: boolean;
 
   onExport: () => void;
   isExporting: boolean;
   exportElapsedMs: number | null;
+  /** Non-null while slide images are still decoding. */
+  assetProgress: { done: number; total: number } | null;
 }
 
 export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
@@ -86,6 +104,8 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onApply,
     onClear,
     onAutoSync,
+    textOnlySync,
+    onTextOnlySyncChange,
     autoSyncReport,
     autoSyncNote,
     manifestText,
@@ -108,15 +128,24 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     audioName,
     onAudioFile,
     onClearAudio,
+    musicName,
+    onMusicFile,
+    onClearMusic,
+    musicVolume,
+    onMusicVolumeChange,
+    exportSpeed,
+    onExportSpeedChange,
     onCopyPrompt,
     copiedPrompt,
     onExport,
     isExporting,
     exportElapsedMs,
+    assetProgress,
   } = props;
 
   const csvInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const musicInputRef = useRef<HTMLInputElement>(null);
 
   const errors = report?.issues.filter((i) => i.level === "error") ?? [];
   const warnings = report?.issues.filter((i) => i.level === "warning") ?? [];
@@ -238,6 +267,64 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
         </div>
       </div>
 
+      {/* Background music — a bed under the narration, mixed into the export */}
+      <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 space-y-1.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Music2 className="h-3 w-3 text-white/40" />
+            <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Background music</span>
+          </div>
+          {musicName && (
+            <span className="text-[9px] font-mono text-white/45 tabular-nums">{Math.round(musicVolume * 100)}%</span>
+          )}
+        </div>
+        <input
+          ref={musicInputRef}
+          type="file"
+          accept="audio/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onMusicFile(file);
+            e.target.value = "";
+          }}
+        />
+        {musicName ? (
+          <>
+            <p className="text-[9.5px] text-white/60 truncate" title={musicName}>
+              {musicName}
+            </p>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(musicVolume * 100)}
+              onChange={(e) => onMusicVolumeChange(Number(e.target.value) / 100)}
+              className="w-full cursor-pointer"
+              style={{ accentColor: "#ffffff" }}
+              aria-label="Background music volume"
+            />
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] text-white/30">Loops under the voiceover</span>
+              <button
+                onClick={onClearMusic}
+                className="text-[9px] text-white/35 hover:text-white/70 cursor-pointer underline underline-offset-2"
+              >
+                remove
+              </button>
+            </div>
+          </>
+        ) : (
+          <button
+            onClick={() => musicInputRef.current?.click()}
+            className="w-full py-1.5 rounded-md text-[9.5px] font-semibold border border-white/[0.10] bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white transition cursor-pointer"
+          >
+            Load music &mdash; starts at 20%
+          </button>
+        )}
+      </div>
+
       {/* Primary path — slides + CSV, nothing else */}
       <div className="rounded-lg border border-white/[0.14] bg-white/[0.04] p-2.5 space-y-2">
         <div className="flex items-center justify-between">
@@ -251,7 +338,7 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
 
         <button
           onClick={onAutoSync}
-          disabled={slideCount === 0 || !transcript?.length}
+          disabled={slideCount === 0 || !transcript?.length || !!assetProgress}
           title={
             slideCount === 0
               ? "Upload and decompose your posters first"
@@ -264,6 +351,34 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           <Wand2 className="h-3.5 w-3.5" />
           <span>
             AUTO-SYNC {slideCount} SLIDE{slideCount === 1 ? "" : "S"} TO THE VOICEOVER
+          </span>
+        </button>
+
+        {/* What gets synced. Images have nothing quotable in them, so pacing
+            them across the slide is guesswork; by default they simply arrive
+            with the slide and only the words wait for their cue. */}
+        <button
+          onClick={() => onTextOnlySyncChange(!textOnlySync)}
+          className="w-full flex items-start gap-2 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/[0.05] transition cursor-pointer"
+        >
+          <span
+            className={`mt-[1px] h-3.5 w-6 shrink-0 rounded-full border transition relative ${
+              textOnlySync ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
+            }`}
+          >
+            <span
+              className={`absolute top-[1px] h-[10px] w-[10px] rounded-full bg-white transition-all ${
+                textOnlySync ? "left-[13px]" : "left-[1px]"
+              }`}
+            />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[9.5px] font-bold text-white/80">Sync text only &middot; images land with the slide</span>
+            <span className="block text-[9px] text-white/40 leading-snug">
+              {textOnlySync
+                ? "Every image is up from the first frame of its slide, settling in like paper. Only the words wait for the voiceover."
+                : "Images are paced across the slide alongside the text, as before."}
+            </span>
           </span>
         </button>
 
@@ -622,14 +737,72 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
       )}
 
 
+      {/* Export speed */}
+      {timeline && (
+        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Gauge className="h-3 w-3 text-white/40" />
+              <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Export speed</span>
+            </div>
+            <span className="text-[10px] font-mono font-bold text-white tabular-nums">
+              {exportSpeed.toFixed(2).replace(/0$/, "")}&times;
+            </span>
+          </div>
+
+          <div className="grid grid-cols-5 gap-1">
+            {SPEED_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                onClick={() => onExportSpeedChange(preset)}
+                className={`py-1.5 rounded-md text-[9.5px] font-bold border transition cursor-pointer ${
+                  Math.abs(exportSpeed - preset) < 0.001
+                    ? "border-white/[0.28] bg-white text-black"
+                    : "border-white/[0.08] bg-white/[0.03] text-white/55 hover:bg-white/[0.08] hover:text-white"
+                }`}
+              >
+                {preset}&times;
+              </button>
+            ))}
+          </div>
+
+          <input
+            type="range"
+            min={50}
+            max={300}
+            step={5}
+            value={Math.round(exportSpeed * 100)}
+            onChange={(e) => onExportSpeedChange(Number(e.target.value) / 100)}
+            className="w-full cursor-pointer"
+            style={{ accentColor: "#ffffff" }}
+            aria-label="Custom export speed"
+          />
+
+          <div className="flex items-center justify-between text-[9px] text-white/35">
+            <span>0.5&times; slower</span>
+            <span className="font-mono text-white/55 tabular-nums">
+              final length {formatTimecode(duration / Math.max(0.25, exportSpeed))}
+            </span>
+            <span>3&times; faster</span>
+          </div>
+        </div>
+      )}
+
       {/* Export */}
       {timeline && (
         <button
           onClick={onExport}
-          disabled={isExporting}
+          disabled={isExporting || !!assetProgress}
           className="w-full py-3 rounded-xl text-[12px] font-bold border border-white/[0.12] bg-white text-black hover:bg-white/90 transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {isExporting ? (
+          {assetProgress ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>
+                PREPARING IMAGES {assetProgress.done}/{assetProgress.total}
+              </span>
+            </>
+          ) : isExporting ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>
@@ -639,15 +812,24 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           ) : (
             <>
               <Download className="h-4 w-4" />
-              <span>EXPORT SYNCED VIDEO ({formatTimecode(duration)})</span>
+              <span>
+                EXPORT MP4 ({formatTimecode(duration / Math.max(0.25, exportSpeed))}
+                {exportSpeed !== 1 ? ` @ ${exportSpeed.toFixed(2).replace(/0$/, "")}×` : ""})
+              </span>
             </>
           )}
         </button>
       )}
       {timeline && (
         <p className="text-[9px] text-white/30 leading-relaxed">
-          Records in real time from the live canvas{audioName ? ", with your voiceover on the audio track" : ""}. Keep
-          this tab in the foreground until it finishes.
+          H.264 MP4, recorded in real time from the live canvas
+          {audioName || musicName
+            ? ` with ${[audioName ? "your voiceover" : null, musicName ? "the music bed" : null]
+                .filter(Boolean)
+                .join(" and ")} mixed onto one audio track`
+            : ""}
+          . At {exportSpeed.toFixed(2).replace(/0$/, "")}&times; this takes about{" "}
+          {formatTimecode(duration / Math.max(0.25, exportSpeed))} — keep this tab in the foreground until it finishes.
         </p>
       )}
     </div>
