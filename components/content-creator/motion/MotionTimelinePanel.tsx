@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import {
   AlertCircle,
+  Captions,
   Check,
   Copy,
   Download,
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Trash2,
   TriangleAlert,
+  Type,
   Wand2,
 } from "lucide-react";
 import type { AutoSyncReport, CompiledTimeline, TimelineReport, TranscriptWord } from "@/lib/motion-timeline";
@@ -47,6 +49,12 @@ export interface MotionTimelinePanelProps {
   onAutoSync: () => void;
   textOnlySync: boolean;
   onTextOnlySyncChange: (value: boolean) => void;
+  introCard: boolean;
+  onIntroCardChange: (value: boolean) => void;
+  captions: boolean;
+  onCaptionsChange: (value: boolean) => void;
+  onCopySpeechPrompt: () => void;
+  copiedSpeechPrompt: boolean;
   autoSyncReport: AutoSyncReport | null;
   autoSyncNote: string | null;
 
@@ -106,6 +114,12 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onAutoSync,
     textOnlySync,
     onTextOnlySyncChange,
+    introCard,
+    onIntroCardChange,
+    captions,
+    onCaptionsChange,
+    onCopySpeechPrompt,
+    copiedSpeechPrompt,
     autoSyncReport,
     autoSyncNote,
     manifestText,
@@ -177,7 +191,40 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
         tokens. Every millisecond traces back to a row in your CSV.
       </p>
 
-      {/* Step one — the CSV the whole sync is derived from, and the audio it came from */}
+      {/* Step 1 — before any of this exists, the script and the slides have to
+          be written to match each other. */}
+      <div className="rounded-lg border border-white/[0.10] bg-white/[0.02] p-2.5 space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] font-bold text-white/45 uppercase tracking-widest">
+            Step 1 &middot; Speech &amp; breakdown
+          </label>
+          <span className="text-[8.5px] font-bold px-1.5 py-0.5 rounded border border-white/[0.10] bg-white/[0.04] text-white/40">
+            PROMPT
+          </span>
+        </div>
+        <p className="text-[9.5px] text-white/40 leading-snug">
+          The Hinglish script prompt &mdash; opens by recapping yesterday, and mixes Hindi with the English words
+          people actually say out loud.
+        </p>
+        <button
+          onClick={onCopySpeechPrompt}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[10.5px] font-bold border border-white/[0.12] bg-white/[0.06] hover:bg-white/[0.10] text-white transition cursor-pointer"
+        >
+          {copiedSpeechPrompt ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="text-emerald-400">COPIED &mdash; PASTE INTO YOUR AI</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              <span>COPY SPEECH PROMPT</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Step two — the CSV the whole sync is derived from, and the audio it came from */}
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 space-y-1.5">
           <div className="flex items-center gap-1.5">
@@ -381,6 +428,33 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             </span>
           </span>
         </button>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            onClick={() => onIntroCardChange(!introCard)}
+            title="Open on a black card with white type over the recap, before the first poster"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              introCard ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <Type className={`h-3 w-3 shrink-0 ${introCard ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${introCard ? "text-emerald-200/90" : "text-white/55"}`}>
+              Intro card
+            </span>
+          </button>
+          <button
+            onClick={() => onCaptionsChange(!captions)}
+            title="Burn word-by-word captions along the bottom of the video"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              captions ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <Captions className={`h-3 w-3 shrink-0 ${captions ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${captions ? "text-emerald-200/90" : "text-white/55"}`}>
+              Captions
+            </span>
+          </button>
+        </div>
 
         {autoSyncNote && <p className="text-[9.5px] text-white/55 leading-snug">{autoSyncNote}</p>}
 

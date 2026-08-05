@@ -52,6 +52,22 @@ const PRE_ROLL_MS = 140;
 const ENTRANCE_MS = 380;
 const EXIT_MS = 300;
 const EMPHASIS_MS = 360;
+/**
+ * Paper mode, same rule as autosync's (see autosync.ts): a decomposed graphic
+ * has no words of its own to be "read" in step with the voice, so pacing its
+ * entrance against one is guesswork, not sync. It lands with its slide
+ * instead. Multiple graphics in one beat are dealt in quick succession, a
+ * stack of sheets rather than a single cut, so it still reads as deliberate.
+ */
+const GRAPHIC_STAGGER_MS = 75;
+/** Every graphic in a beat is down within this long, however many there are. */
+const GRAPHIC_WINDOW_MS = 460;
+/**
+ * How long after a graphic has settled its own bound word must still fall to
+ * earn it a pulse. Any closer and the pulse collides with the entrance that
+ * just played, reading as one confused beat instead of two.
+ */
+const EMPHASIS_MIN_GAP_MS = 500;
 
 /** Entrances that already start from invisible — no `hide` needed before them. */
 const SELF_HIDING = new Set([
@@ -149,9 +165,12 @@ export function buildTimelineFromManifest(
     }
 
     const slideIndex = slideIndexForBeat(beat, i, slides.length);
-    const bindings: Binding[] = bindBeatToSlide(beat.elements, layersOf(slides[slideIndex]));
+    const slideLayers = layersOf(slides[slideIndex]);
+    const bindings: Binding[] = bindBeatToSlide(beat.elements, slideLayers);
+    const layerById = new Map(slideLayers.map((l) => [l.id, l] as const));
 
     const tracks: AuthoredTrack[] = [];
+    let graphicCount = 0;
     bindings.forEach((binding) => {
       totalElements++;
       const { element, layerId } = binding;
@@ -168,29 +187,49 @@ export function buildTimelineFromManifest(
         warnings.push(`${beat.label} · "${element.label}" asked for unknown cue "${element.in}" — used fadeInUp.`);
       }
 
-      // Times are resolved here, not left for the compiler to snap: the
-      // document is saved to history and later re-compiled with no transcript
-      // loaded, and a timeline that only works while a CSV happens to be open
-      // is not a timeline. `word` rides along so the compiler can re-verify —
-      // and re-snap — whenever a transcript IS present.
-      // Floored at the scene start: a manifest word belongs to this beat's own
-      // line, so an earlier occurrence elsewhere in the reel is never the one
-      // meant — without the floor a repeated noun ("gullak" in beat 1 and
-      // again in beat 3) drags the cue back outside its own scene.
-      const entranceAt = findWordTime(transcript, element.word, startMs, startMs);
-      if (!entranceAt) {
-        if (!unmatchedWords.includes(element.word)) unmatchedWords.push(element.word);
-        warnings.push(
-          `${beat.label} · "${element.label}" is keyed to "${element.word}", which is not spoken — it enters at the scene start instead.`
-        );
-      }
-      const enterMs = Math.max(startMs, (entranceAt?.startMs ?? startMs + PRE_ROLL_MS) - LEAD_IN_MS);
+      // A decomposed graphic has no words of its own to be "read" in step
+      // with the voice — gating it behind element.word the same way a
+      // caption is gated left the slide's own artwork missing until the
+      // narration happened to name it, sometimes seconds in, so the cut
+      // opened on bare background. It lands WITH the slide instead, same as
+      // autosync's paper mode; only text still waits for its word, because
+      // reading along with speech is the point for text.
+      const isGraphic = (layerById.get(layerId)?.type ?? "graphic") !== "text";
 
       const cues: AuthoredCue[] = [];
-      // The renderer draws an untracked element fully visible, so anything
-      // that should arrive later must be explicitly hidden at the scene start.
-      if (!SELF_HIDING.has(entrance)) cues.push({ action: "hide", atMs: startMs });
-      cues.push({ action: entrance, atMs: enterMs, durMs: ENTRANCE_MS, word: element.word });
+      let enterMs: number;
+
+      if (isGraphic) {
+        enterMs = Math.min(startMs + graphicCount * GRAPHIC_STAGGER_MS, startMs + GRAPHIC_WINDOW_MS);
+        graphicCount++;
+        // The renderer draws an untracked element fully visible, so anything
+        // that should arrive later must be explicitly hidden at the scene start.
+        if (!SELF_HIDING.has(entrance)) cues.push({ action: "hide", atMs: startMs });
+        cues.push({ action: entrance, atMs: enterMs, durMs: ENTRANCE_MS });
+      } else {
+        // Times are resolved here, not left for the compiler to snap: the
+        // document is saved to history and later re-compiled with no transcript
+        // loaded, and a timeline that only works while a CSV happens to be open
+        // is not a timeline. `word` rides along so the compiler can re-verify —
+        // and re-snap — whenever a transcript IS present.
+        // Floored at the scene start: a manifest word belongs to this beat's own
+        // line, so an earlier occurrence elsewhere in the reel is never the one
+        // meant — without the floor a repeated noun ("gullak" in beat 1 and
+        // again in beat 3) drags the cue back outside its own scene.
+        const entranceAt = findWordTime(transcript, element.word, startMs, startMs);
+        if (!entranceAt) {
+          if (!unmatchedWords.includes(element.word)) unmatchedWords.push(element.word);
+          warnings.push(
+            `${beat.label} · "${element.label}" is keyed to "${element.word}", which is not spoken — it enters at the scene start instead.`
+          );
+        }
+        enterMs = Math.max(startMs, (entranceAt?.startMs ?? startMs + PRE_ROLL_MS) - LEAD_IN_MS);
+
+        // The renderer draws an untracked element fully visible, so anything
+        // that should arrive later must be explicitly hidden at the scene start.
+        if (!SELF_HIDING.has(entrance)) cues.push({ action: "hide", atMs: startMs });
+        cues.push({ action: entrance, atMs: enterMs, durMs: ENTRANCE_MS, word: element.word });
+      }
 
       // A hit or an exit comes after the element has entered, and still inside
       // the scene — anything else is a cue firing on a slide that is gone.
@@ -199,6 +238,14 @@ export function buildTimelineFromManifest(
         if (hit && hit.startMs < endMs) {
           cues.push({ action: "emphasize", atMs: hit.startMs, durMs: EMPHASIS_MS, amount: 1.06, word: element.hit });
         } else if (!unmatchedWords.includes(element.hit)) unmatchedWords.push(element.hit);
+      } else if (isGraphic) {
+        // The word that used to gate this graphic's entrance still earns it a
+        // pulse once the narration actually reaches it — the sync is not
+        // lost, it just no longer holds the slide empty while it waits.
+        const named = findWordTime(transcript, element.word, enterMs, enterMs);
+        if (named && named.startMs < endMs && named.startMs > enterMs + ENTRANCE_MS + EMPHASIS_MIN_GAP_MS) {
+          cues.push({ action: "emphasize", atMs: named.startMs, durMs: EMPHASIS_MS, amount: 1.06, word: element.word });
+        }
       }
       if (element.out) {
         const out = findWordTime(transcript, element.out, enterMs, enterMs);

@@ -55,8 +55,16 @@ const DEFAULT_TAIL_MS = 600;
  * inside the previous scene, where the element does not exist.
  */
 const PRE_ROLL_MS = 140;
-/** Shortest span a slide may own. Below this a cut is a flash, not a scene. */
-const MIN_SCENE_MS = 900;
+/**
+ * Shortest span a slide may own.
+ *
+ * This is a hard rejection in the search, so it is also a way for arithmetic to
+ * overrule the audio: if the narration genuinely spends 600ms on a slide, a
+ * higher floor makes the correct cut illegal and pushes it somewhere the CSV
+ * never suggested. Kept low enough that the transcript decides, high enough
+ * that a cut is still a scene rather than a single frame.
+ */
+const MIN_SCENE_MS = 420;
 /** Two elements closer together than this read as one event, not two. */
 const DEFAULT_STAGGER_MS = 190;
 /** Rhythm for elements with nothing to anchor to, compressed only if it must. */
@@ -69,6 +77,8 @@ const IDEAL_STEP_MS = 430;
 const PAPER_STAGGER_MS = 75;
 /** Everything is down within this long, however many images there are. */
 const PAPER_WINDOW_MS = 460;
+/** How long the intro card holds when slide 1 gives it nothing to hand over on. */
+const INTRO_FALLBACK_MS = 2600;
 /** Unanchored elements must all be in place by this share of their scene. */
 const SETTLE_FRACTION = 0.82;
 
@@ -90,12 +100,39 @@ const ANCHOR_RELAXED_WEIGHT = 0.8;
 
 /** DP scoring weights. Coverage dominates when there is text to go on. */
 const W_COVERAGE = 10;
+/**
+ * Penalty for holding audio that demonstrably belongs to another slide. Sits
+ * just under the coverage reward, so a window will always rather contain its
+ * own words than avoid somebody else's — but between two windows that both
+ * cover their slide, the tighter one wins.
+ */
+const W_FOREIGN = 8;
 const W_DURATION = 3.2;
+/**
+ * Reward for a scene starting exactly where its slide is first spoken about.
+ * The strongest term in the score, because it is the one that answers the only
+ * question segmentation is really asking: when does this image come up?
+ */
+const W_ANCHOR = 14;
+/** How many words into the scene still count as "it opens here". */
+const ANCHOR_TAPER_WORDS = 4;
+/**
+ * Share of a slide's total evidence that must land in those opening words for
+ * the anchor to count fully. A third is enough to say the narration has turned
+ * to this slide, without demanding it say everything at once.
+ */
+const ANCHOR_LEAD_SHARE = 0.34;
 const W_GAP = 1.7;
 const W_SENTENCE = 1.3;
 
 /** Cut candidates are decimated above this many words to bound the DP. */
 const MAX_CUT_CANDIDATES = 420;
+/**
+ * How far the proportional prior stands down when a slide's own words were
+ * found. At 0.85 a fully-evidenced slide keeps a sliver of the prior — enough
+ * to break ties between equally-good windows, not enough to overrule the audio.
+ */
+const PRIOR_YIELD = 0.85;
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Public shape
@@ -123,6 +160,13 @@ export interface AutoSyncOptions {
    * for the word it belongs to.
    */
   textOnlySync?: boolean;
+  /**
+   * Open on a title card — black frame, white type — over the series recap,
+   * before the first poster appears. The card owns the audio up to the moment
+   * the narration first says something printed on slide 1, so slide 1 still
+   * enters on its own words rather than animating unseen behind the card.
+   */
+  introCard?: boolean;
 }
 
 export interface AutoSyncSceneReport {
@@ -285,13 +329,19 @@ interface SlideProfile {
   shareWeight: number;
   /** Layers the reader could not make sense of and skipped. */
   droppedLayers: number;
+  /**
+   * Every transcript position at which this slide's own words are spoken.
+   * These are the cuts the CSV is actually proposing, and they are admitted to
+   * the search whatever the proportional prior thinks.
+   */
+  positions: number[];
 }
 
 function profileSlides(slides: TimelineSlideLike[], index: TranscriptIndex, warnings: string[]): SlideProfile[] {
   const W = index.words.length;
 
   const blank = (slideIndex: number): SlideProfile => ({
-    slideIndex, layers: [], content: [], furniture: [], tokens: [], tokenWeight: 0, shareWeight: 8, droppedLayers: 0,
+    slideIndex, layers: [], content: [], furniture: [], tokens: [], tokenWeight: 0, shareWeight: 8, droppedLayers: 0, positions: [],
   });
 
   return slides.map((slide, slideIndex) => {
@@ -321,6 +371,7 @@ function profileSlide(slide: TimelineSlideLike, slideIndex: number, index: Trans
 
     const seen = new Set<string>();
     const tokens: SlideProfile["tokens"] = [];
+    const spokenAt = new Set<number>();
     let tokenWeight = 0;
 
     weighPhrase(index, printed).forEach((wt) => {
@@ -340,6 +391,7 @@ function profileSlide(slide: TimelineSlideLike, slideIndex: number, index: Trans
         }
       }
       prefix[W] = seenCount;
+      wt.positions.forEach((pos) => spokenAt.add(pos));
       tokens.push({ weight: wt.weight, prefix });
       tokenWeight += wt.weight;
     });
@@ -350,7 +402,10 @@ function profileSlide(slide: TimelineSlideLike, slideIndex: number, index: Trans
     const shareWeight = 8 + chars * 0.45 + content.length * 2.5;
 
     const droppedLayers = Math.max(0, (slide.layers?.length ?? 0) - layers.length);
-    return { slideIndex, layers, content, furniture, tokens, tokenWeight, shareWeight, droppedLayers };
+    return {
+      slideIndex, layers, content, furniture, tokens, tokenWeight, shareWeight, droppedLayers,
+      positions: [...spokenAt].sort((a, b) => a - b),
+    };
   }
 }
 
@@ -393,18 +448,68 @@ interface Segmentation {
   coverages: number[];
 }
 
+/** Index of the cut candidate sitting closest to a given word. */
+function nearestCandidate(candidates: number[], wordIndex: number): number {
+  let lo = 0;
+  let hi = candidates.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (candidates[mid] < wordIndex) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(candidates[lo - 1] - wordIndex) <= Math.abs(candidates[lo] - wordIndex)) return lo - 1;
+  return lo;
+}
+
 function segment(
   profiles: SlideProfile[],
   index: TranscriptIndex,
-  bandFraction: number
+  bandFraction: number,
+  tailMs: number
 ): Segmentation {
   const N = profiles.length;
   const W = index.words.length;
   const candidates = cutCandidates(index);
   const C = candidates.length;
 
-  const startMs = (i: number) => (i >= W ? index.durationMs : index.words[i].startMs);
+  // The reel runs past its last word by the tail, and the closing scene owns
+  // that silence. Measuring it to the last word instead made a final scene of
+  // one short word compute as ~300ms — under the minimum, so the search threw
+  // out the correct cut and moved the last image change earlier than the CSV
+  // ever asked for.
+  const endOfReel = index.durationMs + tailMs;
+  const startMs = (i: number) => (i >= W ? endOfReel : index.words[i].startMs);
   const totalMs = Math.max(1, index.durationMs);
+
+  /* ── Contamination ────────────────────────────────────────────────────
+     Coverage only asks whether a slide's words are inside its window. It never
+     objects to a window that keeps going long after those words have run out,
+     so a slide could annex the next slide's audio for free and the prior — the
+     only thing left with an opinion — would happily let it, on the grounds
+     that the slide has a lot of ink on it.
+
+     This is the missing half: how much of the window belongs to somebody else.
+     A span carrying another slide's distinctive words is a span that slide is
+     still talking through, and cutting there is what "follow the CSV" means. */
+  const ownAt = profiles.map((profile) => {
+    const arr = new Float64Array(W);
+    profile.tokens.forEach((t) => {
+      for (let p = 0; p < W; p++) {
+        if (t.prefix[p + 1] - t.prefix[p] > 0) arr[p] += t.weight;
+      }
+    });
+    return arr;
+  });
+  const totalAt = new Float64Array(W);
+  ownAt.forEach((arr) => {
+    for (let p = 0; p < W; p++) totalAt[p] += arr[p];
+  });
+  const foreignPrefix = ownAt.map((own) => {
+    const pre = new Float64Array(W + 1);
+    for (let p = 0; p < W; p++) pre[p + 1] = pre[p] + Math.max(0, totalAt[p] - own[p]);
+    return pre;
+  });
+  const foreignTotal = foreignPrefix.map((pre) => pre[W]);
 
   // Fair-share cumulative fractions — the spine the band is drawn around.
   const totalShare = profiles.reduce((s, p) => s + p.shareWeight, 0) || 1;
@@ -433,6 +538,23 @@ function segment(
       }
       band += 0.15;
     }
+
+    // The band is a proportional guess, and a hard one — a cut outside it was
+    // simply unreachable, so where the CSV disagreed with the proportions the
+    // CSV lost and could not even be considered. Every position at which this
+    // slide's own words begin is therefore admitted regardless of the band:
+    // the prior may still prefer something else, but the evidence is always on
+    // the ballot.
+    const evidencePositions = profiles[i].positions;
+    if (evidencePositions.length > 0) {
+      const admitted = new Set(list);
+      evidencePositions.forEach((wordIndex) => {
+        const c = nearestCandidate(candidates, wordIndex);
+        if (c > 0 && c < C - 1) admitted.add(c);
+      });
+      list = [...admitted].sort((a, b) => a - b);
+    }
+
     allowed.push(list.length ? list : [Math.floor(C / 2)]);
   }
 
@@ -452,15 +574,53 @@ function segment(
     if (durMs < MIN_SCENE_MS) return -Infinity;
 
     const profile = profiles[slide];
+    const own = ownAt[slide];
     const coverage = coverageOf(profile, a, b);
     // A slide with two readable words cannot outvote one with a paragraph, so
     // its coverage is scaled by how much evidence it brought.
     const evidence = Math.min(1, profile.tokenWeight / 5);
 
     const expectedMs = (profile.shareWeight / totalShare) * totalMs;
-    const dev = (durMs - expectedMs) / Math.max(expectedMs, 900);
+    const rawDev = (durMs - expectedMs) / Math.max(expectedMs, 900);
+    // Saturating, not quadratic. An unbounded dev² let the prior reach scores
+    // in the twenties — it could out-shout the audio by an order of magnitude
+    // purely because a slide had more ink on it than its narration deserved.
+    // Bounded, it can say "this looks off" and nothing louder.
+    const dev = (rawDev * rawDev) / (1 + rawDev * rawDev);
 
-    return W_COVERAGE * coverage * evidence - W_DURATION * dev * dev;
+    // The prior is a guess made from how much ink is on the slide — it knows
+    // nothing about the audio. So it only gets a say where the audio is silent
+    // on the matter: a slide whose own words were found is judged on those
+    // words, and is allowed to run as long or as short as the narration
+    // actually runs. Leaving this at full strength was forcing a text-heavy
+    // slide to occupy a long span even when the voiceover passed over it in a
+    // second.
+    const priorWeight = W_DURATION * (1 - PRIOR_YIELD * evidence);
+
+    // Share of every OTHER slide's evidence that this window has swallowed.
+    const foreign =
+      foreignTotal[slide] > 0
+        ? (foreignPrefix[slide][b] - foreignPrefix[slide][a]) / foreignTotal[slide]
+        : 0;
+
+    /* The rule the CSV actually states: a slide owns the audio from the moment
+       the narration starts talking about it. So a window is rewarded for
+       BEGINNING on its slide's own first spoken word — which is the thing that
+       decides where an image changes — and the reward falls off within a few
+       words either side. Coverage alone could not express this: it saturates
+       at 1.0, so a window that starts on the right word and one that starts
+       eight words early scored identically, and the ink-based prior broke the
+       tie. */
+    // Weighted by how MUCH of the slide's evidence arrives in those first few
+    // words, not merely whether something did. A single common word from the
+    // body copy happening to fall near the cut is not the narration turning to
+    // this slide; a cluster of its own vocabulary is.
+    let leadWeight = 0;
+    const leadEnd = Math.min(b, a + ANCHOR_TAPER_WORDS);
+    for (let p = a; p < leadEnd; p++) leadWeight += own[p];
+    const anchorBonus = W_ANCHOR * Math.min(1, leadWeight / Math.max(1, profile.tokenWeight * ANCHOR_LEAD_SHARE));
+
+    return W_COVERAGE * coverage * evidence + anchorBonus - W_FOREIGN * foreign - priorWeight * dev;
   };
 
   // dp[i][j]: best score for placing slides 0..i-1 with a cut at candidates[j].
@@ -907,6 +1067,7 @@ export function autoSyncTimeline(
   const staggerMs = options.minStaggerMs ?? DEFAULT_STAGGER_MS;
   const bandFraction = options.bandFraction ?? 0.3;
   const textOnlySync = options.textOnlySync ?? true;
+  const introCard = options.introCard ?? false;
 
   const index = buildTranscriptIndex(transcript);
   const audioEndMs = index.durationMs;
@@ -918,7 +1079,7 @@ export function autoSyncTimeline(
   }
 
   const profiles = profileSlides(slides, index, warnings);
-  const { cuts, coverages } = segment(profiles, index, bandFraction);
+  const { cuts, coverages } = segment(profiles, index, bandFraction, tailMs);
 
   /* ── How much each slide's window can be trusted ──────────────────────
      A slide is "confident" when its own printed words were found inside its
@@ -1191,6 +1352,63 @@ export function autoSyncTimeline(
   if (scenes.length === 0) {
     warnings.push("No slide produced a usable scene.");
     return empty();
+  }
+
+  /* ── The intro card ───────────────────────────────────────────────────
+     It takes its span from the transcript like everything else: the card runs
+     until the narration first says a word printed on slide 1. Splitting slide
+     1's window rather than shifting the reel keeps every later cut exactly
+     where the CSV put it. */
+  if (introCard) {
+    const firstOwn = profiles[0].positions.find((p) => p >= cuts[0] && p < cuts[1]);
+    const handoverMs =
+      firstOwn !== undefined
+        ? Math.max(0, index.words[firstOwn].startMs - PRE_ROLL_MS)
+        : Math.min(scenes[0].endMs! - MIN_SCENE_MS, INTRO_FALLBACK_MS);
+
+    if (handoverMs >= MIN_SCENE_MS && handoverMs <= (scenes[0].endMs ?? 0) - MIN_SCENE_MS) {
+      const spoken = index.words
+        .filter((w) => w.startMs < handoverMs)
+        .map((w) => w.text)
+        .join(" ")
+        .trim();
+
+      // Everything in slide 1's scene that was scheduled inside the card's span
+      // belongs after it now — the slide is not on screen until the card lifts.
+      const first = scenes[0];
+      first.startMs = handoverMs;
+      first.enter = { type: "fade", durationMs: 320 };
+      (first.tracks ?? []).forEach((track) => {
+        (track.cues ?? []).forEach((cue) => {
+          if (typeof cue.atMs === "number" && cue.atMs < handoverMs) cue.atMs = handoverMs;
+        });
+      });
+
+      scenes.unshift({
+        slide: 1,
+        intro: spoken || "…",
+        label: "Intro card",
+        startMs: 0,
+        endMs: handoverMs,
+        enter: { type: "fade", durationMs: 260 },
+        exit: { type: "cut", durationMs: 0 },
+        tracks: [],
+      });
+      sceneReports.unshift({
+        slideIndex: 0,
+        label: "Intro card",
+        startMs: 0,
+        endMs: handoverMs,
+        placedBy: firstOwn !== undefined ? "bracketed" : "paced",
+        edges: { start: "audio", end: firstOwn !== undefined ? "anchor" : "estimate" },
+        coverage: 0,
+        elementCount: 0,
+        anchoredCount: 0,
+        openingLine: spoken.split(/\s+/).slice(0, 7).join(" "),
+      });
+    } else {
+      warnings.push("Not enough opening narration for an intro card — it was skipped.");
+    }
   }
 
   const durationMs = scenes[scenes.length - 1].endMs ?? Math.round(audioEndMs + tailMs);
