@@ -23,6 +23,137 @@ export interface TimelineRenderAssets {
 export interface TimelineRenderOptions {
   activeLayerId?: string;
   showSelection?: boolean;
+  /**
+   * Word-level transcript, for the burnt-in captions and for lighting the
+   * intro card word by word. Optional — nothing else in the renderer needs it.
+   */
+  words?: Array<{ text: string; startMs: number; endMs: number }>;
+  captions?: boolean;
+}
+
+/**
+ * Canvas font stack.
+ *
+ * A CSS custom property is not valid inside the canvas `font` shorthand — the
+ * whole assignment is silently dropped and text renders at the 10px default,
+ * which on a 1350px frame is invisible. Concrete families only here.
+ */
+const CANVAS_FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+/** Wraps `text` to `maxWidth`, measuring with the context's current font. */
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  words.forEach((w) => {
+    const next = line ? `${line} ${w}` : w;
+    if (ctx.measureText(next).width <= maxWidth || !line) line = next;
+    else {
+      lines.push(line);
+      line = w;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+/**
+ * The series intro: black frame, white type, lit word by word.
+ *
+ * The words are drawn from the transcript rather than laid out on a timer, so
+ * the card reads in step with the voice saying it — the same contract as every
+ * other element on screen.
+ */
+function drawIntroCard(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  text: string,
+  timeMs: number,
+  words: TimelineRenderOptions["words"],
+  alpha: number
+) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, W, H);
+
+  const size = Math.round(H * 0.052);
+  ctx.font = `700 ${size}px ${CANVAS_FONT_STACK}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const maxWidth = W * 0.82;
+  const lines = wrapLines(ctx, text, maxWidth);
+  const lineHeight = size * 1.35;
+  const top = H / 2 - ((lines.length - 1) * lineHeight) / 2;
+
+  // How far the narration has got through the card's own text.
+  const spoken = words ? words.filter((w) => w.startMs <= timeMs).length : Number.MAX_SAFE_INTEGER;
+  let index = 0;
+
+  lines.forEach((line, li) => {
+    const parts = line.split(" ");
+    const widths = parts.map((p) => ctx.measureText(`${p} `).width);
+    const total = widths.reduce((a, b) => a + b, 0) - (widths.length ? ctx.measureText(" ").width : 0);
+    let x = W / 2 - total / 2;
+    const y = top + li * lineHeight;
+    parts.forEach((part, pi) => {
+      // Words already spoken burn in; the rest sit back, so the card reads
+      // ahead without giving the whole line away at once.
+      ctx.fillStyle = index < spoken ? "#FFFFFF" : "rgba(255,255,255,0.32)";
+      ctx.textAlign = "left";
+      ctx.fillText(part, x, y);
+      x += widths[pi];
+      index++;
+    });
+  });
+
+  ctx.restore();
+}
+
+/**
+ * Burnt-in captions: one word at a time, along the bottom.
+ *
+ * Black bold italic with a white outline — the outline is what keeps it legible
+ * over a white poster and a black one without needing a plate behind it.
+ */
+function drawCaption(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  timeMs: number,
+  words: NonNullable<TimelineRenderOptions["words"]>
+) {
+  // The word being spoken now, or the one just spoken while a gap runs.
+  let current: { text: string; startMs: number; endMs: number } | null = null;
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].startMs > timeMs) break;
+    current = words[i];
+  }
+  if (!current) return;
+  // Do not leave the last word hanging through a long silence.
+  if (timeMs > current.endMs + 700) return;
+  const text = current.text.trim();
+  if (!text) return;
+
+  const size = Math.round(H * 0.046);
+  ctx.save();
+  ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+
+  const x = W / 2;
+  const y = H * 0.90;
+
+  ctx.lineWidth = Math.max(3, size * 0.20);
+  ctx.strokeStyle = "#FFFFFF";
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = "#000000";
+  ctx.fillText(text, x, y);
+  ctx.restore();
 }
 
 const ready = (img: HTMLImageElement | undefined | null): img is HTMLImageElement =>
@@ -213,7 +344,9 @@ export function drawMotionTimelineFrame(
   frame: TimelineFrame,
   assets: TimelineRenderAssets,
   size: { w: number; h: number },
-  opts: TimelineRenderOptions = {}
+  opts: TimelineRenderOptions = {},
+  /** Scene index → title-card text, for scenes that are cards rather than slides. */
+  introFor?: (sceneIndex: number) => string | undefined
 ): PosterElement[] {
   const W = Math.max(1, Math.round(size.w));
   const H = Math.max(1, Math.round(size.h));
@@ -237,9 +370,20 @@ export function drawMotionTimelineFrame(
   let bounds: PosterElement[] = [];
   frame.scenes.forEach((scene, i) => {
     const isTop = i === frame.scenes.length - 1;
+    // A scene carrying intro text is a title card, not a slide: it paints
+    // itself and has no elements to composite or hit-test.
+    const intro = introFor?.(scene.sceneIndex);
+    if (intro) {
+      drawIntroCard(ctx, W, H, intro, frame.timeMs, opts.words, scene.alpha);
+      if (isTop) bounds = [];
+      return;
+    }
     const result = drawScene(ctx, W, H, scene, assets, opts, isTop);
     if (isTop) bounds = result;
   });
+
+  // Captions sit above everything, including the intro card.
+  if (opts.captions && opts.words?.length) drawCaption(ctx, W, H, frame.timeMs, opts.words);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.filter = "none";

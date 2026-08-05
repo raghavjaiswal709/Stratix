@@ -448,6 +448,116 @@ def _accept_region_text(read):
     return read["conf"] >= 70.0
 
 
+def _is_corner_badge_number(read, box, w, h):
+    """The one deliberate exception to the two-alphanumeric floor above.
+
+    Every poster in this design system prints its own slide number top-right
+    inside a thin ink circle (see lib/prompt-templates/design-system.ts -
+    SLIDE NUMBER) - a bare one or two digit numeral that _accept_region_text
+    can never clear on length alone. So a plain digit is let through here
+    instead, but only in the exact corner that badge is always drawn in, and
+    only at a confidence bar raised above the normal floor to make up for the
+    shorter, easier-to-hallucinate read."""
+    text = read["text"].strip()
+    if not text.isdigit() or not (1 <= len(text) <= 2):
+        return False
+    if read["conf"] < 75.0:
+        return False
+    x, y, bw, bh = box
+    cx, cy = (x + bw / 2.0) / float(w), (y + bh / 2.0) / float(h)
+    return cx > 0.62 and cy < 0.3
+
+
+# Crop tightnesses tried, in order, when reading a badge's own interior.
+# A single fixed ratio is not reliable: how much of the ring's stroke bleeds
+# into a crop depends on exactly where the ink bounding box was measured,
+# which shifts with stroke weight and anti-aliasing. Several are tried and
+# the answer is kept only when they agree, so a crop that happens to slice in
+# a stray fragment of the ring - confidently misreading "3" as "4" - is
+# caught by disagreement with the other crops rather than trusted alone.
+_BADGE_SHRINKS = (0.30, 0.40, 0.50, 0.60, 0.70)
+
+
+def _locate_badge_ink(cv2, arr_rgb, search_box, exclude_boxes, w, h):
+    """Finds the tight ink bounding box inside search_box.
+
+    A local Otsu threshold - not a fixed brightness cutoff - because the
+    page's own background colour varies poster to poster. Pixels belonging
+    to anything already detected elsewhere (exclude_boxes) are painted out
+    first, so a big illustration whose edge merely reaches into the corner is
+    never folded into what should be a small badge's own bounds.
+    """
+    sx, sy, sw, sh = search_box
+    # A candidate box from the generic detector is sized to what it thought
+    # the object's edge was, which can clip a sliver off a thin ring - and a
+    # ring clipped this way fills ~100% of its own box, tripping the
+    # "too big to be a badge" rejection below for exactly the wrong reason.
+    # Padding first gives real ink room to sit clear of the search box's own
+    # edge, however the box was originally measured.
+    pad_x, pad_y = max(4, int(0.20 * sw)), max(4, int(0.20 * sh))
+    sx, sy = sx - pad_x, sy - pad_y
+    sw, sh = sw + 2 * pad_x, sh + 2 * pad_y
+    sx, sy = max(0, sx), max(0, sy)
+    sw, sh = min(sw, w - sx), min(sh, h - sy)
+    if sw < 8 or sh < 8:
+        return None
+
+    crop_rgb = arr_rgb[sy:sy + sh, sx:sx + sw].copy()
+    for ex, ey, ew, eh in exclude_boxes:
+        x0, y0 = max(ex, sx) - sx, max(ey, sy) - sy
+        x1, y1 = min(ex + ew, sx + sw) - sx, min(ey + eh, sy + sh) - sy
+        if x1 > x0 and y1 > y0:
+            crop_rgb[y0:y1, x0:x1] = 255
+
+    gray = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2GRAY)
+    _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    ys, xs = th.nonzero()
+    if len(xs) < 15:
+        return None
+
+    ix0, ix1, iy0, iy1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+    iw, ih = ix1 - ix0, iy1 - iy0
+    if iw < 6 or ih < 6:
+        return None
+    # Compact ink is a badge; ink spanning nearly the whole search box is a
+    # headline wrapping into the corner or a real graphic, not a badge.
+    if iw > 0.9 * sw or ih > 0.9 * sh:
+        return None
+    return (sx + ix0, sy + iy0, iw, ih)
+
+
+def _read_badge_at(np, cv2, arr_rgb, search_box, exclude_boxes, w, h):
+    """Locates the ink inside search_box and reads it with the ring cropped
+    out, at several crop tightnesses (_BADGE_SHRINKS) - kept only if they
+    agree. Returns {"box": ..., "read": ...} or None.
+    """
+    ink = _locate_badge_ink(cv2, arr_rgb, search_box, exclude_boxes, w, h)
+    if not ink:
+        return None
+    ix, iy, iw, ih = ink
+    cx, cy = ix + iw / 2.0, iy + ih / 2.0
+
+    votes = {}
+    best_by_text = {}
+    for shrink in _BADGE_SHRINKS:
+        inner_w, inner_h = iw * shrink, ih * shrink
+        ocr_box = _clip((int(cx - inner_w / 2), int(cy - inner_h / 2), int(inner_w), int(inner_h)), w, h)
+        read = _ocr_region(np, cv2, arr_rgb, ocr_box)
+        if not read or not _is_corner_badge_number(read, ink, w, h):
+            continue
+        text = read["text"].strip()
+        votes[text] = votes.get(text, 0) + 1
+        if text not in best_by_text or read["conf"] > best_by_text[text]["conf"]:
+            best_by_text[text] = read
+
+    # No crop produced a trustworthy read, or different crops disagreed on
+    # what the digit even is - either way, not confident enough to keep.
+    if len(votes) != 1:
+        return None
+    text = next(iter(votes))
+    return {"box": _clip(ink, w, h), "read": best_by_text[text]}
+
+
 def _ocr_region(np, cv2, arr_rgb, box, min_conf=52.0):
     """Read a single panel/badge. tesseract normalises polarity itself, so this
     picks up light-on-dark chips ("PART 2", "STRATIX", "1/10") that the
@@ -691,12 +801,17 @@ def _text_role(font_px, max_font_px, font_rel, rel_y, text, line_count, has_bg):
     all_caps = bool(letters) and all(c.isupper() for c in letters)
     short = len(text) <= 26
 
+    # A chip/badge is drawn to be read, so its own glyph can be as tall as a
+    # headline's - checked before the size ladder below, or a big bold page
+    # number inside its circle (or "PART 2", "STRATIX") gets graded on type
+    # size like it was competing to be the headline and comes out "heading"
+    # instead of the badge it visibly is.
+    if has_bg and short:
+        return "footer-badge" if rel_y > 0.86 else "badge"
     if ratio >= 0.72 and font_rel >= 0.045:
         return "title"
     if ratio >= 0.42 or font_rel >= 0.034:
         return "heading"
-    if has_bg and short:
-        return "footer-badge" if rel_y > 0.86 else "badge"
     if all_caps and short:
         if rel_y < 0.22:
             return "eyebrow"
@@ -1221,8 +1336,19 @@ def process_image(input_bytes):
 
         if _area(g["box"]) >= 0.0015 * total and region_reads < 16:
             region_reads += 1
-            read = _ocr_region(np, cv2, arr, g["box"])
-            if read and _accept_region_text(read):
+            ocr_box = g["box"]
+            # A ring sits close enough to a numeral drawn inside it that
+            # tesseract reads the two together as one glyph ("3" inside a
+            # circle comes back as garbage like "ro}") - cropping to the
+            # circle's own interior, clear of its stroke, is what actually
+            # lets a slide-number badge be read at all.
+            if g.get("objectType") == "circle":
+                bx, by, bbw, bbh = ocr_box
+                icx, icy = bx + bbw / 2.0, by + bbh / 2.0
+                iw, ih = bbw * 0.5, bbh * 0.5
+                ocr_box = _clip((int(icx - iw / 2), int(icy - ih / 2), int(iw), int(ih)), W, H)
+            read = _ocr_region(np, cv2, arr, ocr_box)
+            if read and (_accept_region_text(read) or _is_corner_badge_number(read, g["box"], W, H)):
                 text_items.append({
                     "box": g["box"],
                     "kind": "text",
@@ -1235,6 +1361,58 @@ def process_image(input_bytes):
     text_items = [t for t in text_items if not t.get("dropped")]
     final_graphics = [g for g in final_graphics
                       if not any(_contained(g["box"], t["box"]) for t in text_items)]
+
+    # One more look at the fixed corner the slide-number badge always lives
+    # in. _read_badge_at reads a badge far more reliably than the generic
+    # per-object pass above, which can settle for a noisier read ("a3)"
+    # instead of "13") or miss the badge entirely when its ring fragments too
+    # small to become an object at all (see MIN_OBJECT_PIXELS_FRAC) - so a
+    # confident digit read here replaces whatever the generic pass already
+    # left in that corner, rather than only filling a gap it left empty.
+    # A prior claim in the badge zone can be either kind: a text block (the
+    # page-level OCR pass took a swing at the digit) or a graphic (the ring
+    # survived object detection but _classify_object called its shape
+    # "chart" or "illustration" rather than "circle" - the box is right, only
+    # the label is wrong). Either way it is very likely the badge itself.
+    prior_candidates = [
+        t for t in text_items + final_graphics
+        if (t["box"][0] + t["box"][2] / 2.0) / W > 0.72 and (t["box"][1] + t["box"][3] / 2.0) / H < 0.25
+    ]
+    prior_ids = {id(t) for t in prior_candidates}
+    # Everything ELSE already claimed (a decorative corner icon, a chart
+    # flourish, a big illustration whose edge merely reaches into the corner)
+    # must not be folded into the badge's own ink - see _locate_badge_ink.
+    exclude_boxes = [it["box"] for it in (text_items + final_graphics) if id(it) not in prior_ids]
+
+    replacement = None
+    already_resolved = False
+
+    for prior in prior_candidates:
+        if prior.get("hasBackground") and _is_corner_badge_number(
+            {"text": prior["block"]["text"], "conf": prior["block"]["conf"]}, prior["box"], W, H
+        ):
+            already_resolved = True  # already a clean, confident badge - leave it alone
+            break
+        replacement = _read_badge_at(np, cv2, arr, prior["box"], exclude_boxes, W, H)
+        if replacement:
+            break
+
+    # Nothing claimed the corner yet, or nothing there could be read - try
+    # the fixed zone directly, for a ring too thin to ever become an object
+    # (or generate any OCR read at all) in the first place.
+    if not replacement and not already_resolved:
+        corner_zone = (int(0.78 * W), 0, int(0.22 * W), int(0.13 * H))
+        replacement = _read_badge_at(np, cv2, arr, corner_zone, exclude_boxes, W, H)
+
+    if replacement:
+        text_items = [t for t in text_items if id(t) not in prior_ids]
+        final_graphics = [g for g in final_graphics if id(g) not in prior_ids]
+        text_items.append({
+            "box": replacement["box"],
+            "kind": "text",
+            "block": _block_from_region(np, replacement["read"], replacement["box"]),
+            "hasBackground": True,
+        })
 
     # text first, so the cap never trades a headline for a decorative blob
     items = sorted(text_items, key=lambda it: -_area(it["box"])) + \

@@ -733,6 +733,7 @@ export function compileTimeline(
     scenes.push({
       index: scenes.length,
       slideIndex,
+      ...(typeof rawScene.intro === "string" && rawScene.intro.trim() ? { intro: rawScene.intro.trim() } : {}),
       startMs,
       endMs,
       label: firstStr(rawScene.label, rawScene.note) ?? `Scene ${i + 1}`,

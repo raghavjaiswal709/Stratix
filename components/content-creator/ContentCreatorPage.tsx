@@ -43,6 +43,7 @@ import {
   LayoutGrid,
   GripVertical,
   Copy,
+  Shuffle,
 } from "lucide-react";
 
 import type {
@@ -104,6 +105,7 @@ import {
 import { parseTranscriptFile } from "@/lib/motion-timeline/transcript";
 import { toAuthored, toEditable, type EditableTimeline } from "@/lib/motion-timeline/edit";
 import { MOTION_TIMELINE_TEMPLATE } from "@/lib/prompt-templates/motion-timeline-template";
+import { SPEECH_BREAKDOWN_TEMPLATE } from "@/lib/prompt-templates/speech-breakdown-template";
 import { computeCoverFitSlack, getAntonFontFamily } from "./canvas/canvasUtils";
 import type { SentimentScheme } from "./canvas/canvasUtils";
 import { SampleJsonModal } from "./modals/SampleJsonModal";
@@ -113,6 +115,7 @@ import { HistoryModal } from "./modals/HistoryModal";
 import { PosterSelectionModal } from "./modals/PosterSelectionModal";
 import { ContentCalendarModal } from "./modals/ContentCalendarModal";
 import { CopyButton } from "./modals/CopyButton";
+import { FixSlideOrderModal } from "./modals/FixSlideOrderModal";
 import { ReelStudioModal } from "./reel/ReelStudioModal";
 import { REEL_W, REEL_H, type ReelSlideSource } from "./reel/reelTypes";
 import { PromptBuilder } from "./prompt-builder/PromptBuilder";
@@ -235,6 +238,13 @@ export function ContentCreatorPage() {
   const [motionAutoSyncNote, setMotionAutoSyncNote] = useState<string | null>(null);
   // On by default: artwork belongs to its slide, words belong to the voiceover.
   const [motionTextOnlySync, setMotionTextOnlySync] = useState(true);
+  // Open on a black title card over the recap; burn word-by-word captions.
+  const [motionIntroCard, setMotionIntroCard] = useState(false);
+  const [motionCaptions, setMotionCaptions] = useState(false);
+  const [copiedSpeechPrompt, setCopiedSpeechPrompt] = useState(false);
+  // Post-decomposition: re-sorts a shuffled batch by each poster's own
+  // printed slide number. See components/content-creator/slideOrder.ts.
+  const [showFixSlideOrderModal, setShowFixSlideOrderModal] = useState(false);
 
   /**
    * The editable document.
@@ -1781,7 +1791,10 @@ export function ContentCreatorPage() {
         {
           activeLayerId: motionData.activeLayerId,
           showSelection: !isPlayingMotion && !isExportingTimeline,
-        }
+          words: motionTranscript ?? undefined,
+          captions: motionCaptions,
+        },
+        (sceneIndex) => motionTimeline.scenes[sceneIndex]?.intro
       );
       setElementBounds(bounds);
       if (frame.activeSlideIndex !== activeMotionIndex && motionSlides[frame.activeSlideIndex]) {
@@ -1811,6 +1824,8 @@ export function ContentCreatorPage() {
     // A paused canvas has no other reason to redraw, so a late-decoding image
     // would otherwise never appear until the playhead moved.
     motionAssetVersion,
+    motionTranscript,
+    motionCaptions,
     ar,
     colors,
     config,
@@ -2216,6 +2231,7 @@ export function ContentCreatorPage() {
 
     const { timeline, report } = autoSyncTimeline(motionSlides, motionTranscript, {
       textOnlySync: motionTextOnlySync,
+      introCard: motionIntroCard,
     });
     setMotionAutoSyncReport(report);
 
@@ -2235,7 +2251,7 @@ export function ContentCreatorPage() {
     // The manifest report below now describes an older timeline.
     setMotionManifestNote(null);
     setMotionManifestWarnings([]);
-  }, [motionSlides, motionTranscript, applyBuiltTimeline, motionTextOnlySync]);
+  }, [motionSlides, motionTranscript, applyBuiltTimeline, motionTextOnlySync, motionIntroCard]);
 
   /**
    * The zero-token path: the sync manifest already says which element enters on
@@ -2399,6 +2415,42 @@ export function ContentCreatorPage() {
     setMotionTimeMs(0);
   }, []);
 
+  /**
+   * Applies the order chosen in the Fix Slide Order modal.
+   *
+   * Element ids are per-decomposition and slide positions are baked into any
+   * existing timeline's `slideIndex` — reordering out from under it would
+   * silently point every scene at the wrong poster, so the stale timeline is
+   * cleared the same way a fresh upload clears it, not left to rot.
+   */
+  const handleApplyFixedSlideOrder = useCallback(
+    async (reordered: MotionSlide[]) => {
+      setMotionSlides(reordered);
+      setActiveMotionIndex(0);
+      setJsonText(JSON.stringify(buildMotionLayoutJson(reordered), null, 2));
+      clearMotionTimeline();
+      setShowFixSlideOrderModal(false);
+
+      // Built from the reordered array directly, not from motionSlides state —
+      // the setState above has not necessarily flushed yet, and history must
+      // save the order the user just confirmed, not whatever was there before it.
+      if (!activeHistoryId) return;
+      setMotionSaveState("saving");
+      const firstName = reordered[0]?.fileName?.replace(/\.[^.]+$/, "");
+      const title = reordered.length > 1 ? `Motion Video · ${reordered.length} slides` : firstName || "Motion Video";
+      const id = await saveToHistory(
+        "motion-video",
+        title,
+        reordered.length,
+        { slides: reordered, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme },
+        activeHistoryId,
+        reordered[0]?.backgroundUrl || reordered[0]?.originalUrl
+      );
+      setMotionSaveState(id ? "saved" : "error");
+    },
+    [activeHistoryId, clearMotionTimeline, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme]
+  );
+
   const handleCopyMotionPrompt = useCallback(() => {
     if (motionSlides.length === 0) return;
 
@@ -2431,6 +2483,12 @@ export function ContentCreatorPage() {
     setCopiedMotionPrompt(true);
     setTimeout(() => setCopiedMotionPrompt(false), 3000);
   }, [motionSlides, motionTranscript, motionManifestText]);
+
+  const handleCopySpeechPrompt = useCallback(() => {
+    navigator.clipboard.writeText(SPEECH_BREAKDOWN_TEMPLATE);
+    setCopiedSpeechPrompt(true);
+    setTimeout(() => setCopiedSpeechPrompt(false), 3000);
+  }, []);
 
   const handleMotionTranscriptFile = useCallback(async (file: File) => {
     try {
@@ -4890,13 +4948,23 @@ export function ContentCreatorPage() {
                   {/* Slide Switcher — one entry per uploaded image */}
                   {motionSlides.length > 1 && (
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider">
                           Slides ({motionSlides.length})
                         </span>
-                        <span className="text-[9.5px] font-mono text-white/40">
-                          {activeMotionIndex + 1} / {motionSlides.length}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setShowFixSlideOrderModal(true)}
+                            title="Read each poster's printed slide number and fix a shuffled order"
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-white/10 bg-white/[0.04] hover:bg-white/[0.09] text-white/55 hover:text-white/90 transition cursor-pointer"
+                          >
+                            <Shuffle className="h-2.5 w-2.5" />
+                            <span className="text-[8.5px] font-bold uppercase tracking-wide">Fix Order</span>
+                          </button>
+                          <span className="text-[9.5px] font-mono text-white/40">
+                            {activeMotionIndex + 1} / {motionSlides.length}
+                          </span>
+                        </div>
                       </div>
                       <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
                         {motionSlides.map((s, i) => (
@@ -4968,6 +5036,12 @@ export function ContentCreatorPage() {
                       onAutoSync={autoSyncMotionTimeline}
                       textOnlySync={motionTextOnlySync}
                       onTextOnlySyncChange={setMotionTextOnlySync}
+                      introCard={motionIntroCard}
+                      onIntroCardChange={setMotionIntroCard}
+                      captions={motionCaptions}
+                      onCaptionsChange={setMotionCaptions}
+                      onCopySpeechPrompt={handleCopySpeechPrompt}
+                      copiedSpeechPrompt={copiedSpeechPrompt}
                       autoSyncReport={motionAutoSyncReport}
                       autoSyncNote={motionAutoSyncNote}
                       manifestText={motionManifestText}
@@ -6719,6 +6793,15 @@ export function ContentCreatorPage() {
           onApply={applyPosterSelection}
           applying={generatingImages}
           applyProgress={imageGenProgress}
+        />
+      )}
+
+      {/* Fix Slide Order — re-sorts a shuffled motion batch by each poster's own printed slide number */}
+      {showFixSlideOrderModal && (
+        <FixSlideOrderModal
+          slides={motionSlides}
+          onClose={() => setShowFixSlideOrderModal(false)}
+          onApply={handleApplyFixedSlideOrder}
         />
       )}
 

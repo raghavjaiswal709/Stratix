@@ -80,6 +80,12 @@ export interface AuthoredTransition {
 
 export interface AuthoredScene {
   slide?: number;
+  /**
+   * Title-card text. When present the scene paints as a card — black frame,
+   * white type — instead of a decomposed slide, and its `slide` is ignored.
+   * Used for the series intro that runs over the opening recap.
+   */
+  intro?: string;
   slideIndex?: number;
   startMs?: number;
   start?: number;
@@ -145,6 +151,8 @@ export interface Transition {
 
 export interface CompiledScene {
   index: number;
+  /** Title-card text; when set, this scene is a card rather than a slide. */
+  intro?: string;
   /** 0-based index into the motion slides array. */
   slideIndex: number;
   startMs: number;
