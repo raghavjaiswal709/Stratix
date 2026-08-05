@@ -77,6 +77,16 @@ const ANCHOR_MIN_SCORE = 0.5;
 const ANCHOR_MIN_WEIGHT = 1.4;
 /** A slide's window is judged on the same evidence, a little more leniently. */
 const SEGMENT_MIN_WEIGHT = 0.6;
+/** Coverage at which a slide is taken to have placed itself. */
+const TEXT_CONFIDENT_COVERAGE = 0.35;
+/**
+ * Second-chance anchoring. A slide that matched nothing at the strict bar is
+ * retried here before being given up on — a weak anchor inside the right scene
+ * still beats arithmetic, and it is reported at its real confidence rather
+ * than dressed up as a certainty.
+ */
+const ANCHOR_RELAXED_SCORE = 0.32;
+const ANCHOR_RELAXED_WEIGHT = 0.8;
 
 /** DP scoring weights. Coverage dominates when there is text to go on. */
 const W_COVERAGE = 10;
@@ -120,8 +130,20 @@ export interface AutoSyncSceneReport {
   label: string;
   startMs: number;
   endMs: number;
-  /** "text" when the slide's own words placed it, "paced" when arithmetic did. */
-  placedBy: "text" | "paced";
+  /**
+   * How this slide's window was decided.
+   *
+   *   "text"      — its own printed words were found in the narration.
+   *   "bracketed" — its own text was not matched, but both its edges are real:
+   *                 pinned by a confident neighbour, by the start of the audio,
+   *                 or by its end. The timing is as exact as the anchors it sits
+   *                 between, which is very different from a guess.
+   *   "paced"     — genuinely nothing to go on: no text of its own AND no
+   *                 confident neighbour on either side.
+   */
+  placedBy: "text" | "bracketed" | "paced";
+  /** Which of this scene's two edges are anchored to something real. */
+  edges: { start: "audio" | "anchor" | "estimate"; end: "audio" | "anchor" | "estimate" };
   /** Share of this slide's spoken text that falls inside its own window, 0–1. */
   coverage: number;
   elementCount: number;
@@ -188,7 +210,21 @@ function isFurniture(layer: AutoLayer): boolean {
 }
 
 function readLayers(slide: TimelineSlideLike): AutoLayer[] {
-  const raw = (slide.layers ?? []).map((l, i) => {
+  const raw: AutoLayer[] = [];
+  (slide.layers ?? []).forEach((l, i) => {
+    try {
+      raw.push(readLayer(l, i));
+    } catch {
+      // A layer whose own fields cannot be read is skipped. Losing one element's
+      // animation is recoverable; losing the slide is not.
+    }
+  });
+
+  return orderForReading(raw);
+}
+
+function readLayer(l: TimelineSlideLike["layers"][number], i: number): AutoLayer {
+  {
     const anyLayer = l as Record<string, unknown>;
     const text = typeof anyLayer.text === "string" ? anyLayer.text : "";
     const lines = Array.isArray(anyLayer.textLines) ? anyLayer.textLines.length : 0;
@@ -206,9 +242,7 @@ function readLayers(slide: TimelineSlideLike): AutoLayer[] {
       h: numOr(l.h, 0.1),
       order: i,
     };
-  });
-
-  return orderForReading(raw);
+  }
 }
 
 const numOr = (v: unknown, fallback: number): number =>
@@ -249,12 +283,31 @@ interface SlideProfile {
   tokenWeight: number;
   /** How much of the runtime this slide deserves, before any text is consulted. */
   shareWeight: number;
+  /** Layers the reader could not make sense of and skipped. */
+  droppedLayers: number;
 }
 
-function profileSlides(slides: TimelineSlideLike[], index: TranscriptIndex): SlideProfile[] {
+function profileSlides(slides: TimelineSlideLike[], index: TranscriptIndex, warnings: string[]): SlideProfile[] {
   const W = index.words.length;
 
+  const blank = (slideIndex: number): SlideProfile => ({
+    slideIndex, layers: [], content: [], furniture: [], tokens: [], tokenWeight: 0, shareWeight: 8, droppedLayers: 0,
+  });
+
   return slides.map((slide, slideIndex) => {
+    try {
+      return profileSlide(slide, slideIndex, index, W);
+    } catch (err) {
+      warnings.push(
+        `Slide ${slideIndex + 1} could not be read (${err instanceof Error ? err.message : "unknown error"}) — it holds its span as a still.`
+      );
+      return blank(slideIndex);
+    }
+  });
+}
+
+function profileSlide(slide: TimelineSlideLike, slideIndex: number, index: TranscriptIndex, W: number): SlideProfile {
+  {
     const layers = readLayers(slide);
     const furniture = layers.filter(isFurniture);
     const content = layers.filter((l) => !isFurniture(l));
@@ -296,8 +349,9 @@ function profileSlides(slides: TimelineSlideLike[], index: TranscriptIndex): Sli
     // plus a floor so a wordless slide still gets screen time.
     const shareWeight = 8 + chars * 0.45 + content.length * 2.5;
 
-    return { slideIndex, layers, content, furniture, tokens, tokenWeight, shareWeight };
-  });
+    const droppedLayers = Math.max(0, (slide.layers?.length ?? 0) - layers.length);
+    return { slideIndex, layers, content, furniture, tokens, tokenWeight, shareWeight, droppedLayers };
+  }
 }
 
 /** Share of this slide's evidence spoken inside `[a, b)`, 0–1. */
@@ -520,6 +574,24 @@ function anchorElements(
     });
     if (hit) found.set(i, { wordIndex: hit.index, score: hit.score });
   });
+
+  // Second chance, only for what the strict bar rejected. A caption that shares
+  // one distinctive word with the line being spoken is still better evidence
+  // than dividing the scene into equal parts — and because the search is
+  // confined to this scene's own words, a weak match can only be slightly wrong
+  // rather than somewhere else in the reel.
+  if (found.size < content.filter((l) => l.type === "text" && l.text.trim()).length) {
+    content.forEach((layer, i) => {
+      if (found.has(i) || layer.type !== "text" || !layer.text.trim()) return;
+      const hit = locatePhrase(index, layer.text, {
+        fromIndex: from,
+        toIndex: to,
+        minScore: ANCHOR_RELAXED_SCORE,
+        minWeight: ANCHOR_RELAXED_WEIGHT,
+      });
+      if (hit) found.set(i, { wordIndex: hit.index, score: hit.score * 0.6 });
+    });
+  }
 
   // Two elements cannot both own the same word. The more confident reading
   // keeps it; the other falls back to pacing, where it will be dealt into the
@@ -845,8 +917,29 @@ export function autoSyncTimeline(
     );
   }
 
-  const profiles = profileSlides(slides, index);
+  const profiles = profileSlides(slides, index, warnings);
   const { cuts, coverages } = segment(profiles, index, bandFraction);
+
+  /* ── How much each slide's window can be trusted ──────────────────────
+     A slide is "confident" when its own printed words were found inside its
+     own span. That verdict then propagates outwards: a slide with nothing
+     matchable still has exact edges if the things either side of it are
+     confident, and the two ends of the reel are exact by construction — the
+     audio starts and stops where it starts and stops. Reporting those as
+     guesses was the bug: a hook or a call-to-action rarely repeats itself
+     verbatim in the narration, so the first and last slides were the most
+     likely to be mislabelled and the least likely to deserve it. */
+  const confident = profiles.map(
+    (p, i) => coverages[i] >= TEXT_CONFIDENT_COVERAGE && p.tokenWeight >= SEGMENT_MIN_WEIGHT
+  );
+  const edgeOf = (i: number, side: "start" | "end"): "audio" | "anchor" | "estimate" => {
+    if (side === "start") {
+      if (i === 0) return "audio";
+      return confident[i] || confident[i - 1] ? "anchor" : "estimate";
+    }
+    if (i === profiles.length - 1) return "audio";
+    return confident[i] || confident[i + 1] ? "anchor" : "estimate";
+  };
 
   const scenes: AuthoredScene[] = [];
   const sceneReports: AutoSyncSceneReport[] = [];
@@ -871,6 +964,46 @@ export function autoSyncTimeline(
   );
 
   profiles.forEach((profile, i) => {
+    try {
+      buildScene(profile, i);
+    } catch (err) {
+      // Containment. One malformed slide — a layer with a broken box, a text
+      // block that upsets the matcher — must cost that slide its choreography
+      // and nothing else. It still holds its span as a still frame, in the
+      // right place, and every other slide is untouched.
+      warnings.push(
+        `Slide ${i + 1} could not be choreographed (${err instanceof Error ? err.message : "unknown error"}) — it holds as a still for its full span.`
+      );
+      const startMs = boundaries[i];
+      const endMs = boundaries[i + 1];
+      scenes.push({
+        slide: i + 1,
+        label: sceneLabel(profile, i),
+        startMs,
+        endMs,
+        enter: i === 0 ? { type: "fade", durationMs: 320 } : { type: "cut", durationMs: 0 },
+        exit: i === profiles.length - 1 ? { type: "fade", durationMs: 400 } : { type: "cut", durationMs: 0 },
+        tracks: [],
+      });
+      sceneReports.push({
+        slideIndex: i,
+        label: sceneLabel(profile, i),
+        startMs,
+        endMs,
+        placedBy: confident[i] ? "text" : "paced",
+        edges: { start: edgeOf(i, "start"), end: edgeOf(i, "end") },
+        coverage: coverages[i],
+        elementCount: profile.content.length + profile.furniture.length,
+        anchoredCount: 0,
+        openingLine: index.words.slice(from(i), Math.min(to(i), from(i) + 7)).map((w) => w.text).join(" "),
+      });
+    }
+  });
+
+  function from(i: number) { return cuts[i]; }
+  function to(i: number) { return cuts[i + 1]; }
+
+  function buildScene(profile: SlideProfile, i: number) {
     const startMs = boundaries[i];
     const endMs = boundaries[i + 1];
     const from = cuts[i];
@@ -1027,7 +1160,13 @@ export function autoSyncTimeline(
       label: sceneLabel(profile, i),
       startMs,
       endMs,
-      placedBy: coverages[i] >= 0.35 && profile.tokenWeight >= SEGMENT_MIN_WEIGHT ? "text" : "paced",
+      placedBy: (() => {
+        if (confident[i]) return "text" as const;
+        const start = edgeOf(i, "start");
+        const end = edgeOf(i, "end");
+        return start !== "estimate" && end !== "estimate" ? ("bracketed" as const) : ("paced" as const);
+      })(),
+      edges: { start: edgeOf(i, "start"), end: edgeOf(i, "end") },
       coverage: coverages[i],
       elementCount: profile.content.length + profile.furniture.length,
       anchoredCount: allPlacements.filter((p) => p.anchored).length,
@@ -1037,10 +1176,17 @@ export function autoSyncTimeline(
         .join(" "),
     });
 
-    if (profile.content.length === 0) {
+    if (profile.droppedLayers > 0) {
+      warnings.push(
+        `Slide ${i + 1}: ${profile.droppedLayers} element${profile.droppedLayers === 1 ? "" : "s"} could not be read and ${
+          profile.droppedLayers === 1 ? "was" : "were"
+        } skipped — the rest of the slide animates normally.`
+      );
+    }
+    if (profile.content.length === 0 && profile.droppedLayers === 0) {
       warnings.push(`Slide ${i + 1} has no decomposed elements — it holds as a still.`);
     }
-  });
+  }
 
   if (scenes.length === 0) {
     warnings.push("No slide produced a usable scene.");

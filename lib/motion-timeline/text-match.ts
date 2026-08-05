@@ -75,6 +75,59 @@ export function withinEditDistance1(a: string, b: string): boolean {
 }
 
 /**
+ * Numbers, spoken and printed.
+ *
+ * A poster prints "10 SAAL" and the voiceover says "das saal"; it prints "2X"
+ * and the voiceover says "double". Neither is a spelling variant, so no amount
+ * of edit distance will bridge them — but they are the same number, and hook
+ * and pay-off slides are made almost entirely of numbers. Without this the two
+ * slides most likely to carry a figure are also the two least likely to match.
+ *
+ * English and the Hinglish this app is actually written in, both directions.
+ */
+const NUMERAL_WORDS: Record<string, string[]> = {
+  "0": ["zero", "shunya", "nil"],
+  "1": ["one", "ek", "first", "pehla"],
+  "2": ["two", "do", "double", "dusra", "second"],
+  "3": ["three", "teen", "tisra"],
+  "4": ["four", "char", "chaar"],
+  "5": ["five", "paanch", "panch"],
+  "6": ["six", "chah", "chhah"],
+  "7": ["seven", "saat"],
+  "8": ["eight", "aath"],
+  "9": ["nine", "nau"],
+  "10": ["ten", "das", "dus"],
+  "11": ["eleven", "gyarah"],
+  "12": ["twelve", "barah"],
+  "15": ["fifteen", "pandrah"],
+  "20": ["twenty", "bees", "bis"],
+  "25": ["twentyfive", "pachees", "pachchis"],
+  "30": ["thirty", "tees"],
+  "40": ["forty", "chalees"],
+  "50": ["fifty", "pachas", "pachaas"],
+  "60": ["sixty", "saath"],
+  "100": ["hundred", "sau", "sao"],
+  "1000": ["thousand", "hazaar", "hazar", "hajaar"],
+  "100000": ["lakh", "lac", "lakhs"],
+  "10000000": ["crore", "cr", "crores"],
+};
+
+/** token → the numeral family it belongs to, both directions, built once. */
+const NUMERAL_ALIASES: Map<string, Set<string>> = (() => {
+  const map = new Map<string, Set<string>>();
+  Object.entries(NUMERAL_WORDS).forEach(([digits, spellings]) => {
+    const family = new Set<string>([digits, ...spellings]);
+    family.forEach((member) => map.set(member, family));
+  });
+  return map;
+})();
+
+function sameNumber(a: string, b: string): boolean {
+  const fam = NUMERAL_ALIASES.get(a);
+  return fam ? fam.has(b) : false;
+}
+
+/**
  * Do two normalized tokens refer to the same word?
  *
  * Deliberately asymmetric in cost: an exact hit is free, and the fuzzy tiers
@@ -84,6 +137,9 @@ export function withinEditDistance1(a: string, b: string): boolean {
  */
 export function tokensMatch(a: string, b: string): boolean {
   if (a === b) return true;
+  // The same number written two ways — checked before the length guard, since
+  // "10" and "das" are both too short to reach the fuzzy tiers below.
+  if (sameNumber(a, b)) return true;
   const min = Math.min(a.length, b.length);
   if (min < 4) return false;
   // Shared stem: "liquidity" / "liquiditys", "gullak" / "gullakh".
@@ -174,14 +230,21 @@ export function resolveToken(index: TranscriptIndex, token: string): number[] {
   const cached = index._resolved.get(token);
   if (cached) return cached;
 
-  let found = index.positions.get(token);
-  if (!found) {
-    const merged: number[] = [];
+  const exact = index.positions.get(token);
+  // A numeral always sweeps the vocabulary even when it hit exactly: a script
+  // that says "10" once and "das" twice should contribute all three, and
+  // short-circuiting on the exact hit would throw away the majority of them.
+  const isNumeral = NUMERAL_ALIASES.has(token);
+
+  let found = exact;
+  if (!found || isNumeral) {
+    const merged = new Set<number>(exact ?? []);
     for (const vocab of index.vocabulary) {
-      if (tokensMatch(token, vocab)) merged.push(...index.positions.get(vocab)!);
+      if (vocab !== token && tokensMatch(token, vocab)) {
+        index.positions.get(vocab)!.forEach((p) => merged.add(p));
+      }
     }
-    merged.sort((a, b) => a - b);
-    found = merged;
+    found = [...merged].sort((a, b) => a - b);
   }
 
   index._resolved.set(token, found);

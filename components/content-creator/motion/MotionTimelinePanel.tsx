@@ -417,13 +417,26 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
                     </span>
                     <span className="text-[9px] font-bold text-white/85 truncate flex-1">{scene.label}</span>
                     <span
+                      title={
+                        scene.placedBy === "text"
+                          ? "Placed by its own printed words"
+                          : scene.placedBy === "bracketed"
+                          ? `Its own text was not spoken, but both edges are exact — start: ${scene.edges.start}, end: ${scene.edges.end}`
+                          : "No text of its own and no confident neighbour — this one is worth checking"
+                      }
                       className={`text-[8px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${
                         scene.placedBy === "text"
                           ? "text-emerald-300/90 bg-emerald-500/10 border-emerald-500/25"
-                          : "text-white/40 bg-white/[0.04] border-white/[0.08]"
+                          : scene.placedBy === "bracketed"
+                          ? "text-white/60 bg-white/[0.06] border-white/[0.12]"
+                          : "text-amber-300/80 bg-amber-500/10 border-amber-500/25"
                       }`}
                     >
-                      {scene.placedBy === "text" ? `${Math.round(scene.coverage * 100)}% MATCH` : "PACED"}
+                      {scene.placedBy === "text"
+                        ? `${Math.round(scene.coverage * 100)}% MATCH`
+                        : scene.placedBy === "bracketed"
+                        ? "LOCKED BY NEIGHBOURS"
+                        : "CHECK THIS"}
                     </span>
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5">
