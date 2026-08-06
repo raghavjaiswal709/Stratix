@@ -21,6 +21,7 @@ import {
   type Transition,
   type TransitionType,
   type WipeDirection,
+  type WipeStyle,
 } from "./types";
 
 /** Structural view of a motion slide — keeps this module free of UI imports. */
@@ -492,6 +493,21 @@ function resolveWipeDirection(raw: unknown): WipeDirection {
 }
 
 /**
+ * A track's wipe style isn't authored on the track itself (unlike wipeFrom) —
+ * it falls out of which reveal cue the track actually uses. zigzagIn/Out and
+ * wipeIn/Out drive the exact same `wipe` channel, so the renderer needs a
+ * separate signal for which edge shape to cut, and the cue action already IS
+ * that signal.
+ */
+function resolveWipeStyle(cues: AuthoredCue[]): WipeStyle {
+  const usesZigzag = cues.some((c) => {
+    const action = firstStr(c.action, c.type, c.name);
+    return action === "zigzagIn" || action === "zigzagOut";
+  });
+  return usesZigzag ? "zigzag" : "straight";
+}
+
+/**
  * Turns whatever the user pasted into a timeline that can be sampled every
  * frame, plus a report of everything that looked wrong on the way.
  *
@@ -696,6 +712,7 @@ export function compileTimeline(
         label: firstStr(rawTrack.name) ?? authoredId,
         visible: rawTrack.visible !== false,
         wipeFrom: resolveWipeDirection(rawTrack.wipeFrom),
+        wipeStyle: resolveWipeStyle(asArray<AuthoredCue>(rawTrack.cues)),
         channels,
       });
     });

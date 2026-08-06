@@ -213,6 +213,7 @@ export interface MotionTextData {
 
 export interface MotionMeta {
   ocr: string;
+  watermarkRemoved?: boolean;
   wordsDetected?: number;
   linesDetected?: number;
   textLayers?: number;

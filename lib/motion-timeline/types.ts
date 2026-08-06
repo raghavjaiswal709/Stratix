@@ -16,6 +16,9 @@ export type CameraChannel = "zoom" | "panXPct" | "panYPct";
 
 export type WipeDirection = "left" | "right" | "top" | "bottom";
 
+/** How a track's `wipe` channel is rendered — a straight edge or a torn-paper zigzag. */
+export type WipeStyle = "straight" | "zigzag";
+
 export interface AuthoredKeyframe {
   tMs?: number;
   t?: number;
@@ -139,6 +142,7 @@ export interface CompiledTrack {
   label: string;
   visible: boolean;
   wipeFrom: WipeDirection;
+  wipeStyle: WipeStyle;
   channels: Channels;
 }
 
@@ -185,6 +189,7 @@ export interface LayerState {
   blur: number;
   wipe: number;
   wipeFrom: WipeDirection;
+  wipeStyle: WipeStyle;
 }
 
 export interface CameraState {
@@ -221,6 +226,7 @@ export const REST_LAYER_STATE: LayerState = {
   blur: 0,
   wipe: 1,
   wipeFrom: "left",
+  wipeStyle: "straight",
 };
 
 export const REST_CAMERA: CameraState = { zoom: 1, panXPct: 0, panYPct: 0 };

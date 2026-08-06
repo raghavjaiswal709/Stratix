@@ -121,7 +121,7 @@ export function FixSlideOrderModal({
                   }`}
                 >
                   {thumb ? (
-                    <img src={thumb} alt="" draggable={false} className="w-full aspect-[4/5] object-cover pointer-events-none select-none" />
+                    <img src={thumb} alt="" draggable={false} className="w-full aspect-[4/5] object-contain bg-black/40 pointer-events-none select-none" />
                   ) : (
                     <div className="w-full aspect-[4/5] bg-black/40" />
                   )}

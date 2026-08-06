@@ -173,6 +173,80 @@ function makeCameraMap(W: number, H: number, camera: SceneRenderState["camera"])
   };
 }
 
+/** Points for a jagged line from (x, yStart) to (x, yEnd), alternating ±amp either side of x. */
+function zigzagRun(x: number, yStart: number, yEnd: number, teeth: number, amp: number): Array<[number, number]> {
+  const pts: Array<[number, number]> = [];
+  const step = (yEnd - yStart) / teeth;
+  for (let i = 0; i <= teeth; i++) {
+    const y = yStart + step * i;
+    const d = i === 0 || i === teeth ? 0 : i % 2 === 1 ? amp : -amp;
+    pts.push([x + d, y]);
+  }
+  return pts;
+}
+
+/**
+ * The torn-paper edge for `zigzagIn`/`zigzagOut`.
+ *
+ * Same contract as applyWipeClip — clips to the revealed fraction of the
+ * element — but the boundary that is actually sweeping across is cut jagged
+ * instead of straight, so a decomposed graphic reads as a sheet being slid
+ * into place rather than a window opening on it.
+ */
+function applyZigzagClip(
+  ctx: CanvasRenderingContext2D,
+  state: LayerState,
+  left: number,
+  top: number,
+  width: number,
+  height: number
+) {
+  const reveal = state.wipe;
+  const teethV = Math.max(3, Math.round(height / 22));
+  const ampV = Math.min(18, Math.max(3, width * 0.03));
+  const teethH = Math.max(3, Math.round(width / 22));
+  const ampH = Math.min(18, Math.max(3, height * 0.03));
+
+  ctx.beginPath();
+  switch (state.wipeFrom) {
+    case "right": {
+      const edgeX = left + width * (1 - reveal);
+      ctx.moveTo(left + width, top);
+      zigzagRun(edgeX, top, top + height, teethV, ampV).forEach(([x, y]) => ctx.lineTo(x, y));
+      ctx.lineTo(left + width, top + height);
+      break;
+    }
+    // top/bottom run the same helper on the other axis — zigzagRun's own
+    // (x, yStart, yEnd) become (edgeY, left, left+width) here, so its [x, y]
+    // output is actually [y, x] in canvas terms; the destructure below undoes
+    // that swap rather than duplicating the loop horizontally.
+    case "top": {
+      const edgeY = top + height * reveal;
+      ctx.moveTo(left, top);
+      zigzagRun(edgeY, left, left + width, teethH, ampH).forEach(([y, x]) => ctx.lineTo(x, y));
+      ctx.lineTo(left + width, top);
+      break;
+    }
+    case "bottom": {
+      const edgeY = top + height * (1 - reveal);
+      ctx.moveTo(left, top + height);
+      zigzagRun(edgeY, left, left + width, teethH, ampH).forEach(([y, x]) => ctx.lineTo(x, y));
+      ctx.lineTo(left + width, top + height);
+      break;
+    }
+    case "left":
+    default: {
+      const edgeX = left + width * reveal;
+      ctx.moveTo(left, top);
+      zigzagRun(edgeX, top, top + height, teethV, ampV).forEach(([x, y]) => ctx.lineTo(x, y));
+      ctx.lineTo(left, top + height);
+      break;
+    }
+  }
+  ctx.closePath();
+  ctx.clip();
+}
+
 function applyWipeClip(
   ctx: CanvasRenderingContext2D,
   state: LayerState,
@@ -182,6 +256,10 @@ function applyWipeClip(
   height: number
 ) {
   if (state.wipe >= 0.999) return;
+  if (state.wipeStyle === "zigzag") {
+    applyZigzagClip(ctx, state, left, top, width, height);
+    return;
+  }
   const w = Math.max(0, width * state.wipe);
   const h = Math.max(0, height * state.wipe);
   ctx.beginPath();

@@ -44,6 +44,7 @@ import {
   GripVertical,
   Copy,
   Shuffle,
+  Eraser,
 } from "lucide-react";
 
 import type {
@@ -199,6 +200,9 @@ export function ContentCreatorPage() {
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [segmentProgress, setSegmentProgress] = useState<{ done: number; total: number } | null>(null);
   const [segmentError, setSegmentError] = useState<string | null>(null);
+  const [isRemovingWatermarks, setIsRemovingWatermarks] = useState(false);
+  const [watermarkProgress, setWatermarkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [watermarkError, setWatermarkError] = useState<string | null>(null);
   const [isPlayingMotion, setIsPlayingMotion] = useState(true);
   const [motionTimeMs, setMotionTimeMs] = useState(0);
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
@@ -1956,7 +1960,7 @@ export function ContentCreatorPage() {
     const fileArray = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (fileArray.length === 0) return;
 
-    const MAX_BATCH = 30;
+    const MAX_BATCH = 50;
     const batch = fileArray.slice(0, MAX_BATCH);
 
     setIsSegmenting(true);
@@ -1975,7 +1979,7 @@ export function ContentCreatorPage() {
 
     try {
       // Chunked, not one giant request. Every layer comes back from python as a
-      // base64 PNG before the route moves it to R2, so a 30-poster batch in a
+      // base64 PNG before the route moves it to R2, so a 50-poster batch in a
       // single spawn would push hundreds of megabytes through one stdout pipe
       // and sit on one function timeout. Six at a time keeps each request the
       // size the 12-image path already proved out, and the deck grows on screen
@@ -2082,6 +2086,154 @@ export function ContentCreatorPage() {
     } finally {
       setIsSegmenting(false);
       setSegmentProgress(null);
+    }
+  };
+
+  /**
+   * Strips a Grok Imagine watermark from every slide currently loaded.
+   *
+   * A fresh upload already gets this automatically as part of decomposing
+   * (see scripts/watermark.py, run from process_image) — this button exists
+   * for slides that were decomposed before that pass existed. Same
+   * corner-OCR-and-inpaint approach, just run standalone against
+   * backgroundUrl and originalUrl directly instead of as a step inside
+   * decomposition, since re-decomposing a slide just to clean its corner
+   * would throw away any hand-editing already done to its layers.
+   */
+  const handleRemoveAllWatermarks = async () => {
+    if (motionSlides.length === 0) return;
+
+    type WatermarkTarget = { slideIndex: number; field: "backgroundUrl" | "originalUrl"; url: string; name: string };
+    const targets: WatermarkTarget[] = [];
+    motionSlides.forEach((slide, slideIndex) => {
+      const base = slide.fileName?.replace(/\.[^.]+$/, "") || `slide_${slideIndex + 1}`;
+      if (slide.backgroundUrl) {
+        targets.push({ slideIndex, field: "backgroundUrl", url: slide.backgroundUrl, name: `${base}_bg.png` });
+      }
+      // Cleaned independently — a slide from before the auto-strip pass can
+      // carry the watermark in either or both, since both were flattened
+      // from the same still-watermarked source at decompose time.
+      if (slide.originalUrl && slide.originalUrl !== slide.backgroundUrl) {
+        targets.push({ slideIndex, field: "originalUrl", url: slide.originalUrl, name: `${base}_orig.png` });
+      }
+    });
+    if (targets.length === 0) return;
+
+    setIsRemovingWatermarks(true);
+    setWatermarkError(null);
+    setWatermarkProgress({ done: 0, total: targets.length });
+
+    const CHUNK_SIZE = 6;
+    const next = [...motionSlides];
+    const changedSlideIndexes = new Set<number>();
+    const failures: string[] = [];
+    let removedCount = 0;
+
+    try {
+      for (let offset = 0; offset < targets.length; offset += CHUNK_SIZE) {
+        const chunk = targets.slice(offset, offset + CHUNK_SIZE);
+
+        // Slide images live behind same-origin proxy URLs by this point (the
+        // decompose route already persisted them to R2), so re-fetching them
+        // as blobs to re-upload is a same-origin read, not a remote fetch.
+        const blobs = await Promise.all(
+          chunk.map(async (t) => {
+            const res = await fetch(t.url);
+            if (!res.ok) throw new Error(`Could not re-fetch ${t.name} (${res.status})`);
+            return res.blob();
+          })
+        );
+
+        const form = new FormData();
+        chunk.forEach((t, i) => form.append("images", blobs[i], t.name));
+
+        const res = await fetch("/api/content-creator/remove-watermark", { method: "POST", body: form });
+        const payload = await res.json();
+
+        if (!res.ok) {
+          failures.push(`Images ${offset + 1}–${offset + chunk.length}: ${payload?.error || `Watermark removal failed (${res.status})`}`);
+          setWatermarkProgress({ done: Math.min(offset + chunk.length, targets.length), total: targets.length });
+          continue;
+        }
+
+        const results: any[] = Array.isArray(payload?.results) ? payload.results : [payload];
+        results.forEach((data, i) => {
+          const t = chunk[i];
+          if (!t || !data || data.error || !data.success) {
+            failures.push(`${t?.name || "image"}: ${data?.error || "no result"}`);
+            return;
+          }
+          if (data.watermarkRemoved && data.imageUrl) {
+            const slide = next[t.slideIndex];
+            let updatedLayers = slide.layers;
+            if (Array.isArray(updatedLayers) && updatedLayers.length > 0) {
+              const rBox = data.removedBox;
+              updatedLayers = updatedLayers.filter((layer: any) => {
+                if (layer.text && /grok|qrok|gr0k|crok|watermark|x\.ai/i.test(layer.text)) {
+                  return false;
+                }
+                const lbox = layer.box;
+                if (rBox && lbox) {
+                  const lx = Array.isArray(lbox) ? lbox[0] : lbox.x;
+                  const ly = Array.isArray(lbox) ? lbox[1] : lbox.y;
+                  const lw = Array.isArray(lbox) ? lbox[2] : (lbox.w || lbox.width);
+                  const lh = Array.isArray(lbox) ? lbox[3] : (lbox.h || lbox.height);
+                  if (typeof lx === "number" && typeof ly === "number" && typeof lw === "number" && typeof lh === "number") {
+                    const interX0 = Math.max(lx, rBox.left);
+                    const interY0 = Math.max(ly, rBox.top);
+                    const interX1 = Math.min(lx + lw, rBox.left + rBox.width);
+                    const interY1 = Math.min(ly + lh, rBox.top + rBox.height);
+                    if (interX1 > interX0 && interY1 > interY0) {
+                      const interArea = (interX1 - interX0) * (interY1 - interY0);
+                      if (interArea > 0.05 * (lw * lh)) return false;
+                    }
+                  }
+                }
+                return true;
+              });
+            }
+            next[t.slideIndex] = { ...slide, [t.field]: data.imageUrl, layers: updatedLayers };
+            changedSlideIndexes.add(t.slideIndex);
+            removedCount += 1;
+          }
+        });
+
+        setWatermarkProgress({ done: Math.min(offset + chunk.length, targets.length), total: targets.length });
+      }
+
+      if (changedSlideIndexes.size > 0) {
+        setMotionSlides(next);
+        await Promise.all(Array.from(changedSlideIndexes).map((i) => preloadMotionSlideImages(next[i])));
+      }
+
+      setWatermarkError(
+        failures.length > 0
+          ? `${failures.length} issue(s): ${failures.join("; ")}`
+          : removedCount === 0
+          ? "No Grok watermark found on any slide."
+          : null
+      );
+
+      if (changedSlideIndexes.size > 0 && activeHistoryId) {
+        setMotionSaveState("saving");
+        const firstName = next[0]?.fileName?.replace(/\.[^.]+$/, "");
+        const title = next.length > 1 ? `Motion Video · ${next.length} slides` : firstName || "Motion Video";
+        const id = await saveToHistory(
+          "motion-video",
+          title,
+          next.length,
+          { slides: next, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme },
+          activeHistoryId,
+          next[0]?.backgroundUrl || next[0]?.originalUrl
+        );
+        setMotionSaveState(id ? "saved" : "error");
+      }
+    } catch (err: any) {
+      console.error("Failed to remove watermarks:", err);
+      setWatermarkError(err?.message || "Failed to remove watermarks");
+    } finally {
+      setIsRemovingWatermarks(false);
+      setWatermarkProgress(null);
     }
   };
 
@@ -2614,6 +2766,38 @@ export function ContentCreatorPage() {
   );
 
   /**
+   * Confirms audio is actually flowing before the recorder starts rolling.
+   *
+   * `AudioContext.resume()` and `<audio>.play()` both return promises that
+   * settle on their own schedule, and nothing upstream of this used to wait
+   * for either one — a MediaRecorder started on a fixed timer could start
+   * capturing while the mix graph was still "suspended" or the element had
+   * not yet produced a single sample. That gap is silent and invisible in
+   * every later frame of the recording, which is exactly what "the voiceover
+   * is sometimes missing" looks like: not corrupted, just never there.
+   * Polling real state instead of guessing a delay is what closes it.
+   */
+  const waitForAudioReady = useCallback(async (timeoutMs: number): Promise<boolean> => {
+    const audio = motionAudioRef.current;
+    const music = motionMusicRef.current;
+    if (!audio && !music) return true; // nothing loaded — a silent export is correct here
+
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+      const mix = motionMixRef.current;
+      const ctxRunning = mix?.ctx.state === "running";
+      const audioFlowing = !audio || (!audio.paused && audio.readyState >= 2);
+      const musicFlowing = !music || (!music.paused && music.readyState >= 2);
+      const hasLiveTrack =
+        !!mix && mix.dest.stream.getAudioTracks().some((t) => t.readyState === "live" && t.enabled);
+
+      if (ctxRunning && audioFlowing && musicFlowing && hasLiveTrack) return true;
+      await new Promise((r) => window.setTimeout(r, 40));
+    }
+    return false;
+  }, []);
+
+  /**
    * Records the timeline end to end.
    *
    * MediaRecorder captures a live canvas, so this runs in real time — the clip
@@ -2662,6 +2846,26 @@ export function ContentCreatorPage() {
       window.setTimeout(done, 250);
     });
 
+    const hasAudioSource = !!motionAudioRef.current || !!motionMusicRef.current;
+    let audioConfirmed = await waitForAudioReady(1500);
+    if (hasAudioSource && !audioConfirmed) {
+      // One nudge before giving up — a dropped play() promise or a context
+      // that needed a second resume() is recoverable, not a hard failure.
+      seekMotionTo(0);
+      motionAudioRef.current?.play().catch(() => {});
+      motionMusicRef.current?.play().catch(() => {});
+      audioConfirmed = await waitForAudioReady(1500);
+    }
+    if (hasAudioSource && !audioConfirmed) {
+      motionLoopRef.current = restoreLoop;
+      setIsExportingTimeline(false);
+      setTimelineExportElapsed(null);
+      setSegmentError(
+        "Could not confirm the voiceover was actually playing before recording started, so the export was cancelled rather than risk a silent video. Press Play once to warm up audio, then Export again."
+      );
+      return;
+    }
+
     let progressTimer: number | null = null;
     const finish = () => {
       if (progressTimer !== null) window.clearInterval(progressTimer);
@@ -2688,6 +2892,16 @@ export function ContentCreatorPage() {
             /* video-only export — the timeline is still frame-accurate */
           }
         }
+      }
+
+      // Confirmed a moment ago in waitForAudioReady, but the track list is
+      // rebuilt above — a source that was live then and silently dropped its
+      // track since (device change, element reset) must not still export as
+      // if nothing were wrong.
+      if (hasAudioSource && stream.getAudioTracks().length === 0) {
+        throw new Error(
+          "A voiceover or music file is loaded, but no audio track could be attached to the recording. Reload the audio file and export again."
+        );
       }
 
       const mimeType = MP4_MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
@@ -4889,7 +5103,7 @@ export function ContentCreatorPage() {
                       </span>
                     </div>
                     <p className="text-[10.5px] text-white/60 leading-relaxed">
-                      Upload up to 30 images at once, processed in batches. OpenCV + tesseract split each poster into text and graphic layers at full resolution — every pixel outside a detected element is left exactly as uploaded, and each text layer carries its literal words, position, size and colour.
+                      Upload up to 50 images at once, processed in batches. OpenCV + tesseract split each poster into text and graphic layers at full resolution — every pixel outside a detected element is left exactly as uploaded, and each text layer carries its literal words, position, size and colour.
                     </p>
                   </div>
 
@@ -4922,7 +5136,7 @@ export function ContentCreatorPage() {
                       <Upload className="h-6 w-6" />
                     </div>
                     <p className="text-xs font-bold text-white mb-0.5">Click or Drag &amp; Drop Images to Decompose</p>
-                    <p className="text-[10px] text-white/40">Select up to 30 carousel slides together — each is processed identically</p>
+                    <p className="text-[10px] text-white/40">Select up to 50 carousel slides together — each is processed identically</p>
                   </div>
 
                   {/* Segmentation Loading Spinner */}
@@ -4945,6 +5159,13 @@ export function ContentCreatorPage() {
                     </div>
                   )}
 
+                  {watermarkError && (
+                    <div className="p-3 rounded-xl border border-amber-500/40 bg-amber-500/10 flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      <p className="text-[10.5px] text-amber-200/90 leading-relaxed break-words">{watermarkError}</p>
+                    </div>
+                  )}
+
                   {/* Slide Switcher — one entry per uploaded image */}
                   {motionSlides.length > 1 && (
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
@@ -4960,6 +5181,23 @@ export function ContentCreatorPage() {
                           >
                             <Shuffle className="h-2.5 w-2.5" />
                             <span className="text-[8.5px] font-bold uppercase tracking-wide">Fix Order</span>
+                          </button>
+                          <button
+                            onClick={handleRemoveAllWatermarks}
+                            disabled={isRemovingWatermarks || isSegmenting}
+                            title="Detect and erase a Grok Imagine watermark from every slide's image"
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-white/10 bg-white/[0.04] hover:bg-white/[0.09] text-white/55 hover:text-white/90 transition cursor-pointer disabled:opacity-40 disabled:cursor-wait"
+                          >
+                            {isRemovingWatermarks ? (
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            ) : (
+                              <Eraser className="h-2.5 w-2.5" />
+                            )}
+                            <span className="text-[8.5px] font-bold uppercase tracking-wide">
+                              {isRemovingWatermarks && watermarkProgress
+                                ? `${watermarkProgress.done}/${watermarkProgress.total}`
+                                : "Remove Watermark"}
+                            </span>
                           </button>
                           <span className="text-[9.5px] font-mono text-white/40">
                             {activeMotionIndex + 1} / {motionSlides.length}
@@ -5165,6 +5403,9 @@ export function ContentCreatorPage() {
                           {motionData.meta && (
                             <span className="ml-1.5 font-mono normal-case tracking-normal text-white/35">
                               {motionData.meta.textLayers ?? 0} text · {motionData.meta.graphicLayers ?? 0} graphic
+                              {motionData.meta.watermarkRemoved && (
+                                <span className="text-emerald-400/70"> · watermark removed</span>
+                              )}
                             </span>
                           )}
                         </span>

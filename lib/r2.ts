@@ -33,6 +33,31 @@ export async function uploadBufferToR2(key: string, buffer: Buffer, contentType:
   await r2Client.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: contentType }));
 }
 
+const DATA_URL_RE = /^data:([^;]+);base64,([\s\S]*)$/;
+
+/**
+ * Uploads one base64 `data:` URL to R2 under this user and returns the
+ * same-origin proxy path that serves it back — never the R2 URL directly.
+ * Same-origin is load-bearing for callers that later draw the image onto a
+ * <canvas> and read it back (export, thumbnails, toDataURL) — a
+ * cross-origin image source would taint it. Non-data-URL input (already a
+ * proxy path, or absent) passes through untouched.
+ */
+export async function persistDataUrlToR2(
+  userId: string,
+  dataUrl: string | undefined,
+  folder: string
+): Promise<string | undefined> {
+  if (!dataUrl || !dataUrl.startsWith("data:")) return dataUrl;
+  const match = DATA_URL_RE.exec(dataUrl);
+  if (!match) return dataUrl;
+  const [, contentType, b64] = match;
+  const ext = contentType.split("/")[1]?.split("+")[0] || "png";
+  const key = `${userId}/${folder}/${crypto.randomUUID()}.${ext}`;
+  await uploadBufferToR2(key, Buffer.from(b64, "base64"), contentType);
+  return `/api/uploads/${key}`;
+}
+
 /**
  * Turns a stored `screenshots` array into directly-renderable strings: legacy
  * base64 `data:` entries pass through untouched, R2 object keys get resolved

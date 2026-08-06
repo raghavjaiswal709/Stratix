@@ -26,6 +26,8 @@ import json
 import base64
 import io
 
+from watermark import strip_grok_watermark, _looks_like_grok
+
 # Longest edge we do pixel work on. Bigger inputs are downscaled once, with
 # LANCZOS, and everything (background + cut-outs) is derived from that single
 # buffer so the layers and the background always agree pixel for pixel.
@@ -1268,6 +1270,15 @@ def process_image(input_bytes):
     H, W = arr.shape[:2]
     total = float(W * H)
 
+    # Erase a Grok Imagine watermark before anything else touches `arr` -
+    # the background, originalUrl and every layer crop below all derive from
+    # this exact buffer, so cleaning it here is what keeps the mark out of
+    # all three at once instead of chasing it back out of the OCR/object
+    # passes individually. Bottom footer band only; the design system's own
+    # slide-number badge lives in a fixed spot top-right (see the corner
+    # search near the end of this function) and this pass never goes near it.
+    watermark_box = strip_grok_watermark(np, cv2, arr, _ocr_region)
+
     # ---- text -------------------------------------------------------------
     words, ocr_engine = _ocr_words(np, cv2, arr)
     lines = _group_words_into_lines(np, words)
@@ -1358,9 +1369,46 @@ def process_image(input_bytes):
                 continue
         final_graphics.append(g)
 
-    text_items = [t for t in text_items if not t.get("dropped")]
+    def _is_watermark_item(item, w_box, W, H):
+        box = item.get("box")
+        if not box:
+            return False
+        x, y, bw, bh = box
+        cx, cy = x + bw / 2.0, y + bh / 2.0
+
+        # 1. Text block matches Grok or watermark vocabulary
+        if item.get("kind") == "text" and item.get("block"):
+            txt = item["block"].get("text", "")
+            if _looks_like_grok(txt) or "watermark" in txt.lower():
+                return True
+
+        # 2. Intersects with the detected watermark_box
+        if w_box:
+            wx, wy, ww, wh = w_box
+            inter_x0 = max(x, wx)
+            inter_y0 = max(y, wy)
+            inter_x1 = min(x + bw, wx + ww)
+            inter_y1 = min(y + bh, wy + wh)
+            if inter_x1 > inter_x0 and inter_y1 > inter_y0:
+                inter_area = (inter_x1 - inter_x0) * (inter_y1 - inter_y0)
+                if inter_area > 0.05 * (bw * bh) or inter_area > 0.05 * (ww * wh):
+                    return True
+
+        # 3. Positioned in bottom footer watermark zone (y > 68% H, bottom-left or bottom-right)
+        if cy > 0.68 * H and (cx < 0.40 * W or cx > 0.60 * W):
+            if bw < 0.35 * W and bh < 0.12 * H:
+                if item.get("kind") == "text":
+                    txt = item["block"].get("text", "")
+                    if _looks_like_grok(txt) or not txt.strip() or len(txt) <= 6:
+                        return True
+                elif item.get("kind") == "graphic":
+                    if w_box and (abs(y - w_box[1]) < 0.15 * H and abs(x - w_box[0]) < 0.25 * W):
+                        return True
+        return False
+
+    text_items = [t for t in text_items if not t.get("dropped") and not _is_watermark_item(t, watermark_box, W, H)]
     final_graphics = [g for g in final_graphics
-                      if not any(_contained(g["box"], t["box"]) for t in text_items)]
+                      if not any(_contained(g["box"], t["box"]) for t in text_items) and not _is_watermark_item(g, watermark_box, W, H)]
 
     # One more look at the fixed corner the slide-number badge always lives
     # in. _read_badge_at reads a badge far more reliably than the generic
@@ -1414,9 +1462,14 @@ def process_image(input_bytes):
             "hasBackground": True,
         })
 
+    # Purge any watermark item one final time
+    text_items = [t for t in text_items if not _is_watermark_item(t, watermark_box, W, H)]
+    final_graphics = [g for g in final_graphics if not _is_watermark_item(g, watermark_box, W, H)]
+
     # text first, so the cap never trades a headline for a decorative blob
     items = sorted(text_items, key=lambda it: -_area(it["box"])) + \
         sorted(final_graphics, key=lambda it: -_area(it["box"]))
+    items = [it for it in items if not _is_watermark_item(it, watermark_box, W, H)]
     items = items[:MAX_LAYERS]
     items.sort(key=lambda it: (it["box"][1], it["box"][0]))
 
@@ -1605,6 +1658,7 @@ def process_image(input_bytes):
         "sourceHeight": src_h,
         "backgroundUrl": _background_data_url(background),
         "originalUrl": original_url,
+        "watermarkRemoved": watermark_box is not None,
         "layers": layers,
         "text": {
             "fullText": "\n".join(b["text"] for b in reading_order),
@@ -1613,6 +1667,7 @@ def process_image(input_bytes):
         },
         "meta": {
             "ocr": ocr_engine,
+            "watermarkRemoved": watermark_box is not None,
             "wordsDetected": len(words),
             "linesDetected": len(lines),
             "textLayers": sum(1 for l in layers if l["type"] == "text"),
