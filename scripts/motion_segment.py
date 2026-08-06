@@ -72,6 +72,15 @@ MATTE_HI = 42.0
 # own fill, and it stays an opaque rectangle (which is the correct reading).
 MATTE_AGREE_DIST = 14.0
 
+# ---- collage layout (v2 design system) ------------------------------------
+# A poster split into 1-4 caption-labelled parts by drawn dividers. Detected
+# separately from - and more strictly than - the general-purpose "divider"
+# object kind above: a real collage rule spans almost the whole canvas, where
+# an ordinary in-page rule (the 0.18 threshold in _classify_object) does not.
+COLLAGE_DIVIDER_SPAN_FRAC = 0.80
+COLLAGE_DIVIDER_MAX_THICKNESS_FRAC = 0.035
+COLLAGE_DIVIDER_POSITION_TOL = 0.08
+
 
 # --------------------------------------------------------------------------
 # encoding helpers
@@ -1223,6 +1232,166 @@ def _detect_objects(np, cv2, arr_rgb, text_mask):
 
 
 # --------------------------------------------------------------------------
+# collage layout detection
+#
+# A poster built from the collage-architecture design system tiles the canvas
+# into 1-4 caption-labelled parts instead of one flat illustration. When that
+# specific layout is confidently recognised, process_image() takes each part
+# whole - the opposite of the element-by-element decomposition above, and
+# deliberately so: a collage part is one atomic block to the animator, never
+# shredded into its own text/graphic sub-elements. Everything below is used
+# only to find the divider lines and turn them into part boxes; any ambiguity
+# returns None and the ordinary decomposition above runs completely unchanged.
+# --------------------------------------------------------------------------
+
+def _cluster_positions(vals, tol=0.03):
+    """Collapses near-duplicate divider positions - tier 1 (a classified
+    divider object) and tier 2 (the pixel-band probe) agreeing on the same
+    line - into one."""
+    vals = sorted(vals)
+    clusters = []
+    for v in vals:
+        if clusters and v - clusters[-1][-1] <= tol:
+            clusters[-1].append(v)
+        else:
+            clusters.append([v])
+    return [sum(c) / len(c) for c in clusters]
+
+
+def _find_divider_bands(cv2, mask, axis, w, h):
+    """Rows (axis="h") or columns (axis="v") that read as a divider: a thin,
+    near-full-span band of foreground, found by closing gaps ALONG the band's
+    own direction first - bridging a sketchy hand-drawn stroke the isotropic
+    object-level close (OBJECT_CLOSE_FRAC) is not shaped to reach - then
+    measuring coverage directly. This exists because _detect_objects' own
+    bw<6/bh<6 floor (tuned for icons) drops a hairline pencil divider before
+    it ever becomes an object at all.
+
+    Returns candidate centres as a fraction 0-1 along the checked axis.
+    """
+    H, W = mask.shape[:2]
+    if axis == "h":
+        k = cv2.getStructuringElement(cv2.MORPH_RECT, (max(15, int(0.05 * W)), 3))
+        closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
+        margin = int(0.04 * W)
+        coverage = (closed[:, margin: W - margin] > 0).mean(axis=1)
+        length, short_edge = H, min(W, H)
+    else:
+        k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, max(15, int(0.05 * H))))
+        closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
+        margin = int(0.04 * H)
+        coverage = (closed[margin: H - margin, :] > 0).mean(axis=0)
+        length, short_edge = W, min(W, H)
+
+    lo = int(0.08 * length)
+    hi = length - lo
+    candidates = []
+    i = lo
+    while i < hi:
+        if coverage[i] >= 0.78:
+            j = i
+            while j < hi and coverage[j] >= 0.78:
+                j += 1
+            thickness = j - i
+            if thickness <= max(3, COLLAGE_DIVIDER_MAX_THICKNESS_FRAC * short_edge):
+                candidates.append((i + j) / 2.0 / float(length))
+            i = j
+        else:
+            i += 1
+    return candidates
+
+
+def _blocks_in_reading_order(blocks):
+    """Joins OCR blocks into one string in reading order, tolerant of blocks
+    that sit on the same printed row but disagree slightly on y (ascenders,
+    different word heights, a run that got OCR'd as more than one block) - a
+    flat sort by (y, x) alone interleaves those wrong, same reasoning as
+    _same_visual_line above for individual words."""
+    remaining = sorted(blocks, key=lambda b: b["box"][1])
+    rows = []
+    for b in remaining:
+        by, bh = b["box"][1], b["box"][3]
+        bc = by + bh / 2.0
+        placed = False
+        for row in rows:
+            rc = row["y"] + row["h"] / 2.0
+            if abs(bc - rc) <= 0.6 * min(bh, row["h"]):
+                row["items"].append(b)
+                row["y"] = min(row["y"], by)
+                row["h"] = max(row["h"], bh)
+                placed = True
+                break
+        if not placed:
+            rows.append({"y": by, "h": bh, "items": [b]})
+    rows.sort(key=lambda r: r["y"])
+    out = []
+    for row in rows:
+        row["items"].sort(key=lambda b: b["box"][0])
+        out.extend(b["text"] for b in row["items"])
+    return " ".join(out)
+
+
+def _detect_collage_layout(np, cv2, arr, text_mask, graphic_items, w, h):
+    """1, 2, 3 or 4 collage parts, from divider rules that span almost the
+    whole canvas - or None when no confident layout is found.
+
+    Returns a list of fractional (x, y, w, h) part boxes in reading order
+    (top-to-bottom for stacks; top-left, top-right, bottom-left, bottom-right
+    for a 2x2), or None. Never returns a single-box (1-part) layout - that
+    case is indistinguishable from "no collage" and is exactly what leaving
+    the ordinary decomposition alone already handles correctly.
+    """
+    mask = _foreground_mask(np, cv2, arr, text_mask)
+
+    # Tier 1: dividers the ordinary object detector already found and
+    # classified, kept only when they span almost the whole canvas - unlike
+    # the small in-page rule the 0.18 threshold in _classify_object accepts.
+    obj_h, obj_v = [], []
+    for d in graphic_items:
+        if d.get("objectType") != "divider":
+            continue
+        x, y, bw, bh = d["box"]
+        if bw >= COLLAGE_DIVIDER_SPAN_FRAC * w and bw >= bh * 3:
+            obj_h.append((y + bh / 2.0) / float(h))
+        elif bh >= COLLAGE_DIVIDER_SPAN_FRAC * h and bh >= bw * 3:
+            obj_v.append((x + bw / 2.0) / float(w))
+
+    # Tier 2: the dedicated thin-band probe, only consulted when tier 1 found
+    # nothing on that axis.
+    if not obj_h:
+        obj_h = _find_divider_bands(cv2, mask, "h", w, h)
+    if not obj_v:
+        obj_v = _find_divider_bands(cv2, mask, "v", w, h)
+
+    h_pos = _cluster_positions(obj_h)
+    v_pos = _cluster_positions(obj_v)
+
+    def _near(vals, target):
+        return [v for v in vals if abs(v - target) <= COLLAGE_DIVIDER_POSITION_TOL]
+
+    # 2 parts: one divider, roughly centred.
+    if len(h_pos) == 1 and len(v_pos) == 0 and _near(h_pos, 0.5):
+        y0 = h_pos[0]
+        return [(0.0, 0.0, 1.0, y0), (0.0, y0, 1.0, 1.0 - y0)]
+
+    # 3 parts: two dividers at roughly the thirds.
+    if len(h_pos) == 2 and len(v_pos) == 0:
+        a, b = sorted(h_pos)
+        if _near([a], 1 / 3.0) and _near([b], 2 / 3.0):
+            return [(0.0, 0.0, 1.0, a), (0.0, a, 1.0, b - a), (0.0, b, 1.0, 1.0 - b)]
+
+    # 4 parts: one of each axis, crossing near the centre - a 2x2 grid.
+    if len(h_pos) == 1 and len(v_pos) == 1 and _near(h_pos, 0.5) and _near(v_pos, 0.5):
+        y0, x0 = h_pos[0], v_pos[0]
+        return [
+            (0.0, 0.0, x0, y0), (x0, 0.0, 1.0 - x0, y0),
+            (0.0, y0, x0, 1.0 - y0), (x0, y0, 1.0 - x0, 1.0 - y0),
+        ]
+
+    return None
+
+
+# --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
 
@@ -1314,6 +1483,41 @@ def process_image(input_bytes):
         ]
     )
 
+    # ---- collage layout (optional) -----------------------------------------
+    # When the collage-architecture layout is confidently recognised, each
+    # part becomes ONE atomic layer below and the ordinary per-element
+    # reconcile/decompose pass that follows is left with nothing to do (its
+    # inputs are emptied here), rather than being restructured to skip it.
+    collage_regions = _detect_collage_layout(np, cv2, arr, text_mask, graphic_items, W, H)
+    collage_parts = []
+    if collage_regions:
+        for i, (rx, ry, rw, rh) in enumerate(collage_regions):
+            box = _clip((int(round(rx * W)), int(round(ry * H)), int(round(rw * W)), int(round(rh * H))), W, H)
+            bx, by, bbw, bbh = box
+            # Reuse the page-level OCR blocks already found above, rather than
+            # a fresh region read - a part is mostly illustration with one
+            # caption line, and the multi-pass page OCR that produced `blocks`
+            # is far more reliable on that than a single tight region read.
+            inside_blocks = [
+                b for b in blocks
+                if bx <= b["box"][0] + b["box"][2] / 2.0 <= bx + bbw
+                and by <= b["box"][1] + b["box"][3] / 2.0 <= by + bbh
+            ]
+            caption = _blocks_in_reading_order(inside_blocks).strip()
+            collage_parts.append({
+                "box": box,
+                "kind": "graphic",
+                "objectType": "collage-part",
+                "objectRole": "collage-part",
+                "hasBackground": True,
+                "collagePartIndex": i,
+                "collageCaption": caption,
+            })
+        # The parts tile the whole canvas now - nothing is left over for the
+        # ordinary per-element pass below to find.
+        text_items = []
+        graphic_items = []
+
     # ---- reconcile text and graphics -------------------------------------
     # Resolving these two sets against each other by area alone is what used to
     # lose badges: the pill around "PART 2" is bigger than the words, so the
@@ -1367,7 +1571,22 @@ def process_image(input_bytes):
                 continue
         final_graphics.append(g)
 
+    # graphic_items was emptied above when a collage layout was found, so the
+    # loop just above never ran and final_graphics is still [] here - this is
+    # where the whole parts actually enter the pipeline.
+    final_graphics.extend(collage_parts)
+
     def _is_watermark_item(item, w_box, W, H):
+        # A collage part is never itself a watermark - it is a whole design
+        # region, orders of magnitude bigger than one. The "intersects w_box"
+        # check below is sized for a small candidate roughly the watermark's
+        # own footprint; against a part spanning half the canvas, a watermark
+        # sitting anywhere inside it reads as "100% of w_box overlaps" and the
+        # whole part would otherwise be dropped. Any actual watermark pixels
+        # inside the part were already cleaned in `arr` by strip_grok_watermark
+        # before OCR ever ran, so there is nothing left here to catch.
+        if item.get("objectType") == "collage-part":
+            return False
         box = item.get("box")
         if not box:
             return False
@@ -1422,7 +1641,8 @@ def process_image(input_bytes):
     # the label is wrong). Either way it is very likely the badge itself.
     prior_candidates = [
         t for t in text_items + final_graphics
-        if (t["box"][0] + t["box"][2] / 2.0) / W > 0.72 and (t["box"][1] + t["box"][3] / 2.0) / H < 0.25
+        if t.get("objectType") != "collage-part"
+        and (t["box"][0] + t["box"][2] / 2.0) / W > 0.72 and (t["box"][1] + t["box"][3] / 2.0) / H < 0.25
     ]
     prior_ids = {id(t) for t in prior_candidates}
     # Everything ELSE already claimed (a decorative corner icon, a chart
@@ -1446,7 +1666,11 @@ def process_image(input_bytes):
     # Nothing claimed the corner yet, or nothing there could be read - try
     # the fixed zone directly, for a ring too thin to ever become an object
     # (or generate any OCR read at all) in the first place.
-    if not replacement and not already_resolved:
+    # A collage part's own badge (if any) is baked into its pixels by design -
+    # requirement 2 is that a part is never decomposed further, so this whole
+    # corner-zone probe, which would otherwise manufacture a redundant floating
+    # badge layer on top of it, is skipped outright for a collage-mode slide.
+    if not replacement and not already_resolved and not collage_regions:
         corner_zone = (int(0.78 * W), 0, int(0.22 * W), int(0.13 * H))
         replacement = _read_badge_at(np, cv2, arr, corner_zone, exclude_boxes, W, H)
 
@@ -1626,14 +1850,19 @@ def process_image(input_bytes):
             object_type = it.get("objectType", "graphic")
             role = it.get("objectRole") or _graphic_role(rel_y, aspect, rel_area)
             label = object_type if object_type != "graphic" else role
+            # A collage part carries its own verbatim caption (found above,
+            # from the page-level OCR blocks that fall inside its box) - every
+            # other graphic kind has none, hence the "" everyone else gets.
+            is_collage_part = object_type == "collage-part"
+            caption = it.get("collageCaption", "") if is_collage_part else ""
             layer.update({
                 "type": "graphic",
                 "role": role,
                 "objectType": object_type,
-                "name": "{} ({})".format(label.replace("-", " ").title(), layer["positionLabel"]),
+                "name": caption[:60] if caption else "{} ({})".format(label.replace("-", " ").title(), layer["positionLabel"]),
                 "slug": "{}_{}".format(object_type.replace("-", "_"), idx + 1),
-                "text": "",
-                "textLines": [],
+                "text": caption,
+                "textLines": [caption] if caption else [],
                 "color": _hex(ink_col) if ink_col is not None else None,
                 "aspectRatio": round(aspect, 3),
                 "fillRatio": it.get("fillRatio"),
@@ -1642,6 +1871,8 @@ def process_image(input_bytes):
                 "colorCount": it.get("colorCount"),
                 "edgeDensity": it.get("edgeDensity"),
             })
+            if is_collage_part:
+                layer["partIndex"] = it.get("collagePartIndex")
 
         layers.append(layer)
 
@@ -1674,6 +1905,7 @@ def process_image(input_bytes):
             "objectsDetected": len(detected),
             "objectTypes": sorted({l.get("objectType") for l in layers if l["type"] == "graphic" and l.get("objectType")}),
             "processedAtSourceResolution": long_edge <= MAX_PROCESS_DIM,
+            "collageParts": len(collage_parts),
         },
     }
 

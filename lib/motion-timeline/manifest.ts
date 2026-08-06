@@ -181,6 +181,47 @@ export function parseSyncManifest(raw: string): ManifestParseResult {
   return { manifest: { language: str(value.language) || null, beats }, warnings, error: null };
 }
 
+/**
+ * Just the spoken lines, in beat order.
+ *
+ * Deliberately NOT `parseSyncManifest(...).manifest.beats.map(b => b.line)`:
+ * that parser drops any beat whose elements are unusable, which is right when
+ * the manifest is being turned into animation (a beat with nothing to animate
+ * contributes nothing) and wrong when it is being used as the script's own
+ * list of parts. There, a dropped beat means a part of the script silently
+ * stops existing — and a part that does not exist can never be reported as
+ * having no image, which is the whole point of reading these lines.
+ *
+ * So this reads the lines and only the lines, tolerating anything else about
+ * a beat being malformed or absent.
+ */
+export function extractManifestLines(raw: string): string[] {
+  const text = (raw ?? "").trim();
+  if (!text) return [];
+
+  const { value } = parseLooseJson<Record<string, unknown>>(text);
+  if (!value) return [];
+
+  const rawBeats = Array.isArray(value.beats)
+    ? value.beats
+    : Array.isArray(value.scenes)
+    ? value.scenes
+    : null;
+  if (!rawBeats) return [];
+
+  return rawBeats
+    .map((rb: unknown, i) => {
+      if (!rb || typeof rb !== "object") return null;
+      const b = rb as Record<string, unknown>;
+      const line = str(b.line) || str(b.script) || str(b.voiceover) || str(b.text);
+      if (!line) return null;
+      return { order: num(b.beat) ?? i + 1, line };
+    })
+    .filter((v): v is { order: number; line: string } => v !== null)
+    .sort((a, b) => a.order - b.order)
+    .map((v) => v.line);
+}
+
 /* ──────────────────────────────────────────────────────────────────────────
  * Binding — manifest element → decomposed layer
  * ────────────────────────────────────────────────────────────────────────*/

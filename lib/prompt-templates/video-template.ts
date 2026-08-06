@@ -6,7 +6,7 @@ import { CUE_NAMES } from "@/lib/motion-timeline/cues";
 // Entrance cues the renderer can actually execute. Generated from its own
 // table so the manifest can never name a cue Stratix will silently drop.
 const ENTRANCE_CUES = CUE_NAMES.filter((n) =>
-  ["fadeIn", "fadeInUp", "fadeInDown", "fadeInLeft", "fadeInRight", "popIn", "blurIn", "wipeIn", "zoomIn"].includes(n)
+  ["fadeIn", "fadeInUp", "fadeInDown", "fadeInLeft", "fadeInRight", "popIn", "blurIn", "wipeIn", "zoomIn", "paperDropIn"].includes(n)
 ).join(", ");
 
 export const VIDEO_TEMPLATE = `1. HOW TO USE THIS
@@ -88,14 +88,34 @@ ${PROP_UNIVERSE}
 7b. VOICE & CLARITY — HOW EVERY SPOKEN AND ON-SCREEN LINE MUST READ
 ${VOICE_RULES}
 
-8. FRAME COMPOSITION GUIDANCE
-There is only one style — always the §6 editorial-serif system. Vary the FRAME instead, and never run the same composition three beats in a row:
-* HEADLINE-DOMINANT: one large typeset serif headline filling the safe zone, one big pencil-sketch prop beneath or beside it. Use for the hook and the emotional turn.
-* OBJECT-DOMINANT: one big drawn object centred in the safe zone, a short serif headline above it, one short caption below. Use when the object IS the explanation.
-* DIAGRAM-DOMINANT: the serif headline at the top of the safe zone, the drawn diagram (chart, order ladder, timeline, before/after pair) filling the middle. Use for the mechanic beat.
-* SPLIT: two halves divided by a thin hand-drawn vertical rule, each with a label and a small drawn scene. Use for comparisons and persona verdicts.
+8. FRAME COMPOSITION — COLLAGE ARCHITECTURE (v2)
+Every beat's visual is still ONE image — one frame — but it is no longer necessarily one flat illustration. It is a dynamic collage split into a variable number of sub-images ("parts"), 1 to 4, and the count changes beat to beat based on how many natural parts that beat's own spoken line actually has. There is still only one style, always the §6 editorial-serif system — this section governs how the frame is DIVIDED, not what it looks like.
+
+PART COUNT — decided from the beat's own VOICEOVER PRESENTATION SCRIPT line, not chosen freely:
+Break the line at every natural connector or internal listing — major connectors ("jab...toh," "kyunki"/"isliye") and any place a clause holds two or more separate actions or items, even joined by "aur" (e.g. "kharid aur bech" = two parts, not one). Count the resulting parts. If more than 4, merge parts together from the end of the line inward until exactly 4 remain, combining their text — never dropping words. Every beat therefore lands on 1, 2, 3, or 4 parts, dynamically, never a fixed number across the reel.
+
+LAYOUT BY PART COUNT:
+* 1 part → single full-frame image, no divider. Compose it with one of the FRAME TYPES below, exactly as a beat always has.
+* 2 parts → one horizontal divider across the middle, part 1 on top, part 2 on the bottom.
+* 3 parts → two horizontal dividers, three equal stacked bands — top, middle, bottom.
+* 4 parts → one horizontal + one vertical divider, a 2x2 grid (top-left, top-right, bottom-left, bottom-right).
+A divider is a thin hand-drawn pencil rule in the §6 palette, spanning the FULL width (horizontal) or FULL height (vertical) of the frame — never partial, and never appearing anywhere else on a multi-part frame.
+
+EVERY PART MUST CONTAIN:
+* Its own dominant drawn visual, tied only to that part's own chunk of the beat's line — never a repeat of another part's visual, composed with one of the FRAME TYPES below, scaled down to that part's own region.
+* Its own caption, set in small clean sans type sitting at the bottom of that part's own region — the exact, full, verbatim words of that part of the line. Never condensed to keywords, never paraphrased, medium size — it is a caption, not the beat's headline.
+
+COVERAGE RULE:
+Every word of the beat's spoken line must land in exactly one part's caption, in the same order it is spoken, nothing skipped and nothing duplicated — reading all of a beat's part captions in order reconstructs the full spoken line exactly. This is what a part binds against in §11b: a collage part is addressed as ONE element by its caption text, never decomposed into the objects drawn inside it — see the SYNC MANIFEST notes there.
+
+FRAME TYPES — apply inside a single part (or the whole frame, when the beat lands on 1 part). Vary these across parts and across beats; never run the same one three times running:
+* HEADLINE-DOMINANT: one typeset serif headline filling the region, one pencil-sketch prop beneath or beside it. Use for the hook and the emotional turn.
+* OBJECT-DOMINANT: one drawn object centred in the region, a short serif headline above it. Use when the object IS the explanation.
+* DIAGRAM-DOMINANT: a serif headline at the top of the region, the drawn diagram (chart, order ladder, timeline, before/after pair) filling the rest. Use for the mechanic beat.
+* SPLIT: two halves of ONE part divided by a thin hand-drawn vertical rule, each with a label and a small drawn scene — only ever inside a single part of a 1-part beat that itself needs an internal comparison. A multi-part beat already gets its division from the collage layout above; never nest a SPLIT inside one of its parts.
 
 9. VISUAL BEAT LIBRARY & DESTRUCTED LAYER PATTERNS
+The patterns below describe the LAYER_1–LAYER_5 structure of one flat frame — apply them either to a whole 1-part beat, or to a single part's own region within a 2/3/4-part collage (per §8, a part is its own small composition). LAYER_1 (Background Canvas) always means that part's own region, not the whole collage.
 * OBJECT REVEAL: LAYER_1 Canvas, LAYER_2 Headline, LAYER_3 the one dominant drawn object the beat is about, LAYER_5 precise cyan highlight band.
 * SINGLE CHART/DIAGRAM: LAYER_1 Canvas, LAYER_2 Headline, LAYER_4 pencil-sketch candlestick or zigzag chart with hatched bodies, LAYER_5 warning or resolution callout.
 * PROP CLUSTER: LAYER_1 Canvas, LAYER_2 Headline, LAYER_3 dominant prop, LAYER_4 2-3 supporting drawn props with small sans labels, LAYER_5 takeaway underline.
@@ -110,19 +130,36 @@ There is only one style — always the §6 editorial-serif system. Vary the FRAM
 [BEAT LABEL — e.g. "HOOK — 0:00–0:04"]
 VOICEOVER PRESENTATION SCRIPT (Spoken aloud, actively presenting the images in exact sequence): "..."
 
-Image prompt: Vertical short-form video still, 1080x1920px (9:16 portrait). Modern editorial infographic: typeset serif headlines and clean sans body type, combined with detailed cool-toned pencil-sketch objects with cross-hatched shading and soft cast shadows, on a flat cool pale blue-grey background (~#EEF2F6). Entirely cool-toned — no cream, beige, sepia or warm cast anywhere. DESIGN SYSTEM: [restate §6 in full — never abbreviate] COMPOSITION (safe-zone aware, per §4; state the frame type from §8): [describe the serif headline, the single dominant drawn object and any supporting props, with placement inside the safe zone, and say where the empty breathing region is] TEXT TO RENDER (exact, verbatim, typeset — one short phrase max, ≤6 words, or "none" if beat has no text):
-* Headline (serif display): "..." DRAWN OBJECTS: [every prop, its position, its scale, and its rendering — all graphite pencil sketch with hatching, tonal shading and a soft cast shadow, per §6/§7] ACCENTS: [the precise cyan highlight, the thin red underline, slate-blue arrows and circles, navy label boxes — and what each one marks] COLOR PALETTE: ${COLOR_PALETTE_LINE} STYLE TAGS: ${STYLE_TAGS_BASE}, vertical social video still --ar 9:16 AVOID: ${AVOID_LINE}, text overlapping the right icon column or the bottom caption zone, any aspect ratio other than 9:16
+COLLAGE LAYOUT: state the part count for this beat and how you split the line to get it (per §8) — e.g. "2 parts — split at 'jab...toh'" or "1 part — no split needed". A 1-part beat states this and moves straight to a single Image prompt exactly as below, with no divider and no PART loop.
+
+Image prompt: Vertical short-form video still, 1080x1920px (9:16 portrait). Modern editorial infographic: typeset serif headlines and clean sans body type, combined with detailed cool-toned pencil-sketch objects with cross-hatched shading and soft cast shadows, on a flat cool pale blue-grey background (~#EEF2F6). Entirely cool-toned — no cream, beige, sepia or warm cast anywhere. DESIGN SYSTEM: [restate §6 in full — never abbreviate] COLLAGE DIVIDERS (omit this line entirely for a 1-part beat): [state the divider(s) per §8's LAYOUT BY PART COUNT — one full-width horizontal rule at the vertical middle for 2 parts; two full-width horizontal rules at the thirds for 3; one full-width horizontal plus one full-height vertical rule crossing at the centre for 4]
+
+For EACH part (just once, for a 1-part beat — repeat this whole block per part otherwise, in reading order: top-to-bottom for a stack, top-left/top-right/bottom-left/bottom-right for a 2x2):
+PART [n] of [count] — region [top half / bottom half / top band / middle band / bottom band / top-left / top-right / bottom-left / bottom-right, as applies]:
+COMPOSITION (safe-zone aware, per §4; state the frame type from §8's FRAME TYPES, scaled to this part's own region): [describe the serif headline (1-part only) or this part's own dominant drawn object and any supporting props, with placement inside the region, and say where the empty breathing space is]
+TEXT TO RENDER (exact, verbatim, typeset):
+* 1-part beat only — Headline (serif display): "..." (≤6 words, or "none" if the beat has no headline)
+* Every part of a 2/3/4-part beat — Caption (small clean sans, bottom of this part's region): "[the exact words of this part's chunk of the spoken line — see §8's COVERAGE RULE]"
+DRAWN OBJECTS: [every prop in this part, its position, its scale, and its rendering — all graphite pencil sketch with hatching, tonal shading and a soft cast shadow, per §6/§7] ACCENTS: [the precise cyan highlight, the thin red underline, slate-blue arrows and circles, navy label boxes — and what each one marks, inside this part]
+
+COLOR PALETTE (once, for the whole frame): ${COLOR_PALETTE_LINE} STYLE TAGS: ${STYLE_TAGS_BASE}, vertical social video still --ar 9:16 AVOID: ${AVOID_LINE}, text overlapping the right icon column or the bottom caption zone, any aspect ratio other than 9:16, a caption condensed to keywords instead of the verbatim line, a divider that does not span the full width or height
 
 DESTRUCTED ELEMENTS & SPEECH SYNC MAP:
+1-part beat — exactly as a flat frame always destructs, unchanged:
 • [LAYER_1: Background Canvas] -> Active from beat start (t = 0.0s)
 • [LAYER_2: Headline ("...")] -> Triggers at spoken word "[Word]" (t ≈ X.Xs) via [Entrance, e.g. PopIn]
 • [LAYER_3: Dominant Drawn Object] -> Triggers at spoken word "[Word]" (t ≈ X.Xs) via [Action, e.g. ScaleUp / DrawIn]
 • [LAYER_4: Diagram / Chart / Graphic] -> Triggers at spoken word "[Word]" (t ≈ X.Xs) via [Action, e.g. WipeRight / DrawIn]
 • [LAYER_5: Accent / Callout] -> Triggers at spoken word "[Word]" (t ≈ X.Xs) via [Action, e.g. Pulse / stroke-on reveal]
 
+2/3/4-part beat — ONE entry per PART, never per internal layer: Stratix treats a whole collage part as a single element (it binds by the part's own caption text, per §11b), so the drawn objects and accents described above are for YOUR composition only and never get their own sync entry.
+• [PART 1 ("[verbatim caption]")] -> Triggers at spoken word "[first word of this part's own caption]" (t ≈ X.Xs) via [Entrance — popIn, fadeInUp, or paperDropIn for the cut-paper drop-in look]
+• [PART 2 ("[verbatim caption]")] -> Triggers at spoken word "[first word of this part's own caption]" (t ≈ X.Xs) via [Entrance]
+[… one line per remaining part, same pattern]
+
 MOTION SUGGESTION (for video editor): [one short note on camera move or frame transition]
 
-11. WORKED EXAMPLE (format reference only — replicate this pattern exactly)
+11. WORKED EXAMPLE (format reference only — replicate this pattern exactly; a 1-part beat, since the collage case follows the same per-part loop described in §10 above)
 
 HOOK — 0:00–0:04
 VOICEOVER PRESENTATION SCRIPT: "Ruko — yeh do lafz, STOP LOSS. Dekho is balti ko, aur samjho tumhara account isi tarah kyun khaali hota hai."
@@ -170,11 +207,13 @@ FIELD RULES — every one of these is load-bearing:
 • "kind" — one of exactly: headline, subhead, caption, badge, footer, object, chart, accent, logo. The first five are TEXT elements; the last four are DRAWN elements. Get this right or the element binds to the wrong layer.
 • "pos" — which ninth of the frame the element's CENTRE sits in, from exactly: top-left, top-center, top-right, middle-left, middle-center, middle-right, bottom-left, bottom-center, bottom-right. This must agree with where you placed it in the image prompt. For a drawn object this is the ONLY way the software can identify it — a decomposed sketch carries no words, so position and size are its entire identity. Two drawn objects in one beat must never share a "pos".
 • "sizePct" — the element's width as a percentage of the frame width (integer). Again, must match the image prompt.
-• "text" — for TEXT kinds only: the on-screen copy, verbatim and character-for-character identical to the TEXT TO RENDER line of that beat's image prompt. Omit for drawn elements.
+• "text" — for TEXT kinds only: the on-screen copy, verbatim and character-for-character identical to the TEXT TO RENDER line of that beat's image prompt. Omit for drawn elements — EXCEPT a collage part (see below), which always carries its caption here even though its "kind" is "object".
 • "word" — the single spoken word this element enters on. MUST appear verbatim in this beat's "line". One word, not a phrase, unless the phrase is two words that are always spoken together.
 • "in" — the entrance, from exactly: ${ENTRANCE_CUES}. Use popIn for objects and badges, fadeInUp for headlines and body text, wipeIn for underlines/rules/arrows that should draw on, blurIn for a soft reveal.
 • "hit" — optional, a later word in the same line to punch the element on. Use it for the payoff word, at most one per beat.
 • "out" — optional, the word at which the element leaves. Usually omit; the cut carries it.
+
+COLLAGE PARTS IN THE MANIFEST (2/3/4-part beats only — skip this for a 1-part beat): Stratix decomposes a collage part as ONE atomic element and binds it by its caption text — never write a separate manifest entry for a drawn object or accent living inside a part, only ever one entry per part. Write each as: "kind": "object", "label" a short human name, "pos" the grid cell its region occupies (top-center/bottom-center for a 2-stack; top-center/middle-center/bottom-center for a 3-stack; top-left/top-right/bottom-left/bottom-right for a 2x2), "sizePct" that part's approximate width, "text" the part's full verbatim caption (the exception noted above), and "word" the first word of that same caption.
 
 MANIFEST SELF-CHECK — fix anything that fails before you answer:
 □ Every "word" and every "hit"/"out" appears verbatim, same spelling, inside that beat's own "line".
@@ -184,6 +223,7 @@ MANIFEST SELF-CHECK — fix anything that fails before you answer:
 □ No two elements in one beat share a "pos".
 □ "kind" matches text-vs-drawn correctly for every element.
 □ Beat count in the manifest equals the beat count in PART B and PART C.
+□ For a 2/3/4-part beat: exactly one manifest element per part (never per internal drawn object/accent), and its "text" is the exact caption from that part's TEXT TO RENDER line.
 
 12. OUTPUT FORMAT — strict
 Return exactly these four parts, nothing else before, between, or after them:
@@ -214,8 +254,9 @@ The single fenced json block specified in §11b, covering every beat. No comment
 12. TEACHING: the setup→subvert turn appears at least once, no finance term is used before the beat that defines it in plain words, and the first spoken word is the hook itself — no greeting or warm-up.
 13. DESIGN: every object is described as a detailed cool-toned pencil sketch with hatching, tonal shading and a soft cast shadow — nothing is described as a flat vector icon, outline pictogram or clip-art.
 14. DESIGN: the background is a flat cool pale blue-grey, never textured, aged or cream; all type is typeset (modern serif display + clean sans), never hand-lettered; the cyan highlight is precise-edged and the red underline thin and clean; nothing warm appears anywhere.
-15. DESIGN: props are chosen by meaning from §7 with one dominant object per frame at 30–50% of frame width, frame types vary (never the same one three beats running), the palette is exactly the seven stated hexes plus cool graphite, and the handle reads exactly "${HANDLE}".
+15. DESIGN: props are chosen by meaning from §7 with one dominant object per part (per frame, for a 1-part beat) at 30–50% of that part's own width, frame types vary (never the same one three beats running), the palette is exactly the seven stated hexes plus cool graphite, and the handle reads exactly "${HANDLE}".
 16. No mascot or recurring character appears in any beat. Human figures, where used, are generic pencil-sketched people with non-specific faces.
 17. CLARITY: every spoken and on-screen line obeys §7b — plain speech, no banned phrasing, no stacked abstractions, one idea per line, read-aloud tested. Nothing sounds machine-written.
-18. SYNC: PART D is present, is valid JSON, and passes the §11b manifest self-check in full. Every drawn object is named out loud in its own beat's line, and every trigger word appears verbatim in that line.`;
+18. SYNC: PART D is present, is valid JSON, and passes the §11b manifest self-check in full. Every drawn object is named out loud in its own beat's line, and every trigger word appears verbatim in that line.
+19. COLLAGE: every beat states its part count and split reasoning per §8/§10; for a 2/3/4-part beat, the stated dividers are full-width/full-height as §8 requires, every part carries its own caption, and concatenating those captions in order reproduces the beat's spoken line exactly (the COVERAGE RULE) — nothing skipped, nothing duplicated, nothing paraphrased.`;
 

@@ -166,12 +166,14 @@ export interface MotionLayer {
   /* Graphic layers only — what the detector measured the object to be.
      Emitted by scripts/motion_segment.py · _classify_object, and read by the
      auto-sync choreographer to pick an entrance that suits the object. */
-  objectType?: "circle" | "panel" | "banner" | "divider" | "icon" | "photo" | "illustration" | "chart" | "graphic" | string;
+  objectType?: "circle" | "panel" | "banner" | "divider" | "icon" | "photo" | "illustration" | "chart" | "graphic" | "collage-part" | string;
   fillRatio?: number;
   circularity?: number;
   solidity?: number;
   colorCount?: number;
   edgeDensity?: number;
+  /** objectType "collage-part" only — reading-order position among that slide's collage parts (0-based). */
+  partIndex?: number;
 
   /* Text layers only. */
   text?: string;
@@ -221,6 +223,8 @@ export interface MotionMeta {
   mattedLayers?: number;
   processedAtSourceResolution?: boolean;
   note?: string;
+  /** Number of layers with objectType "collage-part" — 0 for an ordinary, non-collage poster. */
+  collageParts?: number;
 }
 
 export interface MotionVideoData {
@@ -238,6 +242,8 @@ export interface MotionVideoData {
   text?: MotionTextData;
   meta?: MotionMeta;
   fileName?: string;
+  /** Draws a white "cut paper" margin behind collage-part layers (procedural preview only — the timeline renderer takes this from TimelineRenderOptions instead). */
+  paperCutStyle?: boolean;
 }
 
 /** One uploaded image in a motion batch. */

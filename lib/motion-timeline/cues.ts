@@ -160,6 +160,67 @@ export const CUE_BUILDERS: Record<string, CueBuilder> = {
     };
   },
 
+  /* ── paper (collage-part combo) ─────────────────────────────────────── */
+  // A cut-paper block, not a headline or an icon: bigger travel, a tilt that
+  // settles rather than a pure fade, sized for a large collage-part layer
+  // rather than the small-graphic/text defaults used elsewhere in this file.
+  paperDropIn: (cue) => {
+    const dist = num(cue, "distancePct", 9);
+    const fromScale = num(cue, "fromScale", 0.9);
+    const fromRotateDeg = num(cue, "fromRotateDeg", -6);
+    const ease = cue.ease ?? "easeOutBack";
+    return {
+      channels: {
+        opacity: [
+          kf(cue.atMs, 0, "linear", cue.action),
+          kf(cue.atMs + cue.durMs * 0.45, 1, "easeOutQuad", cue.action),
+        ],
+        // Drops from above, like fadeInDown — negative yPct is up (§ enterFrom).
+        yPct: [
+          kf(cue.atMs, -dist, "linear", cue.action),
+          kf(cue.atMs + cue.durMs, 0, ease, cue.action),
+        ],
+        scale: [
+          kf(cue.atMs, fromScale, "linear", cue.action),
+          kf(cue.atMs + cue.durMs, 1, ease, cue.action),
+        ],
+        // Tilts in, overshoots a little the other way as it "lands", then
+        // settles flat — the wobble that reads as a dropped photo, not a slide.
+        rotate: [
+          kf(cue.atMs, fromRotateDeg, "linear", cue.action),
+          kf(cue.atMs + cue.durMs * 0.72, -fromRotateDeg * 0.22, "easeOutCubic", cue.action),
+          kf(cue.atMs + cue.durMs, 0, "easeInOutSine", cue.action),
+        ],
+      },
+    };
+  },
+  paperDropOut: (cue) => {
+    const dist = num(cue, "distancePct", 9);
+    const toScale = num(cue, "toScale", 0.92);
+    const toRotateDeg = num(cue, "toRotateDeg", 6);
+    const ease = cue.ease ?? "easeInCubic";
+    return {
+      channels: {
+        opacity: [
+          kf(cue.atMs, 1, "linear", cue.action),
+          kf(cue.atMs + cue.durMs, 0, "easeInQuad", cue.action),
+        ],
+        yPct: [
+          kf(cue.atMs, 0, "linear", cue.action),
+          kf(cue.atMs + cue.durMs, dist, ease, cue.action),
+        ],
+        scale: [
+          kf(cue.atMs, 1, "linear", cue.action),
+          kf(cue.atMs + cue.durMs, toScale, ease, cue.action),
+        ],
+        rotate: [
+          kf(cue.atMs, 0, "linear", cue.action),
+          kf(cue.atMs + cue.durMs, toRotateDeg, ease, cue.action),
+        ],
+      },
+    };
+  },
+
   /* ── scale ──────────────────────────────────────────────────────────── */
   zoomIn: (cue) => ({
     channels: {
@@ -375,6 +436,7 @@ export const CUE_CHANNELS: Record<string, ChannelName[]> = {
   slideOutUp: ["opacity", "yPct"], slideOutDown: ["opacity", "yPct"],
   slideOutLeft: ["opacity", "xPct"], slideOutRight: ["opacity", "xPct"],
   popIn: ["opacity", "scale"], popOut: ["opacity", "scale"],
+  paperDropIn: ["opacity", "yPct", "scale", "rotate"], paperDropOut: ["opacity", "yPct", "scale", "rotate"],
   zoomIn: ["scale"], zoomOut: ["scale"], emphasize: ["scale"], pulse: ["scale"],
   shake: ["xPct"], float: ["yPct"], drift: ["xPct", "yPct"], moveTo: ["xPct", "yPct"],
   spin: ["rotate"], tilt: ["rotate"],
@@ -406,6 +468,8 @@ export const CUE_DOCS: CueDoc[] = [
   { name: "slideOutRight", params: "distancePct", description: "Exits to the right while fading out." },
   { name: "popIn", params: "fromScale", description: "Scales up from fromScale (default 0.86) with an overshoot while fading in. Good for badges, icons, numbers." },
   { name: "popOut", params: "toScale", description: "Shrinks away while fading out." },
+  { name: "paperDropIn", params: "distancePct, fromScale, fromRotateDeg", description: "A cut-paper block drops in from above, tilted, fading in and settling flat with a small rotational wobble as it lands. Sized for a large collage-part layer (bigger travel than fadeInDown/popIn) — THE entrance for a collage part." },
+  { name: "paperDropOut", params: "distancePct, toScale, toRotateDeg", description: "Mirror of paperDropIn: the block tilts, shrinks slightly and slides down out of frame while fading." },
   { name: "zoomIn", params: "from, to", description: "Continuous scale ramp, e.g. from 1 to 1.08 over a whole sentence." },
   { name: "zoomOut", params: "from, to", description: "Continuous scale ramp downward." },
   { name: "emphasize", params: "amount", description: "Scale hit up to amount (default 1.06) and back to rest. THE cue for landing on a stressed word." },

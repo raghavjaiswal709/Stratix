@@ -91,6 +91,7 @@ import {
   buildTimelineFromManifest,
   parseMotionTimeline,
   parseSyncManifest,
+  extractManifestLines,
   sampleTimeline,
   wordAt,
   parseLooseJson,
@@ -117,6 +118,8 @@ import { PosterSelectionModal } from "./modals/PosterSelectionModal";
 import { ContentCalendarModal } from "./modals/ContentCalendarModal";
 import { CopyButton } from "./modals/CopyButton";
 import { FixSlideOrderModal } from "./modals/FixSlideOrderModal";
+import { matchSlideOrderToScript } from "./slideOrder";
+import { deriveScriptSegments } from "./scriptSegments";
 import { ReelStudioModal } from "./reel/ReelStudioModal";
 import { REEL_W, REEL_H, type ReelSlideSource } from "./reel/reelTypes";
 import { PromptBuilder } from "./prompt-builder/PromptBuilder";
@@ -245,10 +248,18 @@ export function ContentCreatorPage() {
   // Open on a black title card over the recap; burn word-by-word captions.
   const [motionIntroCard, setMotionIntroCard] = useState(false);
   const [motionCaptions, setMotionCaptions] = useState(false);
+  // Off by default: white "cut paper" margin + staggered drop-in on every
+  // collage-part layer. See lib/motion-timeline/cues.ts · paperDropIn and
+  // compile.ts's synthesis step for a part nobody hand-choreographed.
+  const [motionPaperCutStyle, setMotionPaperCutStyle] = useState(false);
   const [copiedSpeechPrompt, setCopiedSpeechPrompt] = useState(false);
   // Post-decomposition: re-sorts a shuffled batch by each poster's own
   // printed slide number. See components/content-creator/slideOrder.ts.
   const [showFixSlideOrderModal, setShowFixSlideOrderModal] = useState(false);
+  // Post-decomposition, caption-based: re-sorts a shuffled batch by locating
+  // each slide's own caption inside the pasted script or a loaded transcript.
+  // Independent of the badge path above — see slideOrder.ts · matchSlideOrderToScript.
+  const [motionOrderNotice, setMotionOrderNotice] = useState<{ message: string; previousOrder: MotionSlide[] } | null>(null);
 
   /**
    * The editable document.
@@ -784,7 +795,7 @@ export function ContentCreatorPage() {
         setMotionSaveState("idle");
 
         if (savedTimeline.trim()) {
-          const { timeline, report } = parseMotionTimeline(savedTimeline, slides);
+          const { timeline, report } = parseMotionTimeline(savedTimeline, slides, { paperCutStyle: motionPaperCutStyle });
           setMotionTimeline(timeline);
           setMotionTimelineReport(report);
           const restoredDoc = parseLooseJson<AuthoredTimeline>(savedTimeline).value;
@@ -1797,6 +1808,7 @@ export function ContentCreatorPage() {
           showSelection: !isPlayingMotion && !isExportingTimeline,
           words: motionTranscript ?? undefined,
           captions: motionCaptions,
+          paperCutStyle: motionPaperCutStyle,
         },
         (sceneIndex) => motionTimeline.scenes[sceneIndex]?.intro
       );
@@ -1811,6 +1823,7 @@ export function ContentCreatorPage() {
       ...motionData,
       timeMs: motionTimeMs,
       layerImgEls: motionLayerImgElsRef.current[activeMotionSlideId] || {},
+      paperCutStyle: motionPaperCutStyle,
     };
     const bgImg = motionData.backgroundUrl ? loadedImagesRef.current[motionData.backgroundUrl] : null;
     const bounds = drawPoster(canvasRef.current, dataWithTime, ar, colors, config, bgImg, "motion");
@@ -1830,6 +1843,7 @@ export function ContentCreatorPage() {
     motionAssetVersion,
     motionTranscript,
     motionCaptions,
+    motionPaperCutStyle,
     ar,
     colors,
     config,
@@ -1956,6 +1970,107 @@ export function ContentCreatorPage() {
   // The original bytes go up untouched, as multipart. The old path re-drew
   // every upload into a 1200px JPEG at q0.90 before the server ever saw it,
   // which threw away detail the decomposer then could not recover.
+  // The script's own parts, in speaking order — the canonical list every
+  // slide is matched against, and the list that decides which parts have no
+  // image at all. Shared by the silent auto-reorder on upload and by the Fix
+  // Order modal, so both ever judge against exactly the same parts.
+  // See scriptSegments.ts for how a punctuation-less word-level CSV is cut.
+  const motionScriptSegments = useMemo(
+    () =>
+      deriveScriptSegments({
+        manifestLines: extractManifestLines(motionManifestText),
+        transcript: motionTranscript,
+        hintCount: motionSlides.length,
+      }),
+    [motionTranscript, motionManifestText, motionSlides.length]
+  );
+
+  /**
+   * Images → decomposed slides. Shared by the batch upload below and by the
+   * Fix Order modal, which decomposes one image at a time to fill a gap in
+   * the script without losing everything already on screen. Reports progress
+   * through the same state as the batch path, so a per-slot upload shows the
+   * same spinner the user already knows.
+   */
+  const decomposeMotionFiles = useCallback(
+    async (files: File[], onProgress?: (done: number, total: number) => void): Promise<{ slides: MotionSlide[]; failures: string[] }> => {
+      // Chunked, not one giant request. Every layer comes back from python as a
+      // base64 PNG before the route moves it to R2, so a 50-poster batch in a
+      // single spawn would push hundreds of megabytes through one stdout pipe
+      // and sit on one function timeout. Six at a time keeps each request the
+      // size the 12-image path already proved out, and the deck grows on screen
+      // as it lands instead of after everything finishes.
+      const CHUNK_SIZE = 6;
+      const failures: string[] = [];
+      const slides: MotionSlide[] = [];
+      const stamp = Date.now();
+
+      for (let offset = 0; offset < files.length; offset += CHUNK_SIZE) {
+        const chunk = files.slice(offset, offset + CHUNK_SIZE);
+
+        const form = new FormData();
+        chunk.forEach((f) => form.append("images", f, f.name));
+
+        const res = await fetch("/api/content-creator/motion-segment", {
+          method: "POST",
+          body: form,
+        });
+        const payload = await res.json();
+
+        if (!res.ok) {
+          const reason = payload?.error || `Decomposition failed (${res.status})`;
+          // A later chunk failing must not throw away the posters that already
+          // decomposed — record it and keep what we have.
+          if (slides.length === 0 && offset + CHUNK_SIZE >= files.length) throw new Error(reason);
+          failures.push(`Images ${offset + 1}–${offset + chunk.length}: ${reason}`);
+          continue;
+        }
+
+        const results: any[] = Array.isArray(payload?.results) ? payload.results : [payload];
+
+        results.forEach((data, i) => {
+          const name = chunk[i]?.name || `Image ${offset + i + 1}`;
+          if (!data || data.error || !data.success) {
+            failures.push(`${name}: ${data?.error || "no result"}`);
+            return;
+          }
+
+          const layers: MotionLayer[] = data.layers || [];
+          const slide: MotionSlide = {
+            slideId: `slide_${stamp}_${offset + i}_${Math.random().toString(36).slice(2, 7)}`,
+            fileName: name,
+            backgroundUrl: data.backgroundUrl,
+            originalUrl: data.originalUrl,
+            layers,
+            activeLayerId: layers[0]?.id,
+            width: data.width,
+            height: data.height,
+            sourceWidth: data.sourceWidth,
+            sourceHeight: data.sourceHeight,
+            text: data.text,
+            meta: data.meta,
+          };
+          slides.push(slide);
+          preloadMotionSlideImages(slide);
+        });
+
+        onProgress?.(Math.min(offset + chunk.length, files.length), files.length);
+      }
+
+      return { slides, failures };
+    },
+    [preloadMotionSlideImages]
+  );
+
+  /** Per-slot upload from the Fix Order modal — decompose only, no state reset. */
+  const handleDecomposeForSlot = useCallback(
+    async (files: File[]): Promise<MotionSlide[]> => {
+      const { slides: added } = await decomposeMotionFiles(files);
+      return added;
+    },
+    [decomposeMotionFiles]
+  );
+
   const handleMotionFilesUpload = async (files: FileList | File[]) => {
     const fileArray = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (fileArray.length === 0) return;
@@ -1978,78 +2093,47 @@ export function ContentCreatorPage() {
     clearMotionTimeline();
 
     try {
-      // Chunked, not one giant request. Every layer comes back from python as a
-      // base64 PNG before the route moves it to R2, so a 50-poster batch in a
-      // single spawn would push hundreds of megabytes through one stdout pipe
-      // and sit on one function timeout. Six at a time keeps each request the
-      // size the 12-image path already proved out, and the deck grows on screen
-      // as it lands instead of after everything finishes.
-      const CHUNK_SIZE = 6;
-      const failures: string[] = [];
-      const slides: MotionSlide[] = [];
-
-      for (let offset = 0; offset < batch.length; offset += CHUNK_SIZE) {
-        const chunk = batch.slice(offset, offset + CHUNK_SIZE);
-
-        const form = new FormData();
-        chunk.forEach((f) => form.append("images", f, f.name));
-
-        const res = await fetch("/api/content-creator/motion-segment", {
-          method: "POST",
-          body: form,
-        });
-        const payload = await res.json();
-
-        if (!res.ok) {
-          const reason = payload?.error || `Decomposition failed (${res.status})`;
-          // A later chunk failing must not throw away the posters that already
-          // decomposed — record it and keep what we have.
-          if (slides.length === 0 && offset + CHUNK_SIZE >= batch.length) throw new Error(reason);
-          failures.push(`Images ${offset + 1}–${offset + chunk.length}: ${reason}`);
-          continue;
-        }
-
-        const results: any[] = Array.isArray(payload?.results) ? payload.results : [payload];
-
-        results.forEach((data, i) => {
-          const name = chunk[i]?.name || `Image ${offset + i + 1}`;
-          if (!data || data.error || !data.success) {
-            failures.push(`${name}: ${data?.error || "no result"}`);
-            return;
-          }
-
-          const layers: MotionLayer[] = data.layers || [];
-
-          const slide: MotionSlide = {
-            slideId: `slide_${Date.now()}_${offset + i}`,
-            fileName: name,
-            backgroundUrl: data.backgroundUrl,
-            originalUrl: data.originalUrl,
-            layers,
-            activeLayerId: layers[0]?.id,
-            width: data.width,
-            height: data.height,
-            sourceWidth: data.sourceWidth,
-            sourceHeight: data.sourceHeight,
-            text: data.text,
-            meta: data.meta,
-          };
-          slides.push(slide);
-          preloadMotionSlideImages(slide);
-        });
-
-        // Progress counts images attempted, not images that survived, so the
-        // bar still reaches the end when one poster fails.
-        setSegmentProgress({ done: Math.min(offset + chunk.length, batch.length), total: batch.length });
-      }
+      // Progress counts images attempted, not images that survived, so the
+      // bar still reaches the end when one poster fails.
+      const { slides, failures } = await decomposeMotionFiles(batch, (done, total) =>
+        setSegmentProgress({ done, total })
+      );
 
       if (slides.length === 0) {
         throw new Error(failures[0] || "No image could be decomposed");
       }
 
-      setMotionSlides(slides);
+      // Auto-order from each slide's own caption, whenever a script is loaded
+      // to match against — independent of, and tried before, the printed
+      // slide-number path. Deliberately silent unless every uploaded slide
+      // found a part of its own: a partial match is real information, but it
+      // belongs in the Fix Order modal where the missing parts are visible and
+      // fixable, not applied behind the user's back. See matchSlideOrderToScript.
+      const uploadOrder = slides;
+      let orderedSlides = slides;
+      const scriptMatch =
+        motionScriptSegments.segments.length > 0
+          ? matchSlideOrderToScript(slides, motionScriptSegments.segments)
+          : null;
+      if (scriptMatch) {
+        orderedSlides = scriptMatch.order.map((i) => slides[i]);
+        setMotionOrderNotice({
+          message:
+            `Reordered ${orderedSlides.length} slide${orderedSlides.length === 1 ? "" : "s"} to match the script.` +
+            (scriptMatch.missingCount > 0
+              ? ` ${scriptMatch.missingCount} part${scriptMatch.missingCount === 1 ? "" : "s"} of the script still ${
+                  scriptMatch.missingCount === 1 ? "has" : "have"
+                } no image — open Fix Order to see which.`
+              : ""),
+          previousOrder: uploadOrder,
+        });
+      } else {
+        setMotionOrderNotice(null);
+      }
+
+      setMotionSlides(orderedSlides);
       setActiveMotionIndex(0);
-      setJsonText(JSON.stringify(buildMotionLayoutJson(slides), null, 2));
+      setJsonText(JSON.stringify(buildMotionLayoutJson(orderedSlides), null, 2));
 
       const decodeFailureMsg = failures.length > 0 ? `${failures.length} image(s) failed: ${failures.join("; ")}` : null;
 
@@ -2057,15 +2141,17 @@ export function ContentCreatorPage() {
       // it must be persisted the moment it succeeds — same "auto-save
       // immediately" contract as generateNewsBatch/generateFactsBatch. Every
       // image URL here is already an R2-backed proxy path (never base64), so
-      // this payload stays small regardless of batch size.
-      const firstName = slides[0]?.fileName?.replace(/\.[^.]+$/, "");
-      const title = slides.length > 1 ? `Motion Video · ${slides.length} slides` : (firstName || "Motion Video");
-      const previewUrl = slides[0]?.backgroundUrl || slides[0]?.originalUrl;
+      // this payload stays small regardless of batch size. Saved in the
+      // (possibly script-reordered) orderedSlides sequence, not the raw
+      // upload order.
+      const firstName = orderedSlides[0]?.fileName?.replace(/\.[^.]+$/, "");
+      const title = orderedSlides.length > 1 ? `Motion Video · ${orderedSlides.length} slides` : (firstName || "Motion Video");
+      const previewUrl = orderedSlides[0]?.backgroundUrl || orderedSlides[0]?.originalUrl;
       const createdId = await saveToHistory(
         "motion-video",
         title,
-        slides.length,
-        { slides, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme },
+        orderedSlides.length,
+        { slides: orderedSlides, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme },
         null,
         previewUrl
       );
@@ -2281,6 +2367,7 @@ export function ContentCreatorPage() {
     // from real audio rather than trusted — see compile.ts snapToWord.
     const { timeline, report } = parseMotionTimeline(motionTimelineText, motionSlides, {
       transcript: motionTranscript,
+      paperCutStyle: motionPaperCutStyle,
     });
     setMotionTimelineReport(report);
     setMotionTimeline(timeline);
@@ -2306,7 +2393,7 @@ export function ContentCreatorPage() {
     motionClockOriginRef.current = performance.now();
     setMotionTimeMs(0);
     setIsPlayingMotion(true);
-  }, [motionTimelineText, motionSlides, motionTranscript, setMotionData, ensureMotionAssets]);
+  }, [motionTimelineText, motionSlides, motionTranscript, motionPaperCutStyle, setMotionData, ensureMotionAssets]);
 
   /**
    * Installs a locally-built timeline.
@@ -2320,7 +2407,10 @@ export function ContentCreatorPage() {
     async (timelineJson: string): Promise<CompiledTimeline | null> => {
       setMotionTimelineText(timelineJson);
 
-      const compiled = parseMotionTimeline(timelineJson, motionSlides, { transcript: motionTranscript });
+      const compiled = parseMotionTimeline(timelineJson, motionSlides, {
+        transcript: motionTranscript,
+        paperCutStyle: motionPaperCutStyle,
+      });
       setMotionTimelineReport(compiled.report);
       setMotionTimeline(compiled.timeline);
       if (!compiled.timeline) return null;
@@ -2358,7 +2448,7 @@ export function ContentCreatorPage() {
       setIsPlayingMotion(true);
       return compiled.timeline;
     },
-    [motionSlides, motionTranscript, setMotionData, ensureMotionAssets]
+    [motionSlides, motionTranscript, motionPaperCutStyle, setMotionData, ensureMotionAssets]
   );
 
   /**
@@ -2500,7 +2590,10 @@ export function ContentCreatorPage() {
       const json = JSON.stringify(authored, null, 2);
       setMotionTimelineText(json);
 
-      const compiled = parseMotionTimeline(json, motionSlides, { transcript: motionTranscript });
+      const compiled = parseMotionTimeline(json, motionSlides, {
+        transcript: motionTranscript,
+        paperCutStyle: motionPaperCutStyle,
+      });
       setMotionTimelineReport(compiled.report);
       if (compiled.timeline) setMotionTimeline(compiled.timeline);
 
@@ -2512,7 +2605,7 @@ export function ContentCreatorPage() {
         void persistMotionState(json);
       }, 1200);
     },
-    [motionSlides, motionTranscript, persistMotionState]
+    [motionSlides, motionTranscript, motionPaperCutStyle, persistMotionState]
   );
 
   const undoMotionEdit = useCallback(() => {
@@ -5166,6 +5259,31 @@ export function ContentCreatorPage() {
                     </div>
                   )}
 
+                  {motionOrderNotice && (
+                    <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 flex items-start gap-2">
+                      <Shuffle className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <p className="text-[10.5px] text-emerald-200/90 leading-relaxed break-words flex-1">
+                        {motionOrderNotice.message}
+                      </p>
+                      <button
+                        onClick={() => {
+                          setMotionSlides(motionOrderNotice.previousOrder);
+                          setActiveMotionIndex(0);
+                          setMotionOrderNotice(null);
+                        }}
+                        className="text-[10px] font-bold text-emerald-300 hover:text-emerald-100 underline shrink-0 cursor-pointer"
+                      >
+                        Revert
+                      </button>
+                      <button
+                        onClick={() => setMotionOrderNotice(null)}
+                        className="p-0.5 rounded text-emerald-300/60 hover:text-emerald-100 shrink-0 cursor-pointer"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* Slide Switcher — one entry per uploaded image */}
                   {motionSlides.length > 1 && (
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
@@ -5278,6 +5396,8 @@ export function ContentCreatorPage() {
                       onIntroCardChange={setMotionIntroCard}
                       captions={motionCaptions}
                       onCaptionsChange={setMotionCaptions}
+                      paperCutStyle={motionPaperCutStyle}
+                      onPaperCutStyleChange={setMotionPaperCutStyle}
                       onCopySpeechPrompt={handleCopySpeechPrompt}
                       copiedSpeechPrompt={copiedSpeechPrompt}
                       autoSyncReport={motionAutoSyncReport}
@@ -7041,8 +7161,10 @@ export function ContentCreatorPage() {
       {showFixSlideOrderModal && (
         <FixSlideOrderModal
           slides={motionSlides}
+          segmentation={motionScriptSegments}
           onClose={() => setShowFixSlideOrderModal(false)}
           onApply={handleApplyFixedSlideOrder}
+          onDecomposeFiles={handleDecomposeForSlot}
         />
       )}
 

@@ -29,6 +29,8 @@ export interface TimelineRenderOptions {
    */
   words?: Array<{ text: string; startMs: number; endMs: number }>;
   captions?: boolean;
+  /** Draws a white "cut paper" margin behind every collage-part layer. */
+  paperCutStyle?: boolean;
 }
 
 /**
@@ -281,6 +283,26 @@ function applyWipeClip(
   ctx.clip();
 }
 
+/**
+ * The white "cut paper" margin behind a collage-part layer, on when
+ * paperCutStyle is on. Sized off the layer's own footprint so it scales with
+ * the block rather than the canvas, and drawn before the image so the image
+ * sits on top of it like a photo dropped onto its own backing card.
+ */
+export function drawPaperFrame(ctx: CanvasRenderingContext2D, left: number, top: number, width: number, height: number) {
+  const margin = Math.max(6, Math.round(Math.min(width, height) * 0.035));
+  const radius = Math.max(2, margin * 0.4);
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+  ctx.shadowBlur = margin * 1.4;
+  ctx.shadowOffsetY = margin * 0.5;
+  ctx.fillStyle = "#FFFFFF";
+  ctx.beginPath();
+  ctx.roundRect(left - margin, top - margin, width + margin * 2, height + margin * 2, radius);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawScene(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -378,12 +400,16 @@ function drawScene(
     ctx.globalAlpha = scene.alpha * state.opacity * (layer.opacity ?? 1);
     if (state.blur > 0.01) ctx.filter = `blur(${state.blur}px)`;
 
+    const isPaperCutPart = !!opts.paperCutStyle && layer.objectType === "collage-part";
+
     if (rot !== 0) {
       ctx.translate(left + curW / 2, top + curH / 2);
       ctx.rotate(rot);
+      if (isPaperCutPart) drawPaperFrame(ctx, -curW / 2, -curH / 2, curW, curH);
       applyWipeClip(ctx, state, -curW / 2, -curH / 2, curW, curH);
       ctx.drawImage(img, -curW / 2, -curH / 2, curW, curH);
     } else {
+      if (isPaperCutPart) drawPaperFrame(ctx, left, top, curW, curH);
       applyWipeClip(ctx, state, left, top, curW, curH);
       ctx.drawImage(img, left, top, curW, curH);
     }
