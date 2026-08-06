@@ -72,6 +72,8 @@ export interface EditableScene {
   /** Camera cues live on the scene, not on a track. */
   camera: EditableCue[];
   tracks: EditableTrack[];
+  /** Title-card text; when set, this scene paints as a card, not a slide. */
+  intro?: string;
 }
 
 export interface EditableTimeline {
@@ -187,6 +189,7 @@ export function toEditable(doc: AuthoredTimeline, slideCount: number): EditableT
           };
         })
         .filter((t): t is EditableTrack => t !== null),
+      intro: str(s.intro),
       _slideRaw: slideRaw,
     } as EditableScene;
   });
@@ -230,6 +233,7 @@ export function toAuthored(doc: EditableTimeline): AuthoredTimeline {
         }),
       };
       if (s.camera.length > 0) scene.camera = { cues: s.camera.map(cueToAuthored) };
+      if (s.intro) scene.intro = s.intro;
       return scene;
     }),
   };

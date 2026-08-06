@@ -14,7 +14,7 @@ import { findWordTime, type TranscriptWord } from "./transcript";
 // Shared with the compiler so a timeline built here and a timeline snapped
 // there put an entrance at exactly the same instant.
 import { DEFAULT_LEAD_IN_MS as LEAD_IN_MS, type TimelineSlideLike } from "./compile";
-import type { AuthoredCue, AuthoredScene, AuthoredTimeline, AuthoredTrack } from "./types";
+import type { AuthoredCue, AuthoredScene, AuthoredTimeline, AuthoredTrack, WipeDirection } from "./types";
 import { TIMELINE_FORMAT } from "./types";
 import { CUE_NAMES } from "./cues";
 
@@ -72,7 +72,7 @@ const EMPHASIS_MIN_GAP_MS = 500;
 /** Entrances that already start from invisible — no `hide` needed before them. */
 const SELF_HIDING = new Set([
   "fadeIn", "fadeInUp", "fadeInDown", "fadeInLeft", "fadeInRight",
-  "popIn", "blurIn", "wipeIn", "zoomIn",
+  "popIn", "blurIn", "wipeIn", "zoomIn", "zigzagIn",
 ]);
 
 /**
@@ -182,11 +182,6 @@ export function buildTimelineFromManifest(
       }
       boundElements++;
 
-      const entrance = CUE_NAMES.includes(element.in) ? element.in : "fadeInUp";
-      if (!CUE_NAMES.includes(element.in)) {
-        warnings.push(`${beat.label} · "${element.label}" asked for unknown cue "${element.in}" — used fadeInUp.`);
-      }
-
       // A decomposed graphic has no words of its own to be "read" in step
       // with the voice — gating it behind element.word the same way a
       // caption is gated left the slide's own artwork missing until the
@@ -198,15 +193,25 @@ export function buildTimelineFromManifest(
 
       const cues: AuthoredCue[] = [];
       let enterMs: number;
+      let wipeFrom: WipeDirection | undefined;
 
       if (isGraphic) {
+        // Always a torn-paper zigzag reveal, not whatever entrance the
+        // manifest asked for — that choice was made for an element syncing
+        // to speech, which this one deliberately no longer does. Alternating
+        // which side the tear sweeps in from is what makes a stack of
+        // graphics on one slide read as dealt sheets rather than a template
+        // repeating itself.
         enterMs = Math.min(startMs + graphicCount * GRAPHIC_STAGGER_MS, startMs + GRAPHIC_WINDOW_MS);
+        wipeFrom = graphicCount % 2 === 0 ? "left" : "right";
         graphicCount++;
-        // The renderer draws an untracked element fully visible, so anything
-        // that should arrive later must be explicitly hidden at the scene start.
-        if (!SELF_HIDING.has(entrance)) cues.push({ action: "hide", atMs: startMs });
-        cues.push({ action: entrance, atMs: enterMs, durMs: ENTRANCE_MS });
+        cues.push({ action: "zigzagIn", atMs: enterMs, durMs: ENTRANCE_MS });
       } else {
+        const entrance = CUE_NAMES.includes(element.in) ? element.in : "fadeInUp";
+        if (!CUE_NAMES.includes(element.in)) {
+          warnings.push(`${beat.label} · "${element.label}" asked for unknown cue "${element.in}" — used fadeInUp.`);
+        }
+
         // Times are resolved here, not left for the compiler to snap: the
         // document is saved to history and later re-compiled with no transcript
         // loaded, and a timeline that only works while a CSV happens to be open
@@ -254,7 +259,7 @@ export function buildTimelineFromManifest(
         } else if (!unmatchedWords.includes(element.out)) unmatchedWords.push(element.out);
       }
 
-      tracks.push({ id: layerId, name: element.label, cues });
+      tracks.push({ id: layerId, name: element.label, cues, ...(wipeFrom ? { wipeFrom } : {}) });
     });
 
     lastEndMs = endMs;

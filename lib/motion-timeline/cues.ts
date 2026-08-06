@@ -266,6 +266,23 @@ export const CUE_BUILDERS: Record<string, CueBuilder> = {
       wipe: [kf(cue.atMs, 1, "linear", cue.action), kf(cue.atMs + cue.durMs, 0, cue.ease ?? "easeInCubic", cue.action)],
     },
   }),
+
+  // Same reveal as wipeIn — 0→1 on the wipe channel — but the compiler tags
+  // the track "zigzag" (see compile.ts) so the renderer cuts a torn-paper
+  // edge instead of a straight one. The look for a decomposed graphic that
+  // belongs to the page rather than to a spoken word: it arrives like a cut
+  // sheet being slid into place, not typed on.
+  zigzagIn: (cue) => ({
+    channels: {
+      opacity: [kf(cue.atMs, 1, "step", cue.action)],
+      wipe: [kf(cue.atMs, 0, "linear", cue.action), kf(cue.atMs + cue.durMs, 1, cue.ease ?? "easeOutCubic", cue.action)],
+    },
+  }),
+  zigzagOut: (cue) => ({
+    channels: {
+      wipe: [kf(cue.atMs, 1, "linear", cue.action), kf(cue.atMs + cue.durMs, 0, cue.ease ?? "easeInCubic", cue.action)],
+    },
+  }),
   blurIn: (cue) => ({
     channels: {
       opacity: [kf(cue.atMs, 0, "linear", cue.action), kf(cue.atMs + cue.durMs * 0.7, 1, "easeOutQuad", cue.action)],
@@ -362,6 +379,7 @@ export const CUE_CHANNELS: Record<string, ChannelName[]> = {
   shake: ["xPct"], float: ["yPct"], drift: ["xPct", "yPct"], moveTo: ["xPct", "yPct"],
   spin: ["rotate"], tilt: ["rotate"],
   wipeIn: ["opacity", "wipe"], wipeOut: ["wipe"],
+  zigzagIn: ["opacity", "wipe"], zigzagOut: ["wipe"],
   blurIn: ["opacity", "blur"], blurOut: ["opacity", "blur"],
   dim: ["opacity"], undim: ["opacity"],
 };
@@ -400,6 +418,8 @@ export const CUE_DOCS: CueDoc[] = [
   { name: "tilt", params: "deg", description: "Rotate to deg and back — a nudge, not a spin." },
   { name: "wipeIn", params: "(track.wipeFrom)", description: "Directional clip reveal, 0 → 100%. Reads like text being written on. Direction comes from the track's wipeFrom." },
   { name: "wipeOut", params: "(track.wipeFrom)", description: "Directional clip hide, 100% → 0." },
+  { name: "zigzagIn", params: "(track.wipeFrom)", description: "Directional reveal with a torn-paper zigzag edge instead of a straight one, 0 → 100%. Reads like a cut sheet sliding into place. Direction comes from the track's wipeFrom (left/right for \"from the sides\")." },
+  { name: "zigzagOut", params: "(track.wipeFrom)", description: "Zigzag-edged clip hide, 100% → 0." },
   { name: "blurIn", params: "amount", description: "Comes into focus from amount px of blur (default 8) while fading in." },
   { name: "blurOut", params: "amount", description: "Blurs away while fading out." },
   { name: "dim", params: "to", description: "Fade down to a partial opacity (default 0.45) and stay there — for de-emphasising an element while another one speaks." },

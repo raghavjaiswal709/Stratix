@@ -921,21 +921,24 @@ interface Entrance {
 }
 
 /**
- * A sheet of paper being laid down.
+ * A sheet of paper being cut into place.
  *
- * `popIn` settles the scale from slightly oversized while fading up — the way
- * something coming toward the page reads — and `tilt` rotates a couple of
- * degrees back to square. The two write to different channels (opacity+scale
- * versus rotate), so they compose instead of fighting. Alternating the lean by
- * index means a stack of images lands like dealt sheets rather than a set of
+ * `zigzagIn` reveals the element through a torn-paper edge instead of a
+ * straight one — the read is a cut sheet sliding in, not a window opening on
+ * it. `tilt` rotates a couple of degrees back to square on top of that, on a
+ * different channel (rotate vs. wipe+opacity), so the two compose instead of
+ * fighting. Alternating both the tilt and which side the tear sweeps in from
+ * means a stack of images lands like dealt sheets rather than a set of
  * identical stamps.
  */
 function paperEntrance(index: number): Entrance {
   const lean = index % 2 === 0 ? -1.8 : 1.8;
+  const fromSide: WipeDirection = index % 2 === 0 ? "left" : "right";
   return {
-    action: "popIn",
-    durMs: 520,
-    params: { fromScale: 1.05 },
+    action: "zigzagIn",
+    durMs: 560,
+    wipeFrom: fromSide,
+    params: {},
     extra: { action: "tilt", durMs: 560, params: { deg: lean } },
   };
 }
@@ -1025,7 +1028,7 @@ function chooseEntrance(layer: AutoLayer): Entrance {
 /** Entrances that already start invisible — no `hide` needed before them. */
 const SELF_HIDING = new Set([
   "fadeIn", "fadeInUp", "fadeInDown", "fadeInLeft", "fadeInRight",
-  "popIn", "blurIn", "wipeIn",
+  "popIn", "blurIn", "wipeIn", "zigzagIn",
 ]);
 
 /* ────────────────────────────────────────────────────────────────────────────

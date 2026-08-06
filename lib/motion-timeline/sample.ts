@@ -47,7 +47,12 @@ export function sampleChannel(kfs: Keyframe[] | undefined, tMs: number, fallback
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
-function sampleChannels(channels: Channels, tMs: number, wipeFrom: LayerState["wipeFrom"]): LayerState {
+function sampleChannels(
+  channels: Channels,
+  tMs: number,
+  wipeFrom: LayerState["wipeFrom"],
+  wipeStyle: LayerState["wipeStyle"]
+): LayerState {
   return {
     opacity: clamp01(sampleChannel(channels.opacity, tMs, CHANNEL_DEFAULTS.opacity)),
     xPct: sampleChannel(channels.xPct, tMs, CHANNEL_DEFAULTS.xPct),
@@ -57,6 +62,7 @@ function sampleChannels(channels: Channels, tMs: number, wipeFrom: LayerState["w
     blur: Math.max(0, sampleChannel(channels.blur, tMs, CHANNEL_DEFAULTS.blur)),
     wipe: clamp01(sampleChannel(channels.wipe, tMs, CHANNEL_DEFAULTS.wipe)),
     wipeFrom,
+    wipeStyle,
   };
 }
 
@@ -68,7 +74,7 @@ function sampleCamera(scene: CompiledScene, tMs: number): CameraState {
 function sceneState(scene: CompiledScene, tMs: number, alpha: number): SceneRenderState {
   const layers: Record<string, LayerState> = {};
   scene.tracks.forEach((track) => {
-    const state = sampleChannels(track.channels, tMs, track.wipeFrom);
+    const state = sampleChannels(track.channels, tMs, track.wipeFrom, track.wipeStyle);
     layers[track.id] = track.visible ? state : { ...state, opacity: 0 };
   });
 
@@ -77,7 +83,7 @@ function sceneState(scene: CompiledScene, tMs: number, alpha: number): SceneRend
     slideIndex: scene.slideIndex,
     alpha,
     camera: sampleCamera(scene, tMs),
-    background: sampleChannels(scene.background, tMs, "left"),
+    background: sampleChannels(scene.background, tMs, "left", "straight"),
     layers,
   };
 }

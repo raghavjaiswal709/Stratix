@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { auth } from "@/lib/auth";
-import { uploadBufferToR2 } from "@/lib/r2";
+import { persistDataUrlToR2 } from "@/lib/r2";
 
 export const dynamic = "force-dynamic";
 // Decomposition runs OCR + CV per image; a 10-image batch takes ~12s locally
@@ -14,13 +14,13 @@ export const maxDuration = 300;
 /**
  * Per-request cap.
  *
- * The client sends a 30-slide deck in chunks well under this — one spawn per
+ * The client sends a 50-slide deck in chunks well under this — one spawn per
  * chunk keeps python's peak memory and this process's stdout buffer bounded,
  * since every layer comes back as a base64 PNG before it is moved to R2. The
  * cap here is the safety rail for a direct API call, not the batch size the UI
  * actually uses.
  */
-const MAX_IMAGES = 30;
+const MAX_IMAGES = 50;
 
 /** Decode a data URL or fetch a remote URL into raw bytes. */
 async function toBuffer(imageUrl: string): Promise<Buffer> {
@@ -34,37 +34,16 @@ async function toBuffer(imageUrl: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
-const DATA_URL_RE = /^data:([^;]+);base64,([\s\S]*)$/;
-
-/**
- * Uploads one base64 `data:` URL to R2 under this user and returns the
- * same-origin proxy path that serves it back — never the R2 URL directly.
- * Same-origin is load-bearing: the motion canvas later draws these images
- * onto a <canvas> and reads it back (export, thumbnails), which a
- * cross-origin image source would taint. Non-data-URL input (already a
- * proxy path, or absent) passes through untouched.
- */
-async function persistDataUrlToR2(userId: string, dataUrl: string | undefined): Promise<string | undefined> {
-  if (!dataUrl || !dataUrl.startsWith("data:")) return dataUrl;
-  const match = DATA_URL_RE.exec(dataUrl);
-  if (!match) return dataUrl;
-  const [, contentType, b64] = match;
-  const ext = contentType.split("/")[1]?.split("+")[0] || "png";
-  const key = `${userId}/motion-video/${crypto.randomUUID()}.${ext}`;
-  await uploadBufferToR2(key, Buffer.from(b64, "base64"), contentType);
-  return `/api/uploads/${key}`;
-}
-
 /** Replaces every embedded base64 image in one decomposition result with an R2-backed proxy URL. Failed results (no images) pass through untouched. */
 async function persistResultToR2(userId: string, result: any): Promise<any> {
   if (!result || result.error || !result.success) return result;
   const [backgroundUrl, originalUrl, layers] = await Promise.all([
-    persistDataUrlToR2(userId, result.backgroundUrl),
-    persistDataUrlToR2(userId, result.originalUrl),
+    persistDataUrlToR2(userId, result.backgroundUrl, "motion-video"),
+    persistDataUrlToR2(userId, result.originalUrl, "motion-video"),
     Promise.all(
       (result.layers || []).map(async (l: any) => ({
         ...l,
-        imageUrl: await persistDataUrlToR2(userId, l.imageUrl),
+        imageUrl: await persistDataUrlToR2(userId, l.imageUrl, "motion-video"),
       }))
     ),
   ]);
