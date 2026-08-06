@@ -57,6 +57,12 @@ export interface MotionTimelinePanelProps {
   /** White "cut paper" margin + staggered drop-in on every collage-part layer. */
   paperCutStyle: boolean;
   onPaperCutStyleChange: (value: boolean) => void;
+  /** On by default. Pins decomposed parts to rest — only the camera moves the collage. */
+  wholeImageMotion: boolean;
+  onWholeImageMotionChange: (value: boolean) => void;
+  /** On by default. A small continuous rotational shake on every graphic part, in place. */
+  zigzagMotion: boolean;
+  onZigzagMotionChange: (value: boolean) => void;
   onCopySpeechPrompt: () => void;
   copiedSpeechPrompt: boolean;
   autoSyncReport: AutoSyncReport | null;
@@ -124,6 +130,10 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onCaptionsChange,
     paperCutStyle,
     onPaperCutStyleChange,
+    wholeImageMotion,
+    onWholeImageMotionChange,
+    zigzagMotion,
+    onZigzagMotionChange,
     onCopySpeechPrompt,
     copiedSpeechPrompt,
     autoSyncReport,
@@ -431,6 +441,63 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
               {textOnlySync
                 ? "Every image is up from the first frame of its slide, settling in like paper. Only the words wait for the voiceover."
                 : "Images are paced across the slide alongside the text, as before."}
+            </span>
+          </span>
+        </button>
+
+        {/* A part animating on its own xPct/yPct/scale/rotate while the camera
+            also pans/zooms reads as it tearing loose from the collage. On by
+            default: parts hold their rest transform and only the camera
+            moves, so the whole poster reads as one photo being panned. */}
+        <button
+          onClick={() => onWholeImageMotionChange(!wholeImageMotion)}
+          className="w-full flex items-start gap-2 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/[0.05] transition cursor-pointer"
+        >
+          <span
+            className={`mt-[1px] h-3.5 w-6 shrink-0 rounded-full border transition relative ${
+              wholeImageMotion ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
+            }`}
+          >
+            <span
+              className={`absolute top-[1px] h-[10px] w-[10px] rounded-full bg-white transition-all ${
+                wholeImageMotion ? "left-[13px]" : "left-[1px]"
+              }`}
+            />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[9.5px] font-bold text-white/80">Whole-image motion &middot; parts hold still</span>
+            <span className="block text-[9px] text-white/40 leading-snug">
+              {wholeImageMotion
+                ? "Decomposed parts sit at rest — only the camera pans/zooms the collage as one photo. Captions never fade, wipe or move on their own; they're just there, baked into the artwork, from frame 0."
+                : "Each decomposed part flies, scales and rotates on its own cues, same as before."}
+            </span>
+          </span>
+        </button>
+
+        {/* Independent of wholeImageMotion — a tiny in-place rotational shake
+            on every graphic layer only, never on text, so a batch of cut-out
+            parts feels hand-placed rather than pinned dead-still. */}
+        <button
+          onClick={() => onZigzagMotionChange(!zigzagMotion)}
+          className="w-full flex items-start gap-2 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/[0.05] transition cursor-pointer"
+        >
+          <span
+            className={`mt-[1px] h-3.5 w-6 shrink-0 rounded-full border transition relative ${
+              zigzagMotion ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
+            }`}
+          >
+            <span
+              className={`absolute top-[1px] h-[10px] w-[10px] rounded-full bg-white transition-all ${
+                zigzagMotion ? "left-[13px]" : "left-[1px]"
+              }`}
+            />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[9.5px] font-bold text-white/80">Zigzag shake &middot; graphics only</span>
+            <span className="block text-[9px] text-white/40 leading-snug">
+              {zigzagMotion
+                ? "Every graphic part rocks 5–10°, randomly timed 1–2s per part, in place — never text, never a drift."
+                : "Graphic parts hold perfectly still aside from whatever their own cues do."}
             </span>
           </span>
         </button>
