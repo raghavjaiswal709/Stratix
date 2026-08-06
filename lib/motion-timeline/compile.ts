@@ -40,6 +40,10 @@ export interface TimelineSlideLike {
     y?: number;
     w?: number;
     h?: number;
+    /* "collage-part" + its reading-order index — used to auto-choreograph an
+       untracked collage part when CompileOptions.paperCutStyle is on. */
+    objectType?: string;
+    partIndex?: number;
   }>;
   width?: number;
   height?: number;
@@ -227,6 +231,13 @@ export interface CompileOptions {
   transcript?: TranscriptWord[] | null;
   /** Lead-in for entrances, so they land *by* the word. Default 90ms. */
   leadInMs?: number;
+  /**
+   * When on, any "collage-part" layer the author's tracks never mention gets a
+   * default staggered `paperDropIn` instead of rendering fully visible from
+   * frame 1 — see the synthesis step in compileTimeline. Never overrides a
+   * track someone actually authored for that layer.
+   */
+  paperCutStyle?: boolean;
 }
 
 interface Ctx {
@@ -716,6 +727,41 @@ export function compileTimeline(
         channels,
       });
     });
+
+    // Collage parts nobody choreographed still deserve the paper-cut look
+    // when it is switched on — this only fills a gap the author left (an
+    // untouched id), it never overrides a track someone actually wrote.
+    // Staggered by reading order so parts drop in one at a time rather than
+    // all at once.
+    if (options.paperCutStyle) {
+      const untrackedParts = slide.layers
+        .filter((l) => l.objectType === "collage-part" && !touched.has(`${slideIndex}:${l.id}`))
+        .sort((a, b) => (a.partIndex ?? 0) - (b.partIndex ?? 0));
+
+      untrackedParts.forEach((layer, i) => {
+        const trackWhere = `${where} · ${layer.id} (auto paper-cut)`;
+        const cue: NormalizedCue = {
+          action: "paperDropIn",
+          atMs: startMs + i * 150,
+          durMs: 460,
+          params: {},
+        };
+        const channels = finalizeChannels(CUE_BUILDERS.paperDropIn(cue, ctx.defaults).channels, ctx, trackWhere);
+        CHANNEL_KEYS.forEach((c) => {
+          keyframeCount += channels[c]?.length ?? 0;
+        });
+        touched.add(`${slideIndex}:${layer.id}`);
+        tracks.push({
+          id: layer.id,
+          authoredId: layer.id,
+          label: layer.name || "collage part",
+          visible: true,
+          wipeFrom: "left",
+          wipeStyle: "straight",
+          channels,
+        });
+      });
+    }
 
     const rawCamera = Array.isArray(rawScene.camera) ? { keyframes: rawScene.camera } : rawScene.camera ?? {};
     const cameraFromCues = compileCueList(asArray<AuthoredCue>(rawCamera.cues), ctx, offsetMs, `${where} · camera`);

@@ -6,6 +6,7 @@ export { compileTimeline, parseMotionTimeline, type TimelineSlideLike, type Comp
 export { sampleTimeline, sampleChannel, findSceneIndex } from "./sample";
 export {
   parseSyncManifest,
+  extractManifestLines,
   bindBeatToSlide,
   SYNC_MANIFEST_FORMAT,
   type SyncManifest,

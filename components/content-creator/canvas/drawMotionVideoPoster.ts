@@ -1,4 +1,5 @@
 import type { PosterElement, MotionLayer, MotionVideoData } from "../types";
+import { drawPaperFrame } from "./drawMotionTimelineFrame";
 
 export type { MotionVideoData };
 
@@ -114,12 +115,16 @@ export function drawMotionVideoPoster(
     ctx.save();
     ctx.globalAlpha = layer.opacity ?? 1.0;
 
+    const isPaperCutPart = !!data?.paperCutStyle && layer.objectType === "collage-part";
+
     if (curRot !== 0) {
       ctx.translate(curLeft + curW / 2, curTop + curH / 2);
       ctx.rotate(curRot);
+      if (isPaperCutPart) drawPaperFrame(ctx, -curW / 2, -curH / 2, curW, curH);
       ctx.drawImage(imgEl, -curW / 2, -curH / 2, curW, curH);
       ctx.translate(-(curLeft + curW / 2), -(curTop + curH / 2));
     } else {
+      if (isPaperCutPart) drawPaperFrame(ctx, curLeft, curTop, curW, curH);
       ctx.drawImage(imgEl, curLeft, curTop, curW, curH);
     }
 

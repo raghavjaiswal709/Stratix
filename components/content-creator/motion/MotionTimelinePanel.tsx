@@ -16,6 +16,7 @@ import {
   Play,
   Repeat,
   RotateCcw,
+  Scissors,
   Sparkles,
   Trash2,
   TriangleAlert,
@@ -53,6 +54,9 @@ export interface MotionTimelinePanelProps {
   onIntroCardChange: (value: boolean) => void;
   captions: boolean;
   onCaptionsChange: (value: boolean) => void;
+  /** White "cut paper" margin + staggered drop-in on every collage-part layer. */
+  paperCutStyle: boolean;
+  onPaperCutStyleChange: (value: boolean) => void;
   onCopySpeechPrompt: () => void;
   copiedSpeechPrompt: boolean;
   autoSyncReport: AutoSyncReport | null;
@@ -118,6 +122,8 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onIntroCardChange,
     captions,
     onCaptionsChange,
+    paperCutStyle,
+    onPaperCutStyleChange,
     onCopySpeechPrompt,
     copiedSpeechPrompt,
     autoSyncReport,
@@ -429,7 +435,7 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </span>
         </button>
 
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-3 gap-1.5">
           <button
             onClick={() => onIntroCardChange(!introCard)}
             title="Open on a black card with white type over the recap, before the first poster"
@@ -452,6 +458,18 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             <Captions className={`h-3 w-3 shrink-0 ${captions ? "text-emerald-300/90" : "text-white/35"}`} />
             <span className={`text-[9px] font-bold ${captions ? "text-emerald-200/90" : "text-white/55"}`}>
               Captions
+            </span>
+          </button>
+          <button
+            onClick={() => onPaperCutStyleChange(!paperCutStyle)}
+            title="White cut-paper margin + staggered drop-in on every collage part"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              paperCutStyle ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <Scissors className={`h-3 w-3 shrink-0 ${paperCutStyle ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${paperCutStyle ? "text-emerald-200/90" : "text-white/55"}`}>
+              Paper cut
             </span>
           </button>
         </div>
