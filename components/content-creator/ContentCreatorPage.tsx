@@ -243,8 +243,13 @@ export function ContentCreatorPage() {
   // posters and the CSV already timed the words, so the timeline is derivable.
   const [motionAutoSyncReport, setMotionAutoSyncReport] = useState<AutoSyncReport | null>(null);
   const [motionAutoSyncNote, setMotionAutoSyncNote] = useState<string | null>(null);
-  // On by default: artwork belongs to its slide, words belong to the voiceover.
-  const [motionTextOnlySync, setMotionTextOnlySync] = useState(true);
+  // Off by default: with this on, autoSyncTimeline drops every graphic layer
+  // into "paper mode" (lib/motion-timeline/autosync.ts · buildScene) — all of
+  // a scene's collage parts land within PAPER_STAGGER_MS of each other at the
+  // scene's start, regardless of when that part is actually talked about. Off
+  // routes graphics through the real scheduler instead, so each one enters at
+  // the moment the transcript actually reaches it, same as text.
+  const [motionTextOnlySync, setMotionTextOnlySync] = useState(false);
   // Open on a black title card over the recap; burn word-by-word captions.
   const [motionIntroCard, setMotionIntroCard] = useState(false);
   const [motionCaptions, setMotionCaptions] = useState(false);
@@ -252,6 +257,13 @@ export function ContentCreatorPage() {
   // collage-part layer. See lib/motion-timeline/cues.ts · paperDropIn and
   // compile.ts's synthesis step for a part nobody hand-choreographed.
   const [motionPaperCutStyle, setMotionPaperCutStyle] = useState(false);
+  // On by default: decomposed parts hold their rest position/scale/rotation
+  // and only the camera pans/zooms, so a collage reads as one photo instead
+  // of its cut-out pieces drifting apart. See drawMotionTimelineFrame.ts.
+  const [motionWholeImageMotion, setMotionWholeImageMotion] = useState(true);
+  // On by default: every graphic (non-text) layer gets a small continuous
+  // in-place rotational shake. See zigzagWobbleDeg in drawMotionTimelineFrame.ts.
+  const [motionZigzagMotion, setMotionZigzagMotion] = useState(true);
   const [copiedSpeechPrompt, setCopiedSpeechPrompt] = useState(false);
   // Post-decomposition: re-sorts a shuffled batch by each poster's own
   // printed slide number. See components/content-creator/slideOrder.ts.
@@ -1721,6 +1733,14 @@ export function ContentCreatorPage() {
   useEffect(() => {
     if (creatorMode !== "motion" || !isPlayingMotion) return;
 
+    // Belt-and-suspenders against a stale loop outliving its effect — e.g. a
+    // dev-mode Fast Refresh remount racing this cleanup with the previous
+    // instance's still-queued frame. cancelAnimationFrame below is the real
+    // guard; this is what stops that frame from calling setState even if the
+    // cancel loses the race, which is what "Maximum update depth exceeded"
+    // looks like from the outside: two ticking loops each advancing the clock.
+    let cancelled = false;
+
     const audio = motionAudioRef.current;
     const music = motionMusicRef.current;
     const duration = motionTimeline?.durationMs ?? 0;
@@ -1743,11 +1763,13 @@ export function ContentCreatorPage() {
     }
 
     const advance = (value: number) => {
+      if (cancelled) return;
       motionTimeRef.current = value;
       setMotionTimeMs(value);
     };
 
     const tick = (now: number) => {
+      if (cancelled) return;
       // Audio position is already in timeline time whatever the playback rate,
       // so it needs no scaling; the wall clock does.
       const fromAudio = audio && !audio.paused && !audio.ended ? audio.currentTime * 1000 : null;
@@ -1774,11 +1796,12 @@ export function ContentCreatorPage() {
       }
 
       advance(t);
-      motionAnimFrameRef.current = requestAnimationFrame(tick);
+      if (!cancelled) motionAnimFrameRef.current = requestAnimationFrame(tick);
     };
 
     motionAnimFrameRef.current = requestAnimationFrame(tick);
     return () => {
+      cancelled = true;
       if (motionAnimFrameRef.current) cancelAnimationFrame(motionAnimFrameRef.current);
       audio?.pause();
       music?.pause();
@@ -1809,10 +1832,14 @@ export function ContentCreatorPage() {
           words: motionTranscript ?? undefined,
           captions: motionCaptions,
           paperCutStyle: motionPaperCutStyle,
+          wholeImageMotion: motionWholeImageMotion,
+          zigzagMotion: motionZigzagMotion,
         },
         (sceneIndex) => motionTimeline.scenes[sceneIndex]?.intro
       );
-      setElementBounds(bounds);
+      if (!isPlayingMotion && !isExportingTimeline) {
+        setElementBounds(bounds);
+      }
       if (frame.activeSlideIndex !== activeMotionIndex && motionSlides[frame.activeSlideIndex]) {
         setActiveMotionIndex(frame.activeSlideIndex);
       }
@@ -1827,7 +1854,9 @@ export function ContentCreatorPage() {
     };
     const bgImg = motionData.backgroundUrl ? loadedImagesRef.current[motionData.backgroundUrl] : null;
     const bounds = drawPoster(canvasRef.current, dataWithTime, ar, colors, config, bgImg, "motion");
-    setElementBounds(bounds);
+    if (!isPlayingMotion && !isExportingTimeline) {
+      setElementBounds(bounds);
+    }
   }, [
     creatorMode,
     motionTimeMs,
@@ -1844,6 +1873,8 @@ export function ContentCreatorPage() {
     motionTranscript,
     motionCaptions,
     motionPaperCutStyle,
+    motionWholeImageMotion,
+    motionZigzagMotion,
     ar,
     colors,
     config,
@@ -5398,6 +5429,10 @@ export function ContentCreatorPage() {
                       onCaptionsChange={setMotionCaptions}
                       paperCutStyle={motionPaperCutStyle}
                       onPaperCutStyleChange={setMotionPaperCutStyle}
+                      wholeImageMotion={motionWholeImageMotion}
+                      onWholeImageMotionChange={setMotionWholeImageMotion}
+                      zigzagMotion={motionZigzagMotion}
+                      onZigzagMotionChange={setMotionZigzagMotion}
                       onCopySpeechPrompt={handleCopySpeechPrompt}
                       copiedSpeechPrompt={copiedSpeechPrompt}
                       autoSyncReport={motionAutoSyncReport}

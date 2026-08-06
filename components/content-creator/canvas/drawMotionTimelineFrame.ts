@@ -31,6 +31,26 @@ export interface TimelineRenderOptions {
   captions?: boolean;
   /** Draws a white "cut paper" margin behind every collage-part layer. */
   paperCutStyle?: boolean;
+  /**
+   * On by default. Every decomposed part holds its rest position, scale and
+   * rotation — a track's xPct/yPct/scale/rotate keyframes are ignored — so
+   * the collage reads as one photo with the camera moving over it instead of
+   * its cut-out pieces drifting apart from each other. Graphics keep their
+   * opacity/wipe entrance on top of that held position. Text goes further
+   * still: a caption is treated as baked into the artwork, not as an element
+   * with its own cue, so it ignores opacity/wipe/blur too and is simply
+   * present at rest from frame 0 — never fades or wipes in, never moves on
+   * its own. Camera pan/zoom is untouched either way, for every layer
+   * including text, since that is what "the whole image" moving means.
+   */
+  wholeImageMotion?: boolean;
+  /**
+   * On by default. Every non-text (graphic/photo) layer gets a small,
+   * continuous rotational wobble — a deterministic per-layer "dance" in
+   * place, no drift — layered on top of whatever wholeImageMotion allows.
+   * Text layers are never wobbled. See zigzagWobbleDeg.
+   */
+  zigzagMotion?: boolean;
 }
 
 /**
@@ -303,11 +323,41 @@ export function drawPaperFrame(ctx: CanvasRenderingContext2D, left: number, top:
   ctx.restore();
 }
 
+/** Cheap deterministic string hash → [0,1), so a layer's own wobble is stable across seeks, replays and exports rather than reseeding every frame. */
+function hashUnit(seedStr: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seedStr.length; i++) {
+    h = Math.imul(h ^ seedStr.charCodeAt(i), 16777619);
+  }
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * A small, continuous rotational "dance" for one graphic layer — a pure
+ * function of time rather than a random walk, so scrubbing the timeline or
+ * exporting reproduces the exact same shake every time. Each layer draws its
+ * own period (1-2s) and amplitude (5-10deg) from a hash of its id, so a batch
+ * of parts doesn't shake in lockstep; summing two incommensurate frequencies
+ * and sharpening the wave (more time near the extremes, a snap through the
+ * middle) keeps it reading as an irregular shake rather than a smooth,
+ * metronomic sway. Pure rotation — never touches position or scale.
+ */
+function zigzagWobbleDeg(layerId: string, timeMs: number): number {
+  const periodMs = 1000 + hashUnit(layerId + ":period") * 1000;
+  const ampDeg = 5 + hashUnit(layerId + ":amp") * 5;
+  const phase = hashUnit(layerId + ":phase") * Math.PI * 2;
+  const w = (Math.PI * 2) / periodMs;
+  const s = Math.sin(timeMs * w + phase) * 0.7 + Math.sin(timeMs * w * 2.37 - phase) * 0.3;
+  const sharp = Math.sign(s) * Math.pow(Math.abs(s), 0.6);
+  return sharp * ampDeg;
+}
+
 function drawScene(
   ctx: CanvasRenderingContext2D,
   W: number,
   H: number,
   scene: SceneRenderState,
+  timeMs: number,
   assets: TimelineRenderAssets,
   opts: TimelineRenderOptions,
   collectBounds: boolean
@@ -375,13 +425,23 @@ function drawScene(
   // 2. Elements, in the z-order the decomposer assigned.
   const ordered = [...allLayers].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
+  const wholeImageMotionOn = opts.wholeImageMotion !== false;
+
   ordered.forEach((layer: MotionLayer) => {
     const img = perSlide[layer.id];
     if (!ready(img)) return;
 
+    const isTextLayer = layer.type === "text";
+    // Whole-image motion makes a caption inert, full stop: no cue of any
+    // kind plays on it, ever, authored or not — it is simply always there,
+    // at rest, from frame 0. It still moves WITH the camera exactly like the
+    // artwork around it, the same as everything else under wholeImageMotion;
+    // it just never gets motion of its own layered on top. Graphics keep
+    // their own opacity/wipe entrance and only lose position/scale/rotate.
+    const textInert = isTextLayer && wholeImageMotionOn;
     // Untracked elements sit at rest — an unmentioned element still renders
     // exactly as it was uploaded rather than vanishing.
-    const state = scene.layers[layer.id] ?? REST_LAYER_STATE;
+    const state = textInert ? REST_LAYER_STATE : scene.layers[layer.id] ?? REST_LAYER_STATE;
     if (state.opacity <= 0.001) return;
 
     const restLeft = originX + layer.x * sw * fit;
@@ -389,12 +449,24 @@ function drawScene(
     const baseW = Math.max(1, layer.w * sw * fit * (layer.scale ?? 1));
     const baseH = Math.max(1, layer.h * sh * fit * (layer.scale ?? 1));
 
-    const curW = Math.max(1, baseW * state.scale);
-    const curH = Math.max(1, baseH * state.scale);
+    // wholeImageMotion pins every part (text included) to its rest position,
+    // scale and rotation — the camera is the only thing that still moves it.
+    const partScale = wholeImageMotionOn ? 1 : state.scale;
+    const partXPct = wholeImageMotionOn ? 0 : state.xPct;
+    const partYPct = wholeImageMotionOn ? 0 : state.yPct;
+    const partRotate = wholeImageMotionOn ? 0 : state.rotate;
+
+    // A small ambient rotational shake for graphic parts only — independent
+    // of wholeImageMotion, additive on top of it. See zigzagWobbleDeg.
+    const zigzagOn = opts.zigzagMotion !== false && !isTextLayer;
+    const wobbleDeg = zigzagOn ? zigzagWobbleDeg(layer.id, timeMs) : 0;
+
+    const curW = Math.max(1, baseW * partScale);
+    const curH = Math.max(1, baseH * partScale);
     // Scale about the element's own centre, then displace.
-    const left = restLeft - (curW - baseW) / 2 + (state.xPct / 100) * W;
-    const top = restTop - (curH - baseH) / 2 + (state.yPct / 100) * H;
-    const rot = ((layer.rotation ?? 0) + state.rotate) * (Math.PI / 180);
+    const left = restLeft - (curW - baseW) / 2 + (partXPct / 100) * W;
+    const top = restTop - (curH - baseH) / 2 + (partYPct / 100) * H;
+    const rot = ((layer.rotation ?? 0) + partRotate + wobbleDeg) * (Math.PI / 180);
 
     ctx.save();
     ctx.globalAlpha = scene.alpha * state.opacity * (layer.opacity ?? 1);
@@ -482,7 +554,7 @@ export function drawMotionTimelineFrame(
       if (isTop) bounds = [];
       return;
     }
-    const result = drawScene(ctx, W, H, scene, assets, opts, isTop);
+    const result = drawScene(ctx, W, H, scene, frame.timeMs, assets, opts, isTop);
     if (isTop) bounds = result;
   });
 
