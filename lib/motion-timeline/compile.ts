@@ -238,6 +238,8 @@ export interface CompileOptions {
    * track someone actually authored for that layer.
    */
   paperCutStyle?: boolean;
+  /** When true, images land at slide start; when false, images are paced across the slide alongside text. */
+  textOnlySync?: boolean;
 }
 
 interface Ctx {
@@ -738,15 +740,35 @@ export function compileTimeline(
         .filter((l) => l.objectType === "collage-part" && !touched.has(`${slideIndex}:${l.id}`))
         .sort((a, b) => (a.partIndex ?? 0) - (b.partIndex ?? 0));
 
+      const sceneDur = Math.max(800, endMs - startMs);
+      const stepMs = (sceneDur * 0.7) / Math.max(1, untrackedParts.length);
+
       untrackedParts.forEach((layer, i) => {
         const trackWhere = `${where} · ${layer.id} (auto paper-cut)`;
-        const cue: NormalizedCue = {
+        const atMs = options.textOnlySync
+          ? startMs + i * 150
+          : Math.round(startMs + 140 + i * stepMs);
+
+        const hideCue: NormalizedCue = {
+          action: "hide",
+          atMs: startMs,
+          durMs: 0,
+          params: {},
+        };
+        const paperCue: NormalizedCue = {
           action: "paperDropIn",
-          atMs: startMs + i * 150,
+          atMs,
           durMs: 460,
           params: {},
         };
-        const channels = finalizeChannels(CUE_BUILDERS.paperDropIn(cue, ctx.defaults).channels, ctx, trackWhere);
+
+        const hideChans = atMs > startMs + 10 ? CUE_BUILDERS.hide(hideCue, ctx.defaults).channels : {};
+        const paperChans = CUE_BUILDERS.paperDropIn(paperCue, ctx.defaults).channels;
+        const merged: Channels = {};
+        mergeChannels(merged, hideChans);
+        mergeChannels(merged, paperChans);
+
+        const channels = finalizeChannels(merged, ctx, trackWhere);
         CHANNEL_KEYS.forEach((c) => {
           keyframeCount += channels[c]?.length ?? 0;
         });

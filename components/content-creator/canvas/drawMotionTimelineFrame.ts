@@ -427,21 +427,31 @@ function drawScene(
 
   const wholeImageMotionOn = opts.wholeImageMotion !== false;
 
+  const isBigCollageElement = (layer: MotionLayer): boolean => {
+    const area = (layer.w ?? 0) * (layer.h ?? 0);
+    const objType = layer.objectType || "";
+    if (objType === "collage-part" || objType === "photo" || objType === "illustration" || objType === "panel" || objType === "banner") {
+      return true;
+    }
+    return area >= 0.10;
+  };
+
   ordered.forEach((layer: MotionLayer) => {
     const img = perSlide[layer.id];
     if (!ready(img)) return;
 
     const isTextLayer = layer.type === "text";
-    // Whole-image motion makes a caption inert, full stop: no cue of any
-    // kind plays on it, ever, authored or not — it is simply always there,
-    // at rest, from frame 0. It still moves WITH the camera exactly like the
-    // artwork around it, the same as everything else under wholeImageMotion;
-    // it just never gets motion of its own layered on top. Graphics keep
-    // their own opacity/wipe entrance and only lose position/scale/rotate.
-    const textInert = isTextLayer && wholeImageMotionOn;
-    // Untracked elements sit at rest — an unmentioned element still renders
-    // exactly as it was uploaded rather than vanishing.
-    const state = textInert ? REST_LAYER_STATE : scene.layers[layer.id] ?? REST_LAYER_STATE;
+    const isBig = isBigCollageElement(layer);
+    const HIDDEN_LAYER_STATE: LayerState = { ...REST_LAYER_STATE, opacity: 0 };
+
+    // Under wholeImageMotion:
+    // Small elements (icons, badges, small text) stay static at rest from frame 0.
+    // Bigger elements (collage parts, photos, panels, illustrations) appear and move
+    // according to their CSV timeline sync!
+    const isSmallStatic = wholeImageMotionOn && !isBig;
+    const state = isSmallStatic
+      ? REST_LAYER_STATE
+      : scene.layers[layer.id] ?? (isTextLayer ? REST_LAYER_STATE : HIDDEN_LAYER_STATE);
     if (state.opacity <= 0.001) return;
 
     const restLeft = originX + layer.x * sw * fit;
@@ -449,12 +459,12 @@ function drawScene(
     const baseW = Math.max(1, layer.w * sw * fit * (layer.scale ?? 1));
     const baseH = Math.max(1, layer.h * sh * fit * (layer.scale ?? 1));
 
-    // wholeImageMotion pins every part (text included) to its rest position,
-    // scale and rotation — the camera is the only thing that still moves it.
-    const partScale = wholeImageMotionOn ? 1 : state.scale;
-    const partXPct = wholeImageMotionOn ? 0 : state.xPct;
-    const partYPct = wholeImageMotionOn ? 0 : state.yPct;
-    const partRotate = wholeImageMotionOn ? 0 : state.rotate;
+    // Small elements hold still at rest under wholeImageMotion.
+    // Bigger collage elements move (scale, xPct, yPct, rotate) according to CSV timeline cues.
+    const partScale = isSmallStatic ? 1 : state.scale;
+    const partXPct = isSmallStatic ? 0 : state.xPct;
+    const partYPct = isSmallStatic ? 0 : state.yPct;
+    const partRotate = isSmallStatic ? 0 : state.rotate;
 
     // A small ambient rotational shake for graphic parts only — independent
     // of wholeImageMotion, additive on top of it. See zigzagWobbleDeg.

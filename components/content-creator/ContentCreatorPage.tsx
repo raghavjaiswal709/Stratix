@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
+import { uploadMotionAssetToR2 } from "@/lib/motion-assets";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
   Download,
@@ -289,9 +290,11 @@ export function ContentCreatorPage() {
   const [motionSaveState, setMotionSaveState] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
   const motionSaveTimerRef = useRef<number | null>(null);
   const [motionAudioName, setMotionAudioName] = useState<string | null>(null);
-  // Background music rides under the voiceover. 20% by default — present, not
-  // competing with the narration.
+  const [motionAudioR2Url, setMotionAudioR2Url] = useState<string | null>(null);
   const [motionMusicName, setMotionMusicName] = useState<string | null>(null);
+  const [motionMusicR2Url, setMotionMusicR2Url] = useState<string | null>(null);
+  const [motionCsvR2Url, setMotionCsvR2Url] = useState<string | null>(null);
+  const [motionTranscriptRawText, setMotionTranscriptRawText] = useState<string | null>(null);
   const [motionMusicVolume, setMotionMusicVolume] = useState(0.2);
   // Export speed. The clock and both audio elements are scaled by it, so the
   // recording is genuinely faster rather than a fast-forwarded playback.
@@ -306,8 +309,12 @@ export function ContentCreatorPage() {
   const motionLoopRef = useRef(true);
   const motionAudioRef = useRef<HTMLAudioElement | null>(null);
   const motionAudioUrlRef = useRef<string | null>(null);
+  const motionAudioR2UrlRef = useRef<string | null>(null);
   const motionMusicRef = useRef<HTMLAudioElement | null>(null);
   const motionMusicUrlRef = useRef<string | null>(null);
+  const motionMusicR2UrlRef = useRef<string | null>(null);
+  const motionCsvR2UrlRef = useRef<string | null>(null);
+  const motionTranscriptRawTextRef = useRef<string | null>(null);
   const motionSpeedRef = useRef(1);
   /**
    * The mixing graph.
@@ -723,7 +730,30 @@ export function ContentCreatorPage() {
         const title = motionSlides.length > 1
           ? `Motion Video · ${motionSlides.length} slides`
           : (firstName || "Motion Video");
-        createdId = await saveToHistory("motion-video", title, motionSlides.length, { slides: motionSlides, timelineText: motionTimelineText, manifestText: motionManifestText, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
+        createdId = await saveToHistory(
+          "motion-video",
+          title,
+          motionSlides.length,
+          {
+            slides: motionSlides,
+            timelineText: motionTimelineText,
+            manifestText: motionManifestText,
+            transcriptText: motionTranscriptRawTextRef.current,
+            transcriptCsvUrl: motionCsvR2UrlRef.current,
+            audioUrl: motionAudioR2UrlRef.current,
+            audioName: motionAudioName,
+            musicUrl: motionMusicR2UrlRef.current,
+            musicName: motionMusicName,
+            musicVolume: motionMusicVolume,
+            paperCutStyle: motionPaperCutStyle,
+            textOnlySync: motionTextOnlySync,
+            wholeImageMotion: motionWholeImageMotion,
+            zigzagMotion: motionZigzagMotion,
+            ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme,
+          },
+          activeHistoryId,
+          previewUrl
+        );
       } else {
         const title = parsedData.title || parsedData.category || "Indicator Poster";
         createdId = await saveToHistory("indicator", title, 1, { parsedData, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme }, activeHistoryId, previewUrl);
@@ -806,8 +836,80 @@ export function ContentCreatorPage() {
         setMotionHistoryTick((t) => t + 1);
         setMotionSaveState("idle");
 
+        // Restore motion settings & toggles
+        if (typeof payload.musicVolume === "number") setMotionMusicVolume(payload.musicVolume);
+        if (typeof payload.paperCutStyle === "boolean") setMotionPaperCutStyle(payload.paperCutStyle);
+        if (typeof payload.textOnlySync === "boolean") setMotionTextOnlySync(payload.textOnlySync);
+        if (typeof payload.wholeImageMotion === "boolean") setMotionWholeImageMotion(payload.wholeImageMotion);
+        if (typeof payload.zigzagMotion === "boolean") setMotionZigzagMotion(payload.zigzagMotion);
+
+        // Restore CSV voiceover transcript
+        const transcriptText = typeof payload.transcriptText === "string" ? payload.transcriptText : null;
+        const transcriptCsvUrl = typeof payload.transcriptCsvUrl === "string" ? payload.transcriptCsvUrl : null;
+        motionTranscriptRawTextRef.current = transcriptText;
+        setMotionTranscriptRawText(transcriptText);
+        motionCsvR2UrlRef.current = transcriptCsvUrl;
+        setMotionCsvR2Url(transcriptCsvUrl);
+
+        if (transcriptText) {
+          const parsed = parseTranscriptFile(transcriptText);
+          if (parsed.words.length > 0) {
+            setMotionTranscript(parsed.words);
+            setMotionTranscriptName("CSV Voiceover");
+            setMotionTranscriptNote(`Restored ${parsed.words.length} words from saved Cloudflare video project.`);
+          }
+        } else if (transcriptCsvUrl) {
+          fetch(transcriptCsvUrl)
+            .then((r) => r.text())
+            .then((rawCsv) => {
+              motionTranscriptRawTextRef.current = rawCsv;
+              setMotionTranscriptRawText(rawCsv);
+              const parsed = parseTranscriptFile(rawCsv);
+              if (parsed.words.length > 0) {
+                setMotionTranscript(parsed.words);
+                setMotionTranscriptName("CSV Voiceover");
+                setMotionTranscriptNote(`Restored ${parsed.words.length} words from saved Cloudflare video project.`);
+              }
+            })
+            .catch((err) => console.warn("Could not fetch CSV from R2:", err));
+        }
+
+        // Restore Voiceover Audio from Cloudflare R2
+        const audioUrl = typeof payload.audioUrl === "string" ? payload.audioUrl : null;
+        const audioName = typeof payload.audioName === "string" ? payload.audioName : null;
+        if (audioUrl) {
+          motionAudioR2UrlRef.current = audioUrl;
+          setMotionAudioR2Url(audioUrl);
+          setMotionAudioName(audioName || "Voiceover Audio");
+          motionAudioUrlRef.current = audioUrl;
+          const audio = new Audio(audioUrl);
+          audio.preload = "auto";
+          motionAudioRef.current = audio;
+        } else {
+          clearMotionAudio();
+        }
+
+        // Restore Background Music from Cloudflare R2
+        const musicUrl = typeof payload.musicUrl === "string" ? payload.musicUrl : null;
+        const musicName = typeof payload.musicName === "string" ? payload.musicName : null;
+        if (musicUrl) {
+          motionMusicR2UrlRef.current = musicUrl;
+          setMotionMusicR2Url(musicUrl);
+          setMotionMusicName(musicName || "Background Music");
+          motionMusicUrlRef.current = musicUrl;
+          const music = new Audio(musicUrl);
+          music.preload = "auto";
+          music.loop = true;
+          motionMusicRef.current = music;
+        } else {
+          clearMotionMusic();
+        }
+
         if (savedTimeline.trim()) {
-          const { timeline, report } = parseMotionTimeline(savedTimeline, slides, { paperCutStyle: motionPaperCutStyle });
+          const { timeline, report } = parseMotionTimeline(savedTimeline, slides, {
+            paperCutStyle: typeof payload.paperCutStyle === "boolean" ? payload.paperCutStyle : motionPaperCutStyle,
+            textOnlySync: typeof payload.textOnlySync === "boolean" ? payload.textOnlySync : motionTextOnlySync,
+          });
           setMotionTimeline(timeline);
           setMotionTimelineReport(report);
           const restoredDoc = parseLooseJson<AuthoredTimeline>(savedTimeline).value;
@@ -2399,6 +2501,7 @@ export function ContentCreatorPage() {
     const { timeline, report } = parseMotionTimeline(motionTimelineText, motionSlides, {
       transcript: motionTranscript,
       paperCutStyle: motionPaperCutStyle,
+      textOnlySync: motionTextOnlySync,
     });
     setMotionTimelineReport(report);
     setMotionTimeline(timeline);
@@ -2424,7 +2527,15 @@ export function ContentCreatorPage() {
     motionClockOriginRef.current = performance.now();
     setMotionTimeMs(0);
     setIsPlayingMotion(true);
-  }, [motionTimelineText, motionSlides, motionTranscript, motionPaperCutStyle, setMotionData, ensureMotionAssets]);
+  }, [
+    motionTimelineText,
+    motionSlides,
+    motionTranscript,
+    motionPaperCutStyle,
+    motionTextOnlySync,
+    setMotionData,
+    ensureMotionAssets,
+  ]);
 
   /**
    * Installs a locally-built timeline.
@@ -2441,6 +2552,7 @@ export function ContentCreatorPage() {
       const compiled = parseMotionTimeline(timelineJson, motionSlides, {
         transcript: motionTranscript,
         paperCutStyle: motionPaperCutStyle,
+        textOnlySync: motionTextOnlySync,
       });
       setMotionTimelineReport(compiled.report);
       setMotionTimeline(compiled.timeline);
@@ -2545,7 +2657,9 @@ export function ContentCreatorPage() {
       return;
     }
 
-    const { timeline, report } = buildTimelineFromManifest(parsed.manifest, motionSlides, motionTranscript);
+    const { timeline, report } = buildTimelineFromManifest(parsed.manifest, motionSlides, motionTranscript, {
+      textOnlySync: motionTextOnlySync,
+    });
     setMotionManifestWarnings([...parsed.warnings, ...report.warnings]);
 
     if (!timeline) {
@@ -2560,7 +2674,7 @@ export function ContentCreatorPage() {
     // The auto-sync report below now describes an older timeline.
     setMotionAutoSyncReport(null);
     setMotionAutoSyncNote(null);
-  }, [motionManifestText, motionTranscript, motionSlides, applyBuiltTimeline]);
+  }, [motionManifestText, motionTranscript, motionSlides, motionTextOnlySync, applyBuiltTimeline]);
 
   /**
    * Persists the current motion document.
@@ -2585,6 +2699,17 @@ export function ContentCreatorPage() {
           slides: motionSlides,
           timelineText,
           manifestText: motionManifestText,
+          transcriptText: motionTranscriptRawTextRef.current,
+          transcriptCsvUrl: motionCsvR2UrlRef.current,
+          audioUrl: motionAudioR2UrlRef.current,
+          audioName: motionAudioName,
+          musicUrl: motionMusicR2UrlRef.current,
+          musicName: motionMusicName,
+          musicVolume: motionMusicVolume,
+          paperCutStyle: motionPaperCutStyle,
+          textOnlySync: motionTextOnlySync,
+          wholeImageMotion: motionWholeImageMotion,
+          zigzagMotion: motionZigzagMotion,
           ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme,
         },
         activeHistoryId,
@@ -2597,7 +2722,26 @@ export function ContentCreatorPage() {
         setMotionSaveState("error");
       }
     },
-    [motionSlides, motionManifestText, activeHistoryId, ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme]
+    [
+      motionSlides,
+      motionManifestText,
+      motionAudioName,
+      motionMusicName,
+      motionMusicVolume,
+      motionPaperCutStyle,
+      motionTextOnlySync,
+      motionWholeImageMotion,
+      motionZigzagMotion,
+      activeHistoryId,
+      ratioId,
+      colors,
+      config,
+      posterStyle,
+      gradientPresetId,
+      editorialTheme,
+      gradientFade,
+      sentimentScheme,
+    ]
   );
 
   /** Snapshot for undo, taken at the start of a gesture rather than per frame. */
@@ -2769,8 +2913,9 @@ export function ContentCreatorPage() {
   const handleMotionTranscriptFile = useCallback(async (file: File) => {
     try {
       const text = await file.text();
-      // Dispatches on content, not extension: CSV/TSV tables, SRT/VTT captions
-      // and Whisper-style JSON all land here.
+      motionTranscriptRawTextRef.current = text;
+      setMotionTranscriptRawText(text);
+
       const parsed = parseTranscriptFile(text);
       if (parsed.words.length === 0) {
         setMotionTranscript(null);
@@ -2785,6 +2930,15 @@ export function ContentCreatorPage() {
       setMotionTranscriptNote(
         [parsed.unit === "s" ? "Read as seconds." : "Read as milliseconds.", ...parsed.warnings].join(" ")
       );
+
+      // Upload CSV voiceover file to Cloudflare R2 in background
+      try {
+        const r2Url = await uploadMotionAssetToR2(file, "motion-csv");
+        motionCsvR2UrlRef.current = r2Url;
+        setMotionCsvR2Url(r2Url);
+      } catch (err) {
+        console.warn("Could not upload CSV voiceover to Cloudflare R2:", err);
+      }
     } catch (err: any) {
       setMotionTranscript(null);
       setMotionTranscriptName(null);
@@ -2796,55 +2950,82 @@ export function ContentCreatorPage() {
     setMotionTranscript(null);
     setMotionTranscriptName(null);
     setMotionTranscriptNote(null);
+    motionTranscriptRawTextRef.current = null;
+    setMotionTranscriptRawText(null);
+    motionCsvR2UrlRef.current = null;
+    setMotionCsvR2Url(null);
   }, []);
 
-  // The voiceover never leaves the browser — it exists only as an object URL,
-  // to drive the clock and to be muxed into the recording.
-  const handleMotionAudioFile = useCallback((file: File) => {
-    if (motionAudioUrlRef.current) URL.revokeObjectURL(motionAudioUrlRef.current);
+  const handleMotionAudioFile = useCallback(async (file: File) => {
+    if (motionAudioUrlRef.current && motionAudioUrlRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(motionAudioUrlRef.current);
+    }
     motionAudioRef.current?.pause();
 
-    const url = URL.createObjectURL(file);
-    motionAudioUrlRef.current = url;
-    const audio = new Audio(url);
+    const localUrl = URL.createObjectURL(file);
+    motionAudioUrlRef.current = localUrl;
+    const audio = new Audio(localUrl);
     audio.preload = "auto";
     motionAudioRef.current = audio;
     setMotionAudioName(file.name);
     seekMotionTo(0);
+
+    // Upload voiceover audio file to Cloudflare R2 in background
+    try {
+      const r2Url = await uploadMotionAssetToR2(file, "motion-audio");
+      motionAudioR2UrlRef.current = r2Url;
+      setMotionAudioR2Url(r2Url);
+    } catch (err) {
+      console.warn("Could not upload voiceover audio to Cloudflare R2:", err);
+    }
   }, [seekMotionTo]);
 
   const clearMotionAudio = useCallback(() => {
     motionAudioRef.current?.pause();
-    if (motionAudioUrlRef.current) URL.revokeObjectURL(motionAudioUrlRef.current);
+    if (motionAudioUrlRef.current && motionAudioUrlRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(motionAudioUrlRef.current);
+    }
     motionAudioUrlRef.current = null;
     motionAudioRef.current = null;
+    motionAudioR2UrlRef.current = null;
+    setMotionAudioR2Url(null);
     setMotionAudioName(null);
   }, []);
 
-
-  // The music bed never leaves the browser either — an object URL, looped so a
-  // 30-second track still covers a two-minute reel.
-  const handleMotionMusicFile = useCallback((file: File) => {
-    if (motionMusicUrlRef.current) URL.revokeObjectURL(motionMusicUrlRef.current);
+  const handleMotionMusicFile = useCallback(async (file: File) => {
+    if (motionMusicUrlRef.current && motionMusicUrlRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(motionMusicUrlRef.current);
+    }
     motionMusicRef.current?.pause();
-    // A new element needs a new graph: an old one is permanently bound to the
-    // element it was created from.
     motionMixRef.current = null;
 
-    const url = URL.createObjectURL(file);
-    motionMusicUrlRef.current = url;
-    const audio = new Audio(url);
+    const localUrl = URL.createObjectURL(file);
+    motionMusicUrlRef.current = localUrl;
+    const audio = new Audio(localUrl);
     audio.preload = "auto";
     audio.loop = true;
     motionMusicRef.current = audio;
     setMotionMusicName(file.name);
+
+    // Upload background music file to Cloudflare R2 in background
+    try {
+      const r2Url = await uploadMotionAssetToR2(file, "motion-music");
+      motionMusicR2UrlRef.current = r2Url;
+      setMotionMusicR2Url(r2Url);
+    } catch (err) {
+      console.warn("Could not upload background music to Cloudflare R2:", err);
+    }
   }, []);
 
   const clearMotionMusic = useCallback(() => {
     motionMusicRef.current?.pause();
-    if (motionMusicUrlRef.current) URL.revokeObjectURL(motionMusicUrlRef.current);
+    if (motionMusicUrlRef.current && motionMusicUrlRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(motionMusicUrlRef.current);
+    }
     motionMusicUrlRef.current = null;
     motionMusicRef.current = null;
+    motionMusicR2UrlRef.current = null;
+    setMotionMusicR2Url(null);
     motionMixRef.current = null;
     setMotionMusicName(null);
   }, []);
