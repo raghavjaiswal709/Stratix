@@ -1,18 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, GripVertical, RotateCcw, Shuffle, X } from "lucide-react";
+import { AlertTriangle, Check, GripVertical, Lock, RotateCcw, Shuffle, X } from "lucide-react";
 import type { MotionSlide } from "../types";
-import { analyzeSlideOrder, moveItem } from "../slideOrder";
+import { analyzeSlideOrder, swapItem } from "../slideOrder";
 
 /**
  * Fix Slide Order.
  *
- * Opens already sorted by each poster's own printed slide number (top-right,
- * in its ink circle) — the batch is proposed corrected before the user does
- * anything. A slide whose badge could not be read with confidence is flagged
- * red rather than guessed at, and stays draggable like every other card so
- * fixing the last mile by hand is exactly as easy as everything auto-sorted.
+ * Opens auto-sorted by each poster's own printed slide number.
+ * Correctly recognized slides are LOCKED to their exact number position.
+ * Dragging or selecting a position performs a 1-to-1 SWAP so that other
+ * locked slides are never shifted or incremented by +1.
  */
 export function FixSlideOrderModal({
   slides,
@@ -34,6 +33,13 @@ export function FixSlideOrderModal({
 
   const isDirty = order.some((originalIdx, pos) => originalIdx !== analysis.suggestedOrder[pos]);
 
+  const handleSwapPosition = (currentPos: number, targetPosStr: string) => {
+    const targetPos = parseInt(targetPosStr, 10) - 1; // 1-indexed to 0-indexed
+    if (!isNaN(targetPos) && targetPos >= 0 && targetPos < slides.length && targetPos !== currentPos) {
+      setOrder((cur) => swapItem(cur, currentPos, targetPos));
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="absolute inset-0" onClick={onClose} />
@@ -47,8 +53,8 @@ export function FixSlideOrderModal({
               <span className="text-[10px] text-white/35">
                 {analysis.alreadyInOrder
                   ? `All ${slides.length} slides are already in the right order.`
-                  : `${analysis.recognizedCount} of ${slides.length} recognized from their printed number` +
-                    (analysis.unresolvedCount > 0 ? ` · ${analysis.unresolvedCount} need manual placement` : "")}
+                  : `${analysis.recognizedCount} of ${slides.length} recognized & locked from their printed number` +
+                    (analysis.unresolvedCount > 0 ? ` · ${analysis.unresolvedCount} unassigned` : "")}
               </span>
             </div>
           </div>
@@ -66,8 +72,7 @@ export function FixSlideOrderModal({
             <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
             <p className="text-[10px] text-amber-200/85 leading-relaxed">
               {analysis.unresolvedCount} slide{analysis.unresolvedCount === 1 ? "" : "s"} marked{" "}
-              <span className="text-red-300 font-bold">red</span> couldn&apos;t be read cleanly — a printed
-              number was missing, unclear, or shared with another slide. Drag {analysis.unresolvedCount === 1 ? "it" : "them"} into place below.
+              <span className="text-amber-300 font-bold">yellow/red</span> couldn&apos;t be auto-read. Drag to swap or use the position picker to lock them without shifting ordered slides.
             </p>
           </div>
         )}
@@ -82,6 +87,7 @@ export function FixSlideOrderModal({
               const isBeingDragged = draggedPos === pos;
               const isDropTarget = dragOverPos === pos && draggedPos !== null && draggedPos !== pos;
               const thumb = slide.originalUrl || slide.backgroundUrl;
+              const isLockedSlot = entry.resolved && entry.targetSlot === pos;
 
               return (
                 <div
@@ -104,7 +110,7 @@ export function FixSlideOrderModal({
                     e.preventDefault();
                     const fromPos = parseInt(e.dataTransfer.getData("text/plain"), 10);
                     if (!Number.isNaN(fromPos) && fromPos !== pos) {
-                      setOrder((cur) => moveItem(cur, fromPos, pos));
+                      setOrder((cur) => swapItem(cur, fromPos, pos));
                     }
                     setDraggedPos(null);
                     setDragOverPos(null);
@@ -115,8 +121,10 @@ export function FixSlideOrderModal({
                       ? "opacity-30 scale-95 border-white/30"
                       : isDropTarget
                       ? "border-emerald-400/60 ring-2 ring-emerald-400/30"
+                      : isLockedSlot
+                      ? "border-emerald-500/40 hover:border-emerald-500/70"
                       : entry.resolved
-                      ? "border-white/10 hover:border-white/25"
+                      ? "border-amber-500/40 hover:border-amber-500/70"
                       : "border-red-500/50 hover:border-red-500/70"
                   }`}
                 >
@@ -126,32 +134,65 @@ export function FixSlideOrderModal({
                     <div className="w-full aspect-[4/5] bg-black/40" />
                   )}
 
-                  {/* Proposed serial position */}
+                  {/* Position selector pill */}
+                  <div className="absolute top-1.5 left-1.5 flex items-center gap-1 z-10">
+                    <select
+                      value={pos + 1}
+                      onChange={(e) => handleSwapPosition(pos, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`min-w-[28px] h-[22px] px-1 rounded-md text-[11px] font-mono font-bold flex items-center justify-center border bg-black/80 backdrop-blur-sm cursor-pointer outline-none ${
+                        isLockedSlot
+                          ? "text-emerald-300 border-emerald-500/50"
+                          : entry.resolved
+                          ? "text-amber-300 border-amber-500/50"
+                          : "text-red-300 border-red-500/50"
+                      }`}
+                      title="Click to swap to a specific position"
+                    >
+                      {slides.map((_, i) => (
+                        <option key={i} value={i + 1} className="bg-neutral-900 text-white">
+                          #{i + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Lock / Recognition state icon (bottom-left, icon only) */}
                   <span
-                    className={`absolute top-1.5 left-1.5 min-w-[22px] h-[22px] px-1 rounded-md text-[11px] font-mono font-bold flex items-center justify-center border ${
-                      entry.resolved
-                        ? "bg-emerald-500/25 text-emerald-200 border-emerald-500/40"
-                        : "bg-red-500/25 text-red-200 border-red-500/40"
+                    title={
+                      isLockedSlot
+                        ? `Locked to position #${pos + 1}`
+                        : entry.resolved
+                        ? `Recognized as #${entry.detectedNumber}`
+                        : "Manual placement required"
+                    }
+                    className={`absolute bottom-7 left-1.5 h-6 w-6 rounded-md bg-black/80 backdrop-blur-sm flex items-center justify-center border z-10 ${
+                      isLockedSlot
+                        ? "border-emerald-500/50"
+                        : entry.resolved
+                        ? "border-amber-500/50"
+                        : "border-red-500/50"
                     }`}
                   >
-                    {pos + 1}
-                  </span>
-
-                  {/* Recognition state */}
-                  <span className="absolute top-1.5 right-1.5 h-[22px] w-[22px] rounded-md bg-black/70 flex items-center justify-center border border-white/10">
-                    {entry.resolved ? (
-                      <Check className="h-3 w-3 text-emerald-400" />
+                    {isLockedSlot ? (
+                      <Lock className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : entry.resolved ? (
+                      <Check className="h-3.5 w-3.5 text-amber-400" />
                     ) : (
-                      <AlertTriangle className="h-3 w-3 text-red-400" />
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
                     )}
                   </span>
 
-                  <GripVertical className="absolute bottom-1 right-1 h-3.5 w-3.5 text-white/0 group-hover:text-white/50 transition" />
+                  <GripVertical className="absolute bottom-7 right-1.5 h-3.5 w-3.5 text-white/0 group-hover:text-white/50 transition pointer-events-none" />
 
-                  {/* What was actually read, for a sanity check against the image */}
-                  <div className="absolute bottom-0 inset-x-0 bg-black/75 px-1.5 py-1">
-                    <p className="text-[8.5px] font-mono text-white/60 truncate">
-                      {entry.detectedNumber !== null ? `badge read: ${entry.detectedNumber}` : "badge not read"}
+                  {/* Badge text tag */}
+                  <div className="absolute bottom-0 inset-x-0 bg-black/80 backdrop-blur-sm px-1.5 py-1">
+                    <p className="text-[8.5px] font-mono text-white/70 truncate">
+                      {entry.badgeText
+                        ? `read: "${entry.badgeText}"`
+                        : entry.detectedNumber !== null
+                        ? `read #: ${entry.detectedNumber}`
+                        : "badge not read"}
                     </p>
                   </div>
                 </div>
@@ -163,11 +204,11 @@ export function FixSlideOrderModal({
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-white/[0.06] shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-white/35">Drag any card to place it by hand.</span>
+            <span className="text-[10px] text-white/40">Drag or use position selector to swap 1-to-1 without shifting locked cards.</span>
             {isDirty && (
               <button
                 onClick={() => setOrder(analysis.suggestedOrder)}
-                className="flex items-center gap-1 text-[10px] font-bold text-white/45 hover:text-white/80 transition cursor-pointer"
+                className="flex items-center gap-1 text-[10px] font-bold text-white/60 hover:text-white transition cursor-pointer"
               >
                 <RotateCcw className="h-3 w-3" /> Reset to detected order
               </button>

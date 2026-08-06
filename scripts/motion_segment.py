@@ -25,6 +25,7 @@ import sys
 import json
 import base64
 import io
+import re
 
 from watermark import strip_grok_watermark, _looks_like_grok
 
@@ -450,52 +451,52 @@ def _accept_region_text(read):
     return read["conf"] >= 70.0
 
 
-def _is_corner_badge_number(read, box, w, h):
-    """The one deliberate exception to the two-alphanumeric floor above.
+def _extract_numeral_from_text(raw_text):
+    if not raw_text or not isinstance(raw_text, str):
+        return None
+    t = raw_text.strip()
+    if not t:
+        return None
+    circled = {'①':1, '②':2, '③':3, '④':4, '⑤':5, '⑥':6, '⑦':7, '⑧':8, '⑨':9, '⑩':10,
+               '⑪':11, '⑫':12, '⑬':13, '⑭':14, '⑮':15, '⑯':16, '⑰':17, '⑱':18, '⑲':19, '⑳':20}
+    for char, val in circled.items():
+        if char in t:
+            return val
+    clean = re.sub(r'[\(\)\[\]\{\}\.\,]', '', t).strip()
+    norm = clean.replace('O', '0').replace('o', '0').replace('I', '1').replace('l', '1').replace('Z', '2').replace('z', '2').replace('S', '5').replace('s', '5').replace('B', '8')
+    m = re.search(r'\b\d{1,2}\b', norm)
+    if m:
+        val = int(m.group(0))
+        if 1 <= val <= 99:
+            return val
+    m2 = re.search(r'\d{1,2}', norm)
+    if m2:
+        val = int(m2.group(0))
+        if 1 <= val <= 99:
+            return val
+    return None
 
-    Every poster in this design system prints its own slide number top-right
-    inside a thin ink circle (see lib/prompt-templates/design-system.ts -
-    SLIDE NUMBER) - a bare one or two digit numeral that _accept_region_text
-    can never clear on length alone. So a plain digit is let through here
-    instead, but only in the exact corner that badge is always drawn in, and
-    only at a confidence bar raised above the normal floor to make up for the
-    shorter, easier-to-hallucinate read."""
+
+def _is_corner_badge_number(read, box, w, h):
+    """Checks if `read` contains a plausible slide badge number in the top half."""
     text = read["text"].strip()
-    if not text.isdigit() or not (1 <= len(text) <= 2):
+    num = _extract_numeral_from_text(text)
+    if num is None:
         return False
-    if read["conf"] < 75.0:
+    if read["conf"] < 30.0:
         return False
     x, y, bw, bh = box
     cx, cy = (x + bw / 2.0) / float(w), (y + bh / 2.0) / float(h)
-    return cx > 0.62 and cy < 0.3
+    return cy < 0.42
 
 
 # Crop tightnesses tried, in order, when reading a badge's own interior.
-# A single fixed ratio is not reliable: how much of the ring's stroke bleeds
-# into a crop depends on exactly where the ink bounding box was measured,
-# which shifts with stroke weight and anti-aliasing. Several are tried and
-# the answer is kept only when they agree, so a crop that happens to slice in
-# a stray fragment of the ring - confidently misreading "3" as "4" - is
-# caught by disagreement with the other crops rather than trusted alone.
 _BADGE_SHRINKS = (0.30, 0.40, 0.50, 0.60, 0.70)
 
 
 def _locate_badge_ink(cv2, arr_rgb, search_box, exclude_boxes, w, h):
-    """Finds the tight ink bounding box inside search_box.
-
-    A local Otsu threshold - not a fixed brightness cutoff - because the
-    page's own background colour varies poster to poster. Pixels belonging
-    to anything already detected elsewhere (exclude_boxes) are painted out
-    first, so a big illustration whose edge merely reaches into the corner is
-    never folded into what should be a small badge's own bounds.
-    """
+    """Finds the tight ink bounding box inside search_box."""
     sx, sy, sw, sh = search_box
-    # A candidate box from the generic detector is sized to what it thought
-    # the object's edge was, which can clip a sliver off a thin ring - and a
-    # ring clipped this way fills ~100% of its own box, tripping the
-    # "too big to be a badge" rejection below for exactly the wrong reason.
-    # Padding first gives real ink room to sit clear of the search box's own
-    # edge, however the box was originally measured.
     pad_x, pad_y = max(4, int(0.20 * sw)), max(4, int(0.20 * sh))
     sx, sy = sx - pad_x, sy - pad_y
     sw, sh = sw + 2 * pad_x, sh + 2 * pad_y
@@ -521,18 +522,13 @@ def _locate_badge_ink(cv2, arr_rgb, search_box, exclude_boxes, w, h):
     iw, ih = ix1 - ix0, iy1 - iy0
     if iw < 6 or ih < 6:
         return None
-    # Compact ink is a badge; ink spanning nearly the whole search box is a
-    # headline wrapping into the corner or a real graphic, not a badge.
     if iw > 0.9 * sw or ih > 0.9 * sh:
         return None
     return (sx + ix0, sy + iy0, iw, ih)
 
 
 def _read_badge_at(np, cv2, arr_rgb, search_box, exclude_boxes, w, h):
-    """Locates the ink inside search_box and reads it with the ring cropped
-    out, at several crop tightnesses (_BADGE_SHRINKS) - kept only if they
-    agree. Returns {"box": ..., "read": ...} or None.
-    """
+    """Locates the ink inside search_box and reads it with crop tightness voting."""
     ink = _locate_badge_ink(cv2, arr_rgb, search_box, exclude_boxes, w, h)
     if not ink:
         return None
@@ -540,24 +536,26 @@ def _read_badge_at(np, cv2, arr_rgb, search_box, exclude_boxes, w, h):
     cx, cy = ix + iw / 2.0, iy + ih / 2.0
 
     votes = {}
-    best_by_text = {}
+    best_by_num = {}
     for shrink in _BADGE_SHRINKS:
         inner_w, inner_h = iw * shrink, ih * shrink
         ocr_box = _clip((int(cx - inner_w / 2), int(cy - inner_h / 2), int(inner_w), int(inner_h)), w, h)
-        read = _ocr_region(np, cv2, arr_rgb, ocr_box)
+        read = _ocr_region(np, cv2, arr_rgb, ocr_box, min_conf=30.0)
         if not read or not _is_corner_badge_number(read, ink, w, h):
             continue
-        text = read["text"].strip()
-        votes[text] = votes.get(text, 0) + 1
-        if text not in best_by_text or read["conf"] > best_by_text[text]["conf"]:
-            best_by_text[text] = read
+        num = _extract_numeral_from_text(read["text"])
+        if num is None:
+            continue
+        votes[num] = votes.get(num, 0) + 1
+        if num not in best_by_num or read["conf"] > best_by_num[num]["conf"]:
+            best_by_num[num] = read
 
-    # No crop produced a trustworthy read, or different crops disagreed on
-    # what the digit even is - either way, not confident enough to keep.
-    if len(votes) != 1:
+    if not votes:
         return None
-    text = next(iter(votes))
-    return {"box": _clip(ink, w, h), "read": best_by_text[text]}
+    best_num = max(votes.keys(), key=lambda k: (votes[k], best_by_num[k]["conf"]))
+    best_read = best_by_num[best_num]
+    best_read["text"] = str(best_num)
+    return {"box": _clip(ink, w, h), "read": best_read}
 
 
 def _ocr_region(np, cv2, arr_rgb, box, min_conf=52.0):
