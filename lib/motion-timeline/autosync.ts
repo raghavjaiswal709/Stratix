@@ -1069,7 +1069,7 @@ export function autoSyncTimeline(
   const ambient = options.ambient ?? true;
   const staggerMs = options.minStaggerMs ?? DEFAULT_STAGGER_MS;
   const bandFraction = options.bandFraction ?? 0.3;
-  const textOnlySync = options.textOnlySync ?? true;
+  const textOnlySync = options.textOnlySync ?? false;
   const introCard = options.introCard ?? false;
 
   const index = buildTranscriptIndex(transcript);

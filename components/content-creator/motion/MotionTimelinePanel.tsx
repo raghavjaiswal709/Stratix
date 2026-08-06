@@ -465,11 +465,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             />
           </span>
           <span className="min-w-0">
-            <span className="block text-[9.5px] font-bold text-white/80">Whole-image motion &middot; parts hold still</span>
+            <span className="block text-[9.5px] font-bold text-white/80">Whole-image motion &middot; small parts hold still</span>
             <span className="block text-[9px] text-white/40 leading-snug">
               {wholeImageMotion
-                ? "Decomposed parts sit at rest — only the camera pans/zooms the collage as one photo. Captions never fade, wipe or move on their own; they're just there, baked into the artwork, from frame 0."
-                : "Each decomposed part flies, scales and rotates on its own cues, same as before."}
+                ? "Small elements sit at rest — major collage parts & photos move & appear in CSV sync. Camera pans/zooms the poster."
+                : "Each decomposed part flies, scales and rotates on its own cues."}
             </span>
           </span>
         </button>

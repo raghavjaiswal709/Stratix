@@ -9,9 +9,31 @@ const ALLOWED_CONTENT_TYPES: Record<string, string> = {
   "image/png": "png",
   "image/webp": "webp",
   "image/gif": "gif",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/ogg": "ogg",
+  "audio/m4a": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/mp4": "mp4",
+  "audio/aac": "aac",
+  "audio/webm": "webm",
+  "audio/flac": "flac",
+  "text/csv": "csv",
+  "text/plain": "txt",
+  "application/csv": "csv",
 };
 
-const ALLOWED_SCOPES = new Set(["journal", "missed-trade", "trade-note"]);
+const ALLOWED_SCOPES = new Set([
+  "journal",
+  "missed-trade",
+  "trade-note",
+  "motion-video",
+  "motion-audio",
+  "motion-music",
+  "motion-csv",
+]);
 
 // POST /api/uploads/presign — issues a short-lived presigned R2 PUT URL so
 // the browser uploads image bytes directly to R2, bypassing this function
