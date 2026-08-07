@@ -127,6 +127,11 @@ function sameNumber(a: string, b: string): boolean {
   return fam ? fam.has(b) : false;
 }
 
+/** Collapses glyph shapes OCR cannot tell apart: I/l/1 and O/0. */
+function foldConfusable(s: string): string {
+  return s.replace(/[l1]/g, "i").replace(/0/g, "o");
+}
+
 /**
  * Do two normalized tokens refer to the same word?
  *
@@ -140,6 +145,14 @@ export function tokensMatch(a: string, b: string): boolean {
   // The same number written two ways — checked before the length guard, since
   // "10" and "das" are both too short to reach the fuzzy tiers below.
   if (sameNumber(a, b)) return true;
+  // Glyphs that are the same shape. In a sans face a capital I, a lowercase l
+  // and a 1 are one vertical stroke, and O and 0 are one ring — OCR picks
+  // between them by context it does not have, so "Isi" comes back as "lsi" on
+  // one render of a poster and "Isi" on another. Folded to equality rather
+  // than to a fuzzy distance, so it can only unify tokens that are otherwise
+  // identical; it must clear the short-token guard below because these
+  // confusions land on exactly the short words it is there to protect.
+  if (foldConfusable(a) === foldConfusable(b)) return true;
   const min = Math.min(a.length, b.length);
   if (min < 4) return false;
   // Shared stem: "liquidity" / "liquiditys", "gullak" / "gullakh".
