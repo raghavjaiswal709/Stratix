@@ -253,8 +253,8 @@ export function buildTimelineFromManifest(
       label: beat.label,
       startMs,
       endMs,
-      enter: i === 0 ? { type: "fade", durationMs: 320 } : { type: "cut", durationMs: 0 },
-      exit: i === manifest.beats.length - 1 ? { type: "fade", durationMs: 400 } : { type: "cut", durationMs: 0 },
+      enter: { type: "whooshCut", durationMs: 450, soundEffect: "whoosh" },
+      exit: { type: "whooshCut", durationMs: 450, soundEffect: "whoosh" },
       camera:
         kenBurnsTo > 1
           ? { cues: [{ action: "kenBurns", atMs: startMs, durMs: endMs - startMs, from: 1, to: kenBurnsTo, panXPct: 1.2 }] }

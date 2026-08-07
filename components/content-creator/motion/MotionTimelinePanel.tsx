@@ -1,13 +1,17 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Sliders,
+  Volume2,
+  VolumeX,
   AlertCircle,
   Captions,
   Check,
   Copy,
   Download,
   FileSpreadsheet,
+  FolderOpen,
   Loader2,
   Gauge,
   Music,
@@ -23,7 +27,18 @@ import {
   Type,
   Wand2,
 } from "lucide-react";
-import type { AutoSyncReport, CompiledTimeline, TimelineReport, TranscriptWord } from "@/lib/motion-timeline";
+import {
+  preloadAllSfxFiles,
+  TRANSITION_LABELS,
+  TRANSITION_TYPES,
+  DEFAULT_TRANSITION_AUDIO_MAP,
+  type AudioSfxType,
+  type TransitionType,
+  type AutoSyncReport,
+  type CompiledTimeline,
+  type TimelineReport,
+  type TranscriptWord,
+} from "@/lib/motion-timeline";
 
 /** The speeds people actually reach for, plus the slider for everything else. */
 const SPEED_PRESETS = [1, 1.3, 1.5, 1.7, 2] as const;
@@ -79,6 +94,13 @@ export interface MotionTimelinePanelProps {
   onSeek: (ms: number) => void;
   isPlaying: boolean;
   onTogglePlay: () => void;
+  /** Routes a zone-transition SFX through the shared recording mix, so it plays live AND lands in the export. */
+  onPlaySfx: (sfx: AudioSfxType, volume: number) => void;
+  /** Scene AND per-element "zone" appearances both auto-trigger SFX — owned by the parent since it drives the sampled render loop these are detected from. */
+  sfxEnabled: boolean;
+  onSfxEnabledChange: (value: boolean) => void;
+  sfxVolume: number;
+  onSfxVolumeChange: (value: number) => void;
   loop: boolean;
   onToggleLoop: () => void;
 
@@ -88,6 +110,8 @@ export interface MotionTimelinePanelProps {
   onTranscriptFile: (file: File) => void;
   onClearTranscript: () => void;
   activeWord: TranscriptWord | null;
+  /** One picker for the CSV transcript and the voiceover WAV together — each file is routed by extension/type, no need to know which button is which. */
+  onCombinedFiles: (files: File[]) => void;
 
   audioName: string | null;
   onAudioFile: (file: File) => void;
@@ -147,6 +171,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onSeek,
     isPlaying,
     onTogglePlay,
+    onPlaySfx,
+    sfxEnabled,
+    onSfxEnabledChange,
+    sfxVolume,
+    onSfxVolumeChange,
     loop,
     onToggleLoop,
     transcript,
@@ -154,6 +183,7 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     transcriptNote,
     onTranscriptFile,
     onClearTranscript,
+    onCombinedFiles,
     activeWord,
     audioName,
     onAudioFile,
@@ -176,6 +206,15 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
   const csvInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
+  const combinedInputRef = useRef<HTMLInputElement>(null);
+
+  const [selectedDefaultTransition, setSelectedDefaultTransition] = useState<TransitionType>("whooshCut");
+  const [selectedDefaultSfx, setSelectedDefaultSfx] = useState<AudioSfxType>("whoosh");
+
+  // Preload SFX buffers on mount and when playback begins
+  useEffect(() => {
+    preloadAllSfxFiles();
+  }, []);
 
   const errors = report?.issues.filter((i) => i.level === "error") ?? [];
   const warnings = report?.issues.filter((i) => i.level === "warning") ?? [];
@@ -239,6 +278,31 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           )}
         </button>
       </div>
+
+      {/* One picker for both files at once — opens the OS file manager with
+          multi-select on, and each file lands in the right slot below (CSV
+          transcript vs. voiceover WAV/MP3/etc.) by its own extension, so
+          there is nothing to tell apart by hand. */}
+      <input
+        ref={combinedInputRef}
+        type="file"
+        multiple
+        accept=".csv,.tsv,.txt,.srt,.vtt,.json,.wav,.mp3,.m4a,.aac,.ogg,.flac,.webm,audio/*,text/csv,text/plain,application/json"
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length > 0) onCombinedFiles(files);
+          e.target.value = "";
+        }}
+      />
+      <button
+        onClick={() => combinedInputRef.current?.click()}
+        title="Pick the CSV transcript and the voiceover audio together — each one is detected automatically"
+        className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[10.5px] font-bold border border-white/[0.14] bg-white/[0.05] hover:bg-white/[0.09] text-white/85 transition cursor-pointer"
+      >
+        <FolderOpen className="h-3.5 w-3.5" />
+        <span>LOAD CSV + AUDIO TOGETHER</span>
+      </button>
 
       {/* Step two — the CSV the whole sync is derived from, and the audio it came from */}
       <div className="grid grid-cols-2 gap-2">
@@ -388,6 +452,114 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
         )}
       </div>
 
+      {/* Transitions & Audio Sound Effects Library (10+ Transitions & Sound Effects + Downloading) */}
+      <div className="rounded-lg border border-white/[0.12] bg-white/[0.03] p-2.5 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Sliders className="h-3.5 w-3.5 text-purple-400" />
+            <span className="text-[10px] font-bold text-white/90 uppercase tracking-wider">
+              Transitions &amp; Audio SFX
+            </span>
+          </div>
+          <button
+            onClick={() => onSfxEnabledChange(!sfxEnabled)}
+            className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded border transition cursor-pointer ${
+              sfxEnabled
+                ? "border-purple-500/40 bg-purple-500/15 text-purple-300"
+                : "border-white/[0.10] bg-white/[0.04] text-white/40"
+            }`}
+          >
+            {sfxEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
+            <span>{sfxEnabled ? "SFX ON" : "MUTED"}</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {/* Default Zone Transition */}
+          <div className="space-y-1">
+            <label className="text-[8.5px] font-bold uppercase tracking-wider text-white/40">
+              Default Zone Transition
+            </label>
+            <select
+              value={selectedDefaultTransition}
+              onChange={(e) => {
+                const tr = e.target.value as TransitionType;
+                setSelectedDefaultTransition(tr);
+                setSelectedDefaultSfx(DEFAULT_TRANSITION_AUDIO_MAP[tr]);
+              }}
+              className="w-full h-7 rounded border border-white/[0.12] bg-black/70 px-2 text-[10px] text-white/90 outline-none cursor-pointer"
+            >
+              {TRANSITION_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {TRANSITION_LABELS[type]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Mapped Sound Effect */}
+          <div className="space-y-1">
+            <label className="text-[8.5px] font-bold uppercase tracking-wider text-white/40">
+              Mapped Sound Effect
+            </label>
+            <div className="flex items-center gap-1">
+              <select
+                value={selectedDefaultSfx}
+                onChange={(e) => setSelectedDefaultSfx(e.target.value as AudioSfxType)}
+                className="w-full h-7 rounded border border-white/[0.12] bg-black/70 px-2 text-[10px] text-white/90 outline-none cursor-pointer"
+              >
+                {(
+                  [
+                    "whoosh",
+                    "glitch",
+                    "flash",
+                    "zoom",
+                    "whip",
+                    "spin",
+                    "iris",
+                    "pop",
+                    "riser",
+                    "impact",
+                    "shutter",
+                    "breeze",
+                  ] as AudioSfxType[]
+                ).map((sfx) => (
+                  <option key={sfx} value={sfx}>
+                    {sfx.toUpperCase()} SFX
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => onPlaySfx(selectedDefaultSfx, sfxVolume)}
+                title="Preview Sound Effect"
+                className="h-7 w-7 shrink-0 rounded border border-purple-500/35 bg-purple-500/15 hover:bg-purple-500/25 text-purple-200 flex items-center justify-center transition cursor-pointer"
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* SFX Volume slider */}
+        {sfxEnabled && (
+          <div className="flex items-center gap-2 pt-0.5">
+            <span className="text-[8.5px] text-white/35 uppercase font-mono shrink-0">SFX VOL</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(sfxVolume * 100)}
+              onChange={(e) => onSfxVolumeChange(Number(e.target.value) / 100)}
+              className="w-full cursor-pointer accent-purple-400 h-1.5"
+            />
+            <span className="text-[8.5px] text-white/50 font-mono w-7 text-right">
+              {Math.round(sfxVolume * 100)}%
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Primary path — slides + CSV, nothing else */}
       <div className="rounded-lg border border-white/[0.14] bg-white/[0.04] p-2.5 space-y-2">
         <div className="flex items-center justify-between">
@@ -517,7 +689,7 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </button>
           <button
             onClick={() => onCaptionsChange(!captions)}
-            title="Burn word-by-word captions along the bottom of the video"
+            title="Burn phrase-burst captions along the top of the video, current word highlighted"
             className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
               captions ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
             }`}

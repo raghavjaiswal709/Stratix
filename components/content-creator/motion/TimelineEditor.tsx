@@ -617,8 +617,41 @@ interface SceneRowProps {
   onTransition: (which: "enter" | "exit", patch: { type?: TransitionType; durationMs?: number }) => void;
 }
 
-const TRANSITION_CYCLE: TransitionType[] = ["cut", "fade", "dipToBlack"];
-const TRANSITION_LABEL: Record<TransitionType, string> = { cut: "CUT", fade: "FADE", dipToBlack: "DIP" };
+const TRANSITION_CYCLE: TransitionType[] = [
+  "whooshCut",
+  "glitch",
+  "flashCut",
+  "zoomPunch",
+  "spinZoom",
+  "blurDissolve",
+  "slideUp",
+  "slideDown",
+  "irisCircle",
+  "diagonalWipe",
+  "splitReveal",
+  "cardFlip",
+  "fade",
+  "dipToBlack",
+  "cut",
+];
+
+const TRANSITION_LABEL: Record<TransitionType, string> = {
+  whooshCut: "SLIDE",
+  glitch: "GLITCH",
+  flashCut: "FLASH",
+  zoomPunch: "ZOOM",
+  spinZoom: "SPIN",
+  blurDissolve: "BLUR",
+  slideUp: "UP",
+  slideDown: "DOWN",
+  irisCircle: "IRIS",
+  diagonalWipe: "WIPE",
+  splitReveal: "SPLIT",
+  cardFlip: "FLIP",
+  fade: "FADE",
+  dipToBlack: "DIP",
+  cut: "CUT",
+};
 
 function SceneRow({ scene, index, expanded, msToPx, slideName, selected, onSelect, onBeginDrag, onTransition }: SceneRowProps) {
   const left = msToPx(scene.startMs);

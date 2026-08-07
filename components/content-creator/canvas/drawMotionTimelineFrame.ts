@@ -51,7 +51,24 @@ export interface TimelineRenderOptions {
    * Text layers are never wobbled. See zigzagWobbleDeg.
    */
   zigzagMotion?: boolean;
+  /**
+   * layer id → the timeline ms its entrance was detected at (opacity·wipe
+   * crossing up through visible — see ContentCreatorPage's render effect,
+   * which is the only thing with frame-to-frame memory to detect that
+   * crossing with). A light-streak sweep + flash plays over any layer whose
+   * entry is still within ZONE_FLOURISH_MS of here — see drawZoneFlourish —
+   * so the "zone appearing" whoosh has something on screen to land on, the
+   * same way the scene-level whoosh lands on the motion-streak flash during
+   * a scene cut. Position and opacity only, deliberately: no scale, so it
+   * never reads as a zoom or a pulse.
+   */
+  zoneFlourishes?: Record<string, number>;
 }
+
+/** How long the on-entrance sweep-then-flash lasts, in ms, once a zone appears. */
+const ZONE_FLOURISH_MS = 340;
+/** Share of ZONE_FLOURISH_MS spent on the sweep before the flash takes over. */
+const ZONE_FLOURISH_SWEEP_SHARE = 0.55;
 
 /**
  * Canvas font stack.
@@ -134,11 +151,45 @@ function drawIntroCard(
   ctx.restore();
 }
 
+/** How many words ride together in one caption burst. */
+const CAPTION_GROUP_SIZE = 3;
+/** A pause this long always starts a new burst — two clauses either side of a breath never share one. */
+const CAPTION_GROUP_GAP_MS = 550;
+
 /**
- * Burnt-in captions: one word at a time, along the bottom.
- *
- * Black bold italic with a white outline — the outline is what keeps it legible
- * over a white poster and a black one without needing a plate behind it.
+ * Phrase-burst boundaries for the burnt-in captions, memoized per transcript
+ * array so a 60fps render loop does not re-walk the whole transcript every
+ * frame. `starts[i]` is the index of the first word in word i's burst.
+ */
+const captionGroupCache = new WeakMap<NonNullable<TimelineRenderOptions["words"]>, number[]>();
+
+function captionGroupStarts(words: NonNullable<TimelineRenderOptions["words"]>): number[] {
+  const cached = captionGroupCache.get(words);
+  if (cached) return cached;
+
+  const starts: number[] = new Array(words.length);
+  let groupStart = 0;
+  for (let i = 0; i < words.length; i++) {
+    if (i > groupStart) {
+      const gap = words[i].startMs - words[i - 1].endMs;
+      if (i - groupStart >= CAPTION_GROUP_SIZE || gap > CAPTION_GROUP_GAP_MS) groupStart = i;
+    }
+    starts[i] = groupStart;
+  }
+  captionGroupCache.set(words, starts);
+  return starts;
+}
+
+/**
+ * Burnt-in captions: a couple-word burst at a time along the top of the
+ * frame — inside the letterbox bar when a slide is shorter than the 9:16
+ * canvas, and at the same spot even when a slide already fills it edge to
+ * edge. The whole burst stays on screen together; only the word actually
+ * being spoken lights up full white, the rest of its burst rides along
+ * faded, so it reads as one phrase with a moving highlight rather than a
+ * word-by-word timer. White fill with a dark outline — inverted from a
+ * bottom-of-frame caption on purpose, since the top is the letterbox bar
+ * itself as often as not, and black text would vanish into it.
  */
 function drawCaption(
   ctx: CanvasRenderingContext2D,
@@ -148,33 +199,58 @@ function drawCaption(
   words: NonNullable<TimelineRenderOptions["words"]>
 ) {
   // The word being spoken now, or the one just spoken while a gap runs.
-  let current: { text: string; startMs: number; endMs: number } | null = null;
+  let idx = -1;
   for (let i = 0; i < words.length; i++) {
     if (words[i].startMs > timeMs) break;
-    current = words[i];
+    idx = i;
   }
-  if (!current) return;
-  // Do not leave the last word hanging through a long silence.
-  if (timeMs > current.endMs + 700) return;
-  const text = current.text.trim();
-  if (!text) return;
+  if (idx < 0) return;
 
-  const size = Math.round(H * 0.046);
+  const starts = captionGroupStarts(words);
+  const groupStart = starts[idx];
+  let groupEnd = idx;
+  while (groupEnd + 1 < words.length && starts[groupEnd + 1] === groupStart) groupEnd++;
+
+  // Do not leave the last burst hanging through a long silence.
+  if (timeMs > words[groupEnd].endMs + 700) return;
+
+  const phrase = words.slice(groupStart, groupEnd + 1).map((w) => w.text.trim());
+  if (!phrase.some(Boolean)) return;
+  const activeIdx = idx - groupStart;
+
   ctx.save();
-  ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
-  ctx.textAlign = "center";
+  ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
 
-  const x = W / 2;
-  const y = H * 0.90;
+  // Shrink to fit rather than wrap — a caption burst reads best as one line.
+  let size = Math.round(H * 0.042);
+  ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
+  const widthOf = (list: string[]) =>
+    list.reduce((sum, w) => sum + ctx.measureText(w).width, 0) + ctx.measureText(" ").width * Math.max(0, list.length - 1);
+  const maxWidth = W * 0.86;
+  let total = widthOf(phrase);
+  if (total > maxWidth) {
+    size = Math.max(10, Math.floor(size * (maxWidth / total)));
+    ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
+    total = widthOf(phrase);
+  }
 
-  ctx.lineWidth = Math.max(3, size * 0.20);
-  ctx.strokeStyle = "#FFFFFF";
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = "#000000";
-  ctx.fillText(text, x, y);
+  const y = H * 0.085;
+  const spaceW = ctx.measureText(" ").width;
+  let x = W / 2 - total / 2;
+  ctx.lineWidth = Math.max(2.5, size * 0.18);
+
+  phrase.forEach((word, i) => {
+    ctx.globalAlpha = i === activeIdx ? 1 : 0.42;
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.strokeText(word, x, y);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillText(word, x, y);
+    x += ctx.measureText(word).width + spaceW;
+  });
+
   ctx.restore();
 }
 
@@ -320,6 +396,63 @@ export function drawPaperFrame(ctx: CanvasRenderingContext2D, left: number, top:
   ctx.beginPath();
   ctx.roundRect(left - margin, top - margin, width + margin * 2, height + margin * 2, radius);
   ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * The visual half of the "zone appearing" whoosh — sound half in
+ * ContentCreatorPage's render effect — over a layer that just appeared.
+ * Two beats, both confined to the layer's own footprint and drawn before its
+ * clip/image so an in-progress wipe reveal never cuts either one off:
+ *
+ *   1. A light streak sweeps left → right across the layer — a miniature of
+ *      the scene-transition's own direction, never the reverse.
+ *   2. As the streak clears the right edge, a quick flash lands and fades.
+ *
+ * Position and opacity only — nothing here ever touches scale, so it can
+ * never read as a pulse or a zoom.
+ */
+function drawZoneFlourish(
+  ctx: CanvasRenderingContext2D,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  progress: number
+) {
+  if (width <= 0 || height <= 0) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(left, top, width, height);
+  ctx.clip();
+
+  if (progress < ZONE_FLOURISH_SWEEP_SHARE) {
+    const sp = progress / ZONE_FLOURISH_SWEEP_SHARE;
+    const bandW = Math.max(width * 0.4, 24);
+    // Runs fully clear of the box on both ends so the streak reads as
+    // passing through rather than materialising inside it.
+    const x = left - bandW + sp * (width + bandW * 2);
+    const grad = ctx.createLinearGradient(x, 0, x + bandW, 0);
+    grad.addColorStop(0, "rgba(255,255,255,0)");
+    grad.addColorStop(0.5, "rgba(255,255,255,0.9)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = grad;
+    ctx.fillRect(left, top, width, height);
+  }
+
+  const flashStart = ZONE_FLOURISH_SWEEP_SHARE - 0.08;
+  if (progress >= flashStart) {
+    const fp = Math.min(1, (progress - flashStart) / (1 - flashStart));
+    // Sharp rise, slower fade — a landing hit, not a breathing glow.
+    const flashAlpha = fp < 0.25 ? fp / 0.25 : 1 - (fp - 0.25) / 0.75;
+    if (flashAlpha > 0.01) {
+      ctx.globalAlpha = flashAlpha * 0.75;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(left, top, width, height);
+    }
+  }
+
   ctx.restore();
 }
 
@@ -489,13 +622,19 @@ function drawScene(
 
     const isPaperCutPart = !!opts.paperCutStyle && layer.objectType === "collage-part";
 
+    const flourishStart = opts.zoneFlourishes?.[layer.id];
+    const sinceFlourish = flourishStart != null ? timeMs - flourishStart : Infinity;
+    const flourishProgress = sinceFlourish >= 0 && sinceFlourish < ZONE_FLOURISH_MS ? sinceFlourish / ZONE_FLOURISH_MS : -1;
+
     if (rot !== 0) {
       ctx.translate(left + curW / 2, top + curH / 2);
       ctx.rotate(rot);
+      if (flourishProgress >= 0) drawZoneFlourish(ctx, -curW / 2, -curH / 2, curW, curH, flourishProgress);
       if (isPaperCutPart) drawPaperFrame(ctx, -curW / 2, -curH / 2, curW, curH);
       applyWipeClip(ctx, state, -curW / 2, -curH / 2, curW, curH);
       ctx.drawImage(img, -curW / 2, -curH / 2, curW, curH);
     } else {
+      if (flourishProgress >= 0) drawZoneFlourish(ctx, left, top, curW, curH, flourishProgress);
       if (isPaperCutPart) drawPaperFrame(ctx, left, top, curW, curH);
       applyWipeClip(ctx, state, left, top, curW, curH);
       ctx.drawImage(img, left, top, curW, curH);
@@ -553,29 +692,346 @@ export function drawMotionTimelineFrame(
   ctx.globalAlpha = 1;
   ctx.filter = "none";
 
-  // Black, not transparent: a fade-in or a dip-to-black has to resolve against
-  // something, and a recorded WebM of a transparent canvas is undefined.
+  // Black background
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, W, H);
 
   let bounds: PosterElement[] = [];
-  frame.scenes.forEach((scene, i) => {
-    const isTop = i === frame.scenes.length - 1;
-    // A scene carrying intro text is a title card, not a slide: it paints
-    // itself and has no elements to composite or hit-test.
-    const intro = introFor?.(scene.sceneIndex);
+  // The intro card carries its own big centred text, already lit up word by
+  // word — the top burst caption would just double it, so it stays off for
+  // as long as any card is actually on screen, including mid-transition.
+  let showingIntro = false;
+
+  // Single scene or plain fade/cut
+  if (frame.scenes.length <= 1) {
+    frame.scenes.forEach((scene, i) => {
+      const isTop = i === frame.scenes.length - 1;
+      const intro = introFor?.(scene.sceneIndex);
+      if (intro) {
+        showingIntro = true;
+        drawIntroCard(ctx, W, H, intro, frame.timeMs, opts.words, scene.alpha);
+        if (isTop) bounds = [];
+        return;
+      }
+      const result = drawScene(ctx, W, H, scene, frame.timeMs, assets, opts, isTop);
+      if (isTop) bounds = result;
+    });
+
+    if (opts.captions && opts.words?.length && !showingIntro) drawCaption(ctx, W, H, frame.timeMs, opts.words);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.filter = "none";
+    ctx.globalAlpha = 1;
+    return bounds;
+  }
+
+  // Multi-scene transition (outgoing scene A, incoming scene B)
+  const sceneA = frame.scenes[0];
+  const sceneB = frame.scenes[1];
+  const localT = sceneA.transitionProgress ?? frame.transitionProgress ?? 0.5;
+  const style = sceneA.transitionStyle ?? frame.transitionStyle ?? "whooshCut";
+
+  const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const easeIn = (t: number) => t * t * t;
+  const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+  const clamp = (n: number) => Math.min(1, Math.max(0, n));
+
+  // A scene is either painted as a normal frame or, when introFor flags it,
+  // as the title card — every transition case below goes through this
+  // instead of calling drawScene directly, so cutting away from (or into)
+  // the card is never a special case any one style has to remember.
+  const introA = introFor?.(sceneA.sceneIndex);
+  const introB = introFor?.(sceneB.sceneIndex);
+  showingIntro = !!introA || !!introB;
+  const paintScene = (scene: SceneRenderState, intro: string | undefined, collectBounds: boolean): PosterElement[] => {
     if (intro) {
       drawIntroCard(ctx, W, H, intro, frame.timeMs, opts.words, scene.alpha);
-      if (isTop) bounds = [];
-      return;
+      return [];
     }
-    const result = drawScene(ctx, W, H, scene, frame.timeMs, assets, opts, isTop);
-    if (isTop) bounds = result;
-  });
+    return drawScene(ctx, W, H, scene, frame.timeMs, assets, opts, collectBounds);
+  };
 
-  // Captions sit above everything, including the intro card.
-  if (opts.captions && opts.words?.length) drawCaption(ctx, W, H, frame.timeMs, opts.words);
+  ctx.save();
 
+  switch (style) {
+    case "whooshCut": {
+      // Motion Slide with horizontal sweep & blur trailing lines. Direction
+      // is fixed, never alternating by scene index: the outgoing scene
+      // always exits left and the incoming one always enters from the
+      // right, so every cut reads as advancing to the next slide — an
+      // alternating direction made every other cut look like going back to
+      // the previous one instead.
+      const dir = 1;
+      const u = easeInOut(localT);
+
+      // Draw outgoing scene sliding out
+      ctx.save();
+      ctx.translate(-dir * u * W * 0.85, 0);
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+
+      // Draw incoming scene sliding in
+      ctx.save();
+      ctx.translate(dir * (1 - u) * W * 0.85, 0);
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+
+      // Motion streak flash burst across mid-cut
+      const flash = 1 - Math.abs(localT - 0.5) * 2;
+      if (flash > 0) {
+        ctx.save();
+        ctx.globalAlpha = flash * 0.45;
+        const grad = ctx.createLinearGradient(0, 0, W, 0);
+        grad.addColorStop(0, "rgba(255,255,255,0)");
+        grad.addColorStop(0.5, "rgba(255,255,255,0.95)");
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      }
+      break;
+    }
+    case "glitch": {
+      // Cyber RGB Split Glitch
+      const beforeCut = localT < 0.5;
+      const curScene = beforeCut ? sceneA : sceneB;
+      bounds = paintScene(curScene, beforeCut ? introA : introB, !beforeCut);
+
+      const glitchWindow = 0.35;
+      const glitchAmt = clamp(1 - Math.abs(localT - 0.5) / glitchWindow);
+      if (glitchAmt > 0.02) {
+        const sliceCount = 10;
+        const seed = Math.floor(frame.timeMs / 40);
+        for (let s = 0; s < sliceCount; s++) {
+          const sy = (H / sliceCount) * s;
+          const sh = H / sliceCount;
+          const shiftX = (Math.sin(seed * 12.9898 + s * 78.233) * 0.5) * 80 * glitchAmt;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, sy, W, sh);
+          ctx.clip();
+          ctx.translate(shiftX, 0);
+          paintScene(curScene, beforeCut ? introA : introB, false);
+
+          if (s % 3 === 0) {
+            ctx.globalCompositeOperation = "screen";
+            ctx.globalAlpha = 0.25 * glitchAmt;
+            ctx.fillStyle = s % 2 === 0 ? "#ff0055" : "#00f0ff";
+            ctx.fillRect(0, sy, W, sh);
+          }
+          ctx.restore();
+        }
+      }
+      break;
+    }
+    case "flashCut": {
+      // Camera Flash Strobe Cut
+      const beforeCut = localT < 0.5;
+      const curScene = beforeCut ? sceneA : sceneB;
+      bounds = paintScene(curScene, beforeCut ? introA : introB, !beforeCut);
+
+      const flashAmt = clamp(1 - Math.abs(localT - 0.5) / 0.25);
+      if (flashAmt > 0) {
+        ctx.save();
+        ctx.globalAlpha = flashAmt;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      }
+      break;
+    }
+    case "zoomPunch": {
+      // Dynamic Zoom Punch
+      const uIn = easeIn(localT);
+      const uOut = easeOut(localT);
+
+      ctx.save();
+      ctx.globalAlpha = 1 - localT;
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(1 + 0.25 * uIn, 1 + 0.25 * uIn);
+      ctx.translate(-W / 2, -H / 2);
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = localT;
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(1.18 - 0.18 * uOut, 1.18 - 0.18 * uOut);
+      ctx.translate(-W / 2, -H / 2);
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+      break;
+    }
+    case "spinZoom": {
+      // Vortex Spin Swish
+      const uIn = easeIn(localT);
+      const uOut = easeOut(localT);
+      const dir = sceneA.sceneIndex % 2 === 0 ? 1 : -1;
+
+      ctx.save();
+      ctx.globalAlpha = 1 - localT;
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(dir * uIn * 0.4);
+      ctx.scale(1 + 0.4 * uIn, 1 + 0.4 * uIn);
+      ctx.translate(-W / 2, -H / 2);
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = localT;
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(-dir * (1 - uOut) * 0.4);
+      ctx.scale(1.4 - 0.4 * uOut, 1.4 - 0.4 * uOut);
+      ctx.translate(-W / 2, -H / 2);
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+      break;
+    }
+    case "blurDissolve": {
+      // Ghost Motion Blur Dissolve
+      const u = easeInOut(localT);
+      const blurAmt = Math.sin(Math.PI * localT) * 12;
+
+      ctx.save();
+      ctx.globalAlpha = 1 - u;
+      if (blurAmt > 0.5) ctx.filter = `blur(${blurAmt}px)`;
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = u;
+      if (blurAmt > 0.5) ctx.filter = `blur(${blurAmt}px)`;
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+      break;
+    }
+    case "slideUp": {
+      // Vertical Slide Up
+      const u = easeInOut(localT);
+
+      ctx.save();
+      ctx.translate(0, -u * H);
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(0, (1 - u) * H);
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+      break;
+    }
+    case "slideDown": {
+      // Vertical Slide Down
+      const u = easeInOut(localT);
+
+      ctx.save();
+      ctx.translate(0, u * H);
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(0, -(1 - u) * H);
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+      break;
+    }
+    case "irisCircle": {
+      // Iris Lens Wipe
+      paintScene(sceneA, introA, false);
+
+      const u = easeInOut(localT);
+      const maxR = (Math.hypot(W, H) / 2) * 1.05;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(W / 2, H / 2, Math.max(0.001, u * maxR), 0, Math.PI * 2);
+      ctx.clip();
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+      break;
+    }
+    case "diagonalWipe": {
+      // Angular Diagonal Sweep
+      paintScene(sceneA, introA, false);
+
+      const u = easeInOut(localT);
+      const cx = -H + u * (W + 2 * H);
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(cx, 0);
+      ctx.lineTo(cx - H, H);
+      ctx.lineTo(0, H);
+      ctx.closePath();
+      ctx.clip();
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+      break;
+    }
+    case "splitReveal": {
+      // Curtain Split Reveal
+      const u = easeInOut(localT);
+      bounds = paintScene(sceneB, introB, true);
+
+      // Top half of scene A moves up
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H / 2);
+      ctx.clip();
+      ctx.translate(0, -u * (H / 2) * 1.25);
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+
+      // Bottom half of scene A moves down
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, H / 2, W, H / 2);
+      ctx.clip();
+      ctx.translate(0, u * (H / 2) * 1.25);
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+      break;
+    }
+    case "cardFlip": {
+      // 3D Card Flip Squeeze
+      if (localT < 0.5) {
+        const u = easeIn(localT / 0.5);
+        ctx.save();
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(Math.max(0.001, 1 - u), 1);
+        ctx.translate(-W / 2, -H / 2);
+        paintScene(sceneA, introA, false);
+        ctx.restore();
+      } else {
+        const u = easeOut((localT - 0.5) / 0.5);
+        ctx.save();
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(Math.max(0.001, u), 1);
+        ctx.translate(-W / 2, -H / 2);
+        bounds = paintScene(sceneB, introB, true);
+        ctx.restore();
+      }
+      break;
+    }
+    case "fade":
+    default: {
+      // Standard crossfade
+      const u = easeInOut(localT);
+      ctx.save();
+      ctx.globalAlpha = 1 - u;
+      paintScene(sceneA, introA, false);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = u;
+      bounds = paintScene(sceneB, introB, true);
+      ctx.restore();
+      break;
+    }
+  }
+
+  ctx.restore();
+
+  if (opts.captions && opts.words?.length && !showingIntro) drawCaption(ctx, W, H, frame.timeMs, opts.words);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.filter = "none";
   ctx.globalAlpha = 1;

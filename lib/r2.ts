@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const BUCKET = process.env.R2_BUCKET_NAME!;
@@ -129,4 +129,53 @@ export async function listObjectKeys(prefix: string): Promise<string[]> {
     token = res.IsTruncated ? res.NextContinuationToken : undefined;
   } while (token);
   return keys;
+}
+
+/**
+ * Deletes a batch of objects in one request each, chunked at 1000 keys —
+ * R2/S3's own cap on a single DeleteObjects call. A key that is already gone
+ * is not an error, same as any other idempotent delete.
+ */
+export async function deleteObjects(keys: string[]): Promise<void> {
+  const unique = [...new Set(keys)].filter(Boolean);
+  if (unique.length === 0) return;
+
+  for (let i = 0; i < unique.length; i += 1000) {
+    const batch = unique.slice(i, i + 1000);
+    await r2Client.send(
+      new DeleteObjectsCommand({
+        Bucket: BUCKET,
+        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+      })
+    );
+  }
+}
+
+const UPLOAD_URL_RE = /\/api\/uploads\/([^"'\s)>]+)/g;
+
+/**
+ * Pulls every `/api/uploads/<key>` reference out of an arbitrary saved value
+ * (a history entry's `payload` and `previewUrl`, typically) and returns the
+ * R2 keys behind them, restricted to objects owned by `userId` — the same
+ * prefix every key is minted under in /api/uploads/presign. A stringify +
+ * regex scan rather than a typed walk on purpose: the shape varies by
+ * category (news batch, motion video, …) and gains new asset fields over
+ * time, and this catches all of them without having to know which field
+ * holds which URL — or keep this function in sync every time one is added.
+ */
+export function extractOwnedUploadKeys(value: unknown, userId: string): string[] {
+  if (!value) return [];
+  let text: string;
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    return [];
+  }
+  const prefix = `${userId}/`;
+  const keys = new Set<string>();
+  for (const match of text.matchAll(UPLOAD_URL_RE)) {
+    const key = decodeURIComponent(match[1]);
+    if (key.startsWith(prefix)) keys.add(key);
+  }
+  return [...keys];
 }

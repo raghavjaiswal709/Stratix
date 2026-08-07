@@ -97,6 +97,10 @@ import {
   sampleTimeline,
   wordAt,
   parseLooseJson,
+  playTransitionSfx,
+  playAudioFile,
+  DEFAULT_TRANSITION_AUDIO_MAP,
+  type AudioSfxType,
   type AuthoredTimeline,
   type AutoSyncReport,
   type CompiledTimeline,
@@ -277,6 +281,11 @@ export function ContentCreatorPage() {
   // On by default: every graphic (non-text) layer gets a small continuous
   // in-place rotational shake. See zigzagWobbleDeg in drawMotionTimelineFrame.ts.
   const [motionZigzagMotion, setMotionZigzagMotion] = useState(true);
+  // Owned here rather than inside MotionTimelinePanel because the auto-trigger
+  // that reads these lives in the render effect below, next to the sampled
+  // frame it detects scene- and zone-appearances from.
+  const [motionSfxEnabled, setMotionSfxEnabled] = useState(true);
+  const [motionSfxVolume, setMotionSfxVolume] = useState(0.65);
   const [copiedSpeechPrompt, setCopiedSpeechPrompt] = useState(false);
   // Post-decomposition: re-sorts a shuffled batch by each poster's own
   // printed slide number. See components/content-creator/slideOrder.ts.
@@ -319,6 +328,23 @@ export function ContentCreatorPage() {
   const motionTimeRef = useRef(0);
   const motionClockOriginRef = useRef(0);
   const motionLoopRef = useRef(true);
+  /**
+   * Scene- and zone-appearance SFX bookkeeping for the render effect below.
+   *
+   * `motionZoneVisibleRef` mirrors last frame's opacity*wipe > threshold per
+   * layer id, so an entrance is "the moment it crosses up through that", not
+   * "every frame it happens to be visible". `motionZoneSeededSceneRef` guards
+   * against firing that crossing for every layer at once the instant a seek
+   * (or a fresh play) lands mid-scene, when several layers are already on
+   * screen — the map is re-seeded from whatever is already visible, silently,
+   * the first frame a given scene index is seen, and only a crossing on a
+   * later frame counts as a real entrance.
+   */
+  const motionLastSceneIndexRef = useRef<number>(-1);
+  const motionZoneVisibleRef = useRef<Record<string, boolean>>({});
+  const motionZoneSeededSceneRef = useRef<number>(-1);
+  /** layer id → the timeline ms its entrance was last detected at, for the brief on-entrance glow in drawMotionTimelineFrame. */
+  const motionZoneFlourishRef = useRef<Record<string, number>>({});
   const motionAudioRef = useRef<HTMLAudioElement | null>(null);
   const motionAudioUrlRef = useRef<string | null>(null);
   const motionAudioR2UrlRef = useRef<string | null>(null);
@@ -346,6 +372,7 @@ export function ContentCreatorPage() {
     dest: MediaStreamAudioDestinationNode;
     voiceGain: GainNode;
     musicGain: GainNode;
+    sfxGain: GainNode;
     voiceEl: HTMLAudioElement | null;
     musicEl: HTMLAudioElement | null;
   } | null>(null);
@@ -1381,17 +1408,18 @@ export function ContentCreatorPage() {
   const activeItemImgUrl = isBatchMode && newsData[activeNewsIndex] ? newsData[activeNewsIndex].imageUrl : (creatorMode === "analysis" ? analysisData.imageUrl : parsedData.imageUrl);
 
   const ar = useMemo<AspectRatio>(() => {
-    // Motion mode always renders at the decomposed pixel size. Anything else
-    // rescales every cut-out on the way to the canvas, and a poster that was
-    // reassembled to the pixel would come out soft.
-    // A timeline cuts between slides mid-playback, and a canvas that resizes
-    // mid-recording produces a broken file — so the whole video is locked to
-    // the first scene's slide and any odd-sized slide is contain-fitted into it.
+    // A finished motion video is a Reel, not a carousel post — the canvas is
+    // fixed at 1080×1920 (9:16) for the whole recording regardless of what
+    // ratio the decomposed slides themselves are. `drawScene` already
+    // contain-fits each slide into whatever canvas it is handed and the
+    // canvas is filled black first, so a slide shorter than 16:9 (a 4:5 or
+    // 1:1 carousel poster, say) simply letterboxes with black bars top and
+    // bottom instead of stretching or cropping. Fixed rather than derived
+    // from the first scene's slide also sidesteps the old problem this once
+    // worked around: a canvas that resized mid-recording produced a broken
+    // file, and a constant is trivially as stable as that was.
     if (creatorMode === "motion" && motionTimeline) {
-      const first = motionSlides[motionTimeline.scenes[0]?.slideIndex ?? 0];
-      if (first?.width && first?.height) {
-        return { id: "auto", label: "Auto", w: first.width, h: first.height, desc: `${first.width}×${first.height}` };
-      }
+      return { id: "reel", label: "Reel", w: 1080, h: 1920, desc: "1080×1920 · 9:16" };
     }
     if (creatorMode === "motion" && motionData.width && motionData.height) {
       return {
@@ -1424,7 +1452,7 @@ export function ContentCreatorPage() {
       }
     }
     return RATIOS.find((r) => r.id === ratioId) || RATIOS[0];
-  }, [ratioId, creatorMode, activeNewsIndex, newsData, activeItemImgUrl, motionData.width, motionData.height, motionTimeline, motionSlides, activeImgRef.current?.naturalWidth, activeImgRef.current?.naturalHeight, loadedImagesRef.current]);
+  }, [ratioId, creatorMode, activeNewsIndex, newsData, activeItemImgUrl, motionData.width, motionData.height, motionTimeline, activeImgRef.current?.naturalWidth, activeImgRef.current?.naturalHeight, loadedImagesRef.current]);
 
   // Compute CSS scale so canvas fits preview area
   // Load the user's saved "default settings" once on mount, if they've ever
@@ -1810,11 +1838,15 @@ export function ContentCreatorPage() {
       const dest = ctx.createMediaStreamDestination();
       const voiceGain = ctx.createGain();
       const musicGain = ctx.createGain();
-      [voiceGain, musicGain].forEach((g) => {
+      // Transition SFX shares this bus too — it is the only way a whoosh
+      // played on a zone change ends up in the recorded stream rather than
+      // just the live speakers. See playMotionSfx below.
+      const sfxGain = ctx.createGain();
+      [voiceGain, musicGain, sfxGain].forEach((g) => {
         g.connect(ctx.destination);
         g.connect(dest);
       });
-      mix = { ctx, dest, voiceGain, musicGain, voiceEl: null, musicEl: null };
+      mix = { ctx, dest, voiceGain, musicGain, sfxGain, voiceEl: null, musicEl: null };
       motionMixRef.current = mix;
     }
 
@@ -1839,6 +1871,31 @@ export function ContentCreatorPage() {
     if (mix.ctx.state === "suspended") void mix.ctx.resume();
     return mix;
   }, [motionMusicVolume]);
+
+  /**
+   * Plays a zone-transition SFX through the same graph the voiceover and
+   * music already go through, so it is both audible live and — critically —
+   * present in the exported MP4. Routing it through this project's own
+   * private AudioContext (the sfx module's fallback) would only ever reach
+   * the speakers: MediaRecorder captures `mix.dest`, and a second, unrelated
+   * AudioContext has no way to feed into that stream.
+   */
+  const playMotionSfx = useCallback(
+    (sfx: AudioSfxType, volume: number) => {
+      const mix = ensureMotionMix();
+      void playTransitionSfx(sfx, volume, mix?.ctx, mix?.sfxGain);
+    },
+    [ensureMotionMix]
+  );
+
+  /** A second, fixed chime layered under the whoosh on every slide load — see /public/text.mp3. */
+  const playMotionSlideChime = useCallback(
+    (volume: number) => {
+      const mix = ensureMotionMix();
+      void playAudioFile("/text.mp3", volume, mix?.ctx, mix?.sfxGain);
+    },
+    [ensureMotionMix]
+  );
 
   // 60 FPS motion clock. Free-running when no timeline is applied (the
   // procedural preview loops forever); bounded by the timeline's duration
@@ -1882,8 +1939,8 @@ export function ContentCreatorPage() {
       setMotionTimeMs(value);
     };
 
-    const tick = (now: number) => {
-      if (cancelled) return;
+    /** One clock step, shared by both drivers below. False means stop entirely. */
+    const step = (now: number): boolean => {
       // Audio position is already in timeline time whatever the playback rate,
       // so it needs no scaling; the wall clock does.
       const fromAudio = audio && !audio.paused && !audio.ended ? audio.currentTime * 1000 : null;
@@ -1905,11 +1962,55 @@ export function ContentCreatorPage() {
         } else {
           advance(duration);
           setIsPlayingMotion(false);
-          return;
+          return false;
         }
       }
 
       advance(t);
+      return true;
+    };
+
+    if (isExportingTimeline) {
+      // requestAnimationFrame is throttled to roughly once a second — or
+      // paused outright — the instant this tab loses focus, while the
+      // <audio> element backing the clock keeps playing regardless of tab
+      // visibility. That mismatch is exactly what let an export freeze on
+      // its video track mid-recording with the audio carrying on
+      // underneath: motionTimeMs stopped advancing, so the render effect
+      // below had nothing to react to, while the recorder's audio track
+      // kept rolling untouched. setInterval does not share that throttling
+      // on a tab that is audibly playing — which an export always is — so
+      // the recording clock is driven by it instead. A few milliseconds of
+      // jitter against vsync is invisible in a captured stream; a clock
+      // that never stalls is worth far more here than one that is only
+      // perfectly smooth while the tab stays focused.
+      const fps = Math.max(12, Math.min(60, Math.round(motionTimeline?.fps ?? 30)));
+      const intervalId = window.setInterval(() => {
+        if (cancelled) return;
+        try {
+          if (!step(performance.now())) window.clearInterval(intervalId);
+        } catch (err) {
+          // One bad tick must not end the recording — the interval keeps
+          // firing regardless and the clock carries on from the next one.
+          console.warn("Motion export clock tick failed, continuing:", err);
+        }
+      }, 1000 / fps);
+
+      return () => {
+        cancelled = true;
+        window.clearInterval(intervalId);
+        audio?.pause();
+        music?.pause();
+      };
+    }
+
+    const tick = (now: number) => {
+      if (cancelled) return;
+      try {
+        if (!step(now)) return;
+      } catch (err) {
+        console.warn("Motion clock tick failed, continuing:", err);
+      }
       if (!cancelled) motionAnimFrameRef.current = requestAnimationFrame(tick);
     };
 
@@ -1920,7 +2021,7 @@ export function ContentCreatorPage() {
       audio?.pause();
       music?.pause();
     };
-  }, [creatorMode, isPlayingMotion, motionTimeline, ensureMotionMix]);
+  }, [creatorMode, isPlayingMotion, motionTimeline, ensureMotionMix, isExportingTimeline]);
 
   // Render canvas on motionTimeMs change when in motion mode
   useEffect(() => {
@@ -1930,32 +2031,106 @@ export function ContentCreatorPage() {
     // slide is on screen, so the slide switcher follows playback rather than
     // driving it.
     if (motionTimeline) {
-      const frame = sampleTimeline(motionTimeline, motionTimeMs);
-      const bounds = drawMotionTimelineFrame(
-        canvasRef.current,
-        frame,
-        {
-          slides: motionSlides,
-          layerImgEls: motionLayerImgElsRef.current,
-          bgImgs: loadedImagesRef.current,
-        },
-        { w: ar.w, h: ar.h },
-        {
-          activeLayerId: motionData.activeLayerId,
-          showSelection: !isPlayingMotion && !isExportingTimeline,
-          words: motionTranscript ?? undefined,
-          captions: motionCaptions,
-          paperCutStyle: motionPaperCutStyle,
-          wholeImageMotion: motionWholeImageMotion,
-          zigzagMotion: motionZigzagMotion,
-        },
-        (sceneIndex) => motionTimeline.scenes[sceneIndex]?.intro
-      );
-      if (!isPlayingMotion && !isExportingTimeline) {
-        setElementBounds(bounds);
-      }
-      if (frame.activeSlideIndex !== activeMotionIndex && motionSlides[frame.activeSlideIndex]) {
-        setActiveMotionIndex(frame.activeSlideIndex);
+      // A single bad frame — a transient image-decode race, a stray NaN, an
+      // out-of-range canvas call — must not end the whole recording. The
+      // clock effect above keeps advancing motionTimeMs regardless of what
+      // happens in here, so swallowing the error and trying again on the
+      // next tick is what stops one glitch from freezing the rest of an
+      // export while its audio track keeps rolling underneath.
+      try {
+        const frame = sampleTimeline(motionTimeline, motionTimeMs);
+
+        // Scene- AND zone-appearance SFX. Only while actually playing, so
+        // scrubbing the timeline while paused stays silent — matches the old
+        // scene-only behaviour this replaces.
+        if (isPlayingMotion && motionSfxEnabled) {
+          const sfxScene = motionTimeline.scenes[frame.activeSceneIndex];
+          if (sfxScene) {
+            const sceneSfx = sfxScene.enter?.soundEffect || DEFAULT_TRANSITION_AUDIO_MAP[sfxScene.enter?.type] || "whoosh";
+
+            if (frame.activeSceneIndex !== motionLastSceneIndexRef.current) {
+              playMotionSfx(sceneSfx, motionSfxVolume);
+              playMotionSlideChime(motionSfxVolume);
+              motionLastSceneIndexRef.current = frame.activeSceneIndex;
+            }
+
+            // The topmost sampled scene is the one actually settling into
+            // place — mid-transition that is frame.scenes[frame.scenes.length
+            // - 1], otherwise it is the only entry — and its `layers` are what
+            // the viewer is actually looking at.
+            const topScene = frame.scenes[frame.scenes.length - 1];
+            // Under wholeImageMotion (on by default), drawScene freezes every
+            // small, non-collage layer at rest from frame 0 regardless of its
+            // own cues — see isBigCollageElement in drawMotionTimelineFrame.ts.
+            // Firing a whoosh for that layer's programmed-but-suppressed
+            // entrance would be sound for a "zone" that never visibly appears.
+            // Mirrored here rather than reworking the renderer to report back
+            // what it actually drew.
+            const activeSlide = motionSlides[frame.activeSlideIndex];
+            const isBigZoneLayer = (layerId: string): boolean => {
+              if (!motionWholeImageMotion) return true;
+              const layer = activeSlide?.layers.find((l) => l.id === layerId);
+              if (!layer) return true;
+              const objType = layer.objectType || "";
+              if (["collage-part", "photo", "illustration", "panel", "banner"].includes(objType)) return true;
+              return (layer.w ?? 0) * (layer.h ?? 0) >= 0.1;
+            };
+            // A fresh scene index — whether reached by natural playback, a
+            // seek, or a loop restart — re-seeds silently instead of comparing
+            // against a stale or empty map, so landing mid-scene with several
+            // elements already on screen does not fire a burst for all of them
+            // at once. Only a crossing seen on a LATER frame counts as a real
+            // "zone appearing" — see the refs' declaration above.
+            const reseeding = motionZoneSeededSceneRef.current !== frame.activeSceneIndex;
+            if (reseeding) {
+              motionZoneVisibleRef.current = {};
+              motionZoneSeededSceneRef.current = frame.activeSceneIndex;
+            }
+            Object.entries(topScene.layers).forEach(([layerId, state]) => {
+              if (!isBigZoneLayer(layerId)) return;
+              const visible = state.opacity * state.wipe > 0.05;
+              const wasVisible = motionZoneVisibleRef.current[layerId] ?? false;
+              if (!reseeding && visible && !wasVisible) {
+                playMotionSfx(sceneSfx, motionSfxVolume);
+                motionZoneFlourishRef.current[layerId] = motionTimeMs;
+              }
+              motionZoneVisibleRef.current[layerId] = visible;
+            });
+          }
+        } else if (!isPlayingMotion) {
+          motionLastSceneIndexRef.current = -1;
+          motionZoneSeededSceneRef.current = -1;
+        }
+
+        const bounds = drawMotionTimelineFrame(
+          canvasRef.current,
+          frame,
+          {
+            slides: motionSlides,
+            layerImgEls: motionLayerImgElsRef.current,
+            bgImgs: loadedImagesRef.current,
+          },
+          { w: ar.w, h: ar.h },
+          {
+            activeLayerId: motionData.activeLayerId,
+            showSelection: !isPlayingMotion && !isExportingTimeline,
+            words: motionTranscript ?? undefined,
+            captions: motionCaptions,
+            paperCutStyle: motionPaperCutStyle,
+            wholeImageMotion: motionWholeImageMotion,
+            zigzagMotion: motionZigzagMotion,
+            zoneFlourishes: motionZoneFlourishRef.current,
+          },
+          (sceneIndex) => motionTimeline.scenes[sceneIndex]?.intro
+        );
+        if (!isPlayingMotion && !isExportingTimeline) {
+          setElementBounds(bounds);
+        }
+        if (frame.activeSlideIndex !== activeMotionIndex && motionSlides[frame.activeSlideIndex]) {
+          setActiveMotionIndex(frame.activeSlideIndex);
+        }
+      } catch (err) {
+        console.warn("Motion frame render failed, skipping this frame:", err);
       }
       return;
     }
@@ -1989,6 +2164,10 @@ export function ContentCreatorPage() {
     motionPaperCutStyle,
     motionWholeImageMotion,
     motionZigzagMotion,
+    motionSfxEnabled,
+    motionSfxVolume,
+    playMotionSfx,
+    playMotionSlideChime,
     ar,
     colors,
     config,
@@ -2767,6 +2946,48 @@ export function ContentCreatorPage() {
     ]
   );
 
+  // Autosave for everything about a motion project that ISN'T a timeline
+  // edit: the CSV transcript or the voiceover/music landing in Cloudflare R2,
+  // a toggle flipped, the music volume dragged. applyMotionDocEdit already
+  // covers drag-gesture edits to the timeline itself; this is what makes
+  // "upload the CSV, then the WAV" alone enough to have the project waiting
+  // — CSV, audio, music and every setting together — on another device,
+  // without a further manual "Save to History" for each one. Debounced
+  // through the same timer applyMotionDocEdit uses, so an upload landing
+  // seconds after a drag settles coalesces into one PUT instead of two
+  // racing writes.
+  //
+  // Gated on activeHistoryId already being set, same as the watermark-removal
+  // autosave above — a brand new project (nothing decomposed into history
+  // yet) still gets its first save from an explicit action (Save to History,
+  // or a committed timeline edit), so an abandoned experiment before that
+  // point never clutters the list with a half-finished entry. Everything
+  // after that first save is now covered.
+  useEffect(() => {
+    if (creatorMode !== "motion" || motionSlides.length === 0 || !activeHistoryId) return;
+    setMotionSaveState((s) => (s === "saving" ? s : "dirty"));
+    if (motionSaveTimerRef.current) window.clearTimeout(motionSaveTimerRef.current);
+    motionSaveTimerRef.current = window.setTimeout(() => {
+      void persistMotionState(motionTimelineText);
+    }, 1200);
+  }, [
+    creatorMode,
+    motionSlides.length,
+    activeHistoryId,
+    motionTimelineText,
+    motionCsvR2Url,
+    motionAudioR2Url,
+    motionAudioName,
+    motionMusicR2Url,
+    motionMusicName,
+    motionMusicVolume,
+    motionPaperCutStyle,
+    motionTextOnlySync,
+    motionWholeImageMotion,
+    motionZigzagMotion,
+    persistMotionState,
+  ]);
+
   /** Snapshot for undo, taken at the start of a gesture rather than per frame. */
   const beginMotionGesture = useCallback(() => {
     if (!motionDoc) return;
@@ -3052,6 +3273,60 @@ export function ContentCreatorPage() {
     motionMixRef.current = null;
     setMotionMusicName(null);
   }, []);
+
+  /**
+   * One combined picker for both files an auto-sync project needs, instead
+   * of hunting down which of two buttons a given file goes in. Each
+   * selection is routed by its own extension/MIME type — CSV-like text to
+   * the transcript slot, anything audio to the voiceover slot — so a
+   * multi-select of both files at once lands each one correctly on its own.
+   */
+  const handleMotionCombinedFiles = useCallback(
+    (files: File[]) => {
+      const AUDIO_EXT = /\.(wav|mp3|m4a|aac|ogg|flac|webm)$/i;
+      const CSV_EXT = /\.(csv|tsv|txt|srt|vtt|json)$/i;
+
+      let csvFile: File | null = null;
+      let audioFile: File | null = null;
+      const extras: string[] = [];
+      const unrecognized: string[] = [];
+
+      files.forEach((file) => {
+        const isAudio = file.type.startsWith("audio/") || AUDIO_EXT.test(file.name);
+        const isCsvLike =
+          !isAudio && (file.type.startsWith("text/") || file.type === "application/json" || CSV_EXT.test(file.name));
+
+        if (isAudio) {
+          if (!audioFile) audioFile = file;
+          else extras.push(file.name);
+        } else if (isCsvLike) {
+          if (!csvFile) csvFile = file;
+          else extras.push(file.name);
+        } else {
+          unrecognized.push(file.name);
+        }
+      });
+
+      if (csvFile) void handleMotionTranscriptFile(csvFile);
+      if (audioFile) void handleMotionAudioFile(audioFile);
+
+      if (unrecognized.length > 0 || extras.length > 0) {
+        const parts: string[] = [];
+        if (unrecognized.length > 0) {
+          parts.push(
+            `couldn't tell what ${unrecognized.join(", ")} ${
+              unrecognized.length === 1 ? "is" : "are"
+            } — rename with a .csv or .wav/.mp3 extension and pick it on its own`
+          );
+        }
+        if (extras.length > 0) {
+          parts.push(`only the first CSV and the first audio file are used — ignored ${extras.join(", ")}`);
+        }
+        setSegmentError(parts.join("; ") + ".");
+      }
+    },
+    [handleMotionTranscriptFile, handleMotionAudioFile]
+  );
 
   // Live volume: the gain node when the graph exists, the element otherwise.
   useEffect(() => {
@@ -5615,6 +5890,11 @@ export function ContentCreatorPage() {
                       onSeek={seekMotionTo}
                       isPlaying={isPlayingMotion}
                       onTogglePlay={() => setIsPlayingMotion((p) => !p)}
+                      onPlaySfx={playMotionSfx}
+                      sfxEnabled={motionSfxEnabled}
+                      onSfxEnabledChange={setMotionSfxEnabled}
+                      sfxVolume={motionSfxVolume}
+                      onSfxVolumeChange={setMotionSfxVolume}
                       loop={motionLoop}
                       onToggleLoop={() => setMotionLoop((l) => !l)}
                       transcript={motionTranscript}
@@ -5622,6 +5902,7 @@ export function ContentCreatorPage() {
                       transcriptNote={motionTranscriptNote}
                       onTranscriptFile={handleMotionTranscriptFile}
                       onClearTranscript={clearMotionTranscript}
+                      onCombinedFiles={handleMotionCombinedFiles}
                       activeWord={motionActiveWord}
                       audioName={motionAudioName}
                       onAudioFile={handleMotionAudioFile}

@@ -1,6 +1,7 @@
 import { REEL_FPS, REEL_H, REEL_W, buildReelTimeline, type ReelExportProgress, type ReelExportResult, type ReelExportSettings } from "./reelTypes";
 import { drawReelFrame } from "./reelRenderer";
 import { synthesizeWhooshBuffer } from "./reelWhoosh";
+import { loadSfxBuffer } from "@/lib/motion-timeline";
 import { synthesizeTrackById } from "./reelMusicPresets";
 import { createTicker } from "./reelTicker";
 import { finalizeMp4Duration } from "./reelMp4Duration";
@@ -131,7 +132,11 @@ export async function exportReel({ canvas, images, slideDurations, settings, onP
 
     let whooshBuffer: AudioBuffer | null = null;
     if (settings.whooshEnabled && timeline.slides.length > 1) {
-      whooshBuffer = await synthesizeWhooshBuffer(0.42, audioCtx.sampleRate);
+      try {
+        whooshBuffer = await loadSfxBuffer("whoosh", audioCtx);
+      } catch {
+        whooshBuffer = await synthesizeWhooshBuffer(0.42, audioCtx.sampleRate);
+      }
       throwIfCancelled();
     }
 
