@@ -445,3 +445,96 @@ export function nearestWordIndex(index: TranscriptIndex, tMs: number, from = 0, 
   }
   return bestIdx;
 }
+
+/**
+ * Where a written line STARTS being spoken.
+ *
+ * `locatePhrase` answers a different question — "which window of audio best
+ * covers these words?" — and answers it as a bag of words. That is right for a
+ * headline, whose three words may be said in any order across a sentence. It is
+ * wrong for a collage part's caption, which the design system defines as a
+ * contiguous, verbatim slice of the spoken line: concatenating a beat's
+ * captions in order reproduces that line exactly (video-template.ts §8).
+ *
+ * The failure is specific and it is not rare. Two captions of one beat share
+ * their filler — "aur", "woh", "hai" — so a window opened at the FIRST
+ * caption's words is wide enough to also cover the second's, scores just as
+ * well, and wins the tie by being earlier. The second card then enters a
+ * second and a half before the line that introduces it.
+ *
+ * So this walks the caption's tokens through the transcript in order, from each
+ * plausible start, and keeps the alignment that matches the most of them —
+ * breaking ties toward the TIGHTEST run rather than the earliest, because a
+ * line that is genuinely being spoken is contiguous and a coincidence is not.
+ */
+export function locateSpokenLine(
+  index: TranscriptIndex,
+  phrase: string,
+  options: { fromIndex?: number; toIndex?: number; minRatio?: number } = {}
+): PhraseLocation | null {
+  const from = Math.max(0, options.fromIndex ?? 0);
+  const to = Math.min(index.tokens.length, options.toIndex ?? index.tokens.length);
+  const minRatio = options.minRatio ?? 0.6;
+
+  const cap = tokenize(phrase);
+  // A sequence of one or two words is not a line, and matching it as one is
+  // actively worse than the bag-of-words path: "hai" occurs forty times, the
+  // walk below happily reports a perfect 1/1 alignment at the first of them,
+  // and that fake certainty then outranks every honest partial match in the
+  // caller's dedup. Too short to be a line, so it is not this function's job.
+  if (cap.length < 3 || to <= from) return null;
+
+  const W = index.tokens;
+  const same = (a: string, b: string) => a === b || tokensMatch(a, b);
+
+  // Filler a natural reading inserts between the caption's own words. Two
+  // transcript words per caption word plus a little slack is generous enough
+  // for a stumble and tight enough that the walk cannot wander into the
+  // next sentence.
+  const windowLen = cap.length * 2 + 6;
+
+  let best: { start: number; end: number; matched: number; span: number } | null = null;
+
+  for (let start = from; start < to; start++) {
+    // Only open where the line plausibly opens: on its first word, or its
+    // second if OCR or the reader dropped the first.
+    if (!same(W[start], cap[0]) && !(cap.length > 1 && same(W[start], cap[1]))) continue;
+
+    let j = start;
+    let k = 0;
+    let matched = 0;
+    let lastHit = start;
+    const limit = Math.min(to, start + windowLen);
+    while (k < cap.length && j < limit) {
+      if (same(W[j], cap[k])) {
+        matched++;
+        k++;
+        lastHit = j;
+      }
+      j++;
+    }
+    if (matched === 0) continue;
+    const span = lastHit - start + 1;
+    if (
+      !best ||
+      matched > best.matched ||
+      (matched === best.matched && span < best.span)
+    ) {
+      best = { start, end: lastHit + 1, matched, span };
+    }
+  }
+
+  if (!best) return null;
+  const ratio = best.matched / cap.length;
+  if (ratio < minRatio) return null;
+
+  return {
+    index: best.start,
+    endIndex: best.end,
+    startMs: index.words[best.start].startMs,
+    score: ratio,
+    matchedWeight: best.matched,
+    matchedTokens: best.matched,
+    totalTokens: cap.length,
+  };
+}

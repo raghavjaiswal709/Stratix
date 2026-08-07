@@ -738,6 +738,12 @@ export function compileTimeline(
     // untouched id), it never overrides a track someone actually wrote.
     // Staggered by reading order so parts drop in one at a time rather than
     // all at once.
+    //
+    // The stagger here is arithmetic, not sync, and that is the last resort:
+    // it runs only on a hand-authored timeline that forgot a part. Auto-sync
+    // writes a track for every part, anchored to the CSV row where that part's
+    // own caption is spoken (autosync.ts · locateSpokenLine), so this loop
+    // finds nothing to do on that path and no part ever enters on an interval.
     if (options.paperCutStyle) {
       const untrackedParts = slide.layers
         .filter((l) => l.objectType === "collage-part" && !touched.has(`${slideIndex}:${l.id}`))
@@ -876,10 +882,15 @@ export function compileTimeline(
 
   // Elements nobody animated still render, at rest — worth surfacing, since
   // it is usually an element the author forgot rather than a deliberate hold.
+  //
+  // A bound caption is neither: it has no track BY DESIGN, because its pixels
+  // live inside the part it belongs to and it enters when that part does.
+  // Counting it here would report every collage slide as half-forgotten.
   const untouched: string[] = [];
   const usedSlides = new Set(scenes.map((s) => s.slideIndex));
   usedSlides.forEach((si) => {
     slides[si].layers.forEach((l) => {
+      if (l.animatable === false) return;
       if (!touched.has(`${si}:${l.id}`)) untouched.push(`slide ${si + 1} · ${l.id}`);
     });
   });
