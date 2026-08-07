@@ -37,7 +37,7 @@ export async function handleRemoveWatermarkLocal(req: NextRequest) {
     }
 
     const scriptFolder = "scripts";
-    const scriptPath = path.join(process.cwd(), scriptFolder, "remove_watermark.py");
+    const scriptPath = path.join(/*turbopackIgnore: true*/ process.cwd(), scriptFolder, "remove_watermark.py");
     const pythonBin = process.env.PYTHON_BIN || "python3";
 
     const timeout = Math.min(110_000, 15_000 + tmpFiles.length * 15_000);
