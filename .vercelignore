@@ -1,2 +1,3 @@
-# Ignore local Python scripts and datasets during Vercel deployment builds
+# Ignore local Python scripts and heavy datasets during Vercel deployment builds
 scripts/
+public/data/candles/
