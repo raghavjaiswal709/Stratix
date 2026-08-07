@@ -64,6 +64,13 @@ async function persistResultToR2(userId: string, result: any): Promise<any> {
 }
 
 export async function POST(req: NextRequest) {
+  if (process.env.VERCEL) {
+    return NextResponse.json(
+      { error: "Motion video segmentation is only available in local development mode. Please run the app locally using 'npm run dev' to use this feature." },
+      { status: 503 }
+    );
+  }
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

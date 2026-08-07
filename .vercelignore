@@ -1,0 +1,2 @@
+# Ignore local Python scripts and datasets during Vercel deployment builds
+scripts/
