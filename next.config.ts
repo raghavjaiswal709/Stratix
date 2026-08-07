@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
     // batch of full-resolution posters.
     proxyClientMaxBodySize: "128mb",
   },
+  outputFileTracingExcludes: {
+    "*": ["scripts/**"],
+  },
   images: {
     remotePatterns: [
       {

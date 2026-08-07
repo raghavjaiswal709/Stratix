@@ -134,7 +134,8 @@ export async function POST(req: NextRequest) {
       tmpFiles.push(p);
     }
 
-    const scriptPath = path.join(process.cwd(), "scripts", "motion_segment.py");
+    const scriptFolder = "scripts";
+    const scriptPath = path.join(process.cwd(), scriptFolder, "motion_segment.py");
     const pythonBin = process.env.PYTHON_BIN || "python3";
 
     // One spawn for the whole batch: python imports (cv2, tesseract) stay warm,
