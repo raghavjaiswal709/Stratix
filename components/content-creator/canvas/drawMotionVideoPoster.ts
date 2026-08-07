@@ -62,6 +62,9 @@ export function drawMotionVideoPoster(
   ordered.forEach((layer: MotionLayer) => {
     const imgEl = layerImgEls[layer.id];
     if (!imgEl || !imgEl.complete || imgEl.naturalWidth === 0) return;
+    // Same as the timeline renderer: a bound caption's pixels already belong
+    // to its part's cut-out, so painting it again only doubles its edges.
+    if (layer.animatable === false) return;
 
     // Place by rounded edges rather than a rounded centre: at 1:1 this lands
     // the cut-out on the exact integer pixel it was taken from, so the browser
