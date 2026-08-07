@@ -77,9 +77,9 @@ MATTE_AGREE_DIST = 14.0
 # separately from - and more strictly than - the general-purpose "divider"
 # object kind above: a real collage rule spans almost the whole canvas, where
 # an ordinary in-page rule (the 0.18 threshold in _classify_object) does not.
-COLLAGE_DIVIDER_SPAN_FRAC = 0.80
-COLLAGE_DIVIDER_MAX_THICKNESS_FRAC = 0.035
-COLLAGE_DIVIDER_POSITION_TOL = 0.08
+COLLAGE_DIVIDER_SPAN_FRAC = 0.45
+COLLAGE_DIVIDER_MAX_THICKNESS_FRAC = 0.045
+COLLAGE_DIVIDER_POSITION_TOL = 0.25
 
 
 # --------------------------------------------------------------------------
@@ -1287,10 +1287,14 @@ def _find_divider_bands(cv2, mask, axis, w, h):
     hi = length - lo
     candidates = []
     i = lo
+    lo = int(0.08 * length)
+    hi = length - lo
+    candidates = []
+    i = lo
     while i < hi:
-        if coverage[i] >= 0.78:
+        if coverage[i] >= 0.58:
             j = i
-            while j < hi and coverage[j] >= 0.78:
+            while j < hi and coverage[j] >= 0.58:
                 j += 1
             thickness = j - i
             if thickness <= max(3, COLLAGE_DIVIDER_MAX_THICKNESS_FRAC * short_edge):
@@ -1302,11 +1306,7 @@ def _find_divider_bands(cv2, mask, axis, w, h):
 
 
 def _blocks_in_reading_order(blocks):
-    """Joins OCR blocks into one string in reading order, tolerant of blocks
-    that sit on the same printed row but disagree slightly on y (ascenders,
-    different word heights, a run that got OCR'd as more than one block) - a
-    flat sort by (y, x) alone interleaves those wrong, same reasoning as
-    _same_visual_line above for individual words."""
+    """Joins OCR blocks into one string in reading order."""
     remaining = sorted(blocks, key=lambda b: b["box"][1])
     rows = []
     for b in remaining:
@@ -1332,63 +1332,120 @@ def _blocks_in_reading_order(blocks):
 
 
 def _detect_collage_layout(np, cv2, arr, text_mask, graphic_items, w, h):
-    """1, 2, 3 or 4 collage parts, from divider rules that span almost the
-    whole canvas - or None when no confident layout is found.
-
-    Returns a list of fractional (x, y, w, h) part boxes in reading order
-    (top-to-bottom for stacks; top-left, top-right, bottom-left, bottom-right
-    for a 2x2), or None. Never returns a single-box (1-part) layout - that
-    case is indistinguishable from "no collage" and is exactly what leaving
-    the ordinary decomposition alone already handles correctly.
+    """Detects 1, 2, 3 or 4 collage partition zones from divider rules, major image regions,
+    or color/luminance projection boundaries. Always returns a list of 1-4 fractional
+    (x, y, w, h) zone boxes in reading order.
     """
-    mask = _foreground_mask(np, cv2, arr, text_mask)
+    mask = _foreground_mask(np, cv2, arr, text_mask) if cv2 is not None else None
 
-    # Tier 1: dividers the ordinary object detector already found and
-    # classified, kept only when they span almost the whole canvas - unlike
-    # the small in-page rule the 0.18 threshold in _classify_object accepts.
+    # Tier 1 & 2: Divider lines (horizontal and vertical)
     obj_h, obj_v = [], []
     for d in graphic_items:
         if d.get("objectType") != "divider":
             continue
         x, y, bw, bh = d["box"]
-        if bw >= COLLAGE_DIVIDER_SPAN_FRAC * w and bw >= bh * 3:
+        if bw >= COLLAGE_DIVIDER_SPAN_FRAC * w and bw >= bh * 2.5:
             obj_h.append((y + bh / 2.0) / float(h))
-        elif bh >= COLLAGE_DIVIDER_SPAN_FRAC * h and bh >= bw * 3:
+        elif bh >= COLLAGE_DIVIDER_SPAN_FRAC * h and bh >= bw * 2.5:
             obj_v.append((x + bw / 2.0) / float(w))
 
-    # Tier 2: the dedicated thin-band probe, only consulted when tier 1 found
-    # nothing on that axis.
-    if not obj_h:
+    if not obj_h and mask is not None:
         obj_h = _find_divider_bands(cv2, mask, "h", w, h)
-    if not obj_v:
+    if not obj_v and mask is not None:
         obj_v = _find_divider_bands(cv2, mask, "v", w, h)
 
-    h_pos = _cluster_positions(obj_h)
-    v_pos = _cluster_positions(obj_v)
+    h_pos = [p for p in _cluster_positions(obj_h, tol=0.04) if 0.15 <= p <= 0.85]
+    v_pos = [p for p in _cluster_positions(obj_v, tol=0.04) if 0.15 <= p <= 0.85]
 
-    def _near(vals, target):
-        return [v for v in vals if abs(v - target) <= COLLAGE_DIVIDER_POSITION_TOL]
+    # Tier 3: Major graphic/photo box clustering if no explicit divider rules found
+    if not h_pos and not v_pos:
+        major_boxes = [g["box"] for g in graphic_items if _area(g["box"]) >= 0.04 * w * h]
+        if len(major_boxes) >= 2:
+            centers_y = sorted([(b[1] + b[3] / 2.0) / float(h) for b in major_boxes])
+            centers_x = sorted([(b[0] + b[2] / 2.0) / float(w) for b in major_boxes])
 
-    # 2 parts: one divider, roughly centred.
-    if len(h_pos) == 1 and len(v_pos) == 0 and _near(h_pos, 0.5):
-        y0 = h_pos[0]
-        return [(0.0, 0.0, 1.0, y0), (0.0, y0, 1.0, 1.0 - y0)]
+            y_gaps = []
+            for idx in range(len(centers_y) - 1):
+                y_gaps.append((centers_y[idx+1] - centers_y[idx], (centers_y[idx] + centers_y[idx+1]) / 2.0))
+            y_gaps.sort(reverse=True, key=lambda g: g[0])
 
-    # 3 parts: two dividers at roughly the thirds.
-    if len(h_pos) == 2 and len(v_pos) == 0:
-        a, b = sorted(h_pos)
-        if _near([a], 1 / 3.0) and _near([b], 2 / 3.0):
-            return [(0.0, 0.0, 1.0, a), (0.0, a, 1.0, b - a), (0.0, b, 1.0, 1.0 - b)]
+            x_gaps = []
+            for idx in range(len(centers_x) - 1):
+                x_gaps.append((centers_x[idx+1] - centers_x[idx], (centers_x[idx] + centers_x[idx+1]) / 2.0))
+            x_gaps.sort(reverse=True, key=lambda g: g[0])
 
-    # 4 parts: one of each axis, crossing near the centre - a 2x2 grid.
-    if len(h_pos) == 1 and len(v_pos) == 1 and _near(h_pos, 0.5) and _near(v_pos, 0.5):
+            if y_gaps and y_gaps[0][0] >= 0.12 and 0.20 <= y_gaps[0][1] <= 0.80:
+                h_pos.append(y_gaps[0][1])
+            if x_gaps and x_gaps[0][0] >= 0.12 and 0.20 <= x_gaps[0][1] <= 0.80:
+                v_pos.append(x_gaps[0][1])
+
+    # Tier 4: Color/Luminance projection gradient fallback if still no dividers
+    if not h_pos and not v_pos and arr is not None and cv2 is not None:
+        try:
+            gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+            row_var = np.var(gray, axis=1)
+            row_grad = np.abs(np.diff(row_var))
+            H_arr = gray.shape[0]
+            lo, hi = int(0.25 * H_arr), int(0.75 * H_arr)
+            if hi > lo:
+                sub_grad = row_grad[lo:hi]
+                if len(sub_grad) > 0 and np.max(sub_grad) > 1.8 * (np.mean(sub_grad) + 1e-5):
+                    best_idx = lo + int(np.argmax(sub_grad))
+                    candidate_y = best_idx / float(H_arr)
+                    if 0.28 <= candidate_y <= 0.72:
+                        h_pos.append(candidate_y)
+        except Exception:
+            pass
+
+    # Construct 1 to 4 clean partition layout
+    # 4 parts: 2x2 grid
+    if len(h_pos) >= 1 and len(v_pos) >= 1:
         y0, x0 = h_pos[0], v_pos[0]
         return [
-            (0.0, 0.0, x0, y0), (x0, 0.0, 1.0 - x0, y0),
-            (0.0, y0, x0, 1.0 - y0), (x0, y0, 1.0 - x0, 1.0 - y0),
+            (0.0, 0.0, x0, y0),
+            (x0, 0.0, 1.0 - x0, y0),
+            (0.0, y0, x0, 1.0 - y0),
+            (x0, y0, 1.0 - x0, 1.0 - y0),
         ]
 
-    return None
+    # 3 parts: 3 horizontal rows
+    if len(h_pos) >= 2:
+        h_sorted = sorted(h_pos)[:2]
+        a, b = h_sorted[0], h_sorted[1]
+        return [
+            (0.0, 0.0, 1.0, a),
+            (0.0, a, 1.0, b - a),
+            (0.0, b, 1.0, 1.0 - b),
+        ]
+
+    # 3 parts: 3 vertical columns
+    if len(v_pos) >= 2:
+        v_sorted = sorted(v_pos)[:2]
+        a, b = v_sorted[0], v_sorted[1]
+        return [
+            (0.0, 0.0, a, 1.0),
+            (a, 0.0, b - a, 1.0),
+            (b, 0.0, 1.0 - b, 1.0),
+        ]
+
+    # 2 parts: 1 horizontal split (top / bottom)
+    if len(h_pos) == 1:
+        y0 = h_pos[0]
+        return [
+            (0.0, 0.0, 1.0, y0),
+            (0.0, y0, 1.0, 1.0 - y0),
+        ]
+
+    # 2 parts: 1 vertical split (left / right)
+    if len(v_pos) == 1:
+        x0 = v_pos[0]
+        return [
+            (0.0, 0.0, x0, 1.0),
+            (x0, 0.0, 1.0 - x0, 1.0),
+        ]
+
+    # 1 part: single full canvas zone
+    return [(0.0, 0.0, 1.0, 1.0)]
 
 
 # --------------------------------------------------------------------------
