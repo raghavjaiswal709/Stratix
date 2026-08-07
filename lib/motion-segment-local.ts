@@ -100,7 +100,7 @@ export async function handleMotionSegmentLocal(req: NextRequest) {
     }
 
     const scriptFolder = "scripts";
-    const scriptPath = path.join(process.cwd(), scriptFolder, "motion_segment.py");
+    const scriptPath = path.join(/*turbopackIgnore: true*/ process.cwd(), scriptFolder, "motion_segment.py");
     const pythonBin = process.env.PYTHON_BIN || "python3";
 
     const perImage = strength === "high" ? 45_000 : strength === "standard" ? 40_000 : 35_000;

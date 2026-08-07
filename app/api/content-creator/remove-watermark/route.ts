@@ -11,6 +11,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { handleRemoveWatermarkLocal } = await import("@/lib/remove-watermark-local");
+  // Prevent Next.js static NFT bundler from tracing local helper during Vercel build
+  const reqFn = eval("require");
+  const { handleRemoveWatermarkLocal } = reqFn("@/lib/remove-watermark-local");
   return handleRemoveWatermarkLocal(req);
 }

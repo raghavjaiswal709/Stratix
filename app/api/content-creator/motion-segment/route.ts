@@ -11,6 +11,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { handleMotionSegmentLocal } = await import("@/lib/motion-segment-local");
+  // Prevent Next.js static NFT bundler from tracing local helper during Vercel build
+  const reqFn = eval("require");
+  const { handleMotionSegmentLocal } = reqFn("@/lib/motion-segment-local");
   return handleMotionSegmentLocal(req);
 }
