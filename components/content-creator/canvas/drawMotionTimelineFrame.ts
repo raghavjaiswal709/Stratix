@@ -439,6 +439,11 @@ function drawScene(
   ordered.forEach((layer: MotionLayer) => {
     const img = perSlide[layer.id];
     if (!ready(img)) return;
+    // A part's caption is already inside that part's own cut-out. It is a
+    // layer so its words are addressable, not so it can be painted a second
+    // time — drawing it again would double its edges the moment the part it
+    // belongs to moves out from under it.
+    if (layer.animatable === false) return;
 
     const isTextLayer = layer.type === "text";
     const isBig = isBigCollageElement(layer);

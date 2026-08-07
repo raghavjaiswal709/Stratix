@@ -39,7 +39,11 @@ WATERMARK_MIN_CONF = 15.0
 # neighbouring, unrelated piece of footer text.
 _CLUSTER_DILATE_FRAC = 0.006
 _CLUSTER_MIN_PX = 3
-_MAX_CLUSTERS = 80
+# How many blobs Pass 1 will spend an OCR call on, after _plausible_wordmark has
+# already thrown out everything the wrong shape or in the wrong place. Each one
+# costs up to three tesseract spawns, so this is a time budget rather than a
+# correctness knob — the mark, if it is there, is among the largest survivors.
+_MAX_CLUSTERS = 12
 
 
 def _levenshtein(s1, s2):
@@ -116,6 +120,28 @@ def _words_to_box(words):
     return box
 
 
+def _plausible_wordmark(box, w, h):
+    """Could this ink blob be the wordmark at all?
+
+    Every candidate that gets past here costs a tesseract spawn, and the zone
+    routinely yields dozens of blobs - the poster's own footer type, the tail of
+    an illustration, hatching. Grok stamps a small, wide, bottom-corner mark of
+    a very particular size, so checking that first is what keeps the pass at a
+    handful of reads instead of a couple of hundred. (Before this filter a
+    poster with a *tidy* footer was the slow case: too few blobs to trip the
+    _MAX_CLUSTERS bail-out, so all of them were read - 24s a slide, against 0.5s
+    for a busy one that skipped the pass entirely.)
+    """
+    x, y, bw, bh = box
+    if not (0.008 * h <= bh <= 0.040 * h):
+        return False
+    if not (0.015 * w <= bw <= 0.220 * w):
+        return False
+    if not (0.8 <= bw / float(max(1, bh)) <= 8.0):
+        return False
+    return (y + bh / 2.0) > 0.78 * h
+
+
 def _ink_clusters(cv2, zone_gray, zx, zy):
     """Connected ink components inside a zone crop, each merged at
     word-scale and returned as a tight box in page coordinates, largest first.
@@ -186,10 +212,11 @@ def find_watermark_box(np, cv2, arr_rgb, ocr_region_fn):
         return None
 
     zone_gray = cv2.cvtColor(arr_rgb[zy:zy + zh, zx:zx + zw], cv2.COLOR_RGB2GRAY)
-    clusters = _ink_clusters(cv2, zone_gray, zx, zy)
+    clusters = [c for c in _ink_clusters(cv2, zone_gray, zx, zy)
+                if _plausible_wordmark(c, w, h)][:_MAX_CLUSTERS]
 
     # Pass 1: OCR each ink blob on its own tight crop
-    if len(clusters) <= _MAX_CLUSTERS:
+    if clusters:
         for cx, cy, cw, ch in clusters:
             pad = max(2, int(0.5 * ch))
             candidates = [(cx, cy, cw, ch)]
@@ -231,8 +258,30 @@ def find_watermark_box(np, cv2, arr_rgb, ocr_region_fn):
             if _looks_like_grok(read["text"]) and len(read["words"]) <= 4:
                 return _words_to_box(read["words"]) if read["words"] else cbox
 
-    # Pass 4: Computer Vision contour fallback
-    return _cv_fallback_watermark_box(cv2, arr_rgb, w, h)
+    # Pass 4: Computer Vision contour fallback.
+    #
+    # This pass has no evidence the ink it found spells anything - it matches on
+    # geometry alone, and the design system draws its own furniture in exactly
+    # the corners it searches. So whatever it picks is read back before it is
+    # erased: type that comes out as a confident, ordinary word is the poster's
+    # own footer (the handle, the "Swipe ->" cue) and is left alone, while a
+    # wordmark faint enough that nothing above could read it stays a watermark.
+    # Without this check every slide in the carousel design system loses its
+    # "Swipe ->" cue to a pass that was only ever meant to catch Grok's mark.
+    box = _cv_fallback_watermark_box(cv2, arr_rgb, w, h)
+    if box is None:
+        return None
+    bx, by, bw, bh = box
+    pad = max(2, int(0.4 * bh))
+    read = ocr_region_fn(np, cv2, arr_rgb,
+                         (max(0, bx - pad), max(0, by - pad), bw + 2 * pad, bh + 2 * pad),
+                         min_conf=55.0)
+    if read:
+        legible = [wd for wd in read["words"]
+                   if len(re.sub(r"[^a-z0-9]", "", wd["text"].lower())) >= 3]
+        if legible and not any(_looks_like_grok(wd["text"]) for wd in legible):
+            return None
+    return box
 
 
 def _pad_for_icon(box, w, h):

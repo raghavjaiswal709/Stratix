@@ -166,14 +166,33 @@ export interface MotionLayer {
   /* Graphic layers only — what the detector measured the object to be.
      Emitted by scripts/motion_segment.py · _classify_object, and read by the
      auto-sync choreographer to pick an entrance that suits the object. */
-  objectType?: "circle" | "panel" | "banner" | "divider" | "icon" | "photo" | "illustration" | "chart" | "graphic" | "collage-part" | string;
+  objectType?: "circle" | "panel" | "banner" | "divider" | "icon" | "photo" | "illustration" | "chart" | "graphic" | "collage-part" | "part-caption" | string;
   fillRatio?: number;
   circularity?: number;
   solidity?: number;
   colorCount?: number;
   edgeDensity?: number;
-  /** objectType "collage-part" only — reading-order position among that slide's collage parts (0-based). */
+  /** Reading-order position of the collage part this layer is (or lives inside), 0-based. */
   partIndex?: number;
+
+  /**
+   * False only on a part's caption: it is a real element with real words — the
+   * script CSV is matched against them — but it is not an animation target.
+   * The caption belongs to the card its drawing is on, so it travels with the
+   * part rather than sliding in on a beat of its own, and nothing draws it
+   * separately (the part's own cut-out already holds those pixels).
+   * Undefined on layers from decompositions saved before strengths existed;
+   * treat that as true.
+   */
+  animatable?: boolean;
+  /** Caption layers only — the `id` of the collage part this caption belongs to. */
+  boundTo?: string;
+  /** objectType "collage-part" only — the drawing alone, without its caption strip. */
+  artBounds?: PixelBounds | null;
+  /** objectType "collage-part" only — the caption strip alone. */
+  captionBounds?: PixelBounds | null;
+  /** objectType "collage-part" only — how many sub-objects were cut out of it (standard/high). */
+  childCount?: number;
 
   /* Text layers only. */
   text?: string;
@@ -213,6 +232,9 @@ export interface MotionTextData {
   blocks: MotionTextBlock[];
 }
 
+/** How deep a decomposition went. Chosen per upload — see the picker on the Motion panel. */
+export type DecompositionStrength = "low" | "standard" | "high";
+
 export interface MotionMeta {
   ocr: string;
   watermarkRemoved?: boolean;
@@ -225,6 +247,15 @@ export interface MotionMeta {
   note?: string;
   /** Number of layers with objectType "collage-part" — 0 for an ordinary, non-collage poster. */
   collageParts?: number;
+  strength?: DecompositionStrength;
+  /** The collage grid that was recognised: "2x1", "3x1", "2x2", or "none". */
+  grid?: string;
+  /** Captions read, one per part. */
+  captions?: number;
+  /** Objects cut out from inside the parts — 0 at `low`. */
+  subObjects?: number;
+  /** Layers the animator can address, i.e. everything except the bound captions. */
+  animatableLayers?: number;
 }
 
 export interface MotionVideoData {

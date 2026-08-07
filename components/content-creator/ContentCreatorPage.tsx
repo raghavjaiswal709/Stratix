@@ -57,6 +57,7 @@ import type {
   MotionLayer,
   MotionSlide,
   MotionTextBlock,
+  DecompositionStrength,
   LogoPosition,
   AspectRatio,
   HistoryListItem,
@@ -119,6 +120,7 @@ import { PosterSelectionModal } from "./modals/PosterSelectionModal";
 import { ContentCalendarModal } from "./modals/ContentCalendarModal";
 import { CopyButton } from "./modals/CopyButton";
 import { FixSlideOrderModal } from "./modals/FixSlideOrderModal";
+import { DecompositionStrengthModal } from "./modals/DecompositionStrengthModal";
 import { matchSlideOrderToScript } from "./slideOrder";
 import { deriveScriptSegments } from "./scriptSegments";
 import { ReelStudioModal } from "./reel/ReelStudioModal";
@@ -203,6 +205,15 @@ export function ContentCreatorPage() {
   const [activeMotionIndex, setActiveMotionIndex] = useState(0);
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [segmentProgress, setSegmentProgress] = useState<{ done: number; total: number } | null>(null);
+  /**
+   * Picked images waiting on a strength. Decomposition is destructive to
+   * whatever is on screen, and the strength cannot be changed afterwards
+   * without running the whole batch again — so the choice is made before
+   * anything is touched, not after.
+   */
+  const [pendingMotionFiles, setPendingMotionFiles] = useState<File[] | null>(null);
+  /** Remembered between uploads, so a second batch of the same deck is one click. */
+  const [motionStrength, setMotionStrength] = useState<DecompositionStrength>("low");
   const [segmentError, setSegmentError] = useState<string | null>(null);
   const [isRemovingWatermarks, setIsRemovingWatermarks] = useState(false);
   const [watermarkProgress, setWatermarkProgress] = useState<{ done: number; total: number } | null>(null);
@@ -2126,7 +2137,11 @@ export function ContentCreatorPage() {
    * same spinner the user already knows.
    */
   const decomposeMotionFiles = useCallback(
-    async (files: File[], onProgress?: (done: number, total: number) => void): Promise<{ slides: MotionSlide[]; failures: string[] }> => {
+    async (
+      files: File[],
+      strength: DecompositionStrength,
+      onProgress?: (done: number, total: number) => void
+    ): Promise<{ slides: MotionSlide[]; failures: string[] }> => {
       // Chunked, not one giant request. Every layer comes back from python as a
       // base64 PNG before the route moves it to R2, so a 50-poster batch in a
       // single spawn would push hundreds of megabytes through one stdout pipe
@@ -2143,6 +2158,7 @@ export function ContentCreatorPage() {
 
         const form = new FormData();
         chunk.forEach((f) => form.append("images", f, f.name));
+        form.append("strength", strength);
 
         const res = await fetch("/api/content-creator/motion-segment", {
           method: "POST",
@@ -2198,16 +2214,22 @@ export function ContentCreatorPage() {
   /** Per-slot upload from the Fix Order modal — decompose only, no state reset. */
   const handleDecomposeForSlot = useCallback(
     async (files: File[]): Promise<MotionSlide[]> => {
-      const { slides: added } = await decomposeMotionFiles(files);
+      // Deliberately not re-asking: a slide dropped into a gap has to match the
+      // slides beside it, so it is cut at the strength this batch already used.
+      const { slides: added } = await decomposeMotionFiles(files, motionStrength);
       return added;
     },
-    [decomposeMotionFiles]
+    [decomposeMotionFiles, motionStrength]
   );
 
-  const handleMotionFilesUpload = async (files: FileList | File[]) => {
+  /** Picking images only queues them — the strength modal decides what happens next. */
+  const handleMotionFilesUpload = (files: FileList | File[]) => {
     const fileArray = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (fileArray.length === 0) return;
+    setPendingMotionFiles(fileArray);
+  };
 
+  const runMotionDecomposition = async (fileArray: File[], strength: DecompositionStrength) => {
     const MAX_BATCH = 50;
     const batch = fileArray.slice(0, MAX_BATCH);
 
@@ -2228,7 +2250,7 @@ export function ContentCreatorPage() {
     try {
       // Progress counts images attempted, not images that survived, so the
       // bar still reaches the end when one poster fails.
-      const { slides, failures } = await decomposeMotionFiles(batch, (done, total) =>
+      const { slides, failures } = await decomposeMotionFiles(batch, strength, (done, total) =>
         setSegmentProgress({ done, total })
       );
 
@@ -5408,7 +5430,7 @@ export function ContentCreatorPage() {
                       </span>
                     </div>
                     <p className="text-[10.5px] text-white/60 leading-relaxed">
-                      Upload up to 50 images at once, processed in batches. OpenCV + tesseract split each poster into text and graphic layers at full resolution — every pixel outside a detected element is left exactly as uploaded, and each text layer carries its literal words, position, size and colour.
+                      Upload up to 50 images at once, processed in batches. OpenCV + tesseract read each poster&apos;s collage grid from its own divider rules, cut every part edge to edge at full resolution, and read each part&apos;s caption verbatim so it matches the script. You pick how deep to cut on upload.
                     </p>
                   </div>
 
@@ -5441,7 +5463,10 @@ export function ContentCreatorPage() {
                       <Upload className="h-6 w-6" />
                     </div>
                     <p className="text-xs font-bold text-white mb-0.5">Click or Drag &amp; Drop Images to Decompose</p>
-                    <p className="text-[10px] text-white/40">Select up to 50 carousel slides together — each is processed identically</p>
+                    <p className="text-[10px] text-white/40">
+                      Up to 50 slides at once — you&apos;ll pick the decomposition strength next
+                      {motionSlides.length > 0 ? ` (last used: ${motionStrength})` : ""}
+                    </p>
                   </div>
 
                   {/* Segmentation Loading Spinner */}
@@ -5452,7 +5477,13 @@ export function ContentCreatorPage() {
                         <p className="text-xs font-bold text-purple-200">
                           Decomposing {segmentProgress ? `${segmentProgress.total} image${segmentProgress.total === 1 ? "" : "s"}` : "image"}…
                         </p>
-                        <p className="text-[10px] text-white/50">Reading text with OCR &amp; cutting layers at full resolution</p>
+                        <p className="text-[10px] text-white/50">
+                          {motionStrength === "low"
+                            ? "Reading each collage part and its caption, at full resolution"
+                            : motionStrength === "standard"
+                            ? "Reading each collage part, its caption and the props inside it"
+                            : "Reading every shape inside every collage part"}
+                        </p>
                       </div>
                     </div>
                   )}
@@ -7370,6 +7401,21 @@ export function ContentCreatorPage() {
           onApply={applyPosterSelection}
           applying={generatingImages}
           applyProgress={imageGenProgress}
+        />
+      )}
+
+      {/* Decomposition strength — asked once, before the picked images are touched */}
+      {pendingMotionFiles && (
+        <DecompositionStrengthModal
+          fileCount={pendingMotionFiles.length}
+          initial={motionStrength}
+          onCancel={() => setPendingMotionFiles(null)}
+          onConfirm={(strength) => {
+            const files = pendingMotionFiles;
+            setPendingMotionFiles(null);
+            setMotionStrength(strength);
+            void runMotionDecomposition(files, strength);
+          }}
         />
       )}
 

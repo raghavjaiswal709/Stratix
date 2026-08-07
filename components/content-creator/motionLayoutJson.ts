@@ -135,6 +135,10 @@ function leanElement(l: MotionLayer) {
     role: l.role ?? null,
     at: l.positionLabel ?? null,
     box,
+    // A collage part is the one graphic that does carry text: its own caption,
+    // verbatim. That caption is what the part is addressed by, so it has to be
+    // here or the part is bindable only by position.
+    ...(l.objectType === "collage-part" ? { objectType: l.objectType, text: l.text ?? "" } : {}),
   };
 }
 
@@ -142,15 +146,19 @@ function leanElement(l: MotionLayer) {
  * The slide list an AI needs to bind a sync manifest to real layer ids.
  * `box` is [x, y, w, h] normalised 0–1; `at` is the same nine-cell grid the
  * manifest uses, which is what makes a graphic bindable at all.
+ *
+ * Bound captions are left out entirely. They are real elements with real
+ * words, but they are not animation targets — listing them would invite a
+ * track that animates a caption out from under the card it is printed on.
  */
 export function buildLeanMotionLayout(slides: MotionVideoData[]) {
   return {
     version: 3,
-    note: "box = [x,y,w,h] normalised 0-1. at = 9-cell grid. Graphics carry no text by nature — bind them by kind, at and box.",
+    note: "box = [x,y,w,h] normalised 0-1. at = 9-cell grid. A collage-part graphic carries its own caption in `text` — bind it by that. Other graphics carry no text; bind them by kind, at and box.",
     slides: slides.map((slide, i) => ({
       slide: i + 1,
       canvas: [slide.width ?? 0, slide.height ?? 0],
-      elements: (slide.layers ?? []).map(leanElement),
+      elements: (slide.layers ?? []).filter((l) => l.animatable !== false).map(leanElement),
     })),
   };
 }

@@ -233,6 +233,8 @@ interface AutoLayer {
   h: number;
   /** Reading-order rank inside its slide. */
   order: number;
+  /** False on a collage part's caption — it arrives with its part, not on a beat of its own. */
+  animatable: boolean;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -251,6 +253,18 @@ function isFurniture(layer: AutoLayer): boolean {
   // Anything tiny pinned to the very bottom edge is decoration by position,
   // whatever the decomposer decided to call it.
   return layer.y + layer.h > 0.93 && layer.w < 0.4 && layer.h < 0.07;
+}
+
+/**
+ * A collage part's caption is not its own beat.
+ *
+ * Its words matter — they are what the slide is matched to the script by — but
+ * it is set at the bottom of a card whose drawing it belongs to, so it arrives
+ * when that card does. Giving it a sync slot of its own would spend a beat
+ * animating half of something that already animated.
+ */
+function isBoundToAnother(layer: AutoLayer): boolean {
+  return layer.animatable === false;
 }
 
 function readLayers(slide: TimelineSlideLike): AutoLayer[] {
@@ -285,6 +299,7 @@ function readLayer(l: TimelineSlideLike["layers"][number], i: number): AutoLayer
       w: numOr(l.w, 0.1),
       h: numOr(l.h, 0.1),
       order: i,
+      animatable: anyLayer.animatable !== false,
     };
   }
 }
@@ -359,8 +374,8 @@ function profileSlides(slides: TimelineSlideLike[], index: TranscriptIndex, warn
 function profileSlide(slide: TimelineSlideLike, slideIndex: number, index: TranscriptIndex, W: number): SlideProfile {
   {
     const layers = readLayers(slide);
-    const furniture = layers.filter(isFurniture);
-    const content = layers.filter((l) => !isFurniture(l));
+    const furniture = layers.filter((l) => isFurniture(l) || isBoundToAnother(l));
+    const content = layers.filter((l) => !isFurniture(l) && !isBoundToAnother(l));
 
     // Furniture text ("@stratix", "1/10") is on every slide, so it identifies
     // none of them — the segmenter only reads what the slide is actually about.

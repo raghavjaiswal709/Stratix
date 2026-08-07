@@ -27,12 +27,19 @@ import base64
 import io
 import re
 
+import collage_zones
 from watermark import strip_grok_watermark, _looks_like_grok
 
 # Longest edge we do pixel work on. Bigger inputs are downscaled once, with
 # LANCZOS, and everything (background + cut-outs) is derived from that single
 # buffer so the layers and the background always agree pixel for pixel.
-MAX_PROCESS_DIM = 2200
+#
+# Set high enough that no poster this pipeline is aimed at ever reaches it:
+# decomposing at source resolution is the point, and a cut-out taken from a
+# downscaled buffer can never get its detail back. This is a memory rail for a
+# pathological input, not a working resolution. Every collage measurement is a
+# fraction of the canvas, so nothing about the read changes with the number.
+MAX_PROCESS_DIM = 4200
 
 # OCR likes ~1100-2200px on the long edge. Smaller gets upscaled, bigger
 # downscaled, purely for the tesseract pass - never for the output pixels.
@@ -923,11 +930,23 @@ def _background_estimate(np, cv2, arr_rgb):
     return cv2.resize(fitted, (w, h), interpolation=cv2.INTER_LINEAR)
 
 
-def _foreground_mask(np, cv2, arr_rgb, text_mask):
-    """Everything that is not page background, minus everything OCR claimed."""
+def _foreground_mask(np, cv2, arr_rgb, text_mask, close_frac=None, ground=None):
+    """Everything that is not page background, minus everything OCR claimed.
+
+    `ground` short-circuits the surface fit with a flat colour, for the one
+    case where the fit is the wrong model: a crop taken from INSIDE a collage
+    part. There is no page in there - the drawing covers every pixel - so the
+    quadratic has nothing to lock onto, its residual lights up across the whole
+    crop, and the >0.72 escape hatch below drops the pass to bare Canny edges.
+    A part's own hatched ground is flat and dominant by area, so its modal
+    colour is both a better model and a far cheaper one.
+    """
     h, w = arr_rgb.shape[:2]
 
-    bg = _background_estimate(np, cv2, arr_rgb)
+    if ground is None:
+        bg = _background_estimate(np, cv2, arr_rgb)
+    else:
+        bg = ground.reshape(1, 1, 3)
     dist = np.abs(arr_rgb.astype(np.int16) - bg.astype(np.int16)).max(axis=2).astype(np.uint8)
 
     # Otsu picks the split between "page" and "ink" for this particular poster,
@@ -939,7 +958,12 @@ def _foreground_mask(np, cv2, arr_rgb, text_mask):
     # thresholded away with it. Speckle from going this low is removed by the
     # opening and the minimum-area filter below.
     otsu, _ = cv2.threshold(dist, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    level = max(FOREGROUND_MIN_DIST, min(otsu * 0.5, 34.0))
+    if ground is None:
+        level = max(FOREGROUND_MIN_DIST, min(otsu * 0.5, 34.0))
+    else:
+        # Inside a part there is no low-contrast furniture worth rescuing, and
+        # dropping under Otsu here just lights up the ground's own hatching.
+        level = max(FOREGROUND_MIN_DIST, otsu * 0.9)
     mask = (dist >= level).astype(np.uint8) * 255
 
     if text_mask is not None:
@@ -961,7 +985,7 @@ def _foreground_mask(np, cv2, arr_rgb, text_mask):
 
     # Close gaps inside one object (an outline icon, a dashed rule, the gap
     # between a chart's bars) without welding neighbouring objects together.
-    k = max(3, int(OBJECT_CLOSE_FRAC * min(w, h)))
+    k = max(3, int((OBJECT_CLOSE_FRAC if close_frac is None else close_frac) * min(w, h)))
     if k % 2 == 0:
         k += 1
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
@@ -979,7 +1003,7 @@ def _dominant_color(np, arr_rgb, mask, box):
     return col if col is not None else np.array([128, 128, 128], dtype=np.uint8)
 
 
-def _merge_fragments(np, items, w, h):
+def _merge_fragments(np, items, w, h, gap_frac=None, merge_overlaps=True):
     """Fold neighbouring fragments of one object back together.
 
     An illustration is not one connected component: it is a stack of strokes,
@@ -987,8 +1011,13 @@ def _merge_fragments(np, items, w, h):
     welding it to whatever sits beside it. Distance plus colour agreement is the
     honest test - close AND similar means one object, close but differently
     coloured means two.
+
+    How far "close" reaches is what separates the decomposition strengths: at
+    `standard` a wide reach folds a drawn scene into the few objects it depicts,
+    at `high` a narrow one leaves those objects as the separate shapes they are
+    made of.
     """
-    gap = max(4.0, MERGE_GAP_FRAC * min(w, h))
+    gap = max(4.0, (MERGE_GAP_FRAC if gap_frac is None else gap_frac) * min(w, h))
     changed = True
     while changed and len(items) > 1:
         changed = False
@@ -1011,7 +1040,14 @@ def _merge_fragments(np, items, w, h):
                 # photograph, not two separate things anyone would animate
                 # apart. Colour only arbitrates between neighbours that merely
                 # sit near each other.
-                overlapping = _inter(a["box"], b["box"]) > 0
+                #
+                # Off inside a collage part, where it is exactly wrong: a drawn
+                # scene is composed of objects that overlap by construction -
+                # the notes lie across the chart, the tag's string crosses the
+                # notes - so "boxes touch, therefore one object" collapses the
+                # entire part into a single blob and the strength setting
+                # stops meaning anything.
+                overlapping = merge_overlaps and _inter(a["box"], b["box"]) > 0
                 if colour_delta > MERGE_COLOR_DIST and not overlapping:
                     continue
                 merged = _union(a["box"], b["box"])
@@ -1025,7 +1061,7 @@ def _merge_fragments(np, items, w, h):
     return [it for it in items if it is not None]
 
 
-def _merge_clusters(np, items, w, h):
+def _merge_clusters(np, items, w, h, reach_frac=None):
     """Collapse a dense cluster of fragments into the one object it depicts.
 
     Colour agreement reassembles a single drawn shape, but it will not
@@ -1038,7 +1074,7 @@ def _merge_clusters(np, items, w, h):
     or more within a short reach. Two isolated objects that happen to sit near
     each other are left alone.
     """
-    reach = max(6.0, CLUSTER_GAP_FRAC * min(w, h))
+    reach = max(6.0, (CLUSTER_GAP_FRAC if reach_frac is None else reach_frac) * min(w, h))
 
     parent = list(range(len(items)))
 
@@ -1170,18 +1206,25 @@ def _classify_object(np, cv2, arr_rgb, mask, item, w, h):
     }
 
 
-def _detect_objects(np, cv2, arr_rgb, text_mask):
+def _detect_objects(np, cv2, arr_rgb, text_mask, tune=None, ground=None):
     """Discrete drawn objects on the page, classified.
 
     Returns dicts of {box, objectType, role, ...} rather than bare boxes: the
     measurements are made here, where the mask is in hand, and travel with the
     layer so nothing downstream has to re-derive them from pixels it no longer
     has.
+
+    `tune` is a decomposition-strength profile (see collage_zones) - how hard
+    to weld strokes together, and how small a fragment still counts. Omitted,
+    it uses the module defaults, which is the whole-page behaviour.
     """
     h, w = arr_rgb.shape[:2]
     total = float(w * h)
+    tune = tune or {}
+    min_area = tune.get("minArea") or MIN_OBJECT_PIXELS_FRAC
+    max_objects = tune.get("maxPerZone") or MAX_OBJECTS
 
-    mask = _foreground_mask(np, cv2, arr_rgb, text_mask)
+    mask = _foreground_mask(np, cv2, arr_rgb, text_mask, tune.get("close"), ground)
 
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     items = []
@@ -1191,7 +1234,7 @@ def _detect_objects(np, cv2, arr_rgb, text_mask):
         bw = int(stats[i, cv2.CC_STAT_WIDTH])
         bh = int(stats[i, cv2.CC_STAT_HEIGHT])
         pixels = int(stats[i, cv2.CC_STAT_AREA])
-        if pixels < MIN_OBJECT_PIXELS_FRAC * total:
+        if pixels < min_area * total:
             continue
         if bw < 6 or bh < 6:
             continue
@@ -1205,15 +1248,28 @@ def _detect_objects(np, cv2, arr_rgb, text_mask):
     if not items:
         return []
 
-    items = _merge_fragments(np, items, w, h)
-    items = _merge_clusters(np, items, w, h)
+    max_area = tune.get("maxAreaFrac", 0.55)
+    if ground is not None:
+        # Inside a part, the drawing runs edge to edge and its strokes touch,
+        # so the largest component is reliably the whole scene rather than any
+        # one thing in it - which is the part itself, already a layer. Dropping
+        # it BEFORE merging is what leaves the smaller shapes free to survive;
+        # after merging they have already been swallowed by it.
+        items = [it for it in items if _area(it["box"]) <= max_area * total]
+        if not items:
+            return []
+
+    items = _merge_fragments(np, items, w, h, tune.get("mergeGap"),
+                             tune.get("mergeOverlaps", True))
+    if tune.get("clusterGap") != 0:
+        items = _merge_clusters(np, items, w, h, tune.get("clusterGap"))
 
     out = []
     for it in items:
         box = it["box"]
-        if _area(box) > 0.55 * total:
+        if _area(box) > max_area * total:
             continue
-        if _area(box) < 0.0006 * total:
+        if _area(box) < max(0.0006, min_area * 1.7) * total:
             continue
         meta = _classify_object(np, cv2, arr_rgb, mask, it, w, h)
         # A box that is mostly empty is a bounding box around scattered noise,
@@ -1228,529 +1284,53 @@ def _detect_objects(np, cv2, arr_rgb, text_mask):
     # Biggest first, so the layer cap spends itself on the objects that carry
     # the page rather than on decoration.
     out.sort(key=lambda it: -_area(it["box"]))
-    return out[:MAX_OBJECTS]
-
-
-# --------------------------------------------------------------------------
-# collage layout detection
-#
-# A poster built from the collage-architecture design system tiles the canvas
-# into 1-4 caption-labelled parts instead of one flat illustration. When that
-# specific layout is confidently recognised, process_image() takes each part
-# whole - the opposite of the element-by-element decomposition above, and
-# deliberately so: a collage part is one atomic block to the animator, never
-# shredded into its own text/graphic sub-elements. Everything below is used
-# only to find the divider lines and turn them into part boxes; any ambiguity
-# returns None and the ordinary decomposition above runs completely unchanged.
-# --------------------------------------------------------------------------
-
-def _cluster_positions(vals, tol=0.03):
-    """Collapses near-duplicate divider positions - tier 1 (a classified
-    divider object) and tier 2 (the pixel-band probe) agreeing on the same
-    line - into one."""
-    vals = sorted(vals)
-    clusters = []
-    for v in vals:
-        if clusters and v - clusters[-1][-1] <= tol:
-            clusters[-1].append(v)
-        else:
-            clusters.append([v])
-    return [sum(c) / len(c) for c in clusters]
-
-
-def _find_divider_bands(cv2, mask, axis, w, h):
-    """Rows (axis="h") or columns (axis="v") that read as a divider: a thin,
-    near-full-span band of foreground, found by closing gaps ALONG the band's
-    own direction first - bridging a sketchy hand-drawn stroke the isotropic
-    object-level close (OBJECT_CLOSE_FRAC) is not shaped to reach - then
-    measuring coverage directly. This exists because _detect_objects' own
-    bw<6/bh<6 floor (tuned for icons) drops a hairline pencil divider before
-    it ever becomes an object at all.
-
-    Returns candidate centres as a fraction 0-1 along the checked axis.
-    """
-    H, W = mask.shape[:2]
-    if axis == "h":
-        k = cv2.getStructuringElement(cv2.MORPH_RECT, (max(15, int(0.05 * W)), 3))
-        closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
-        margin = int(0.04 * W)
-        coverage = (closed[:, margin: W - margin] > 0).mean(axis=1)
-        length, short_edge = H, min(W, H)
-    else:
-        k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, max(15, int(0.05 * H))))
-        closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
-        margin = int(0.04 * H)
-        coverage = (closed[margin: H - margin, :] > 0).mean(axis=0)
-        length, short_edge = W, min(W, H)
-
-    lo = int(0.08 * length)
-    hi = length - lo
-    candidates = []
-    i = lo
-    lo = int(0.08 * length)
-    hi = length - lo
-    candidates = []
-    i = lo
-    while i < hi:
-        if coverage[i] >= 0.58:
-            j = i
-            while j < hi and coverage[j] >= 0.58:
-                j += 1
-            thickness = j - i
-            if thickness <= max(3, COLLAGE_DIVIDER_MAX_THICKNESS_FRAC * short_edge):
-                candidates.append((i + j) / 2.0 / float(length))
-            i = j
-        else:
-            i += 1
-    return candidates
-
-
-def _blocks_in_reading_order(blocks):
-    """Joins OCR blocks into one string in reading order."""
-    remaining = sorted(blocks, key=lambda b: b["box"][1])
-    rows = []
-    for b in remaining:
-        by, bh = b["box"][1], b["box"][3]
-        bc = by + bh / 2.0
-        placed = False
-        for row in rows:
-            rc = row["y"] + row["h"] / 2.0
-            if abs(bc - rc) <= 0.6 * min(bh, row["h"]):
-                row["items"].append(b)
-                row["y"] = min(row["y"], by)
-                row["h"] = max(row["h"], bh)
-                placed = True
-                break
-        if not placed:
-            rows.append({"y": by, "h": bh, "items": [b]})
-    rows.sort(key=lambda r: r["y"])
-    out = []
-    for row in rows:
-        row["items"].sort(key=lambda b: b["box"][0])
-        out.extend(b["text"] for b in row["items"])
-    return " ".join(out)
-
-
-def _detect_collage_layout(np, cv2, arr, text_mask, graphic_items, w, h):
-    """Detects 1, 2, 3 or 4 collage partition zones from divider rules, major image regions,
-    or color/luminance projection boundaries. Always returns a list of 1-4 fractional
-    (x, y, w, h) zone boxes in reading order.
-    """
-    mask = _foreground_mask(np, cv2, arr, text_mask) if cv2 is not None else None
-
-    # Tier 1 & 2: Divider lines (horizontal and vertical)
-    obj_h, obj_v = [], []
-    for d in graphic_items:
-        if d.get("objectType") != "divider":
-            continue
-        x, y, bw, bh = d["box"]
-        if bw >= COLLAGE_DIVIDER_SPAN_FRAC * w and bw >= bh * 2.5:
-            obj_h.append((y + bh / 2.0) / float(h))
-        elif bh >= COLLAGE_DIVIDER_SPAN_FRAC * h and bh >= bw * 2.5:
-            obj_v.append((x + bw / 2.0) / float(w))
-
-    if not obj_h and mask is not None:
-        obj_h = _find_divider_bands(cv2, mask, "h", w, h)
-    if not obj_v and mask is not None:
-        obj_v = _find_divider_bands(cv2, mask, "v", w, h)
-
-    h_pos = [p for p in _cluster_positions(obj_h, tol=0.04) if 0.15 <= p <= 0.85]
-    v_pos = [p for p in _cluster_positions(obj_v, tol=0.04) if 0.15 <= p <= 0.85]
-
-    # Tier 3: Major graphic/photo box clustering if no explicit divider rules found
-    if not h_pos and not v_pos:
-        major_boxes = [g["box"] for g in graphic_items if _area(g["box"]) >= 0.04 * w * h]
-        if len(major_boxes) >= 2:
-            centers_y = sorted([(b[1] + b[3] / 2.0) / float(h) for b in major_boxes])
-            centers_x = sorted([(b[0] + b[2] / 2.0) / float(w) for b in major_boxes])
-
-            y_gaps = []
-            for idx in range(len(centers_y) - 1):
-                y_gaps.append((centers_y[idx+1] - centers_y[idx], (centers_y[idx] + centers_y[idx+1]) / 2.0))
-            y_gaps.sort(reverse=True, key=lambda g: g[0])
-
-            x_gaps = []
-            for idx in range(len(centers_x) - 1):
-                x_gaps.append((centers_x[idx+1] - centers_x[idx], (centers_x[idx] + centers_x[idx+1]) / 2.0))
-            x_gaps.sort(reverse=True, key=lambda g: g[0])
-
-            if y_gaps and y_gaps[0][0] >= 0.12 and 0.20 <= y_gaps[0][1] <= 0.80:
-                h_pos.append(y_gaps[0][1])
-            if x_gaps and x_gaps[0][0] >= 0.12 and 0.20 <= x_gaps[0][1] <= 0.80:
-                v_pos.append(x_gaps[0][1])
-
-    # Tier 4: Color/Luminance projection gradient fallback if still no dividers
-    if not h_pos and not v_pos and arr is not None and cv2 is not None:
-        try:
-            gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-            row_var = np.var(gray, axis=1)
-            row_grad = np.abs(np.diff(row_var))
-            H_arr = gray.shape[0]
-            lo, hi = int(0.25 * H_arr), int(0.75 * H_arr)
-            if hi > lo:
-                sub_grad = row_grad[lo:hi]
-                if len(sub_grad) > 0 and np.max(sub_grad) > 1.8 * (np.mean(sub_grad) + 1e-5):
-                    best_idx = lo + int(np.argmax(sub_grad))
-                    candidate_y = best_idx / float(H_arr)
-                    if 0.28 <= candidate_y <= 0.72:
-                        h_pos.append(candidate_y)
-        except Exception:
-            pass
-
-    # Construct 1 to 4 clean partition layout
-    # 4 parts: 2x2 grid
-    if len(h_pos) >= 1 and len(v_pos) >= 1:
-        y0, x0 = h_pos[0], v_pos[0]
-        return [
-            (0.0, 0.0, x0, y0),
-            (x0, 0.0, 1.0 - x0, y0),
-            (0.0, y0, x0, 1.0 - y0),
-            (x0, y0, 1.0 - x0, 1.0 - y0),
-        ]
-
-    # 3 parts: 3 horizontal rows
-    if len(h_pos) >= 2:
-        h_sorted = sorted(h_pos)[:2]
-        a, b = h_sorted[0], h_sorted[1]
-        return [
-            (0.0, 0.0, 1.0, a),
-            (0.0, a, 1.0, b - a),
-            (0.0, b, 1.0, 1.0 - b),
-        ]
-
-    # 3 parts: 3 vertical columns
-    if len(v_pos) >= 2:
-        v_sorted = sorted(v_pos)[:2]
-        a, b = v_sorted[0], v_sorted[1]
-        return [
-            (0.0, 0.0, a, 1.0),
-            (a, 0.0, b - a, 1.0),
-            (b, 0.0, 1.0 - b, 1.0),
-        ]
-
-    # 2 parts: 1 horizontal split (top / bottom)
-    if len(h_pos) == 1:
-        y0 = h_pos[0]
-        return [
-            (0.0, 0.0, 1.0, y0),
-            (0.0, y0, 1.0, 1.0 - y0),
-        ]
-
-    # 2 parts: 1 vertical split (left / right)
-    if len(v_pos) == 1:
-        x0 = v_pos[0]
-        return [
-            (0.0, 0.0, x0, 1.0),
-            (x0, 0.0, 1.0 - x0, 1.0),
-        ]
-
-    # 1 part: single full canvas zone
-    return [(0.0, 0.0, 1.0, 1.0)]
+    return out[:max_objects]
 
 
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
 
-def process_image(input_bytes):
-    try:
-        import numpy as np
-        from PIL import Image
-    except ImportError as e:
-        return {"error": "Missing python dependencies: {}".format(e)}
+def _bounds_json(box):
+    """A pixel box as the {left, top, width, height} shape the layers use."""
+    if not box:
+        return None
+    return {"left": int(box[0]), "top": int(box[1]),
+            "width": int(box[2]), "height": int(box[3])}
 
-    try:
-        import cv2
-    except ImportError:
-        cv2 = None
 
-    try:
-        Image.MAX_IMAGE_PIXELS = None
-        img_pil = Image.open(io.BytesIO(input_bytes))
-        img_pil = img_pil.convert("RGB")
-    except Exception as e:
-        return {"error": "Failed to decode image: {}".format(e)}
+def _build_result(np, cv2, arr, items, profile, meta, watermark_box,
+                  W, H, src_w, src_h, long_edge, ocr_engine="tesseract"):
+    """Cut every item out of `arr`, punch its hole in the background, and shape
+    the JSON.
 
-    src_w, src_h = img_pil.size
-
-    if cv2 is None:
-        url = _background_data_url(np.array(img_pil))
-        return {
-            "success": True, "width": src_w, "height": src_h,
-            "backgroundUrl": url, "originalUrl": url, "layers": [],
-            "text": {"fullText": "", "blocks": []},
-            "meta": {"ocr": "unavailable", "note": "opencv not installed - no decomposition"},
-        }
-
-    # Single downscale (if any) - background and cut-outs both come from this
-    # exact buffer, so they can never disagree.
-    long_edge = max(src_w, src_h)
-    if long_edge > MAX_PROCESS_DIM:
-        s = MAX_PROCESS_DIM / float(long_edge)
-        proc = img_pil.resize((max(1, int(src_w * s)), max(1, int(src_h * s))), Image.Resampling.LANCZOS)
-    else:
-        proc = img_pil
-    arr = np.array(proc)                     # RGB, uint8, this is the truth
-    H, W = arr.shape[:2]
+    Shared by both decomposition paths so a collage part and an ordinary
+    element are cut, matted and described by exactly the same code - the two
+    differ only in how their boxes were found.
+    """
     total = float(W * H)
 
-    # Erase a Grok Imagine watermark before anything else touches `arr` -
-    # the background, originalUrl and every layer crop below all derive from
-    # this exact buffer, so cleaning it here is what keeps the mark out of
-    # all three at once instead of chasing it back out of the OCR/object
-    # passes individually. Bottom footer band only; the design system's own
-    # slide-number badge lives in a fixed spot top-right (see the corner
-    # search near the end of this function) and this pass never goes near it.
-    watermark_box = strip_grok_watermark(np, cv2, arr, _ocr_region)
+    # A caption travels with the part it belongs to, so its pixels are already
+    # inside that part's cut-out. Emitting it as a layer is what makes its
+    # words addressable - the script CSV is matched against them - but drawing
+    # it a second time, or letting it punch its own hole in the background,
+    # would be wrong on both counts.
+    bound = [it for it in items if it.get("boundTo") is not None]
+    items = [it for it in items if it.get("boundTo") is None]
 
-    # ---- text -------------------------------------------------------------
-    words, ocr_engine = _ocr_words(np, cv2, arr)
-    lines = _group_words_into_lines(np, words)
-    blocks = _group_lines_into_blocks(np, lines)
+    # A part's own sub-objects (standard/high only) are cut out of it, the same
+    # way every element is cut out of the page: the part stays as the plate
+    # behind them, so an object that animates away reveals the panel it sat on
+    # rather than a hole.
+    children_of = {}
+    for it in items:
+        parent = it.get("partIndex")
+        if parent is not None:
+            children_of.setdefault(parent, []).append(it["box"])
 
-    text_mask = np.zeros((H, W), np.uint8)
-    for b in blocks:
-        x, y, bw, bh = _clip(b["box"], W, H)
-        text_mask[y:y + bh, x:x + bw] = 255
-
-    text_items = []
-    for b in blocks:
-        pad = max(2, int(0.10 * b["fontPx"]))
-        box = _clip((b["box"][0] - pad, b["box"][1] - pad,
-                     b["box"][2] + 2 * pad, b["box"][3] + 2 * pad), W, H)
-        text_items.append({"box": box, "kind": "text", "block": b, "hasBackground": False})
-    text_items = _resolve_overlaps(text_items)
-
-    # ---- objects ----------------------------------------------------------
-    detected = _detect_objects(np, cv2, arr, text_mask)
-    graphic_items = _resolve_overlaps(
-        [
-            {
-                "box": _clip(d["box"], W, H),
-                "kind": "graphic",
-                "objectType": d["objectType"],
-                "objectRole": d["role"],
-                "fillRatio": d["fillRatio"],
-                "circularity": d["circularity"],
-                "solidity": d["solidity"],
-                "colorCount": d["colorCount"],
-                "edgeDensity": d["edgeDensity"],
-            }
-            for d in detected
-        ]
-    )
-
-    # ---- collage layout (optional) -----------------------------------------
-    # When the collage-architecture layout is confidently recognised, each
-    # part becomes ONE atomic layer below and the ordinary per-element
-    # reconcile/decompose pass that follows is left with nothing to do (its
-    # inputs are emptied here), rather than being restructured to skip it.
-    collage_regions = _detect_collage_layout(np, cv2, arr, text_mask, graphic_items, W, H)
-    collage_parts = []
-    if collage_regions:
-        for i, (rx, ry, rw, rh) in enumerate(collage_regions):
-            box = _clip((int(round(rx * W)), int(round(ry * H)), int(round(rw * W)), int(round(rh * H))), W, H)
-            bx, by, bbw, bbh = box
-            # Reuse the page-level OCR blocks already found above, rather than
-            # a fresh region read - a part is mostly illustration with one
-            # caption line, and the multi-pass page OCR that produced `blocks`
-            # is far more reliable on that than a single tight region read.
-            inside_blocks = [
-                b for b in blocks
-                if bx <= b["box"][0] + b["box"][2] / 2.0 <= bx + bbw
-                and by <= b["box"][1] + b["box"][3] / 2.0 <= by + bbh
-            ]
-            caption = _blocks_in_reading_order(inside_blocks).strip()
-            collage_parts.append({
-                "box": box,
-                "kind": "graphic",
-                "objectType": "collage-part",
-                "objectRole": "collage-part",
-                "hasBackground": True,
-                "collagePartIndex": i,
-                "collageCaption": caption,
-            })
-        # The parts tile the whole canvas now - nothing is left over for the
-        # ordinary per-element pass below to find.
-        text_items = []
-        graphic_items = []
-
-    # ---- reconcile text and graphics -------------------------------------
-    # Resolving these two sets against each other by area alone is what used to
-    # lose badges: the pill around "PART 2" is bigger than the words, so the
-    # words vanished into an anonymous rectangle. Instead a panel that wraps
-    # text becomes one labelled element, and a panel with no known text is
-    # read directly before it is written off as a graphic.
-    final_graphics = []
-    region_reads = 0
-    for g in graphic_items:
-        inside = [t for t in text_items if _contained(t["box"], g["box"], 0.72)]
-        if inside:
-            tu = inside[0]["box"]
-            for t in inside[1:]:
-                tu = _union(tu, t["box"])
-            if _area(g["box"]) <= 4.0 * _area(tu):
-                host = max(inside, key=lambda t: _area(t["box"]))
-                host["box"] = _clip(_union(host["box"], g["box"]), W, H)
-                host["hasBackground"] = True
-                for t in inside:
-                    if t is not host:
-                        host["block"] = _merge_blocks(np, [host["block"], t["block"]])
-                        t["dropped"] = True
-            else:
-                final_graphics.append(g)          # a card; its text rides on top
-            continue
-
-        if any(_inter(g["box"], t["box"]) > 0.5 * _area(g["box"]) for t in text_items):
-            continue                               # overlaps text - text wins
-
-        if _area(g["box"]) >= 0.0015 * total and region_reads < 16:
-            region_reads += 1
-            ocr_box = g["box"]
-            # A ring sits close enough to a numeral drawn inside it that
-            # tesseract reads the two together as one glyph ("3" inside a
-            # circle comes back as garbage like "ro}") - cropping to the
-            # circle's own interior, clear of its stroke, is what actually
-            # lets a slide-number badge be read at all.
-            if g.get("objectType") == "circle":
-                bx, by, bbw, bbh = ocr_box
-                icx, icy = bx + bbw / 2.0, by + bbh / 2.0
-                iw, ih = bbw * 0.5, bbh * 0.5
-                ocr_box = _clip((int(icx - iw / 2), int(icy - ih / 2), int(iw), int(ih)), W, H)
-            read = _ocr_region(np, cv2, arr, ocr_box)
-            if read and (_accept_region_text(read) or _is_corner_badge_number(read, g["box"], W, H)):
-                text_items.append({
-                    "box": g["box"],
-                    "kind": "text",
-                    "block": _block_from_region(np, read, g["box"]),
-                    "hasBackground": True,
-                })
-                continue
-        final_graphics.append(g)
-
-    # graphic_items was emptied above when a collage layout was found, so the
-    # loop just above never ran and final_graphics is still [] here - this is
-    # where the whole parts actually enter the pipeline.
-    final_graphics.extend(collage_parts)
-
-    def _is_watermark_item(item, w_box, W, H):
-        # A collage part is never itself a watermark - it is a whole design
-        # region, orders of magnitude bigger than one. The "intersects w_box"
-        # check below is sized for a small candidate roughly the watermark's
-        # own footprint; against a part spanning half the canvas, a watermark
-        # sitting anywhere inside it reads as "100% of w_box overlaps" and the
-        # whole part would otherwise be dropped. Any actual watermark pixels
-        # inside the part were already cleaned in `arr` by strip_grok_watermark
-        # before OCR ever ran, so there is nothing left here to catch.
-        if item.get("objectType") == "collage-part":
-            return False
-        box = item.get("box")
-        if not box:
-            return False
-        x, y, bw, bh = box
-        cx, cy = x + bw / 2.0, y + bh / 2.0
-
-        # 1. Text block matches Grok or watermark vocabulary
-        if item.get("kind") == "text" and item.get("block"):
-            txt = item["block"].get("text", "")
-            if _looks_like_grok(txt) or "watermark" in txt.lower():
-                return True
-
-        # 2. Intersects with the detected watermark_box
-        if w_box:
-            wx, wy, ww, wh = w_box
-            inter_x0 = max(x, wx)
-            inter_y0 = max(y, wy)
-            inter_x1 = min(x + bw, wx + ww)
-            inter_y1 = min(y + bh, wy + wh)
-            if inter_x1 > inter_x0 and inter_y1 > inter_y0:
-                inter_area = (inter_x1 - inter_x0) * (inter_y1 - inter_y0)
-                if inter_area > 0.05 * (bw * bh) or inter_area > 0.05 * (ww * wh):
-                    return True
-
-        # 3. Positioned in bottom footer watermark zone (y > 68% H, bottom-left or bottom-right)
-        if cy > 0.68 * H and (cx < 0.40 * W or cx > 0.60 * W):
-            if bw < 0.35 * W and bh < 0.12 * H:
-                if item.get("kind") == "text":
-                    txt = item["block"].get("text", "")
-                    if _looks_like_grok(txt) or not txt.strip() or len(txt) <= 6:
-                        return True
-                elif item.get("kind") == "graphic":
-                    if w_box and (abs(y - w_box[1]) < 0.15 * H and abs(x - w_box[0]) < 0.25 * W):
-                        return True
-        return False
-
-    text_items = [t for t in text_items if not t.get("dropped") and not _is_watermark_item(t, watermark_box, W, H)]
-    final_graphics = [g for g in final_graphics
-                      if not any(_contained(g["box"], t["box"]) for t in text_items) and not _is_watermark_item(g, watermark_box, W, H)]
-
-    # One more look at the fixed corner the slide-number badge always lives
-    # in. _read_badge_at reads a badge far more reliably than the generic
-    # per-object pass above, which can settle for a noisier read ("a3)"
-    # instead of "13") or miss the badge entirely when its ring fragments too
-    # small to become an object at all (see MIN_OBJECT_PIXELS_FRAC) - so a
-    # confident digit read here replaces whatever the generic pass already
-    # left in that corner, rather than only filling a gap it left empty.
-    # A prior claim in the badge zone can be either kind: a text block (the
-    # page-level OCR pass took a swing at the digit) or a graphic (the ring
-    # survived object detection but _classify_object called its shape
-    # "chart" or "illustration" rather than "circle" - the box is right, only
-    # the label is wrong). Either way it is very likely the badge itself.
-    prior_candidates = [
-        t for t in text_items + final_graphics
-        if t.get("objectType") != "collage-part"
-        and (t["box"][0] + t["box"][2] / 2.0) / W > 0.72 and (t["box"][1] + t["box"][3] / 2.0) / H < 0.25
-    ]
-    prior_ids = {id(t) for t in prior_candidates}
-    # Everything ELSE already claimed (a decorative corner icon, a chart
-    # flourish, a big illustration whose edge merely reaches into the corner)
-    # must not be folded into the badge's own ink - see _locate_badge_ink.
-    exclude_boxes = [it["box"] for it in (text_items + final_graphics) if id(it) not in prior_ids]
-
-    replacement = None
-    already_resolved = False
-
-    for prior in prior_candidates:
-        if prior.get("hasBackground") and _is_corner_badge_number(
-            {"text": prior["block"]["text"], "conf": prior["block"]["conf"]}, prior["box"], W, H
-        ):
-            already_resolved = True  # already a clean, confident badge - leave it alone
-            break
-        replacement = _read_badge_at(np, cv2, arr, prior["box"], exclude_boxes, W, H)
-        if replacement:
-            break
-
-    # Nothing claimed the corner yet, or nothing there could be read - try
-    # the fixed zone directly, for a ring too thin to ever become an object
-    # (or generate any OCR read at all) in the first place.
-    # A collage part's own badge (if any) is baked into its pixels by design -
-    # requirement 2 is that a part is never decomposed further, so this whole
-    # corner-zone probe, which would otherwise manufacture a redundant floating
-    # badge layer on top of it, is skipped outright for a collage-mode slide.
-    if not replacement and not already_resolved and not collage_regions:
-        corner_zone = (int(0.78 * W), 0, int(0.22 * W), int(0.13 * H))
-        replacement = _read_badge_at(np, cv2, arr, corner_zone, exclude_boxes, W, H)
-
-    if replacement:
-        text_items = [t for t in text_items if id(t) not in prior_ids]
-        final_graphics = [g for g in final_graphics if id(g) not in prior_ids]
-        text_items.append({
-            "box": replacement["box"],
-            "kind": "text",
-            "block": _block_from_region(np, replacement["read"], replacement["box"]),
-            "hasBackground": True,
-        })
-
-    # Purge any watermark item one final time
-    text_items = [t for t in text_items if not _is_watermark_item(t, watermark_box, W, H)]
-    final_graphics = [g for g in final_graphics if not _is_watermark_item(g, watermark_box, W, H)]
-
-    # text first, so the cap never trades a headline for a decorative blob
-    items = sorted(text_items, key=lambda it: -_area(it["box"])) + \
-        sorted(final_graphics, key=lambda it: -_area(it["box"]))
-    items = [it for it in items if not _is_watermark_item(it, watermark_box, W, H)]
-    items = items[:MAX_LAYERS]
-    items.sort(key=lambda it: (it["box"][1], it["box"][0]))
+    items = items[:profile.get("maxLayers", MAX_LAYERS)]
+    items.sort(key=lambda it: (0 if it.get("objectType") == "collage-part" else 1,
+                               it["box"][1], it["box"][0]))
 
     union_mask = np.zeros((H, W), np.uint8)
     for it in items:
@@ -1769,10 +1349,21 @@ def process_image(input_bytes):
         x, y, bw, bh = it["box"]
         crop = arr[y:y + bh, x:x + bw]
 
+        holes = children_of.get(it.get("collagePartIndex"), []) if it.get("objectType") == "collage-part" else []
+        if holes:
+            crop = crop.copy()
+
         ring_px = _ring_pixels(np, arr, it["box"], union_mask, ring_r)
         ring_col = _modal_color(np, ring_px)
         if ring_col is None:
             ring_col = np.array([245, 245, 245], dtype=np.uint8)
+
+        if holes:
+            plate = _modal_color(np, crop.reshape(-1, 3))
+            if plate is None:
+                plate = ring_col
+            for (hx, hy, hw, hh) in holes:
+                crop[max(0, hy - y):hy - y + hh, max(0, hx - x):hx - x + hw] = plate
 
         ink_col, paper_col, ink_ratio = _ink_and_paper(np, cv2, crop)
         if paper_col is None:
@@ -1835,7 +1426,12 @@ def process_image(input_bytes):
             "sourceSize": {"width": W, "height": H},
             "backgroundColor": _hex(ring_col),
             "positionLabel": _position_label(rel_x + rel_w / 2, rel_y + rel_h / 2),
+            # Every layer here is something the animator may address. The bound
+            # captions appended after this loop are the only ones that are not.
+            "animatable": True,
         }
+        if it.get("partIndex") is not None:
+            layer["partIndex"] = it["partIndex"]
 
         if it["kind"] == "text":
             b = it["block"]
@@ -1930,11 +1526,97 @@ def process_image(input_bytes):
             })
             if is_collage_part:
                 layer["partIndex"] = it.get("collagePartIndex")
+                # Where the drawing ends and the caption begins, exactly, so
+                # anything that wants one without the other has it without
+                # having to find the split again from pixels.
+                layer["artBounds"] = _bounds_json(it.get("artBox"))
+                layer["captionBounds"] = _bounds_json(it.get("captionBox"))
+                layer["childCount"] = len(children_of.get(it.get("collagePartIndex"), []))
 
         layers.append(layer)
 
+    # ---- captions, bound to the part they belong to -----------------------
+    # Cut out with alpha so they are usable on their own, positioned exactly,
+    # and carrying the verbatim words - but never drawn (the part already holds
+    # these pixels) and never animated apart from their part.
+    part_layer_id = {l.get("partIndex"): l["id"] for l in layers if l.get("objectType") == "collage-part"}
+    for it in bound:
+        x, y, bw, bh = it["box"]
+        read = it["captionRead"]
+        crop = arr[y:y + bh, x:x + bw]
+        ink_col, paper_col, _ratio = _ink_and_paper(np, cv2, crop)
+        paper = paper_col if paper_col is not None else np.array([245, 245, 245], dtype=np.uint8)
+        idx = len(layers)
+        layers.append({
+            "id": "layer_{}".format(idx + 1),
+            "imageUrl": _png_data_url(_matte(np, crop, paper), "RGBA"),
+            "x": round(x / float(W), 6),
+            "y": round(y / float(H), 6),
+            "w": round(bw / float(W), 6),
+            "h": round(bh / float(H), 6),
+            "opacity": 1.0, "scale": 1.0, "rotation": 0,
+            "motionType": "none", "motionSpeed": 1.0, "motionDistance": 0,
+            "zIndex": idx + 1,
+            "type": "text",
+            "kind": "text",
+            "role": "part-caption",
+            "objectType": "part-caption",
+            "name": read["text"][:60],
+            "slug": _slug(read["text"], "caption_{}".format(it["boundTo"] + 1)),
+            "text": read["text"],
+            "textLines": read["lines"],
+            "lineCount": len(read["lines"]),
+            "wordCount": len(read["text"].split()),
+            "fontSizePx": round(float(np.median([l[3] for l in it["captionLines"]])), 1),
+            "fontSizeRel": round(float(np.median([l[3] for l in it["captionLines"]])) / float(H), 5),
+            "isUppercase": False,
+            "textAlign": "center",
+            "color": _hex(ink_col) if ink_col is not None else None,
+            "ocrConfidence": read["conf"],
+            "hasAlpha": True,
+            "hasBackground": True,
+            "pixelBounds": {"left": x, "top": y, "width": bw, "height": bh},
+            "sourceSize": {"width": W, "height": H},
+            "backgroundColor": _hex(paper),
+            "positionLabel": _position_label((x + bw / 2.0) / W, (y + bh / 2.0) / H),
+            # The two flags that make this a caption rather than an element:
+            # it moves with its part, and nothing draws it on its own.
+            "animatable": False,
+            "boundTo": part_layer_id.get(it["boundTo"]),
+            "partIndex": it["boundTo"],
+        })
+        text_blocks_json.append({
+            "id": layers[-1]["id"],
+            "role": "part-caption",
+            "positionLabel": layers[-1]["positionLabel"],
+            "text": read["text"],
+            "textLines": read["lines"],
+            "position": {"x": layers[-1]["x"], "y": layers[-1]["y"], "w": layers[-1]["w"], "h": layers[-1]["h"]},
+            "pixelBounds": layers[-1]["pixelBounds"],
+            "fontSizePx": layers[-1]["fontSizePx"],
+            "fontSizeRel": layers[-1]["fontSizeRel"],
+            "textAlign": "center",
+            "color": layers[-1]["color"],
+            "backgroundColor": layers[-1]["backgroundColor"],
+            "hasBackground": True,
+            "isUppercase": False,
+            "ocrConfidence": read["conf"],
+        })
+
     reading_order = sorted(text_blocks_json, key=lambda b: (b["position"]["y"], b["position"]["x"]))
     original_url = _background_data_url(arr)
+
+    meta = dict(meta)
+    meta.update({
+        "ocr": ocr_engine,
+        "watermarkRemoved": watermark_box is not None,
+        "textLayers": sum(1 for l in layers if l["type"] == "text"),
+        "graphicLayers": sum(1 for l in layers if l["type"] == "graphic"),
+        "mattedLayers": sum(1 for l in layers if l["hasAlpha"]),
+        "animatableLayers": sum(1 for l in layers if l.get("animatable", True)),
+        "objectTypes": sorted({l.get("objectType") for l in layers if l.get("objectType")}),
+        "processedAtSourceResolution": long_edge <= MAX_PROCESS_DIM,
+    })
 
     return {
         "success": True,
@@ -1951,34 +1633,324 @@ def process_image(input_bytes):
             "blockCount": len(reading_order),
             "blocks": reading_order,
         },
-        "meta": {
-            "ocr": ocr_engine,
-            "watermarkRemoved": watermark_box is not None,
-            "wordsDetected": len(words),
-            "linesDetected": len(lines),
-            "textLayers": sum(1 for l in layers if l["type"] == "text"),
-            "graphicLayers": sum(1 for l in layers if l["type"] == "graphic"),
-            "mattedLayers": sum(1 for l in layers if l["hasAlpha"]),
-            "objectsDetected": len(detected),
-            "objectTypes": sorted({l.get("objectType") for l in layers if l["type"] == "graphic" and l.get("objectType")}),
-            "processedAtSourceResolution": long_edge <= MAX_PROCESS_DIM,
-            "collageParts": len(collage_parts),
-        },
+        "meta": meta,
     }
 
 
+
+
+def process_image(input_bytes, strength=None):
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError as e:
+        return {"error": "Missing python dependencies: {}".format(e)}
+
+    try:
+        import cv2
+    except ImportError:
+        cv2 = None
+
+    try:
+        Image.MAX_IMAGE_PIXELS = None
+        img_pil = Image.open(io.BytesIO(input_bytes))
+        img_pil = img_pil.convert("RGB")
+    except Exception as e:
+        return {"error": "Failed to decode image: {}".format(e)}
+
+    src_w, src_h = img_pil.size
+    profile = collage_zones.resolve_strength(strength)
+
+    if cv2 is None:
+        url = _background_data_url(np.array(img_pil))
+        return {
+            "success": True, "width": src_w, "height": src_h,
+            "backgroundUrl": url, "originalUrl": url, "layers": [],
+            "text": {"fullText": "", "blocks": []},
+            "meta": {"ocr": "unavailable", "strength": profile["name"],
+                     "note": "opencv not installed - no decomposition"},
+        }
+
+    # Single downscale (if any) - background and cut-outs both come from this
+    # exact buffer, so they can never disagree. The cap is a memory rail for a
+    # pathological input, not a working resolution: every poster this pipeline
+    # is aimed at passes through it untouched and is decomposed at exactly the
+    # pixels it was uploaded with.
+    long_edge = max(src_w, src_h)
+    if long_edge > MAX_PROCESS_DIM:
+        s = MAX_PROCESS_DIM / float(long_edge)
+        proc = img_pil.resize((max(1, int(src_w * s)), max(1, int(src_h * s))), Image.Resampling.LANCZOS)
+    else:
+        proc = img_pil
+    arr = np.array(proc)                     # RGB, uint8, this is the truth
+    H, W = arr.shape[:2]
+    total = float(W * H)
+
+    # The collage grid is read from the image exactly as uploaded, before the
+    # watermark pass below is allowed to retouch anything - that pass inpaints
+    # a band across the bottom of the poster, and the design system draws the
+    # handle's own thin rule inside it.
+    zones = collage_zones.find_zones(np, arr)
+
+    # Erase a Grok Imagine watermark before anything else touches `arr` -
+    # the background, originalUrl and every layer crop below all derive from
+    # this exact buffer, so cleaning it here is what keeps the mark out of
+    # all three at once instead of chasing it back out of the OCR/object
+    # passes individually. Bottom footer band only; the design system's own
+    # slide-number badge lives in a fixed spot top-right (see the corner
+    # search near the end of this function) and this pass never goes near it.
+    watermark_box = strip_grok_watermark(np, cv2, arr, _ocr_region)
+
+    # ---- collage layout ---------------------------------------------------
+    # Tried first and, when it succeeds, exclusively: a collage poster is a
+    # grid of parts the design system already defined, and reading it as one is
+    # both far more accurate and far cheaper than discovering it element by
+    # element. Only a poster that is NOT a collage falls through to the
+    # general-purpose pass below.
+    collage_items, collage_meta = collage_zones.decompose(
+        np, cv2, arr, profile, zones=zones,
+        ocr=_tesseract() if _tesseract()[0] is not None else None,
+        detect_objects=(lambda crop, tune: _resolve_overlaps(
+            _detect_objects(np, cv2, crop, None, tune,
+                            _modal_color(np, crop.reshape(-1, 3)))
+        )),
+    )
+    if collage_items:
+        return _build_result(np, cv2, arr, collage_items, profile, collage_meta,
+                             watermark_box, W, H, src_w, src_h, long_edge)
+
+    # ---- text -------------------------------------------------------------
+    words, ocr_engine = _ocr_words(np, cv2, arr)
+    lines = _group_words_into_lines(np, words)
+    blocks = _group_lines_into_blocks(np, lines)
+
+    text_mask = np.zeros((H, W), np.uint8)
+    for b in blocks:
+        x, y, bw, bh = _clip(b["box"], W, H)
+        text_mask[y:y + bh, x:x + bw] = 255
+
+    text_items = []
+    for b in blocks:
+        pad = max(2, int(0.10 * b["fontPx"]))
+        box = _clip((b["box"][0] - pad, b["box"][1] - pad,
+                     b["box"][2] + 2 * pad, b["box"][3] + 2 * pad), W, H)
+        text_items.append({"box": box, "kind": "text", "block": b, "hasBackground": False})
+    text_items = _resolve_overlaps(text_items)
+
+    # ---- objects ----------------------------------------------------------
+    detected = _detect_objects(np, cv2, arr, text_mask)
+    graphic_items = _resolve_overlaps(
+        [
+            {
+                "box": _clip(d["box"], W, H),
+                "kind": "graphic",
+                "objectType": d["objectType"],
+                "objectRole": d["role"],
+                "fillRatio": d["fillRatio"],
+                "circularity": d["circularity"],
+                "solidity": d["solidity"],
+                "colorCount": d["colorCount"],
+                "edgeDensity": d["edgeDensity"],
+            }
+            for d in detected
+        ]
+    )
+
+    # ---- reconcile text and graphics -------------------------------------
+    # Resolving these two sets against each other by area alone is what used to
+    # lose badges: the pill around "PART 2" is bigger than the words, so the
+    # words vanished into an anonymous rectangle. Instead a panel that wraps
+    # text becomes one labelled element, and a panel with no known text is
+    # read directly before it is written off as a graphic.
+    final_graphics = []
+    region_reads = 0
+    for g in graphic_items:
+        inside = [t for t in text_items if _contained(t["box"], g["box"], 0.72)]
+        if inside:
+            tu = inside[0]["box"]
+            for t in inside[1:]:
+                tu = _union(tu, t["box"])
+            if _area(g["box"]) <= 4.0 * _area(tu):
+                host = max(inside, key=lambda t: _area(t["box"]))
+                host["box"] = _clip(_union(host["box"], g["box"]), W, H)
+                host["hasBackground"] = True
+                for t in inside:
+                    if t is not host:
+                        host["block"] = _merge_blocks(np, [host["block"], t["block"]])
+                        t["dropped"] = True
+            else:
+                final_graphics.append(g)          # a card; its text rides on top
+            continue
+
+        if any(_inter(g["box"], t["box"]) > 0.5 * _area(g["box"]) for t in text_items):
+            continue                               # overlaps text - text wins
+
+        if _area(g["box"]) >= 0.0015 * total and region_reads < 16:
+            region_reads += 1
+            ocr_box = g["box"]
+            # A ring sits close enough to a numeral drawn inside it that
+            # tesseract reads the two together as one glyph ("3" inside a
+            # circle comes back as garbage like "ro}") - cropping to the
+            # circle's own interior, clear of its stroke, is what actually
+            # lets a slide-number badge be read at all.
+            if g.get("objectType") == "circle":
+                bx, by, bbw, bbh = ocr_box
+                icx, icy = bx + bbw / 2.0, by + bbh / 2.0
+                iw, ih = bbw * 0.5, bbh * 0.5
+                ocr_box = _clip((int(icx - iw / 2), int(icy - ih / 2), int(iw), int(ih)), W, H)
+            read = _ocr_region(np, cv2, arr, ocr_box)
+            if read and (_accept_region_text(read) or _is_corner_badge_number(read, g["box"], W, H)):
+                text_items.append({
+                    "box": g["box"],
+                    "kind": "text",
+                    "block": _block_from_region(np, read, g["box"]),
+                    "hasBackground": True,
+                })
+                continue
+        final_graphics.append(g)
+
+    def _is_watermark_item(item, w_box, W, H):
+        # A collage part is never itself a watermark - it is a whole design
+        # region, orders of magnitude bigger than one. The "intersects w_box"
+        # check below is sized for a small candidate roughly the watermark's
+        # own footprint; against a part spanning half the canvas, a watermark
+        # sitting anywhere inside it reads as "100% of w_box overlaps" and the
+        # whole part would otherwise be dropped. Any actual watermark pixels
+        # inside the part were already cleaned in `arr` by strip_grok_watermark
+        # before OCR ever ran, so there is nothing left here to catch.
+        if item.get("objectType") == "collage-part":
+            return False
+        box = item.get("box")
+        if not box:
+            return False
+        x, y, bw, bh = box
+        cx, cy = x + bw / 2.0, y + bh / 2.0
+
+        # 1. Text block matches Grok or watermark vocabulary
+        if item.get("kind") == "text" and item.get("block"):
+            txt = item["block"].get("text", "")
+            if _looks_like_grok(txt) or "watermark" in txt.lower():
+                return True
+
+        # 2. Intersects with the detected watermark_box
+        if w_box:
+            wx, wy, ww, wh = w_box
+            inter_x0 = max(x, wx)
+            inter_y0 = max(y, wy)
+            inter_x1 = min(x + bw, wx + ww)
+            inter_y1 = min(y + bh, wy + wh)
+            if inter_x1 > inter_x0 and inter_y1 > inter_y0:
+                inter_area = (inter_x1 - inter_x0) * (inter_y1 - inter_y0)
+                if inter_area > 0.05 * (bw * bh) or inter_area > 0.05 * (ww * wh):
+                    return True
+
+        # 3. Positioned in bottom footer watermark zone (y > 68% H, bottom-left or bottom-right)
+        if cy > 0.68 * H and (cx < 0.40 * W or cx > 0.60 * W):
+            if bw < 0.35 * W and bh < 0.12 * H:
+                if item.get("kind") == "text":
+                    txt = item["block"].get("text", "")
+                    if _looks_like_grok(txt) or not txt.strip() or len(txt) <= 6:
+                        return True
+                elif item.get("kind") == "graphic":
+                    if w_box and (abs(y - w_box[1]) < 0.15 * H and abs(x - w_box[0]) < 0.25 * W):
+                        return True
+        return False
+
+    text_items = [t for t in text_items if not t.get("dropped") and not _is_watermark_item(t, watermark_box, W, H)]
+    final_graphics = [g for g in final_graphics
+                      if not any(_contained(g["box"], t["box"]) for t in text_items) and not _is_watermark_item(g, watermark_box, W, H)]
+
+    # One more look at the fixed corner the slide-number badge always lives
+    # in. _read_badge_at reads a badge far more reliably than the generic
+    # per-object pass above, which can settle for a noisier read ("a3)"
+    # instead of "13") or miss the badge entirely when its ring fragments too
+    # small to become an object at all (see MIN_OBJECT_PIXELS_FRAC) - so a
+    # confident digit read here replaces whatever the generic pass already
+    # left in that corner, rather than only filling a gap it left empty.
+    # A prior claim in the badge zone can be either kind: a text block (the
+    # page-level OCR pass took a swing at the digit) or a graphic (the ring
+    # survived object detection but _classify_object called its shape
+    # "chart" or "illustration" rather than "circle" - the box is right, only
+    # the label is wrong). Either way it is very likely the badge itself.
+    prior_candidates = [
+        t for t in text_items + final_graphics
+        if t.get("objectType") != "collage-part"
+        and (t["box"][0] + t["box"][2] / 2.0) / W > 0.72 and (t["box"][1] + t["box"][3] / 2.0) / H < 0.25
+    ]
+    prior_ids = {id(t) for t in prior_candidates}
+    # Everything ELSE already claimed (a decorative corner icon, a chart
+    # flourish, a big illustration whose edge merely reaches into the corner)
+    # must not be folded into the badge's own ink - see _locate_badge_ink.
+    exclude_boxes = [it["box"] for it in (text_items + final_graphics) if id(it) not in prior_ids]
+
+    replacement = None
+    already_resolved = False
+
+    for prior in prior_candidates:
+        if prior.get("hasBackground") and _is_corner_badge_number(
+            {"text": prior["block"]["text"], "conf": prior["block"]["conf"]}, prior["box"], W, H
+        ):
+            already_resolved = True  # already a clean, confident badge - leave it alone
+            break
+        replacement = _read_badge_at(np, cv2, arr, prior["box"], exclude_boxes, W, H)
+        if replacement:
+            break
+
+    # Nothing claimed the corner yet, or nothing there could be read - try
+    # the fixed zone directly, for a ring too thin to ever become an object
+    # (or generate any OCR read at all) in the first place.
+    if not replacement and not already_resolved:
+        corner_zone = (int(0.78 * W), 0, int(0.22 * W), int(0.13 * H))
+        replacement = _read_badge_at(np, cv2, arr, corner_zone, exclude_boxes, W, H)
+
+    if replacement:
+        text_items = [t for t in text_items if id(t) not in prior_ids]
+        final_graphics = [g for g in final_graphics if id(g) not in prior_ids]
+        text_items.append({
+            "box": replacement["box"],
+            "kind": "text",
+            "block": _block_from_region(np, replacement["read"], replacement["box"]),
+            "hasBackground": True,
+        })
+
+    # Purge any watermark item one final time
+    text_items = [t for t in text_items if not _is_watermark_item(t, watermark_box, W, H)]
+    final_graphics = [g for g in final_graphics if not _is_watermark_item(g, watermark_box, W, H)]
+
+    items = sorted(text_items, key=lambda it: -_area(it["box"])) + \
+        sorted(final_graphics, key=lambda it: -_area(it["box"]))
+    items = [it for it in items if not _is_watermark_item(it, watermark_box, W, H)]
+
+    return _build_result(
+        np, cv2, arr, items, profile,
+        {"grid": "none", "collageParts": 0, "strength": profile["name"],
+         "objectsDetected": len(detected), "wordsDetected": len(words),
+         "linesDetected": len(lines)},
+        watermark_box, W, H, src_w, src_h, long_edge, ocr_engine=ocr_engine,
+    )
+
+
+
 def main():
-    paths = sys.argv[1:]
+    args = sys.argv[1:]
+    strength = collage_zones.DEFAULT_STRENGTH
+    paths = []
+    for a in args:
+        if a.startswith("--strength="):
+            strength = a.split("=", 1)[1]
+        else:
+            paths.append(a)
+
     if not paths:
         data = sys.stdin.buffer.read()
-        print(json.dumps(process_image(data)))
+        print(json.dumps(process_image(data, strength)))
         return
 
     results = []
     for p in paths:
         try:
             with open(p, "rb") as f:
-                results.append(process_image(f.read()))
+                results.append(process_image(f.read(), strength))
         except Exception as e:
             results.append({"error": "Failed to read {}: {}".format(p, e)})
 

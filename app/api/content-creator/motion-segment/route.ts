@@ -22,6 +22,19 @@ export const maxDuration = 300;
  */
 const MAX_IMAGES = 50;
 
+/**
+ * How deep to decompose. Chosen by the user before a batch is uploaded, and
+ * passed straight through to the script — see scripts/collage_zones.py's
+ * STRENGTH_PROFILES for what each one actually does. Anything unrecognised
+ * falls back to "low" there, so this list only has to stop a stray value from
+ * reaching the command line.
+ */
+const STRENGTHS = new Set(["low", "standard", "high"]);
+
+function readStrength(value: unknown): string {
+  return typeof value === "string" && STRENGTHS.has(value) ? value : "low";
+}
+
 /** Decode a data URL or fetch a remote URL into raw bytes. */
 async function toBuffer(imageUrl: string): Promise<Buffer> {
   if (imageUrl.startsWith("data:")) {
@@ -64,6 +77,7 @@ export async function POST(req: NextRequest) {
     //   JSON { imageUrl } or { imageUrls: [...] } — data or http URLs.
     let buffers: Buffer[] = [];
     let batch = false;
+    let strength = "low";
 
     if ((req.headers.get("content-type") || "").includes("multipart/form-data")) {
       const form = await req.formData();
@@ -78,10 +92,12 @@ export async function POST(req: NextRequest) {
         );
       }
       buffers = await Promise.all(files.map(async (f) => Buffer.from(await f.arrayBuffer())));
+      strength = readStrength(form.get("strength"));
       batch = true;
     } else {
       const body = await req.json();
       const { imageUrl, imageUrls } = body ?? {};
+      strength = readStrength(body?.strength);
       const urls: string[] = Array.isArray(imageUrls)
         ? imageUrls
         : typeof imageUrl === "string"
@@ -118,15 +134,18 @@ export async function POST(req: NextRequest) {
     // so every image is processed by the exact same code path and the 5th
     // poster comes back identical in quality to the 1st.
     //
-    // 40s a poster, because the budget has to hold for the slowest image in the
-    // batch rather than the average — a dense 2200px poster with a lot of small
-    // type runs several OCR passes.
-    const timeout = Math.min(280_000, 30_000 + tmpFiles.length * 40_000);
+    // The budget has to hold for the slowest image in the batch rather than the
+    // average — a dense poster with a lot of small type runs several OCR passes.
+    // "high" reads every isolatable shape inside every collage part, which is
+    // several more CV passes per image than "low" — the budget scales with it
+    // rather than making the cheapest setting wait for the dearest one.
+    const perImage = strength === "high" ? 45_000 : strength === "standard" ? 40_000 : 35_000;
+    const timeout = Math.min(280_000, 30_000 + tmpFiles.length * perImage);
 
     const resultJson = await new Promise<string>((resolve, reject) => {
       execFile(
         pythonBin,
-        [scriptPath, ...tmpFiles],
+        [scriptPath, `--strength=${strength}`, ...tmpFiles],
         { maxBuffer: 512 * 1024 * 1024, timeout },
         (error, stdout, stderr) => {
           if (error) {

@@ -44,6 +44,9 @@ export interface TimelineSlideLike {
        untracked collage part when CompileOptions.paperCutStyle is on. */
     objectType?: string;
     partIndex?: number;
+    /* False on a part's caption: it is a layer so its words are addressable,
+       never an animation target of its own. */
+    animatable?: boolean;
   }>;
   width?: number;
   height?: number;
