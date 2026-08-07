@@ -77,9 +77,20 @@ ART_MIN_HEIGHT_FRAC = 0.10
 
 # A caption line: wide, short, and sitting low in its zone.
 CAPTION_MIN_WIDTH_FRAC = 0.10
+# Widest gap that still reads as a space INSIDE one line rather than a break
+# between the caption and something else on the same baseline. Word gaps in
+# this design system measure ~1.3% of the width; a word set on its own
+# highlight panel opens a bigger one, and the drawing's debris sits much
+# further off than either. Four word-spaces separates those two populations.
+CAPTION_WORD_GAP_FRAC = 0.05
 CAPTION_MAX_HEIGHT_FRAC = 0.060
 # Two caption lines of a wrapped caption sit within this much of each other.
 CAPTION_LINE_GAP_FRAC = 0.022
+# ...and line up on one shared edge to within this share of the width. Measured
+# across the design system's own output: real wrapped lines agree to 0.1-2% on
+# whichever edge they are set to, while a piece of the drawing that happens to
+# sit just above a caption misses every edge by 10% or more.
+CAPTION_EDGE_TOL_FRAC = 0.035
 
 # A zone shorter than this is page furniture (the handle / "Swipe ->" strip),
 # not a collage part.
@@ -193,18 +204,27 @@ def zone_boxes(np, drawn, w, h):
     rows = [s for s in cut(h_rules, h) if s[1] - s[0] >= MIN_ZONE_HEIGHT_FRAC * h]
     cols = [s for s in cut(v_rules, w) if s[1] - s[0] >= MIN_ZONE_HEIGHT_FRAC * w]
 
-    # A grid has to actually divide something.
+    # No rule anywhere means this is not a poster from the design system, and
+    # nothing here applies to it.
     #
-    # The design system's 1-part beat is "a single full-frame image, no
-    # divider" — which is, by construction, indistinguishable from any poster
-    # that is not a collage at all. Claiming one anyway is the worst failure
-    # this module can have: the whole canvas becomes a single atomic block that
-    # is never decomposed into anything, and whatever text happens to sit
-    # lowest on the page (the handle, the "Swipe ->" cue) is read as its
-    # caption. So no rule, no collage — a single-part beat is decomposed
-    # element by element by the general pass instead, which still finds its
-    # caption, just as a text layer rather than a bound one.
-    if not rows or not cols or len(rows) * len(cols) < 2:
+    # A 1-part beat — "a single full-frame image, no divider" — still lands
+    # here, because the system also draws a thin rule above the handle in the
+    # footer of every slide. That rule cuts off a strip too short to be a part,
+    # so it leaves exactly one zone: the whole canvas above the footer, which
+    # is precisely what a 1-part beat is. Measured across a 17-slide deck, five
+    # slides are 1-part and every one of them carries the footer rule; measured
+    # across posters from outside the system, none carry any rule at all.
+    #
+    # Requiring TWO zones instead (the obvious way to avoid claiming an
+    # ordinary poster as a collage) silently drops every 1-part beat to the
+    # general pass, where its caption competes with the lettering drawn inside
+    # the illustration and the slide loses its anchor. `decompose` guards the
+    # single-zone case on its own terms instead: no caption, no claim.
+    # Note this has to be checked explicitly: `cut` always returns at least one
+    # segment, so "rows is non-empty" is true even for a poster with no rule on
+    # it at all, and testing that alone claims the whole canvas as a 1-part
+    # beat for every image ever uploaded.
+    if (not h_rules and not v_rules) or not rows or not cols:
         return [], {"hRules": h_rules, "vRules": v_rules, "grid": "none"}
 
     # The contract only ever produces a 1xN stack or a 2x2. Anything else means
@@ -263,37 +283,102 @@ def _caption_lines(np, cv2, typ, box, w, h):
     lines = []
     for i in range(1, n):
         cx, cy, cw, ch, area = stats[i]
-        if cw < CAPTION_MIN_WIDTH_FRAC * w:
-            continue
+        # Height only. A width test cannot be applied to a COMPONENT, because a
+        # component is not yet a line: the design system sets a highlighted word
+        # on its own cyan panel, which is not type and so is a hole in the type
+        # mask, and the close does not always reach across it. The words on the
+        # far side then arrive as their own narrow components — and any width
+        # test here discards them before the merge below can join them to the
+        # line they belong to. That is how "ek dollar" fell out of a caption at
+        # one scale and not another: the gap and the kernel are both relative,
+        # but they round to integers, so which side of the threshold a
+        # particular gap lands on moves with the image size. Width is judged
+        # after the merge, where it means what it is supposed to mean.
         if ch > CAPTION_MAX_HEIGHT_FRAC * h or ch < 0.006 * h:
+            continue
+        if cw < 2:
             continue
         lines.append({"box": (x + int(cx), y + int(cy), int(cw), int(ch)), "area": int(area)})
 
-    # Fragments of one line that the close did not reach across - an em-dash, a
-    # word set apart by a highlight - are merged back by baseline rather than
-    # left as separate short lines that fail the width test above.
+    # Group the fragments into rows by baseline, then cut each row at the gaps.
+    #
+    # Baseline alone is not enough. Everything sitting at the caption's height
+    # shares its baseline, including the bottom of the drawing above it, and
+    # merging a whole row wholesale prepends that debris to the caption
+    # ("SCN) isliye demand aur price dono..."). But a caption's own words are
+    # separated by WORD gaps and the debris by a large one, so cutting the row
+    # at anything wider than a few word-spaces separates them cleanly — and
+    # then the caption is simply the run with the most ink in it, since a
+    # caption is the dominant thing on its own line and debris never is.
     lines.sort(key=lambda l: l["box"][1])
-    merged = []
+    rows = []
     for l in lines:
         lx, ly, lw, lh = l["box"]
         hit = None
-        for m in merged:
-            mx, my, mw, mh = m["box"]
-            overlap = min(ly + lh, my + mh) - max(ly, my)
-            if overlap > 0.55 * min(lh, mh):
-                hit = m
+        for r in rows:
+            overlap = min(ly + lh, r["y1"]) - max(ly, r["y0"])
+            if overlap > 0.55 * min(lh, r["y1"] - r["y0"]):
+                hit = r
                 break
         if hit is None:
-            merged.append({"box": l["box"], "area": l["area"]})
+            rows.append({"y0": ly, "y1": ly + lh, "parts": [l]})
         else:
-            mx, my, mw, mh = hit["box"]
-            hit["box"] = (min(mx, lx), min(my, ly),
-                          max(mx + mw, lx + lw) - min(mx, lx),
-                          max(my + mh, ly + lh) - min(my, ly))
-            hit["area"] += l["area"]
+            hit["y0"] = min(hit["y0"], ly)
+            hit["y1"] = max(hit["y1"], ly + lh)
+            hit["parts"].append(l)
 
+    max_gap = max(4, CAPTION_WORD_GAP_FRAC * w)
+    merged = []
+    for r in rows:
+        r["parts"].sort(key=lambda l: l["box"][0])
+        runs = []
+        for l in r["parts"]:
+            lx, ly, lw, lh = l["box"]
+            if runs and lx - (runs[-1]["x1"]) <= max_gap:
+                run = runs[-1]
+                run["x1"] = max(run["x1"], lx + lw)
+                run["y0"] = min(run["y0"], ly)
+                run["y1"] = max(run["y1"], ly + lh)
+                run["area"] += l["area"]
+            else:
+                runs.append({"x0": lx, "x1": lx + lw, "y0": ly, "y1": ly + lh, "area": l["area"]})
+        best = max(runs, key=lambda run: run["area"])
+        merged.append({
+            "box": (best["x0"], best["y0"], best["x1"] - best["x0"], best["y1"] - best["y0"]),
+            "area": best["area"],
+        })
+
+    # Now that every fragment has found its line, "is this wide enough to be a
+    # line of a caption?" is a question that can be asked.
+    merged = [l for l in merged if l["box"][2] >= CAPTION_MIN_WIDTH_FRAC * w]
     merged.sort(key=lambda l: -(l["box"][1] + l["box"][3]))
     return merged
+
+
+def _shares_an_edge(a, b, w):
+    """Are these two lines set to the same alignment?
+
+    Type that wrapped agrees on ONE edge — the left for ragged-right setting,
+    the centre for centred, the right for ragged-left — and on that edge it
+    agrees almost exactly. Which edge it is, is the typesetter's choice, and
+    this design system uses at least two of them: a centred caption and a
+    left-aligned one appear on consecutive slides of the same deck.
+
+    Testing only the centre (the obvious reading of "captions are centred")
+    silently drops the first line of every left-aligned caption. Its lines'
+    left edges agree to 0.1% of the width while their centres, being set to
+    different lengths, differ by up to a quarter of the page - so a centre test
+    reads a perfectly ordinary wrapped caption as two unrelated things and
+    keeps only the last line. The slide then binds to half its own words.
+    """
+    for a_edge, b_edge in (
+        (a[0], b[0]),                                  # left
+        (a[0] + a[2] / 2.0, b[0] + b[2] / 2.0),        # centre
+        (a[0] + a[2], b[0] + b[2]),                    # right
+    ):
+        if abs(a_edge - b_edge) <= CAPTION_EDGE_TOL_FRAC * w:
+            return True
+    return False
 
 
 def _rule_rows(np, typ, box):
@@ -369,7 +454,6 @@ def read_zone(np, cv2, arr_rgb, dist, drawn, typ, box, w, h):
         # centre and are the same height to the pixel, while the intruders miss
         # the centre by a quarter of the page or come in at half the size.
         base = lines[0]["box"]
-        base_cx = (base[0] + base[2] / 2.0) / float(w)
         for cand in lines[1:]:
             cb = cand["box"]
             gap = base[1] - (cb[1] + cb[3])
@@ -378,7 +462,7 @@ def read_zone(np, cv2, arr_rgb, dist, drawn, typ, box, w, h):
             ratio = cb[3] / float(max(1, base[3]))
             if not (0.62 <= ratio <= 1.60):
                 break
-            if abs((cb[0] + cb[2] / 2.0) / float(w) - base_cx) > 0.06:
+            if not _shares_an_edge(base, cb, w):
                 break
             keep.append(cand)
             base = cb
@@ -712,4 +796,17 @@ def decompose(np, cv2, arr_rgb, profile, zones=None, ocr=None, detect_objects=No
         "captions": captions,
         "subObjects": sub_objects,
     })
+
+    # A single zone is only a 1-part beat if it reads like one.
+    #
+    # With two or more zones the dividers themselves are the evidence: nothing
+    # but this design system draws full-width rules across a poster at the
+    # thirds. One zone rests on one rule, which a poster from anywhere else
+    # could produce by accident — a horizon, a table edge, a banner. So the
+    # claim has to be earned by the thing that actually defines a part: a
+    # caption, set on the page below the drawing. Without one there is no beat
+    # to bind and the general pass will do a better job.
+    if parts <= 1 and captions == 0:
+        return None, dict(meta, grid="none", collageParts=0, captions=0, subObjects=0)
+
     return items, meta
