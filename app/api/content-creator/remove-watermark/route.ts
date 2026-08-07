@@ -20,6 +20,13 @@ export const maxDuration = 120;
 const MAX_IMAGES = 50;
 
 export async function POST(req: NextRequest) {
+  if (process.env.VERCEL) {
+    return NextResponse.json(
+      { error: "Watermark removal is only available in local development mode. Please run the app locally using 'npm run dev' to use this feature." },
+      { status: 503 }
+    );
+  }
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -47,7 +54,8 @@ export async function POST(req: NextRequest) {
       tmpFiles.push(p);
     }
 
-    const scriptPath = path.join(process.cwd(), "scripts", "remove_watermark.py");
+    const scriptFolder = "scripts";
+    const scriptPath = path.join(process.cwd(), scriptFolder, "remove_watermark.py");
     const pythonBin = process.env.PYTHON_BIN || "python3";
 
     // One spawn for the whole chunk, same reasoning as motion-segment: python
