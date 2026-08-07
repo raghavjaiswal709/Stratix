@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import dbConnect from "@/lib/mongodb";
 import { ContentCreatorGenerationModel } from "@/lib/models/ContentCreatorGeneration";
+import { deleteObjects, extractOwnedUploadKeys } from "@/lib/r2";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   }
 }
 
+// Deleting a generation deletes its Cloudflare-backed assets with it — every
+// decomposed slide image, the CSV transcript, the voiceover and the music
+// bed for a motion-video project, or whatever other /api/uploads/ URLs the
+// category in question embeds. Otherwise every delete from history leaves
+// its files behind in R2 forever with nothing left pointing at them.
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -37,8 +43,29 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     await dbConnect();
+
+    // Fetched (not just deleted) so the R2 keys it references can be pulled
+    // out first — deleteOne alone would take the only record of them with it.
+    const doc = await ContentCreatorGenerationModel.findOne({ _id: id, userId: session.user.id }).lean();
+    if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
     const result = await ContentCreatorGenerationModel.deleteOne({ _id: id, userId: session.user.id });
     if (result.deletedCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // Best-effort: the DB record is already gone, which is the part the user
+    // is waiting on. A partial R2 cleanup failure (a transient network blip,
+    // a key that outlived its own record already) is logged, not surfaced —
+    // orphaned storage is a cost to clean up later, not a reason to make the
+    // delete itself look like it failed when it didn't.
+    try {
+      const keys = extractOwnedUploadKeys(
+        { payload: (doc as { payload?: unknown }).payload, previewUrl: (doc as { previewUrl?: string }).previewUrl },
+        session.user.id
+      );
+      if (keys.length > 0) await deleteObjects(keys);
+    } catch (err) {
+      console.warn(`Failed to clean up R2 assets for deleted history entry ${id}:`, err);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {

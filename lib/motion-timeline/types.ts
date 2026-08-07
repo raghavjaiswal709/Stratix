@@ -79,6 +79,8 @@ export interface AuthoredTransition {
   durationMs?: number;
   durMs?: number;
   duration?: number;
+  soundEffect?: string;
+  sfx?: string;
 }
 
 export interface AuthoredScene {
@@ -146,12 +148,96 @@ export interface CompiledTrack {
   channels: Channels;
 }
 
-export type TransitionType = "cut" | "fade" | "dipToBlack";
+export type TransitionType =
+  | "cut"
+  | "fade"
+  | "dipToBlack"
+  | "whooshCut"
+  | "glitch"
+  | "flashCut"
+  | "zoomPunch"
+  | "spinZoom"
+  | "blurDissolve"
+  | "slideUp"
+  | "slideDown"
+  | "irisCircle"
+  | "diagonalWipe"
+  | "splitReveal"
+  | "cardFlip";
+
+export type AudioSfxType =
+  | "whoosh"
+  | "glitch"
+  | "flash"
+  | "zoom"
+  | "whip"
+  | "spin"
+  | "iris"
+  | "pop"
+  | "riser"
+  | "impact"
+  | "shutter"
+  | "breeze";
 
 export interface Transition {
   type: TransitionType;
   durationMs: number;
+  soundEffect?: AudioSfxType;
 }
+
+export const TRANSITION_TYPES: TransitionType[] = [
+  "whooshCut",
+  "glitch",
+  "flashCut",
+  "zoomPunch",
+  "spinZoom",
+  "blurDissolve",
+  "slideUp",
+  "slideDown",
+  "irisCircle",
+  "diagonalWipe",
+  "splitReveal",
+  "cardFlip",
+  "fade",
+  "dipToBlack",
+  "cut",
+];
+
+export const TRANSITION_LABELS: Record<TransitionType, string> = {
+  whooshCut: "Motion Slide (Whoosh)",
+  glitch: "Cyber Glitch",
+  flashCut: "Camera Flash Cut",
+  zoomPunch: "Zoom Punch",
+  spinZoom: "Vortex Spin Zoom",
+  blurDissolve: "Blur Dissolve",
+  slideUp: "Slide Up",
+  slideDown: "Slide Down",
+  irisCircle: "Iris Circle Wipe",
+  diagonalWipe: "Diagonal Wipe",
+  splitReveal: "Curtain Split Reveal",
+  cardFlip: "3D Card Flip",
+  fade: "Crossfade",
+  dipToBlack: "Dip To Black",
+  cut: "Instant Cut",
+};
+
+export const DEFAULT_TRANSITION_AUDIO_MAP: Record<TransitionType, AudioSfxType> = {
+  whooshCut: "whoosh",
+  glitch: "glitch",
+  flashCut: "flash",
+  zoomPunch: "zoom",
+  spinZoom: "spin",
+  blurDissolve: "breeze",
+  slideUp: "whip",
+  slideDown: "whip",
+  irisCircle: "iris",
+  diagonalWipe: "breeze",
+  splitReveal: "pop",
+  cardFlip: "shutter",
+  fade: "breeze",
+  dipToBlack: "impact",
+  cut: "pop",
+};
 
 export interface CompiledScene {
   index: number;
@@ -206,6 +292,8 @@ export interface SceneRenderState {
   camera: CameraState;
   background: LayerState;
   layers: Record<string, LayerState>;
+  transitionProgress?: number;
+  transitionStyle?: TransitionType;
 }
 
 export interface TimelineFrame {
@@ -215,6 +303,8 @@ export interface TimelineFrame {
   /** The scene that owns this instant — the one hit-testing should use. */
   activeSceneIndex: number;
   activeSlideIndex: number;
+  transitionProgress?: number;
+  transitionStyle?: TransitionType;
 }
 
 export const REST_LAYER_STATE: LayerState = {

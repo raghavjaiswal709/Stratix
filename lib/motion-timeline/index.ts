@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./sfx";
 export * from "./easing";
 export { CUE_DOCS, CAMERA_CUE_DOCS, CUE_NAMES, CAMERA_CUE_NAMES, type CueDoc } from "./cues";
 export { parseLooseJson } from "./parse";

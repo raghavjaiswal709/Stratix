@@ -4,6 +4,8 @@ import { parseLooseJson } from "./parse";
 import { findWordTime, type TranscriptWord } from "./transcript";
 import {
   TIMELINE_FORMAT,
+  DEFAULT_TRANSITION_AUDIO_MAP,
+  type AudioSfxType,
   type AuthoredCue,
   type AuthoredKeyframe,
   type AuthoredScene,
@@ -486,21 +488,45 @@ function compileTrackBody(track: AuthoredTrack, ctx: Ctx, offsetMs: number, wher
   return finalizeChannels(merged, ctx, where);
 }
 
+function parseTransitionTypeString(str: string): TransitionType {
+  const type = str.trim().toLowerCase();
+  if (type === "cut" || type === "none") return "cut";
+  if (type === "diptoblack" || type === "dip") return "dipToBlack";
+  if (type === "whooshcut" || type === "whoosh" || type === "motion" || type === "slide" || type === "motionslide") return "whooshCut";
+  if (type === "glitch" || type === "cyber") return "glitch";
+  if (type === "flashcut" || type === "flash") return "flashCut";
+  if (type === "zoompunch" || type === "zoom") return "zoomPunch";
+  if (type === "spinzoom" || type === "spin") return "spinZoom";
+  if (type === "blurdissolve" || type === "blur") return "blurDissolve";
+  if (type === "slideup") return "slideUp";
+  if (type === "slidedown") return "slideDown";
+  if (type === "iriscircle" || type === "iris") return "irisCircle";
+  if (type === "diagonalwipe" || type === "wipe") return "diagonalWipe";
+  if (type === "splitreveal" || type === "split") return "splitReveal";
+  if (type === "cardflip" || type === "flip") return "cardFlip";
+  if (type === "fade" || type === "crossfade") return "fade";
+  return "whooshCut"; // Default to whooshCut (motion slide) for zone changes
+}
+
 function normalizeTransition(raw: AuthoredTransition | string | undefined, fallback: TransitionType): Transition {
   if (typeof raw === "string") {
-    const type = raw.trim().toLowerCase();
-    if (type === "cut" || type === "none") return { type: "cut", durationMs: 0 };
-    if (type === "diptoblack" || type === "dip") return { type: "dipToBlack", durationMs: 500 };
-    return { type: "fade", durationMs: 350 };
+    const type = parseTransitionTypeString(raw);
+    const durationMs = type === "cut" ? 0 : type === "glitch" || type === "flashCut" ? 280 : 450;
+    return { type, durationMs, soundEffect: DEFAULT_TRANSITION_AUDIO_MAP[type] };
   }
   if (!raw || typeof raw !== "object") {
-    return { type: fallback, durationMs: fallback === "cut" ? 0 : 350 };
+    return {
+      type: fallback,
+      durationMs: fallback === "cut" ? 0 : 450,
+      soundEffect: DEFAULT_TRANSITION_AUDIO_MAP[fallback],
+    };
   }
-  const rawType = (firstStr(raw.type) ?? fallback).toLowerCase();
-  const type: TransitionType =
-    rawType === "cut" || rawType === "none" ? "cut" : rawType.startsWith("dip") ? "dipToBlack" : "fade";
-  const durationMs = firstNum(raw.durationMs, raw.durMs, raw.duration) ?? (type === "cut" ? 0 : 350);
-  return { type, durationMs: Math.max(0, durationMs) };
+  const rawTypeStr = firstStr(raw.type) ?? fallback;
+  const type = parseTransitionTypeString(rawTypeStr);
+  const durationMs = firstNum(raw.durationMs, raw.durMs, raw.duration) ?? (type === "cut" ? 0 : 450);
+  const sfxStr = firstStr(raw.soundEffect, raw.sfx);
+  const soundEffect: AudioSfxType = (sfxStr as AudioSfxType) || DEFAULT_TRANSITION_AUDIO_MAP[type];
+  return { type, durationMs: Math.max(0, durationMs), soundEffect };
 }
 
 function resolveWipeDirection(raw: unknown): WipeDirection {

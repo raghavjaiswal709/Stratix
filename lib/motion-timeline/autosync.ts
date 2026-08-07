@@ -1212,6 +1212,13 @@ export function autoSyncTimeline(
   let totalElements = 0;
   let anchoredElements = 0;
   let pacedElements = 0;
+  /**
+   * Scene 0's content elements, in the order they are scheduled to arrive —
+   * furniture excluded, since it is not a "decomposed element" in the sense
+   * the intro card cares about. Read by the introCard block below to hand
+   * the card the first element's own slot rather than merely delaying it.
+   */
+  let firstSceneElements: Array<{ layerId: string; enterAt: number }> = [];
 
   // Scene boundaries in ms, taken from the words the cuts landed on and pulled
   // back so the first entrance's lead-in lives inside its own scene.
@@ -1298,6 +1305,18 @@ export function autoSyncTimeline(
     // Artwork first: it is the ground the words land on.
     const allPlacements = [...paperPlacements, ...placements];
     const tracks: AuthoredTrack[] = [];
+
+    // enterAt mirrors exactly how each placement's own entrance cue will be
+    // timed below (onMs pulled back by the lead-in, never before the scene
+    // starts) — computed once here, ahead of that per-cue loop, purely so
+    // the introCard block after this whole function can hand the card the
+    // second element's own arrival instant without having to re-derive it.
+    if (i === 0) {
+      firstSceneElements = allPlacements.map((p) => ({
+        layerId: p.layer.id,
+        enterAt: Math.max(startMs, Math.round(p.onMs - LEAD_IN_MS)),
+      }));
+    }
 
     // Furniture is simply present: a quick fade at the top of the scene, out of
     // the way of the sync.
@@ -1404,15 +1423,9 @@ export function autoSyncTimeline(
     // direction between slides so a long reel does not feel like one long push.
     const camera = buildCamera(profile.content, startMs, endMs, i, kenBurnsTo);
 
-    // A cut is the default; a real pause in the narration earns a short
-    // dissolve, because the speaker already signalled the beat.
-    const gapBefore = i === 0 ? Infinity : index.gapBeforeMs[from] ?? 0;
-    const enter =
-      i === 0
-        ? { type: "fade", durationMs: 320 }
-        : gapBefore >= 350
-        ? { type: "fade", durationMs: 200 }
-        : { type: "cut", durationMs: 0 };
+    // Every scene/zone defaults to Motion Slide (whooshCut) with whoosh sound effect for incoming and outgoing transitions
+    const enter = { type: "whooshCut", durationMs: 450, soundEffect: "whoosh" };
+    const exit = { type: "whooshCut", durationMs: 450, soundEffect: "whoosh" };
 
     scenes.push({
       slide: i + 1,
@@ -1420,7 +1433,7 @@ export function autoSyncTimeline(
       startMs,
       endMs,
       enter,
-      exit: i === profiles.length - 1 ? { type: "fade", durationMs: 400 } : { type: "cut", durationMs: 0 },
+      exit,
       camera,
       tracks,
     });
@@ -1469,11 +1482,20 @@ export function autoSyncTimeline(
      1's window rather than shifting the reel keeps every later cut exactly
      where the CSV put it. */
   if (introCard) {
+    // The card's own preference: own the FIRST element's slot outright,
+    // handing over exactly when the SECOND element would have started
+    // arriving — that element then enters completely unmodified, on its own
+    // original schedule. Only when slide 1 has fewer than two content
+    // elements to hand over between does this fall back to the old rule: the
+    // card owns the audio up to wherever the narration first says something
+    // printed on slide 1.
+    const usingElementHandover = firstSceneElements.length >= 2;
     const firstOwn = profiles[0].positions.find((p) => p >= cuts[0] && p < cuts[1]);
-    const handoverMs =
-      firstOwn !== undefined
-        ? Math.max(0, index.words[firstOwn].startMs - PRE_ROLL_MS)
-        : Math.min(scenes[0].endMs! - MIN_SCENE_MS, INTRO_FALLBACK_MS);
+    const handoverMs = usingElementHandover
+      ? firstSceneElements[1].enterAt
+      : firstOwn !== undefined
+      ? Math.max(0, index.words[firstOwn].startMs - PRE_ROLL_MS)
+      : Math.min(scenes[0].endMs! - MIN_SCENE_MS, INTRO_FALLBACK_MS);
 
     if (handoverMs >= MIN_SCENE_MS && handoverMs <= (scenes[0].endMs ?? 0) - MIN_SCENE_MS) {
       const spoken = index.words
@@ -1482,16 +1504,22 @@ export function autoSyncTimeline(
         .join(" ")
         .trim();
 
-      // Everything in slide 1's scene that was scheduled inside the card's span
-      // belongs after it now — the slide is not on screen until the card lifts.
+      // The first element's own entrance is replaced by the card, not merely
+      // delayed into it — its track is dropped outright. Anything else
+      // scheduled inside the card's span (furniture, mainly) still just
+      // slides up to the handover instant, same as before.
+      const droppedLayerId = usingElementHandover ? firstSceneElements[0].layerId : null;
       const first = scenes[0];
       first.startMs = handoverMs;
-      first.enter = { type: "fade", durationMs: 320 };
-      (first.tracks ?? []).forEach((track) => {
-        (track.cues ?? []).forEach((cue) => {
-          if (typeof cue.atMs === "number" && cue.atMs < handoverMs) cue.atMs = handoverMs;
-        });
-      });
+      first.enter = { type: "whooshCut", durationMs: 450, soundEffect: "whoosh" };
+      first.tracks = (first.tracks ?? [])
+        .filter((track) => track.id !== droppedLayerId)
+        .map((track) => ({
+          ...track,
+          cues: (track.cues ?? []).map((cue) =>
+            typeof cue.atMs === "number" && cue.atMs < handoverMs ? { ...cue, atMs: handoverMs } : cue
+          ),
+        }));
 
       scenes.unshift({
         slide: 1,
@@ -1499,8 +1527,8 @@ export function autoSyncTimeline(
         label: "Intro card",
         startMs: 0,
         endMs: handoverMs,
-        enter: { type: "fade", durationMs: 260 },
-        exit: { type: "cut", durationMs: 0 },
+        enter: { type: "whooshCut", durationMs: 450, soundEffect: "whoosh" },
+        exit: { type: "whooshCut", durationMs: 450, soundEffect: "whoosh" },
         tracks: [],
       });
       sceneReports.unshift({
@@ -1508,8 +1536,8 @@ export function autoSyncTimeline(
         label: "Intro card",
         startMs: 0,
         endMs: handoverMs,
-        placedBy: firstOwn !== undefined ? "bracketed" : "paced",
-        edges: { start: "audio", end: firstOwn !== undefined ? "anchor" : "estimate" },
+        placedBy: usingElementHandover || firstOwn !== undefined ? "bracketed" : "paced",
+        edges: { start: "audio", end: usingElementHandover || firstOwn !== undefined ? "anchor" : "estimate" },
         coverage: 0,
         elementCount: 0,
         anchoredCount: 0,

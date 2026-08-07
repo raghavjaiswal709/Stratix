@@ -120,23 +120,33 @@ export function sampleTimeline(timeline: CompiledTimeline, timeMs: number): Time
   const sinceStart = t - scene.startMs;
 
   let alpha = 1;
+  let transProgress: number | undefined = undefined;
+  let transStyle = enter.type;
 
   if (enter.type !== "cut" && enter.durationMs > 0 && sinceStart < enter.durationMs) {
     const p = clamp01(sinceStart / enter.durationMs);
+    transProgress = p;
 
     if (enter.type === "dipToBlack") {
       // First half fades the outgoing scene to black, second half brings the
       // incoming one up — the two never overlap.
       if (p < 0.5 && prev) {
-        out.push(sceneState(prev, t, 1 - p * 2));
+        const prevScene = sceneState(prev, t, 1 - p * 2);
+        prevScene.transitionProgress = p;
+        prevScene.transitionStyle = enter.type;
+        out.push(prevScene);
         alpha = 0;
       } else {
         alpha = clamp01((p - 0.5) * 2);
       }
     } else {
-      // Cross-dissolve: the outgoing scene stays fully painted underneath and
-      // the incoming one rises over it, so the mix never dips through black.
-      if (prev) out.push(sceneState(prev, t, 1));
+      // Overlapping scene transition (motion slide, glitch, flash, zoom, spin, etc.)
+      if (prev) {
+        const prevScene = sceneState(prev, t, 1);
+        prevScene.transitionProgress = p;
+        prevScene.transitionStyle = enter.type;
+        out.push(prevScene);
+      }
       alpha = p;
     }
   }
@@ -152,13 +162,20 @@ export function sampleTimeline(timeline: CompiledTimeline, timeMs: number): Time
     }
   }
 
-  out.push(sceneState(scene, t, clamp01(alpha)));
+  const currentScene = sceneState(scene, t, clamp01(alpha));
+  if (transProgress !== undefined) {
+    currentScene.transitionProgress = transProgress;
+    currentScene.transitionStyle = transStyle;
+  }
+  out.push(currentScene);
 
   return {
     timeMs: t,
     scenes: out,
     activeSceneIndex: activeIdx,
     activeSlideIndex: scene.slideIndex,
+    transitionProgress: transProgress,
+    transitionStyle: transProgress !== undefined ? transStyle : undefined,
   };
 }
 
