@@ -23,6 +23,7 @@ import {
   LineChart,
   Sparkles,
   Loader2,
+  Unlink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { renderTemplate } from "@/lib/prompts/template";
@@ -196,9 +197,17 @@ export function JournalDetail({
   const displayTP = agg ? agg.takeProfit : trade.takeProfit;
   const displayEntryTime = agg ? agg.entryTime : trade.entryTime;
 
+  // Compiled-group membership — purely relationship-based (parentTradeId /
+  // mergedTradeIds), same as the sync logic server-side. Never derived from
+  // entry/exit time.
+  const hasMergedChildren = !!(trade.mergedTradeIds && trade.mergedTradeIds.length > 0);
+  const isCompiledMember = hasMergedChildren || !!trade.parentTradeId;
+
   // Chart visibility state
   const [showChart, setShowChart] = useState(true);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [decompileOpen, setDecompileOpen] = useState(false);
+  const [decompiling, setDecompiling] = useState(false);
 
   // Analytics AI modal states
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
@@ -1164,6 +1173,72 @@ Please analyze this data and generate a detailed report:
     }
   }
 
+  // Splits every member of this compilation back into standalone trades.
+  async function handleDecompileAll() {
+    const childIds = trade.mergedTradeIds ?? [];
+    if (childIds.length === 0) return;
+    setDecompiling(true);
+    try {
+      await Promise.all(
+        childIds.map((childId) =>
+          fetch(`/api/trade/${childId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ parentTradeId: null }),
+          })
+        )
+      );
+      await fetch(`/api/trade/${trade._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mergedTradeIds: [] }),
+      });
+      window.dispatchEvent(new CustomEvent("refresh-trades"));
+      setDecompileOpen(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDecompiling(false);
+    }
+  }
+
+  // Removes just this one trade from its compilation, leaving the rest intact.
+  async function handleDecompileSingle() {
+    const parentId = trade.parentTradeId;
+    if (!parentId) return;
+    setDecompiling(true);
+    try {
+      const parent = allTrades?.find((t) => t._id === parentId);
+      const requests = [
+        fetch(`/api/trade/${trade._id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parentTradeId: null }),
+        }),
+      ];
+      // Only touch the parent's mergedTradeIds if we can see its current,
+      // full list — writing a partial guess here could silently drop other
+      // siblings from the group.
+      if (parent) {
+        const remainingSiblingIds = (parent.mergedTradeIds ?? []).filter((id) => id !== trade._id);
+        requests.push(
+          fetch(`/api/trade/${parentId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mergedTradeIds: remainingSiblingIds }),
+          })
+        );
+      }
+      await Promise.all(requests);
+      window.dispatchEvent(new CustomEvent("refresh-trades"));
+      setDecompileOpen(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDecompiling(false);
+    }
+  }
+
   const isWinner = displayProfit > 0;
 
   return (
@@ -1227,6 +1302,47 @@ Please analyze this data and generate a detailed report:
             ) : null}
             <div className="text-[11px] text-white/50 bg-black/60 px-3 py-0.5 rounded-full border border-white/10">
               {lightboxIndex + 1} / {screenshots.length}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Decompile confirmation */}
+      {decompileOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-[#141720] border border-white/10 shadow-2xl overflow-hidden">
+            <div className="flex items-start gap-3 p-5 border-b border-white/7">
+              <div className="h-9 w-9 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0 border border-amber-500/20 text-amber-400">
+                <Unlink className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-[15px] font-semibold text-white">
+                  {hasMergedChildren ? "Decompile all trades?" : "Remove from compilation?"}
+                </h3>
+                <p className="text-[12px] text-white/50 mt-1">
+                  {hasMergedChildren
+                    ? `Splits all ${(trade.mergedTradeIds?.length ?? 0) + 1} trades in this compilation back into separate, standalone entries. Journal notes stay as they are.`
+                    : "Removes just this trade from the compilation — it becomes its own standalone entry. The rest of the compilation is unaffected."}
+                </p>
+              </div>
+              <button onClick={() => setDecompileOpen(false)} className="text-white/40 hover:text-white/80 transition shrink-0">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex gap-2 p-4">
+              <button
+                onClick={() => setDecompileOpen(false)}
+                className="flex-1 py-2 rounded-xl border border-white/10 text-[12px] text-white/50 hover:text-white/80 hover:bg-white/5 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={hasMergedChildren ? handleDecompileAll : handleDecompileSingle}
+                disabled={decompiling}
+                className="flex-1 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-[12px] font-semibold transition disabled:opacity-50"
+              >
+                {decompiling ? "Decompiling…" : "Decompile"}
+              </button>
             </div>
           </div>
         </div>
@@ -1344,6 +1460,16 @@ Please analyze this data and generate a detailed report:
             )}
 
             <div className="flex items-center gap-2">
+              {isCompiledMember && (
+                <button
+                  onClick={() => setDecompileOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/5 transition"
+                  title={hasMergedChildren ? "Split this compilation back into separate trades" : "Remove this trade from its compilation"}
+                >
+                  <Unlink className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Decompile</span>
+                </button>
+              )}
               <button
                 onClick={() => setEditOpen((o) => !o)}
                 className={cn(
