@@ -119,28 +119,42 @@ export async function PUT(
     { new: true }
   );
 
-  // Propagate journal changes to child trades if this is a parent trade
-  if (trade && trade.mergedTradeIds && trade.mergedTradeIds.length > 0) {
-    const journalFields = [
-      "journaled", "executionChecklist", "screenshots", "preTradeAnalysis",
-      "postTradeReview", "riskRatio", "rewardRatio", "emotions",
-      "lessonsLearned", "tags", "rating"
-    ];
-    const journalUpdate: Record<string, unknown> = {};
-    let hasJournalUpdate = false;
+  // Propagate journal changes across every member of a compiled group.
+  // Keyed purely on the parentTradeId/mergedTradeIds relationship — never on
+  // entryTime/exitTime — and in both directions: editing the parent syncs
+  // its children (as before), and editing any child now also syncs the
+  // parent + its siblings, which previously went un-propagated entirely.
+  if (trade) {
+    const groupParentId = trade.mergedTradeIds && trade.mergedTradeIds.length > 0
+      ? trade._id
+      : trade.parentTradeId;
 
-    for (const field of journalFields) {
-      if (body[field] !== undefined) {
-        journalUpdate[field] = body[field];
-        hasJournalUpdate = true;
+    if (groupParentId) {
+      const journalFields = [
+        "journaled", "executionChecklist", "screenshots", "preTradeAnalysis",
+        "postTradeReview", "riskRatio", "rewardRatio", "emotions",
+        "lessonsLearned", "tags", "rating"
+      ];
+      const journalUpdate: Record<string, unknown> = {};
+      let hasJournalUpdate = false;
+
+      for (const field of journalFields) {
+        if (body[field] !== undefined) {
+          journalUpdate[field] = body[field];
+          hasJournalUpdate = true;
+        }
       }
-    }
 
-    if (hasJournalUpdate) {
-      await TradeEntryModel.updateMany(
-        { _id: { $in: trade.mergedTradeIds }, userId: session.user.id },
-        { $set: journalUpdate }
-      );
+      if (hasJournalUpdate) {
+        await TradeEntryModel.updateMany(
+          {
+            userId: session.user.id,
+            _id: { $ne: trade._id },
+            $or: [{ _id: groupParentId }, { parentTradeId: groupParentId }],
+          },
+          { $set: journalUpdate }
+        );
+      }
     }
   }
 

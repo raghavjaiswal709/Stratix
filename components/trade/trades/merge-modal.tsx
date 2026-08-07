@@ -37,6 +37,7 @@ interface SimpleTrade {
   status: "open" | "closed";
   parentTradeId?: string;
   mergedTradeIds?: string[];
+  journaled?: boolean;
 }
 
 interface MergeModalProps {
@@ -142,23 +143,29 @@ export function MergeModal({ parentTrade, allTrades, onClose, onMerged }: MergeM
       // 2. Update checked child trades: point parentTradeId to mainTrade._id and share journal info
       const parentRaw = mainTrade as any;
       const childPromises = checkedIds.map((childId) => {
+        const child = allTrades.find((t) => t._id === childId);
+        const payload: Record<string, unknown> = { parentTradeId: mainTrade._id };
+        // Never clobber a child that's already been journaled on its own —
+        // this is only a one-time seed for children with no journal yet.
+        // Once linked, the PUT route keeps parent/children in sync going
+        // forward regardless of which side gets edited next.
+        if (!child?.journaled) {
+          payload.journaled = parentRaw.journaled ?? false;
+          payload.executionChecklist = parentRaw.executionChecklist ?? [];
+          payload.screenshots = parentRaw.screenshots ?? [];
+          payload.preTradeAnalysis = parentRaw.preTradeAnalysis ?? "";
+          payload.postTradeReview = parentRaw.postTradeReview ?? "";
+          payload.riskRatio = parentRaw.riskRatio ?? 1;
+          payload.rewardRatio = parentRaw.rewardRatio ?? 2;
+          payload.emotions = parentRaw.emotions ?? "";
+          payload.lessonsLearned = parentRaw.lessonsLearned ?? "";
+          payload.tags = parentRaw.tags ?? [];
+          payload.rating = parentRaw.rating ?? 5;
+        }
         return fetch(`/api/trade/${childId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            parentTradeId: mainTrade._id,
-            journaled: parentRaw.journaled ?? false,
-            executionChecklist: parentRaw.executionChecklist ?? [],
-            screenshots: parentRaw.screenshots ?? [],
-            preTradeAnalysis: parentRaw.preTradeAnalysis ?? "",
-            postTradeReview: parentRaw.postTradeReview ?? "",
-            riskRatio: parentRaw.riskRatio ?? 1,
-            rewardRatio: parentRaw.rewardRatio ?? 2,
-            emotions: parentRaw.emotions ?? "",
-            lessonsLearned: parentRaw.lessonsLearned ?? "",
-            tags: parentRaw.tags ?? [],
-            rating: parentRaw.rating ?? 5,
-          }),
+          body: JSON.stringify(payload),
         });
       });
 
