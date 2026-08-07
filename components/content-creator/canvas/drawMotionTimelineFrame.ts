@@ -52,6 +52,17 @@ export interface TimelineRenderOptions {
    */
   zigzagMotion?: boolean;
   /**
+   * Off by default. A collage-part's own caption strip is baked into that
+   * part's cut-out pixels — see the animatable:false "part-caption" layer
+   * bound to it, whose words are still what the auto-sync matcher reads.
+   * When this is on, that strip is painted over with an opaque cover (sized
+   * from the caption layer's own rest position relative to its parent, so it
+   * tracks the parent's live rotation/scale/position exactly) purely as a
+   * render-time step — nothing about the caption's text or its timing
+   * changes, so sync is untouched. See drawCaptionCovers.
+   */
+  hideImageCaptions?: boolean;
+  /**
    * layer id → the timeline ms its entrance was detected at (opacity·wipe
    * crossing up through visible — see ContentCreatorPage's render effect,
    * which is the only thing with frame-to-frame memory to detect that
@@ -181,15 +192,18 @@ function captionGroupStarts(words: NonNullable<TimelineRenderOptions["words"]>):
 }
 
 /**
- * Burnt-in captions: a couple-word burst at a time along the top of the
- * frame — inside the letterbox bar when a slide is shorter than the 9:16
- * canvas, and at the same spot even when a slide already fills it edge to
- * edge. The whole burst stays on screen together; only the word actually
- * being spoken lights up full white, the rest of its burst rides along
- * faded, so it reads as one phrase with a moving highlight rather than a
- * word-by-word timer. White fill with a dark outline — inverted from a
- * bottom-of-frame caption on purpose, since the top is the letterbox bar
- * itself as often as not, and black text would vanish into it.
+ * Burnt-in captions: a couple-word burst at a time, on an opaque black
+ * banner spanning the full top of the frame — edge to edge on the left,
+ * right and top, so it reads as a title-safe area built into the video
+ * rather than a label sitting on it. Only the bottom edge follows the
+ * text, so the banner is exactly as tall as the current burst needs. Fixed
+ * at the same spot whether that is inside the letterbox bar (a slide
+ * shorter than the 9:16 canvas) or directly over a slide that already
+ * fills it, since the banner is what the caption reads against now, not
+ * whatever happens to be behind it. The whole burst stays on screen
+ * together; only the word actually being spoken lights up full white, the
+ * rest of its burst rides along faded, so it reads as one phrase with a
+ * moving highlight rather than a word-by-word timer.
  */
 function drawCaption(
   ctx: CanvasRenderingContext2D,
@@ -221,15 +235,15 @@ function drawCaption(
   ctx.save();
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  ctx.lineJoin = "round";
-  ctx.miterLimit = 2;
 
   // Shrink to fit rather than wrap — a caption burst reads best as one line.
+  // The banner itself is always the full frame width regardless, so this is
+  // purely about not letting the text touch the very edges.
   let size = Math.round(H * 0.042);
   ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
   const widthOf = (list: string[]) =>
     list.reduce((sum, w) => sum + ctx.measureText(w).width, 0) + ctx.measureText(" ").width * Math.max(0, list.length - 1);
-  const maxWidth = W * 0.86;
+  const maxWidth = W * 0.88;
   let total = widthOf(phrase);
   if (total > maxWidth) {
     size = Math.max(10, Math.floor(size * (maxWidth / total)));
@@ -237,15 +251,24 @@ function drawCaption(
     total = widthOf(phrase);
   }
 
-  const y = H * 0.085;
+  // Higher than a hugging pill needed to sit, since the banner now reads as
+  // part of the frame's own top edge rather than a chip floating over it.
+  const y = H * 0.065;
   const spaceW = ctx.measureText(" ").width;
-  let x = W / 2 - total / 2;
-  ctx.lineWidth = Math.max(2.5, size * 0.18);
 
+  // The banner: opaque black, full width, flush with the top — only its
+  // bottom edge tracks the text, so it is exactly as tall as this burst
+  // needs and no taller.
+  const padBottom = size * 0.34;
+  const boxH = y + padBottom;
+
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, W, boxH);
+
+  let x = W / 2 - total / 2;
   phrase.forEach((word, i) => {
     ctx.globalAlpha = i === activeIdx ? 1 : 0.42;
-    ctx.strokeStyle = "rgba(0,0,0,0.85)";
-    ctx.strokeText(word, x, y);
     ctx.fillStyle = "#FFFFFF";
     ctx.fillText(word, x, y);
     x += ctx.measureText(word).width + spaceW;
@@ -456,6 +479,52 @@ function drawZoneFlourish(
   ctx.restore();
 }
 
+/**
+ * Paints over a collage-part's own baked-in caption strip(s) — the opposite
+ * of drawing something new, so it must be called from inside the exact same
+ * local coordinate space (and, critically, the same clip path from
+ * applyWipeClip) that the parent's own drawImage call just used, whether
+ * that space is rotated or not. `left`/`top`/`curW`/`curH` are that space's
+ * own draw rectangle, unchanged from what the caller just handed drawImage.
+ *
+ * The cover's own rectangle is computed once from each caption's REST
+ * position as a fraction of its parent's REST position — both static,
+ * authored values — rather than from any live pixel measurement, so it
+ * tracks the parent's actual live scale/rotation/position for free: the
+ * fraction is constant, only the space it is applied in moves. Filled with
+ * the caption layer's own detected paper colour (see captionBounds /
+ * artBounds in scripts/motion_segment.py), with a small uniform overscan so
+ * a sub-pixel rounding gap at the split can never leave a sliver showing.
+ */
+function drawCaptionCovers(
+  ctx: CanvasRenderingContext2D,
+  parent: MotionLayer,
+  captions: MotionLayer[],
+  left: number,
+  top: number,
+  curW: number,
+  curH: number
+) {
+  if (!parent.w || !parent.h) return;
+  const padX = curW * 0.006;
+  const padY = curH * 0.006;
+
+  captions.forEach((caption) => {
+    const relX = (caption.x - parent.x) / parent.w;
+    const relY = (caption.y - parent.y) / parent.h;
+    const relW = caption.w / parent.w;
+    const relH = caption.h / parent.h;
+
+    ctx.fillStyle = caption.backgroundColor || "#F5F5F5";
+    ctx.fillRect(
+      left + relX * curW - padX,
+      top + relY * curH - padY,
+      relW * curW + padX * 2,
+      relH * curH + padY * 2
+    );
+  });
+}
+
 /** Cheap deterministic string hash → [0,1), so a layer's own wobble is stable across seeks, replays and exports rather than reseeding every frame. */
 function hashUnit(seedStr: string): number {
   let h = 2166136261;
@@ -558,6 +627,21 @@ function drawScene(
   // 2. Elements, in the z-order the decomposer assigned.
   const ordered = [...allLayers].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
+  // Collage-part id → the caption layer(s) bound to it, only built when the
+  // toggle is actually on. The matcher upstream still reads every caption's
+  // own text/timing completely unchanged — this only decides what gets
+  // painted over it, after the fact, at render time.
+  const captionsByParent = new Map<string, MotionLayer[]>();
+  if (opts.hideImageCaptions) {
+    allLayers.forEach((l) => {
+      if (l.animatable === false && l.boundTo) {
+        const arr = captionsByParent.get(l.boundTo);
+        if (arr) arr.push(l);
+        else captionsByParent.set(l.boundTo, [l]);
+      }
+    });
+  }
+
   const wholeImageMotionOn = opts.wholeImageMotion !== false;
 
   const isBigCollageElement = (layer: MotionLayer): boolean => {
@@ -626,6 +710,8 @@ function drawScene(
     const sinceFlourish = flourishStart != null ? timeMs - flourishStart : Infinity;
     const flourishProgress = sinceFlourish >= 0 && sinceFlourish < ZONE_FLOURISH_MS ? sinceFlourish / ZONE_FLOURISH_MS : -1;
 
+    const boundCaptions = captionsByParent.get(layer.id);
+
     if (rot !== 0) {
       ctx.translate(left + curW / 2, top + curH / 2);
       ctx.rotate(rot);
@@ -633,11 +719,13 @@ function drawScene(
       if (isPaperCutPart) drawPaperFrame(ctx, -curW / 2, -curH / 2, curW, curH);
       applyWipeClip(ctx, state, -curW / 2, -curH / 2, curW, curH);
       ctx.drawImage(img, -curW / 2, -curH / 2, curW, curH);
+      if (boundCaptions) drawCaptionCovers(ctx, layer, boundCaptions, -curW / 2, -curH / 2, curW, curH);
     } else {
       if (flourishProgress >= 0) drawZoneFlourish(ctx, left, top, curW, curH, flourishProgress);
       if (isPaperCutPart) drawPaperFrame(ctx, left, top, curW, curH);
       applyWipeClip(ctx, state, left, top, curW, curH);
       ctx.drawImage(img, left, top, curW, curH);
+      if (boundCaptions) drawCaptionCovers(ctx, layer, boundCaptions, left, top, curW, curH);
     }
     ctx.restore();
 

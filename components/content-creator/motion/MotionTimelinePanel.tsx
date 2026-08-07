@@ -10,6 +10,7 @@ import {
   Check,
   Copy,
   Download,
+  EyeOff,
   FileSpreadsheet,
   FolderOpen,
   Loader2,
@@ -69,6 +70,9 @@ export interface MotionTimelinePanelProps {
   onIntroCardChange: (value: boolean) => void;
   captions: boolean;
   onCaptionsChange: (value: boolean) => void;
+  /** Off by default. Paints over each collage-part's own baked-in caption strip at render time — the words underneath are still what auto-sync matches against, untouched. */
+  hideImageCaptions: boolean;
+  onHideImageCaptionsChange: (value: boolean) => void;
   /** White "cut paper" margin + staggered drop-in on every collage-part layer. */
   paperCutStyle: boolean;
   onPaperCutStyleChange: (value: boolean) => void;
@@ -152,6 +156,8 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onIntroCardChange,
     captions,
     onCaptionsChange,
+    hideImageCaptions,
+    onHideImageCaptionsChange,
     paperCutStyle,
     onPaperCutStyleChange,
     wholeImageMotion,
@@ -674,7 +680,7 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </span>
         </button>
 
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           <button
             onClick={() => onIntroCardChange(!introCard)}
             title="Open on a black card with white type over the recap, before the first poster"
@@ -709,6 +715,18 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             <Scissors className={`h-3 w-3 shrink-0 ${paperCutStyle ? "text-emerald-300/90" : "text-white/35"}`} />
             <span className={`text-[9px] font-bold ${paperCutStyle ? "text-emerald-200/90" : "text-white/55"}`}>
               Paper cut
+            </span>
+          </button>
+          <button
+            onClick={() => onHideImageCaptionsChange(!hideImageCaptions)}
+            title="Paint over each collage part's own baked-in caption strip — the words underneath still drive the sync, unchanged"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              hideImageCaptions ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <EyeOff className={`h-3 w-3 shrink-0 ${hideImageCaptions ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${hideImageCaptions ? "text-emerald-200/90" : "text-white/55"}`}>
+              Hide image caption
             </span>
           </button>
         </div>

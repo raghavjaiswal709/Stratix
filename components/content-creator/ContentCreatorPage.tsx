@@ -270,6 +270,12 @@ export function ContentCreatorPage() {
   // Open on a black title card over the recap; burn word-by-word captions.
   const [motionIntroCard, setMotionIntroCard] = useState(false);
   const [motionCaptions, setMotionCaptions] = useState(false);
+  // Off by default: paints over each collage-part's own baked-in caption
+  // strip at render time. The strip's words are still what auto-sync reads
+  // for timing — this only changes what gets drawn on top of it, on export
+  // exactly as in the live preview. See hideImageCaptions in
+  // drawMotionTimelineFrame.ts.
+  const [motionHideImageCaptions, setMotionHideImageCaptions] = useState(false);
   // Off by default: white "cut paper" margin + staggered drop-in on every
   // collage-part layer. See lib/motion-timeline/cues.ts · paperDropIn and
   // compile.ts's synthesis step for a part nobody hand-choreographed.
@@ -788,6 +794,7 @@ export function ContentCreatorPage() {
             textOnlySync: motionTextOnlySync,
             wholeImageMotion: motionWholeImageMotion,
             zigzagMotion: motionZigzagMotion,
+            hideImageCaptions: motionHideImageCaptions,
             ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme,
           },
           activeHistoryId,
@@ -881,6 +888,7 @@ export function ContentCreatorPage() {
         if (typeof payload.textOnlySync === "boolean") setMotionTextOnlySync(payload.textOnlySync);
         if (typeof payload.wholeImageMotion === "boolean") setMotionWholeImageMotion(payload.wholeImageMotion);
         if (typeof payload.zigzagMotion === "boolean") setMotionZigzagMotion(payload.zigzagMotion);
+        setMotionHideImageCaptions(typeof payload.hideImageCaptions === "boolean" ? payload.hideImageCaptions : false);
 
         // Restore CSV voiceover transcript
         const transcriptText = typeof payload.transcriptText === "string" ? payload.transcriptText : null;
@@ -2119,6 +2127,7 @@ export function ContentCreatorPage() {
             paperCutStyle: motionPaperCutStyle,
             wholeImageMotion: motionWholeImageMotion,
             zigzagMotion: motionZigzagMotion,
+            hideImageCaptions: motionHideImageCaptions,
             zoneFlourishes: motionZoneFlourishRef.current,
           },
           (sceneIndex) => motionTimeline.scenes[sceneIndex]?.intro
@@ -2164,6 +2173,7 @@ export function ContentCreatorPage() {
     motionPaperCutStyle,
     motionWholeImageMotion,
     motionZigzagMotion,
+    motionHideImageCaptions,
     motionSfxEnabled,
     motionSfxVolume,
     playMotionSfx,
@@ -2912,6 +2922,7 @@ export function ContentCreatorPage() {
           textOnlySync: motionTextOnlySync,
           wholeImageMotion: motionWholeImageMotion,
           zigzagMotion: motionZigzagMotion,
+          hideImageCaptions: motionHideImageCaptions,
           ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme,
         },
         activeHistoryId,
@@ -2934,6 +2945,7 @@ export function ContentCreatorPage() {
       motionTextOnlySync,
       motionWholeImageMotion,
       motionZigzagMotion,
+      motionHideImageCaptions,
       activeHistoryId,
       ratioId,
       colors,
@@ -2985,6 +2997,7 @@ export function ContentCreatorPage() {
     motionTextOnlySync,
     motionWholeImageMotion,
     motionZigzagMotion,
+    motionHideImageCaptions,
     persistMotionState,
   ]);
 
@@ -5921,6 +5934,8 @@ export function ContentCreatorPage() {
                       onIntroCardChange={setMotionIntroCard}
                       captions={motionCaptions}
                       onCaptionsChange={setMotionCaptions}
+                      hideImageCaptions={motionHideImageCaptions}
+                      onHideImageCaptionsChange={setMotionHideImageCaptions}
                       paperCutStyle={motionPaperCutStyle}
                       onPaperCutStyleChange={setMotionPaperCutStyle}
                       wholeImageMotion={motionWholeImageMotion}
