@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
     proxyClientMaxBodySize: "128mb",
   },
   outputFileTracingExcludes: {
-    "*": ["scripts/**"],
+    "*": ["./scripts/**", "scripts/**"],
   },
   images: {
     remotePatterns: [
