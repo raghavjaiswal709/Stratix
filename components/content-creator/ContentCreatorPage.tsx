@@ -255,12 +255,13 @@ export function ContentCreatorPage() {
   // posters and the CSV already timed the words, so the timeline is derivable.
   const [motionAutoSyncReport, setMotionAutoSyncReport] = useState<AutoSyncReport | null>(null);
   const [motionAutoSyncNote, setMotionAutoSyncNote] = useState<string | null>(null);
-  // Off by default: with this on, autoSyncTimeline drops every graphic layer
-  // into "paper mode" (lib/motion-timeline/autosync.ts · buildScene) — all of
-  // a scene's collage parts land within PAPER_STAGGER_MS of each other at the
-  // scene's start, regardless of when that part is actually talked about. Off
-  // routes graphics through the real scheduler instead, so each one enters at
-  // the moment the transcript actually reaches it, same as text.
+  // Off by default: with this on, autoSyncTimeline drops the props inside a
+  // slide into "paper mode" (lib/motion-timeline/autosync.ts · buildScene) —
+  // they land together at the scene's start rather than being paced across it,
+  // which is honest for an object with nothing quotable about it. Collage parts
+  // are unaffected either way: a part prints its own caption, so it always
+  // enters on the CSV row where that caption is spoken (see isQuotable and
+  // locateSpokenLine).
   const [motionTextOnlySync, setMotionTextOnlySync] = useState(false);
   // Open on a black title card over the recap; burn word-by-word captions.
   const [motionIntroCard, setMotionIntroCard] = useState(false);

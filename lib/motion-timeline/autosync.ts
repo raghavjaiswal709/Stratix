@@ -17,8 +17,12 @@
  *      lands in a pause. Solving it globally rather than greedily is what stops
  *      one confident match on slide 2 from shoving slides 3–8 off the road.
  *
- *   2. Scheduling. Inside a span, a text element enters on the word it prints.
- *      Elements with nothing quotable (graphics, icons) are dealt into the gaps
+ *   2. Scheduling. Inside a span, an element that prints words enters on the
+ *      word it prints — and a collage part counts, because the caption printed
+ *      at the bottom of it IS that beat's line, verbatim. Its caption is found
+ *      as a SEQUENCE (locateSpokenLine), not as a bag of words, so the second
+ *      card of a beat lands on its own clause rather than on the first card's.
+ *      Elements with nothing quotable (icons, props) are dealt into the gaps
  *      between those anchors in reading order and snapped to word starts, so
  *      even an unanchored entrance lands on speech instead of between it.
  *
@@ -34,6 +38,7 @@ import { CUE_NAMES } from "./cues";
 import {
   buildTranscriptIndex,
   locatePhrase,
+  locateSpokenLine,
   nearestWordIndex,
   normalizeToken,
   strongestSpokenToken,
@@ -85,6 +90,13 @@ const SETTLE_FRACTION = 0.82;
 /** Anchoring thresholds — how much of an element's text must be spoken. */
 const ANCHOR_MIN_SCORE = 0.5;
 const ANCHOR_MIN_WEIGHT = 1.4;
+/**
+ * How much of a caption has to be found, in order, before its part is anchored
+ * to that spot. Held high because the design system guarantees the caption is
+ * the line verbatim: a partial sequence match means the reader departed from
+ * the script, and pacing is a more honest answer than a confident wrong time.
+ */
+const CAPTION_MIN_SEQUENCE_RATIO = 0.6;
 /** A slide's window is judged on the same evidence, a little more leniently. */
 const SEGMENT_MIN_WEIGHT = 0.6;
 /** Coverage at which a slide is taken to have placed itself. */
@@ -150,14 +162,18 @@ export interface AutoSyncOptions {
   /** Minimum spacing between two entrances. Default 190ms. */
   minStaggerMs?: number;
   /**
-   * Sync only the words; let the artwork arrive with its slide. Default true.
+   * Let the props arrive with their slide instead of being paced across it.
    *
-   * A graphic has nothing quotable in it, so pacing it across the slide is
-   * guesswork dressed up as choreography — the bank illustration slides in
-   * halfway through a sentence for no reason anybody watching can hear. With
-   * this on, every image is simply *there* from the top of its slide, settling
-   * into place like a sheet of paper being laid down, and only the text waits
-   * for the word it belongs to.
+   * A prop with nothing quotable in it cannot be synced to anything, so pacing
+   * it across the slide is guesswork dressed up as choreography — the bank
+   * illustration slides in halfway through a sentence for no reason anybody
+   * watching can hear. With this on, those images are simply *there* from the
+   * top of their slide, settling into place like a sheet of paper being laid
+   * down.
+   *
+   * It does NOT apply to a collage part. A part prints its own caption, so it
+   * has a word to enter on like any other line of type, and it enters on it in
+   * both modes — see isQuotable.
    */
   textOnlySync?: boolean;
   /**
@@ -267,6 +283,28 @@ function isBoundToAnother(layer: AutoLayer): boolean {
   return layer.animatable === false;
 }
 
+/**
+ * Does this element print words the narration is going to say?
+ *
+ * The obvious answer — "it is a text layer" — is wrong for the one element
+ * this format is mostly made of. A collage part is typed `graphic` because it
+ * is a cut-out of a drawing, but the design system prints that part's own
+ * verbatim caption at the bottom of it and guarantees that reading a beat's
+ * captions in order reproduces the spoken line exactly (video-template.ts §8,
+ * the COVERAGE RULE). The words are right there; only the layer's `type` says
+ * otherwise.
+ *
+ * Treating a part as unquotable is what made it enter on a computed interval:
+ * with nothing to anchor to it fell through to the pacing path and was dealt
+ * into the gaps between its neighbours, so a card could animate in a second
+ * before or after the line that introduces it. Anchoring on its caption is the
+ * whole point of having read the caption.
+ */
+function isQuotable(layer: AutoLayer): boolean {
+  if (!layer.text.trim()) return false;
+  return layer.type === "text" || layer.objectType === "collage-part";
+}
+
 function readLayers(slide: TimelineSlideLike): AutoLayer[] {
   const raw: AutoLayer[] = [];
   (slide.layers ?? []).forEach((l, i) => {
@@ -374,13 +412,18 @@ function profileSlides(slides: TimelineSlideLike[], index: TranscriptIndex, warn
 function profileSlide(slide: TimelineSlideLike, slideIndex: number, index: TranscriptIndex, W: number): SlideProfile {
   {
     const layers = readLayers(slide);
-    const furniture = layers.filter((l) => isFurniture(l) || isBoundToAnother(l));
-    const content = layers.filter((l) => !isFurniture(l) && !isBoundToAnother(l));
+    // Three buckets, not two. A bound caption is neither content nor furniture:
+    // it is already inside its part's cut-out, so it needs no track at all —
+    // giving it one would animate pixels nothing draws and inflate every count
+    // in the report with elements the viewer can never see move.
+    const scored = layers.filter((l) => !isBoundToAnother(l));
+    const furniture = scored.filter(isFurniture);
+    const content = scored.filter((l) => !isFurniture(l));
 
     // Furniture text ("@stratix", "1/10") is on every slide, so it identifies
     // none of them — the segmenter only reads what the slide is actually about.
     const printed = content
-      .filter((l) => l.type === "text" && l.text)
+      .filter(isQuotable)
       .map((l) => l.text)
       .join(" ");
 
@@ -416,6 +459,8 @@ function profileSlide(slide: TimelineSlideLike, slideIndex: number, index: Trans
     // plus a floor so a wordless slide still gets screen time.
     const shareWeight = 8 + chars * 0.45 + content.length * 2.5;
 
+    // Only counts layers the reader genuinely failed on — the captions left out
+    // above were left out on purpose and must not be reported as losses.
     const droppedLayers = Math.max(0, (slide.layers?.length ?? 0) - layers.length);
     return {
       slideIndex, layers, content, furniture, tokens, tokenWeight, shareWeight, droppedLayers,
@@ -740,7 +785,26 @@ function anchorElements(
   const found = new Map<number, { wordIndex: number; score: number }>();
 
   content.forEach((layer, i) => {
-    if (layer.type !== "text" || !layer.text.trim()) return;
+    if (!isQuotable(layer)) return;
+
+    // A collage part's caption is a contiguous verbatim slice of the line, so
+    // it is located as a sequence rather than as a bag of words. The bag is
+    // what put a beat's second card a second and a half early: two captions of
+    // one beat share their filler, so a window opened on the FIRST caption also
+    // covers the second, scores identically, and wins the tie by being earlier.
+    // Sequence matching cannot make that mistake — see locateSpokenLine.
+    if (layer.objectType === "collage-part") {
+      const line = locateSpokenLine(index, layer.text, {
+        fromIndex: from,
+        toIndex: to,
+        minRatio: CAPTION_MIN_SEQUENCE_RATIO,
+      });
+      if (line) {
+        found.set(i, { wordIndex: line.index, score: 1 + line.score });
+        return;
+      }
+    }
+
     const hit = locatePhrase(index, layer.text, {
       fromIndex: from,
       toIndex: to,
@@ -755,9 +819,9 @@ function anchorElements(
   // than dividing the scene into equal parts — and because the search is
   // confined to this scene's own words, a weak match can only be slightly wrong
   // rather than somewhere else in the reel.
-  if (found.size < content.filter((l) => l.type === "text" && l.text.trim()).length) {
+  if (found.size < content.filter(isQuotable).length) {
     content.forEach((layer, i) => {
-      if (found.has(i) || layer.type !== "text" || !layer.text.trim()) return;
+      if (found.has(i) || !isQuotable(layer)) return;
       const hit = locatePhrase(index, layer.text, {
         fromIndex: from,
         toIndex: to,
@@ -870,13 +934,35 @@ function schedule(
 
   // Monotonic and never bunched: snapping can land two elements on the same
   // word, and an entrance that has not visibly happened is a wasted one.
+  //
+  // Which element yields is not arbitrary. An anchored time came from the CSV —
+  // it is the moment its own words are spoken. A paced time is a guess at where
+  // a prop with nothing quotable belongs. So the guess moves and the evidence
+  // does not: room is made by pulling the paced elements in front of an anchor
+  // earlier, never by pushing the anchor later. Getting this backwards is what
+  // let a part drift half a second off its caption on a slide with a lot of
+  // props, precisely when the decomposition was most detailed.
   plan.forEach((p, k) => {
     const floor = k === 0 ? sceneStartMs : plan[k - 1].onMs + staggerMs;
-    if (p.onMs < floor) {
+    if (p.onMs >= floor) return;
+
+    if (!p.anchored) {
       p.onMs = floor;
-      // The time no longer belongs to the word it was snapped to — unless the
-      // element was anchored, in which case its own words outrank the spacing.
-      if (!p.anchored) p.wordIndex = null;
+      p.wordIndex = null;
+      return;
+    }
+
+    let need = p.onMs;
+    for (let j = k - 1; j >= 0; j--) {
+      const q = plan[j];
+      const latest = need - staggerMs;
+      if (q.onMs <= latest) break;
+      // Two anchors genuinely this close means the narration said both things
+      // in one breath. Both keep their word; neither is invented.
+      if (q.anchored) break;
+      q.onMs = Math.max(sceneStartMs, latest);
+      q.wordIndex = null;
+      need = q.onMs;
     }
   });
 
@@ -1189,10 +1275,15 @@ export function autoSyncTimeline(
     const to = cuts[i + 1];
 
     // In paper mode the artwork is not scheduled at all — it belongs to the
-    // slide, not to a word — so only the text goes through anchoring and
-    // pacing. Everything else is laid down as the scene opens.
-    const scheduledLayers = textOnlySync ? profile.content.filter((l) => l.type === "text") : profile.content;
-    const paperLayers = textOnlySync ? profile.content.filter((l) => l.type !== "text") : [];
+    // slide, not to a word — so only what carries words goes through anchoring
+    // and pacing. Everything else is laid down as the scene opens.
+    //
+    // A collage part counts as carrying words even here: its caption IS the
+    // beat, so laying it down with the scene would be dropping the one sync
+    // this format exists to make. Paper mode still governs how it *looks*
+    // (see paperEntrance / paperCutStyle) — just not when it arrives.
+    const scheduledLayers = textOnlySync ? profile.content.filter(isQuotable) : profile.content;
+    const paperLayers = textOnlySync ? profile.content.filter((l) => !isQuotable(l)) : [];
 
     const placements = schedule(scheduledLayers, index, from, to, startMs, endMs, staggerMs);
     const paperPlacements: Placement[] = paperLayers.map((layer, k) => ({
@@ -1225,7 +1316,7 @@ export function autoSyncTimeline(
       if (p.anchored) anchoredElements++;
       else pacedElements++;
 
-      if (p.layer.type === "text" && p.layer.text.trim() && !p.anchored) {
+      if (isQuotable(p.layer) && !p.anchored) {
         const spoken = weighPhrase(index, p.layer.text).some((w) => w.positions.length > 0);
         if (!spoken && !silentText.includes(p.layer.text)) silentText.push(p.layer.text);
       }
