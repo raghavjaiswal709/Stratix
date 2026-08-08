@@ -44,6 +44,7 @@ import {
   type TranscriptWord,
 } from "@/lib/motion-timeline";
 import type { HookVideoEntry } from "../types";
+import type { EditableOverlayClip } from "@/lib/motion-timeline/edit";
 
 /** The speeds people actually reach for, plus the slider for everything else. */
 const SPEED_PRESETS = [1, 1.3, 1.5, 1.7, 2] as const;
@@ -145,6 +146,17 @@ export interface MotionTimelinePanelProps {
   hookUploadState: "idle" | "uploading" | "error";
   hookUploadError: string | null;
 
+  /** Clips inserted at an arbitrary point on the timeline — see EditableOverlayClip. */
+  overlays: EditableOverlayClip[];
+  onAddOverlayClip: (source: { file: File } | { videoUrl: string; label: string }) => void;
+  onUpdateOverlayClip: (id: string, patch: Partial<Omit<EditableOverlayClip, "id">>) => void;
+  onDeleteOverlayClip: (id: string) => void;
+  overlayUploadState: "idle" | "uploading" | "error";
+  overlayUploadError: string | null;
+  /** Burnt-in captions light up this many ms before the transcript's own timing. Default 200. */
+  captionLeadMs: number;
+  onCaptionLeadMsChange: (ms: number) => void;
+
   onCopyPrompt: () => void;
   copiedPrompt: boolean;
 
@@ -225,6 +237,14 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onDeleteHook,
     hookUploadState,
     hookUploadError,
+    overlays,
+    onAddOverlayClip,
+    onUpdateOverlayClip,
+    onDeleteOverlayClip,
+    overlayUploadState,
+    overlayUploadError,
+    captionLeadMs,
+    onCaptionLeadMsChange,
     onCopyPrompt,
     copiedPrompt,
     onExport,
@@ -239,6 +259,7 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
   const combinedInputRef = useRef<HTMLInputElement>(null);
   const hookInputRef = useRef<HTMLInputElement>(null);
   const [hookLabelDraft, setHookLabelDraft] = useState("");
+  const overlayFileInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedDefaultTransition, setSelectedDefaultTransition] = useState<TransitionType>("whooshCut");
   const [selectedDefaultSfx, setSelectedDefaultSfx] = useState<AudioSfxType>("whoosh");
@@ -757,6 +778,25 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </button>
         </div>
 
+        <div className="flex items-center gap-2 pt-0.5">
+          <span
+            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
+            title="Burnt-in captions (and the intro card's word-lighting) light up this many ms before the transcript's own timing"
+          >
+            Caption lead
+          </span>
+          <input
+            type="range"
+            min={-500}
+            max={800}
+            step={10}
+            value={captionLeadMs}
+            onChange={(e) => onCaptionLeadMsChange(Number(e.target.value))}
+            className="w-full cursor-pointer accent-emerald-400 h-1.5"
+          />
+          <span className="text-[8.5px] text-white/50 font-mono w-14 text-right shrink-0">{captionLeadMs}ms</span>
+        </div>
+
         {autoSyncNote && <p className="text-[9.5px] text-white/55 leading-snug">{autoSyncNote}</p>}
 
         {autoSyncReport && (
@@ -1266,6 +1306,125 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
               <p className="text-[9px] text-white/30">MP4, MOV or WebM &middot; uploading needs the app running locally (npm run dev)</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Overlay clips — inserted at an arbitrary point on the timeline, independent of any one slide, at a user-set depth relative to the whole slide composition. */}
+      {timeline && (
+        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Clapperboard className="h-3 w-3 text-white/40" />
+              <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Overlay clips</span>
+            </div>
+            {overlays.length > 0 && <span className="text-[9px] font-mono text-white/35">{overlays.length}</span>}
+          </div>
+
+          {overlays.length > 0 && (
+            <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 [scrollbar-width:thin]">
+              {overlays.map((o) => (
+                <div key={o.id} className="rounded-md border border-white/[0.08] bg-white/[0.03] p-1.5 space-y-1.5">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[9.5px] font-bold text-white/80 truncate" title={o.label}>
+                      {o.label}
+                    </span>
+                    <button
+                      onClick={() => onDeleteOverlayClip(o.id)}
+                      title="Remove this clip"
+                      className="shrink-0 text-white/35 hover:text-red-300 cursor-pointer"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <label className="space-y-0.5">
+                      <span className="block text-[8px] uppercase tracking-wider text-white/30">Start ms</span>
+                      <input
+                        type="number"
+                        value={Math.round(o.startMs)}
+                        onChange={(e) => onUpdateOverlayClip(o.id, { startMs: Math.max(0, Number(e.target.value) || 0) })}
+                        className="w-full h-6 rounded border border-white/[0.10] bg-black/70 px-1 text-[9.5px] text-white/90 outline-none"
+                      />
+                    </label>
+                    <label className="space-y-0.5">
+                      <span className="block text-[8px] uppercase tracking-wider text-white/30">Duration ms</span>
+                      <input
+                        type="number"
+                        value={Math.round(o.durationMs)}
+                        onChange={(e) => onUpdateOverlayClip(o.id, { durationMs: Math.max(100, Number(e.target.value) || 100) })}
+                        className="w-full h-6 rounded border border-white/[0.10] bg-black/70 px-1 text-[9.5px] text-white/90 outline-none"
+                      />
+                    </label>
+                    <label className="space-y-0.5">
+                      <span className="block text-[8px] uppercase tracking-wider text-white/30" title="Negative = behind the slide, 0+ = in front of it">
+                        Z-index
+                      </span>
+                      <input
+                        type="number"
+                        value={o.zIndex}
+                        onChange={(e) => onUpdateOverlayClip(o.id, { zIndex: Math.round(Number(e.target.value) || 0) })}
+                        className="w-full h-6 rounded border border-white/[0.10] bg-black/70 px-1 text-[9.5px] text-white/90 outline-none"
+                      />
+                    </label>
+                  </div>
+                  <button
+                    onClick={() => onUpdateOverlayClip(o.id, { captionOverlay: !o.captionOverlay })}
+                    className={`w-full flex items-center gap-1.5 rounded px-1.5 py-1 text-left transition cursor-pointer border ${
+                      o.captionOverlay ? "bg-emerald-500/10 border-emerald-500/30" : "bg-white/[0.02] border-white/[0.06]"
+                    }`}
+                  >
+                    <span
+                      className={`h-3 w-5 shrink-0 rounded-full border relative ${
+                        o.captionOverlay ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-[1px] h-[8px] w-[8px] rounded-full bg-white transition-all ${
+                          o.captionOverlay ? "left-[10px]" : "left-[1px]"
+                        }`}
+                      />
+                    </span>
+                    <span className="text-[8.5px] font-bold text-white/70">Caption overlay &middot; big, always on top</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            ref={overlayFileInputRef}
+            type="file"
+            accept="video/mp4,video/quicktime,video/webm"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onAddOverlayClip({ file });
+              e.target.value = "";
+            }}
+          />
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              onClick={() => overlayFileInputRef.current?.click()}
+              disabled={overlayUploadState === "uploading"}
+              className="h-7 px-2 rounded border border-white/[0.10] bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white flex items-center justify-center gap-1 text-[9.5px] font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {overlayUploadState === "uploading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+              Upload at playhead
+            </button>
+            <button
+              onClick={() => onAddOverlayClip({ videoUrl: "/hooks/usd.mov", label: "USD" })}
+              disabled={overlayUploadState === "uploading"}
+              className="h-7 px-2 rounded border border-white/[0.10] bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white flex items-center justify-center gap-1 text-[9.5px] font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Clapperboard className="h-3 w-3" />
+              Use USD.mov
+            </button>
+          </div>
+          {overlayUploadState === "error" && overlayUploadError && <p className="text-[9px] text-red-300/80">{overlayUploadError}</p>}
+          <p className="text-[9px] text-white/30">
+            Lands at the current playhead ({formatTimecode(timeMs)}). Negative z-index sits behind the slide (a background
+            replacement); 0 or above sits in front of it. Longer than its own source, it loops; shorter, it just ends early.
+          </p>
         </div>
       )}
 

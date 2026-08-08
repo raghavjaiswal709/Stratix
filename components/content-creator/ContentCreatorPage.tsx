@@ -112,7 +112,15 @@ import {
 // every transcript load, and a barrel re-export of it was the kind of thing
 // Turbopack kept serving a stale export list for.
 import { parseTranscriptFile } from "@/lib/motion-timeline/transcript";
-import { toAuthored, toEditable, type EditableTimeline } from "@/lib/motion-timeline/edit";
+import {
+  toAuthored,
+  toEditable,
+  addOverlay,
+  updateOverlay,
+  deleteOverlay,
+  type EditableTimeline,
+  type EditableOverlayClip,
+} from "@/lib/motion-timeline/edit";
 import { MOTION_TIMELINE_TEMPLATE } from "@/lib/prompt-templates/motion-timeline-template";
 import { SPEECH_BREAKDOWN_TEMPLATE } from "@/lib/prompt-templates/speech-breakdown-template";
 import { computeCoverFitSlack, getAntonFontFamily, drawVideoCover } from "./canvas/canvasUtils";
@@ -231,6 +239,23 @@ export function ContentCreatorPage() {
   // slideId -> layerId -> <img>. Layer ids repeat across slides, so they can
   // never share one flat map without slides stealing each other's pixels.
   const motionLayerImgElsRef = useRef<Record<string, Record<string, HTMLImageElement>>>({});
+  /**
+   * Overlay clip id → its <video>, built once per clip like the hidden hook
+   * element (document.createElement, never attached to the DOM). Muted by
+   * default — an overlay is normally B-roll under the voiceover, not a
+   * second audio source to mix in. `motionOverlayUrlsRef` mirrors which URL
+   * each element currently holds so the lifecycle effect only rebuilds an
+   * element when its clip's video actually changed, not on every unrelated
+   * timeline edit (compileTimeline returns a fresh object every time).
+   */
+  const motionOverlayVideoElsRef = useRef<Record<string, HTMLVideoElement>>({});
+  const motionOverlayUrlsRef = useRef<Record<string, string>>({});
+  /** Bumped on each overlay video's loadeddata/seeked/canplay, purely to force
+   * a repaint — same reason motionAssetVersion exists for images: a paused
+   * canvas has no other reason to redraw, so a clip that is still buffering
+   * or mid-seek at the moment of the one draw call would otherwise never
+   * appear until the playhead moved again. */
+  const [motionOverlayVideoVersion, setMotionOverlayVideoVersion] = useState(0);
   /** URL → in-flight (or settled) decode job, so an asset loads exactly once. */
   const motionAssetJobsRef = useRef<Map<string, Promise<void>>>(new Map());
   /** Bumped as each image becomes paint-ready, purely to trigger a repaint. */
@@ -246,6 +271,42 @@ export function ContentCreatorPage() {
   // voiceover word for word.
   const [motionTimelineText, setMotionTimelineText] = useState("");
   const [motionTimeline, setMotionTimeline] = useState<CompiledTimeline | null>(null);
+
+  // Keeps motionOverlayVideoElsRef in step with the compiled timeline's own
+  // overlay list — one <video> per clip, rebuilt only when that clip's own
+  // videoUrl actually changes, torn down when the clip is deleted.
+  useEffect(() => {
+    const compiled = motionTimeline?.overlays ?? [];
+    const currentIds = new Set(compiled.map((o) => o.id));
+    const elMap = motionOverlayVideoElsRef.current;
+    const urlMap = motionOverlayUrlsRef.current;
+
+    const bumpVersion = () => setMotionOverlayVideoVersion((v) => v + 1);
+
+    Object.keys(elMap).forEach((id) => {
+      if (currentIds.has(id)) return;
+      elMap[id].pause();
+      elMap[id].removeAttribute("src");
+      delete elMap[id];
+      delete urlMap[id];
+    });
+
+    compiled.forEach((o) => {
+      if (urlMap[o.id] === o.videoUrl && elMap[o.id]) return;
+      elMap[o.id]?.pause();
+      const video = document.createElement("video");
+      video.src = o.videoUrl;
+      video.preload = "auto";
+      video.muted = true;
+      video.playsInline = true;
+      video.addEventListener("loadeddata", bumpVersion);
+      video.addEventListener("seeked", bumpVersion);
+      video.addEventListener("canplay", bumpVersion);
+      elMap[o.id] = video;
+      urlMap[o.id] = o.videoUrl;
+    });
+  }, [motionTimeline]);
+
   const [motionTimelineReport, setMotionTimelineReport] = useState<TimelineReport | null>(null);
   const [motionLoop, setMotionLoop] = useState(true);
   const [motionTranscript, setMotionTranscript] = useState<TranscriptWord[] | null>(null);
@@ -271,6 +332,12 @@ export function ContentCreatorPage() {
   // Open on a black title card over the recap; burn word-by-word captions.
   const [motionIntroCard, setMotionIntroCard] = useState(false);
   const [motionCaptions, setMotionCaptions] = useState(false);
+  // Burnt-in captions light up this many ms before the transcript's own
+  // timing — a caption read exactly on the word always feels a beat behind
+  // it. See captionLeadMs in drawMotionTimelineFrame.ts.
+  const [motionCaptionLeadMs, setMotionCaptionLeadMs] = useState(200);
+  const [motionOverlayUploadState, setMotionOverlayUploadState] = useState<"idle" | "uploading" | "error">("idle");
+  const [motionOverlayUploadError, setMotionOverlayUploadError] = useState<string | null>(null);
   // Off by default: paints over each collage-part's own baked-in caption
   // strip at render time. The strip's words are still what auto-sync reads
   // for timing — this only changes what gets drawn on top of it, on export
@@ -2421,6 +2488,56 @@ export function ContentCreatorPage() {
         }
         motionCurrentZoneVisibleRef.current = currentZoneVisibleNow;
 
+        // Keeps every active overlay's <video> seeked to its place in the
+        // clip (looping past the clip's own native duration if the overlay's
+        // window is longer than its source) and paused whenever it leaves
+        // that window, so an off-screen clip stops decoding. A small drift
+        // tolerance avoids fighting the browser's own frame-to-frame advance
+        // with a hard seek every single frame.
+        const activeOverlayIds = new Set(frame.activeOverlays.map((o) => o.id));
+        frame.activeOverlays.forEach((o) => {
+          const video = motionOverlayVideoElsRef.current[o.id];
+          if (!video) return;
+          const nativeDurMs = video.duration;
+          const loopedMs = Number.isFinite(nativeDurMs) && nativeDurMs > 0 ? o.localTimeMs % (nativeDurMs * 1000) : o.localTimeMs;
+          const targetSec = Math.max(0, loopedMs / 1000);
+          if (isPlayingMotion) {
+            if (video.paused) {
+              try {
+                video.currentTime = targetSec;
+              } catch {
+                /* not seekable yet */
+              }
+              void video.play().catch(() => {});
+            } else if (Math.abs(video.currentTime - targetSec) > 0.15) {
+              try {
+                video.currentTime = targetSec;
+              } catch {
+                /* not seekable yet */
+              }
+            }
+          } else {
+            // Paused/scrubbing: only ever seek, never play — otherwise the
+            // clip runs to completion under its own clock while the frozen
+            // playhead sits still, showing whatever frame it happened to be
+            // on rather than the one the timeline claims. motionAssetVersion's
+            // sibling (motionOverlayVideoVersion, bumped on `seeked`) repaints
+            // once the seek actually lands, since it typically hasn't by the
+            // time this same tick's drawMotionTimelineFrame call below runs.
+            if (!video.paused) video.pause();
+            if (Math.abs(video.currentTime - targetSec) > 0.001) {
+              try {
+                video.currentTime = targetSec;
+              } catch {
+                /* not seekable yet */
+              }
+            }
+          }
+        });
+        Object.entries(motionOverlayVideoElsRef.current).forEach(([id, video]) => {
+          if (!activeOverlayIds.has(id) && !video.paused) video.pause();
+        });
+
         const bounds = drawMotionTimelineFrame(
           canvasRef.current,
           frame,
@@ -2428,6 +2545,7 @@ export function ContentCreatorPage() {
             slides: motionSlides,
             layerImgEls: motionLayerImgElsRef.current,
             bgImgs: loadedImagesRef.current,
+            overlayVideoEls: motionOverlayVideoElsRef.current,
           },
           { w: ar.w, h: ar.h },
           {
@@ -2435,6 +2553,7 @@ export function ContentCreatorPage() {
             showSelection: !isPlayingMotion && !isExportingTimeline,
             words: motionTranscript ?? undefined,
             captions: motionCaptions,
+            captionLeadMs: motionCaptionLeadMs,
             paperCutStyle: motionPaperCutStyle,
             wholeImageMotion: motionWholeImageMotion,
             zigzagMotion: motionZigzagMotion,
@@ -2480,8 +2599,10 @@ export function ContentCreatorPage() {
     // A paused canvas has no other reason to redraw, so a late-decoding image
     // would otherwise never appear until the playhead moved.
     motionAssetVersion,
+    motionOverlayVideoVersion,
     motionTranscript,
     motionCaptions,
+    motionCaptionLeadMs,
     motionPaperCutStyle,
     motionWholeImageMotion,
     motionZigzagMotion,
@@ -3353,6 +3474,73 @@ export function ContentCreatorPage() {
     [motionSlides, motionTranscript, motionPaperCutStyle, persistMotionState]
   );
 
+  /** Client-side only — avoids needing a server-side video parse just to show a duration in the clip list. */
+  const probeVideoDurationMs = useCallback((url: string): Promise<number | null> => {
+    return new Promise((resolve) => {
+      const probe = document.createElement("video");
+      probe.preload = "metadata";
+      probe.onloadedmetadata = () => resolve(Number.isFinite(probe.duration) ? Math.round(probe.duration * 1000) : null);
+      probe.onerror = () => resolve(null);
+      probe.src = url;
+    });
+  }, []);
+
+  /**
+   * Inserts a clip at the current playhead. `source` is either a freshly
+   * uploaded file (goes to R2 under the "motion-video" scope, same presigned
+   * flow as the voiceover/music) or an already-hosted URL — the default
+   * "Use USD.mov" quick-add passes /hooks/usd.mov directly, no upload needed.
+   */
+  const handleAddOverlayClip = useCallback(
+    async (source: { file: File } | { videoUrl: string; label: string }) => {
+      if (!motionDoc) return;
+      setMotionOverlayUploadState("uploading");
+      setMotionOverlayUploadError(null);
+      try {
+        let videoUrl: string;
+        let label: string;
+        if ("file" in source) {
+          videoUrl = await uploadMotionAssetToR2(source.file, "motion-video");
+          label = source.file.name.replace(/\.[^.]+$/, "") || "Clip";
+        } else {
+          videoUrl = source.videoUrl;
+          label = source.label;
+        }
+        const durationMs = (await probeVideoDurationMs(videoUrl)) ?? 3000;
+        const next = addOverlay(motionDoc, {
+          label,
+          videoUrl,
+          startMs: Math.round(motionTimeRef.current),
+          durationMs,
+          zIndex: 0,
+          captionOverlay: false,
+        });
+        applyMotionDocEdit(next, { commit: true });
+        setMotionOverlayUploadState("idle");
+      } catch (err: any) {
+        setMotionOverlayUploadState("error");
+        setMotionOverlayUploadError(err?.message || "Could not add the clip.");
+      }
+    },
+    [motionDoc, applyMotionDocEdit, probeVideoDurationMs]
+  );
+
+  const handleUpdateOverlayClip = useCallback(
+    (id: string, patch: Partial<Omit<EditableOverlayClip, "id">>) => {
+      if (!motionDoc) return;
+      applyMotionDocEdit(updateOverlay(motionDoc, id, patch), { commit: true });
+    },
+    [motionDoc, applyMotionDocEdit]
+  );
+
+  const handleDeleteOverlayClip = useCallback(
+    (id: string) => {
+      if (!motionDoc) return;
+      applyMotionDocEdit(deleteOverlay(motionDoc, id), { commit: true });
+    },
+    [motionDoc, applyMotionDocEdit]
+  );
+
   const undoMotionEdit = useCallback(() => {
     const prev = motionUndoRef.current.pop();
     if (!prev || !motionDoc) return;
@@ -3756,6 +3944,30 @@ export function ContentCreatorPage() {
       setSegmentError(
         "Some slide images were still loading after 30s — recording anyway, and any unfinished slide will hold on its full poster instead of animating."
       );
+    }
+
+    // Overlay clips need their own metadata (duration, dimensions) before
+    // drawVideoCover or the per-frame sync loop can trust them — same
+    // reasoning as the image preload above, just for whichever clips are on
+    // this timeline. A stalled one must not hold the export hostage any
+    // longer than a stalled image does.
+    const overlayVideosPending = Object.values(motionOverlayVideoElsRef.current).filter((v) => v.readyState < 1);
+    if (overlayVideosPending.length > 0) {
+      await Promise.race([
+        Promise.all(
+          overlayVideosPending.map(
+            (v) =>
+              new Promise<void>((resolve) => {
+                const onReady = () => {
+                  v.removeEventListener("loadedmetadata", onReady);
+                  resolve();
+                };
+                v.addEventListener("loadedmetadata", onReady);
+              })
+          )
+        ),
+        new Promise<void>((resolve) => window.setTimeout(resolve, 5000)),
+      ]);
     }
 
     // A hook plays before the real timeline, inside the very same recording
@@ -6333,6 +6545,14 @@ export function ContentCreatorPage() {
                       onDeleteHook={handleDeleteHook}
                       hookUploadState={hookUploadState}
                       hookUploadError={hookUploadError}
+                      overlays={motionDoc?.overlays ?? []}
+                      onAddOverlayClip={handleAddOverlayClip}
+                      onUpdateOverlayClip={handleUpdateOverlayClip}
+                      onDeleteOverlayClip={handleDeleteOverlayClip}
+                      overlayUploadState={motionOverlayUploadState}
+                      overlayUploadError={motionOverlayUploadError}
+                      captionLeadMs={motionCaptionLeadMs}
+                      onCaptionLeadMsChange={setMotionCaptionLeadMs}
                       onAutoSync={autoSyncMotionTimeline}
                       textOnlySync={motionTextOnlySync}
                       onTextOnlySyncChange={setMotionTextOnlySync}

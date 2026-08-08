@@ -19,6 +19,7 @@
 
 import type {
   AuthoredCue,
+  AuthoredOverlayClip,
   AuthoredScene,
   AuthoredTimeline,
   AuthoredTrack,
@@ -76,11 +77,23 @@ export interface EditableScene {
   intro?: string;
 }
 
+/** A clip inserted at an arbitrary point on the timeline — see AuthoredOverlayClip. */
+export interface EditableOverlayClip {
+  id: string;
+  label: string;
+  videoUrl: string;
+  startMs: number;
+  durationMs: number;
+  zIndex: number;
+  captionOverlay: boolean;
+}
+
 export interface EditableTimeline {
   fps: number;
   durationMs: number;
   defaults: { ease: string; distancePct: number };
   scenes: EditableScene[];
+  overlays: EditableOverlayClip[];
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -121,6 +134,34 @@ function cueToEditable(raw: AuthoredCue): EditableCue | null {
     ease: str(raw.ease),
     word: str(raw.word) ?? str(raw.phrase) ?? str(raw.onWord),
     params,
+  };
+}
+
+function overlayToEditable(raw: AuthoredOverlayClip): EditableOverlayClip | null {
+  const videoUrl = str(raw.videoUrl) ?? str(raw.url) ?? str(raw.src);
+  if (!videoUrl) return null;
+  const startMs = [raw.startMs, raw.start].find((v) => typeof v === "number");
+  const durationMs = [raw.durationMs, raw.duration].find((v) => typeof v === "number");
+  return {
+    id: nextId("overlay"),
+    label: str(raw.label) ?? "Clip",
+    videoUrl,
+    startMs: Math.max(0, Math.round(num(startMs, 0))),
+    durationMs: Math.max(100, Math.round(num(durationMs, 3000))),
+    zIndex: Math.round(num(raw.zIndex, 0)),
+    captionOverlay: raw.captionOverlay === true,
+  };
+}
+
+function overlayToAuthored(o: EditableOverlayClip): AuthoredOverlayClip {
+  return {
+    id: o.id,
+    label: o.label,
+    videoUrl: o.videoUrl,
+    startMs: Math.round(o.startMs),
+    durationMs: Math.round(o.durationMs),
+    zIndex: o.zIndex,
+    captionOverlay: o.captionOverlay,
   };
 }
 
@@ -194,6 +235,10 @@ export function toEditable(doc: AuthoredTimeline, slideCount: number): EditableT
     } as EditableScene;
   });
 
+  const overlays = (Array.isArray(doc.overlays) ? doc.overlays : [])
+    .map(overlayToEditable)
+    .filter((o): o is EditableOverlayClip => o !== null);
+
   return normalize({
     fps: Math.round(num(doc.fps, 60)),
     durationMs: Math.round(num([doc.durationMs, doc.duration].find((v) => typeof v === "number"), 0)),
@@ -202,6 +247,7 @@ export function toEditable(doc: AuthoredTimeline, slideCount: number): EditableT
       distancePct: num(doc.defaults?.distancePct, 3),
     },
     scenes,
+    overlays,
   });
 }
 
@@ -236,6 +282,7 @@ export function toAuthored(doc: EditableTimeline): AuthoredTimeline {
       if (s.intro) scene.intro = s.intro;
       return scene;
     }),
+    overlays: doc.overlays.map(overlayToAuthored),
   };
 }
 
@@ -296,8 +343,17 @@ export function normalize(doc: EditableTimeline): EditableTimeline {
   return {
     ...doc,
     scenes: clamped,
+    overlays: doc.overlays.map(clampOverlay),
     durationMs: clamped.length ? clamped[clamped.length - 1].endMs : 0,
   };
+}
+
+/** An overlay has no scene to live inside, so unlike a cue it only needs its own two numbers kept sane. */
+function clampOverlay(o: EditableOverlayClip): EditableOverlayClip {
+  const startMs = Math.max(0, Math.round(o.startMs));
+  const durationMs = Math.max(100, Math.round(o.durationMs));
+  if (startMs === o.startMs && durationMs === o.durationMs) return o;
+  return { ...o, startMs, durationMs };
 }
 
 function clampCue(cue: EditableCue, scene: EditableScene): EditableCue {
@@ -502,6 +558,23 @@ export function shiftScene(doc: EditableTimeline, sceneId: string, deltaMs: numb
     };
   });
   return normalize({ ...doc, scenes });
+}
+
+/** Inserted at `overlay.startMs` — the caller decides where (typically the playhead). */
+export function addOverlay(doc: EditableTimeline, overlay: Omit<EditableOverlayClip, "id">): EditableTimeline {
+  return normalize({ ...doc, overlays: [...doc.overlays, { ...overlay, id: nextId("overlay") }] });
+}
+
+export function updateOverlay(
+  doc: EditableTimeline,
+  id: string,
+  patch: Partial<Omit<EditableOverlayClip, "id">>
+): EditableTimeline {
+  return normalize({ ...doc, overlays: doc.overlays.map((o) => (o.id === id ? { ...o, ...patch } : o)) });
+}
+
+export function deleteOverlay(doc: EditableTimeline, id: string): EditableTimeline {
+  return normalize({ ...doc, overlays: doc.overlays.filter((o) => o.id !== id) });
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

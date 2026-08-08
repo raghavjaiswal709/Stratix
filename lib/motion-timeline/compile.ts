@@ -8,6 +8,7 @@ import {
   type AudioSfxType,
   type AuthoredCue,
   type AuthoredKeyframe,
+  type AuthoredOverlayClip,
   type AuthoredScene,
   type AuthoredTimeline,
   type AuthoredTrack,
@@ -15,6 +16,7 @@ import {
   type CameraChannel,
   type ChannelName,
   type Channels,
+  type CompiledOverlayClip,
   type CompiledScene,
   type CompiledTrack,
   type Keyframe,
@@ -550,6 +552,38 @@ function resolveWipeStyle(cues: AuthoredCue[]): WipeStyle {
 }
 
 /**
+ * Overlay clips are timeline-level, not scene-level — they have no `slide`
+ * and no `where` inside any one scene's authored layer list, so they are
+ * compiled once, straight off `authored.overlays`, independent of the scene
+ * loop below. A clip missing its `videoUrl` is dropped rather than erroring
+ * the whole timeline out — it is additive content, not something anything
+ * else here depends on.
+ */
+function compileOverlays(raw: unknown, ctx: Ctx): CompiledOverlayClip[] {
+  return asArray<AuthoredOverlayClip>(raw)
+    .map((o, i): CompiledOverlayClip | null => {
+      const where = `overlay ${i + 1}`;
+      const videoUrl = firstStr(o.videoUrl, o.url, o.src);
+      if (!videoUrl) {
+        addIssue(ctx, "warning", "An overlay clip has no `videoUrl` and was skipped.", where);
+        return null;
+      }
+      const startMs = Math.max(0, (firstNum(o.startMs, o.start) ?? 0) * ctx.timeScale);
+      const durationMs = Math.max(100, (firstNum(o.durationMs, o.duration) ?? 3000) * ctx.timeScale);
+      return {
+        id: firstStr(o.id) ?? `overlay_${i + 1}`,
+        label: firstStr(o.label) ?? `Clip ${i + 1}`,
+        videoUrl,
+        startMs,
+        durationMs,
+        zIndex: Math.round(firstNum(o.zIndex) ?? 0),
+        captionOverlay: o.captionOverlay === true,
+      };
+    })
+    .filter((o): o is CompiledOverlayClip => o !== null);
+}
+
+/**
  * Turns whatever the user pasted into a timeline that can be sampled every
  * frame, plus a report of everything that looked wrong on the way.
  *
@@ -595,6 +629,7 @@ export function compileTimeline(
   });
 
   const authored = authoredInput ?? {};
+  const overlays = compileOverlays(authored.overlays, ctx);
 
   if (authored.format && authored.format !== TIMELINE_FORMAT) {
     addIssue(ctx, "warning", `Unexpected format "${authored.format}" — expected "${TIMELINE_FORMAT}".`);
@@ -931,6 +966,7 @@ export function compileTimeline(
       durationMs: Math.max(durationMs, lastEnd),
       canvas: canvasW && canvasH ? { width: canvasW, height: canvasH } : null,
       scenes,
+      overlays,
     },
     report: {
       issues: ctx.issues,

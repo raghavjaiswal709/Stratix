@@ -1,6 +1,7 @@
-import type { LayerState, SceneRenderState, TimelineFrame } from "@/lib/motion-timeline";
+import type { ActiveOverlayState, LayerState, SceneRenderState, TimelineFrame } from "@/lib/motion-timeline";
 import { REST_LAYER_STATE } from "@/lib/motion-timeline";
 import type { MotionLayer, MotionSlide, PosterElement } from "../types";
+import { drawVideoCover, rrect } from "./canvasUtils";
 
 /**
  * Timeline-driven frame renderer.
@@ -18,6 +19,8 @@ export interface TimelineRenderAssets {
   layerImgEls: Record<string, Record<string, HTMLImageElement>>;
   /** image URL → decoded <img>, for slide backgrounds. */
   bgImgs: Record<string, HTMLImageElement>;
+  /** Overlay clip id → its <video>, kept playing/seeked in sync by the caller. */
+  overlayVideoEls: Record<string, HTMLVideoElement>;
 }
 
 export interface TimelineRenderOptions {
@@ -74,6 +77,13 @@ export interface TimelineRenderOptions {
    * never reads as a zoom or a pulse.
    */
   zoneFlourishes?: Record<string, number>;
+  /**
+   * Burnt-in captions (and the intro card's word-lighting) light up this many
+   * ms before the CSV/transcript timing says the word starts — reading a
+   * caption takes a beat, so a caption that appears exactly on the word
+   * always feels a step behind it. Default 200. Negative delays it instead.
+   */
+  captionLeadMs?: number;
   /**
    * Id of the single layer currently treated as "the" active zone, or null
    * when none is. Exactly one at a time — see ContentCreatorPage's render
@@ -141,7 +151,8 @@ function drawIntroCard(
   text: string,
   timeMs: number,
   words: TimelineRenderOptions["words"],
-  alpha: number
+  alpha: number,
+  leadMs: number
 ) {
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -159,7 +170,7 @@ function drawIntroCard(
   const top = H / 2 - ((lines.length - 1) * lineHeight) / 2;
 
   // How far the narration has got through the card's own text.
-  const spoken = words ? words.filter((w) => w.startMs <= timeMs).length : Number.MAX_SAFE_INTEGER;
+  const spoken = words ? words.filter((w) => w.startMs <= timeMs + leadMs).length : Number.MAX_SAFE_INTEGER;
   let index = 0;
 
   lines.forEach((line, li) => {
@@ -230,12 +241,17 @@ function drawCaption(
   W: number,
   H: number,
   timeMs: number,
-  words: NonNullable<TimelineRenderOptions["words"]>
+  words: NonNullable<TimelineRenderOptions["words"]>,
+  leadMs: number
 ) {
+  // Reading ahead of the transcript by leadMs, so a caption always lands a
+  // beat before the word rather than exactly on it — see captionLeadMs.
+  const t = timeMs + leadMs;
+
   // The word being spoken now, or the one just spoken while a gap runs.
   let idx = -1;
   for (let i = 0; i < words.length; i++) {
-    if (words[i].startMs > timeMs) break;
+    if (words[i].startMs > t) break;
     idx = i;
   }
   if (idx < 0) return;
@@ -246,7 +262,7 @@ function drawCaption(
   while (groupEnd + 1 < words.length && starts[groupEnd + 1] === groupStart) groupEnd++;
 
   // Do not leave the last burst hanging through a long silence.
-  if (timeMs > words[groupEnd].endMs + 700) return;
+  if (t > words[groupEnd].endMs + 700) return;
 
   const phrase = words.slice(groupStart, groupEnd + 1).map((w) => w.text.trim());
   if (!phrase.some(Boolean)) return;
@@ -289,6 +305,81 @@ function drawCaption(
   let x = W / 2 - total / 2;
   phrase.forEach((word, i) => {
     ctx.globalAlpha = i === activeIdx ? 1 : 0.42;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillText(word, x, y);
+    x += ctx.measureText(word).width + spaceW;
+  });
+
+  ctx.restore();
+}
+
+/**
+ * The caption's "big" treatment while an overlay clip with captionOverlay is
+ * active — same word-burst grouping and mid-burst highlight as drawCaption,
+ * but centred lower-third, much larger, and on its own rounded semi-opaque
+ * backing rather than the fixed opaque top banner. A video's own brightness
+ * is unpredictable in a way a slide's authored background never is, so unlike
+ * the top banner (which can just be flush and opaque) this one needs a
+ * backing that reads over *anything* without pinning it to an edge.
+ */
+function drawBigOverlayCaption(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  timeMs: number,
+  words: NonNullable<TimelineRenderOptions["words"]>,
+  leadMs: number
+) {
+  const t = timeMs + leadMs;
+
+  let idx = -1;
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].startMs > t) break;
+    idx = i;
+  }
+  if (idx < 0) return;
+
+  const starts = captionGroupStarts(words);
+  const groupStart = starts[idx];
+  let groupEnd = idx;
+  while (groupEnd + 1 < words.length && starts[groupEnd + 1] === groupStart) groupEnd++;
+  if (t > words[groupEnd].endMs + 700) return;
+
+  const phrase = words.slice(groupStart, groupEnd + 1).map((w) => w.text.trim());
+  if (!phrase.some(Boolean)) return;
+  const activeIdx = idx - groupStart;
+
+  ctx.save();
+
+  let size = Math.round(H * 0.06);
+  ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
+  const maxWidth = W * 0.86;
+  const widthOf = (list: string[]) =>
+    list.reduce((sum, w) => sum + ctx.measureText(w).width, 0) + ctx.measureText(" ").width * Math.max(0, list.length - 1);
+  let total = widthOf(phrase);
+  if (total > maxWidth) {
+    size = Math.max(16, Math.floor(size * (maxWidth / total)));
+    ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
+    total = widthOf(phrase);
+  }
+
+  const y = H * 0.78;
+  const padX = size * 0.9;
+  const padY = size * 0.55;
+  const boxW = Math.min(W * 0.94, total + padX * 2);
+  const boxH = size + padY * 2;
+
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  rrect(ctx, W / 2 - boxW / 2, y - boxH / 2, boxW, boxH, boxH * 0.22);
+  ctx.fill();
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  const spaceW = ctx.measureText(" ").width;
+  let x = W / 2 - total / 2;
+  phrase.forEach((word, i) => {
+    ctx.globalAlpha = i === activeIdx ? 1 : 0.5;
     ctx.fillStyle = "#FFFFFF";
     ctx.fillText(word, x, y);
     x += ctx.measureText(word).width + spaceW;
@@ -858,6 +949,63 @@ function drawScene(
   return bounds;
 }
 
+/** An overlay whose <video> hasn't decoded a first frame yet paints nothing, rather than a stale or black frame. */
+function drawOverlayClip(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  overlay: ActiveOverlayState,
+  assets: TimelineRenderAssets
+) {
+  const video = assets.overlayVideoEls[overlay.id];
+  if (!video || video.readyState < 2) return;
+  ctx.save();
+  drawVideoCover(ctx, video, W, H);
+  ctx.restore();
+}
+
+/**
+ * `overlays` is already ascending by zIndex (see sample.ts's activeOverlaysAt)
+ * — negative sits behind the whole slide composition (a background
+ * replacement), zero-or-above sits in front of it. Splitting on that sign is
+ * the entirety of "customized depth" for now: precise interleaving with one
+ * specific slide layer would need drawScene's own per-layer sort to know
+ * about overlays too, which isn't worth the coupling for what is normally a
+ * full-frame clip sitting behind or in front of an entire slide.
+ */
+function drawOverlays(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  overlays: ActiveOverlayState[],
+  assets: TimelineRenderAssets,
+  side: "behind" | "front"
+) {
+  overlays.filter((o) => (side === "behind" ? o.zIndex < 0 : o.zIndex >= 0)).forEach((o) => drawOverlayClip(ctx, W, H, o, assets));
+}
+
+/**
+ * Whichever caption style applies this frame — the big centred overlay
+ * treatment while a captionOverlay clip is active, the normal top banner
+ * otherwise. Always the very last thing painted, after every front overlay,
+ * so a caption can never be obscured by one.
+ */
+function drawActiveCaption(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  timeMs: number,
+  opts: TimelineRenderOptions,
+  activeOverlays: ActiveOverlayState[],
+  showingIntro: boolean
+) {
+  if (!opts.captions || !opts.words?.length || showingIntro) return;
+  const leadMs = opts.captionLeadMs ?? 200;
+  const overlayClip = activeOverlays.find((o) => o.captionOverlay);
+  if (overlayClip) drawBigOverlayCaption(ctx, W, H, timeMs, opts.words, leadMs);
+  else drawCaption(ctx, W, H, timeMs, opts.words, leadMs);
+}
+
 export function drawMotionTimelineFrame(
   canvas: HTMLCanvasElement,
   frame: TimelineFrame,
@@ -885,6 +1033,9 @@ export function drawMotionTimelineFrame(
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, W, H);
 
+  const leadMs = opts.captionLeadMs ?? 200;
+  drawOverlays(ctx, W, H, frame.activeOverlays, assets, "behind");
+
   let bounds: PosterElement[] = [];
   // The intro card carries its own big centred text, already lit up word by
   // word — the top burst caption would just double it, so it stays off for
@@ -898,7 +1049,7 @@ export function drawMotionTimelineFrame(
       const intro = introFor?.(scene.sceneIndex);
       if (intro) {
         showingIntro = true;
-        drawIntroCard(ctx, W, H, intro, frame.timeMs, opts.words, scene.alpha);
+        drawIntroCard(ctx, W, H, intro, frame.timeMs, opts.words, scene.alpha, leadMs);
         if (isTop) bounds = [];
         return;
       }
@@ -906,7 +1057,8 @@ export function drawMotionTimelineFrame(
       if (isTop) bounds = result;
     });
 
-    if (opts.captions && opts.words?.length && !showingIntro) drawCaption(ctx, W, H, frame.timeMs, opts.words);
+    drawOverlays(ctx, W, H, frame.activeOverlays, assets, "front");
+    drawActiveCaption(ctx, W, H, frame.timeMs, opts, frame.activeOverlays, showingIntro);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.filter = "none";
     ctx.globalAlpha = 1;
@@ -933,7 +1085,7 @@ export function drawMotionTimelineFrame(
   showingIntro = !!introA || !!introB;
   const paintScene = (scene: SceneRenderState, intro: string | undefined, collectBounds: boolean): PosterElement[] => {
     if (intro) {
-      drawIntroCard(ctx, W, H, intro, frame.timeMs, opts.words, scene.alpha);
+      drawIntroCard(ctx, W, H, intro, frame.timeMs, opts.words, scene.alpha, leadMs);
       return [];
     }
     return drawScene(ctx, W, H, scene, frame.timeMs, assets, opts, collectBounds);
@@ -1220,7 +1372,8 @@ export function drawMotionTimelineFrame(
 
   ctx.restore();
 
-  if (opts.captions && opts.words?.length && !showingIntro) drawCaption(ctx, W, H, frame.timeMs, opts.words);
+  drawOverlays(ctx, W, H, frame.activeOverlays, assets, "front");
+  drawActiveCaption(ctx, W, H, frame.timeMs, opts, frame.activeOverlays, showingIntro);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.filter = "none";
   ctx.globalAlpha = 1;

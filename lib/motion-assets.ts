@@ -1,18 +1,21 @@
 /**
- * Motion asset upload helper — uploads audio, music, and CSV voiceover files
- * directly to Cloudflare R2 via presigned URLs and returns stable API proxy URLs.
+ * Motion asset upload helper — uploads audio, music, CSV voiceover files and
+ * overlay-clip videos directly to Cloudflare R2 via presigned URLs and
+ * returns stable API proxy URLs.
  */
 
 const MAX_ASSET_BYTES = 50 * 1024 * 1024; // 50 MB limit for audio & assets
+const MAX_VIDEO_BYTES = 150 * 1024 * 1024; // overlay clips run heavier than audio/CSV
 
 export async function uploadMotionAssetToR2(
   fileOrBlob: File | Blob,
-  scope: "motion-audio" | "motion-music" | "motion-csv",
+  scope: "motion-audio" | "motion-music" | "motion-csv" | "motion-video",
   defaultContentType?: string
 ): Promise<string> {
-  if (fileOrBlob.size > MAX_ASSET_BYTES) {
+  const maxBytes = scope === "motion-video" ? MAX_VIDEO_BYTES : MAX_ASSET_BYTES;
+  if (fileOrBlob.size > maxBytes) {
     throw new Error(
-      `File size is ${(fileOrBlob.size / (1024 * 1024)).toFixed(1)} MB — maximum allowed is ${MAX_ASSET_BYTES / (1024 * 1024)} MB.`
+      `File size is ${(fileOrBlob.size / (1024 * 1024)).toFixed(1)} MB — maximum allowed is ${maxBytes / (1024 * 1024)} MB.`
     );
   }
 
@@ -21,6 +24,8 @@ export async function uploadMotionAssetToR2(
     contentType = "text/csv";
   } else if ((scope === "motion-audio" || scope === "motion-music") && (!contentType || contentType === "application/octet-stream")) {
     contentType = "audio/mpeg";
+  } else if (scope === "motion-video" && (!contentType || contentType === "application/octet-stream")) {
+    contentType = "video/mp4";
   }
 
   const presignRes = await fetch("/api/uploads/presign", {

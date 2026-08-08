@@ -3,6 +3,7 @@ import {
   CAMERA_DEFAULTS,
   CHANNEL_DEFAULTS,
   REST_LAYER_STATE,
+  type ActiveOverlayState,
   type CameraChannel,
   type CameraState,
   type Channels,
@@ -100,6 +101,26 @@ export function findSceneIndex(timeline: CompiledTimeline, tMs: number): number 
 }
 
 /**
+ * Overlay clips whose own [startMs, startMs+durationMs) window contains `t`,
+ * ascending by zIndex so the renderer can just paint them in array order.
+ * `localTimeMs` is elapsed time since the clip's own start — the renderer
+ * mods it by the <video>'s native duration to loop a clip run longer than
+ * its source, since that duration isn't known until the element decodes it.
+ */
+function activeOverlaysAt(timeline: CompiledTimeline, t: number): ActiveOverlayState[] {
+  return timeline.overlays
+    .filter((o) => t >= o.startMs && t < o.startMs + o.durationMs)
+    .map((o) => ({
+      id: o.id,
+      videoUrl: o.videoUrl,
+      zIndex: o.zIndex,
+      captionOverlay: o.captionOverlay,
+      localTimeMs: t - o.startMs,
+    }))
+    .sort((a, b) => a.zIndex - b.zIndex);
+}
+
+/**
  * Everything the renderer needs for one instant.
  *
  * Returns one scene normally and two mid-transition — the outgoing scene
@@ -176,6 +197,7 @@ export function sampleTimeline(timeline: CompiledTimeline, timeMs: number): Time
     activeSlideIndex: scene.slideIndex,
     transitionProgress: transProgress,
     transitionStyle: transProgress !== undefined ? transStyle : undefined,
+    activeOverlays: activeOverlaysAt(timeline, t),
   };
 }
 

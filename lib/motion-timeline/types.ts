@@ -108,6 +108,29 @@ export interface AuthoredScene {
   [key: string]: unknown;
 }
 
+/**
+ * A short clip inserted at an arbitrary point on the timeline, independent of
+ * which slide/scene is on screen — unlike a track, which lives inside one
+ * scene's authored layer list and can never outlive it. `zIndex` places it
+ * relative to the *whole slide composition* (see CompiledOverlayClip), not to
+ * any individual layer.
+ */
+export interface AuthoredOverlayClip {
+  id?: string;
+  label?: string;
+  videoUrl?: string;
+  url?: string;
+  src?: string;
+  startMs?: number;
+  start?: number;
+  durationMs?: number;
+  duration?: number;
+  zIndex?: number;
+  /** When true, the burnt-in caption switches to the larger, always-on-top overlay style while this clip is active. */
+  captionOverlay?: boolean;
+  [key: string]: unknown;
+}
+
 export interface AuthoredTimeline {
   format?: string;
   version?: number;
@@ -118,6 +141,7 @@ export interface AuthoredTimeline {
   canvas?: { width?: number; height?: number };
   defaults?: { ease?: string; distancePct?: number };
   scenes?: AuthoredScene[];
+  overlays?: AuthoredOverlayClip[];
   [key: string]: unknown;
 }
 
@@ -255,11 +279,29 @@ export interface CompiledScene {
   tracks: CompiledTrack[];
 }
 
+/**
+ * `zIndex` is compared against 0, the whole slide composition's implicit
+ * depth: negative sits behind the slide (background replacement), 0-or-above
+ * sits in front of it (foreground/picture-in-picture). Ties among several
+ * overlays on the same side are painted in ascending zIndex order. See
+ * drawMotionTimelineFrame's drawBehindOverlays/drawFrontOverlays.
+ */
+export interface CompiledOverlayClip {
+  id: string;
+  label: string;
+  videoUrl: string;
+  startMs: number;
+  durationMs: number;
+  zIndex: number;
+  captionOverlay: boolean;
+}
+
 export interface CompiledTimeline {
   fps: number;
   durationMs: number;
   canvas: { width: number; height: number } | null;
   scenes: CompiledScene[];
+  overlays: CompiledOverlayClip[];
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -296,6 +338,16 @@ export interface SceneRenderState {
   transitionStyle?: TransitionType;
 }
 
+/** One overlay clip's state at this instant — only present while its own window is on screen. */
+export interface ActiveOverlayState {
+  id: string;
+  videoUrl: string;
+  zIndex: number;
+  captionOverlay: boolean;
+  /** Elapsed ms since this clip's own startMs — what the renderer seeks the <video> to (mod its native duration, to loop). */
+  localTimeMs: number;
+}
+
 export interface TimelineFrame {
   timeMs: number;
   /** Painter's order: index 0 is drawn first (outgoing scene during a fade). */
@@ -305,6 +357,8 @@ export interface TimelineFrame {
   activeSlideIndex: number;
   transitionProgress?: number;
   transitionStyle?: TransitionType;
+  /** Ascending by zIndex — see CompiledOverlayClip. */
+  activeOverlays: ActiveOverlayState[];
 }
 
 export const REST_LAYER_STATE: LayerState = {

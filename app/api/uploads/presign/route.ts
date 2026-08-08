@@ -23,6 +23,9 @@ const ALLOWED_CONTENT_TYPES: Record<string, string> = {
   "text/csv": "csv",
   "text/plain": "txt",
   "application/csv": "csv",
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
 };
 
 const ALLOWED_SCOPES = new Set([
