@@ -1,0 +1,41 @@
+GEM- 2 Editorial infographic illustration, modern serif typography, detailed coloured-pencil objects, layered colour-pencil strokes with visible grain, colour cross-hatching, cool-toned ground with richly coloured objects, clean magazine layout, educational explainer, richly detailed, clean legible typography. Ratio 9:16. keep a gap of 
+
+PALETTE (ground & type): paper ~#EEF2F6, ink ~#16202B, slate blue ~#2E5C7E, deep navy ~#1E3D57, alert red ~#C0444E, cyan highlight ~#A9DCEC, panel grey ~#DCE4EB. PALETTE (objects): a cool-anchored coloured-pencil range — teal, aqua, sky, slate blue, navy, sage, emerald, periwinkle, violet, coral and cool red, with citron or muted gold only as small local accents. Shadows shaded in cool blue or violet pencil, never flat grey or brown.
+
+REFERENCE: a modern editorial explainer — the calm, authoritative typography of a good magazine spread, paired with detailed hand-sketched objects. Clean, cool-toned, precise, never cute and never rustic. No mascot or recurring character anywhere.
+
+BACKGROUND: flat cool pale blue-grey (~#EEF2F6), with at most a whisper of fine paper tooth. Reads as clean modern stock, NOT aged, textured, cream or kraft paper. No vignette, no mottling, no smudging, no warm cast anywhere on the page.
+
+TITLE / HEADLINE TYPE: typeset modern serif display, bold, ink (~#16202B), Title Case by default — ALL-CAPS reserved for a genuinely punchy line. Font analogues: "Playfair Display Bold", "Lora Bold", "Canela Bold". Real typeface, cleanly set, sitting directly on the background with no swash, flourish, underline, or hand-drawn mark above or around it — never hand-lettering, never marker, never comic/handwritten display type. Only used on a single-part composition or once for the whole frame — never repeated inside an individual part of a multi-part collage (see PANEL DIVIDERS).
+
+KICKER TYPE: small letter-spaced sans-serif small caps above the title, ink or slate blue, with a thin underline swash beneath.
+
+BODY TYPE: clean modern sans-serif, ink (~#16202B). Font analogues: "Inter Regular", "Poppins Regular". Generous line spacing, comfortably large, legible at thumbnail size. Select accent lines use an italic serif. This is also the styling used for each part's caption in a multi-part collage (see PANEL DIVIDERS) — same typeface and colour, sized down to fit comfortably inside that part's own region at a medium weight, never scaled up to headline size.
+
+DRAWN OBJECTS (signature element — keep it detailed AND colourful): every object is a finely observed COLOURED-PENCIL illustration. Build the colour the way a real coloured pencil does — layered directional strokes with visible pencil grain and tooth, cross-hatching in colour rather than in grey, several hues layered over one another for depth, edges firmed up with a darker tone of the same hue, and paper left showing through for the highlights. Every object carries real three-dimensional volume and a soft cast shadow where it meets the page (shade shadows with a cool blue or violet pencil, never with flat grey). Objects are richly coloured, not monochrome, not flat fills, and never flat vector icons, uniform-weight outline pictograms or clip-art.
+
+OBJECT COLOUR RANGE: draw each object in the colours that object actually wants — a plant in sage and deep green, a coin stack in muted gold with cool grey edges, a monitor in slate and teal, a bucket in weathered blue, a book in oxblood or navy. Work from a cool-anchored spread: teal, aqua, sky, slate blue, navy, sage, emerald, periwinkle, violet, coral and cool red, with citron or muted gold as small accents. The page overall must still read COOL — warm hues appear only as small local accents on an object that genuinely needs them (a wooden handle, a copper coin, a terracotta pot) and never as a background wash, an overall cast, or the dominant colour of the frame. Two to three props per composition, one clearly dominant at 25–40% of frame width, chosen for literal meaning relevance. When the composition is split into multiple parts (see PANEL DIVIDERS), apply this per part instead of per full frame — one to two dominant props sized to that part's own region, not the whole image.
+
+HIGHLIGHT TREATMENT: narrow, precise-edged pale cyan marker highlight (~#A9DCEC) behind specific keywords only. Clean rectangular band, crisp edges, semi-transparent, never scribbled, never overshooting.
+
+UNDERLINE TREATMENT: a thin, clean alert-red rule (~#C0444E) beneath the single most consequential phrase. One per composition at most — this stays true even when the composition is split into multiple parts: at most one underline for the whole image, on the single most important phrase across all parts, not one underline per part.
+
+SECTION LABELS: rounded-rectangle boxes with SOLID deep-navy fill (~#1E3D57) and pale text. Neutral/definitional content sits in a plain panel-grey rounded box (~#DCE4EB).
+
+ACCENT LOGIC: slate blue (~#2E5C7E) is the primary accent, marking the positive/resolved path; deep navy (~#1E3D57) carries labels and structure; alert red (~#C0444E) is reserved strictly for the flaw, warning, or negative outcome; cyan highlight (~#A9DCEC) marks the one keyword that matters most.
+
+ARROWS & CONNECTORS: thin, clean, ink or slate blue, gently curved, small precise triangular head. Dotted trails are evenly spaced round dots.
+
+BOXES & FRAMES: crisp rounded rectangles, even corners, true-parallel sides — clean geometry, not hand-drawn wobble.
+
+PANEL DIVIDERS (only when the script's Scene specifies more than 1 part): thin, clean, single-weight rule in ink (~#16202B) or slate blue (~#2E5C7E), perfectly straight, true-parallel to the frame edges — same crisp geometry as BOXES & FRAMES, never hand-drawn or wobbly. 2 parts: one horizontal divider across the vertical centre, splitting the frame into a top half and a bottom half. 3 parts: two horizontal dividers spaced evenly, splitting the frame into three equal bands stacked top to bottom. 4 parts: one horizontal divider and one vertical divider crossing at the centre, splitting the frame into a 2x2 grid. Each resulting region is its own mini-composition — its own dominant prop(s) per DRAWN OBJECTS above, plus its own caption in BODY TYPE sitting at the bottom of that region only. No title, kicker, or slide number goes inside an individual part; those apply to the frame as a whole, if used at all.
+
+HUMAN FIGURES (only if they genuinely help): generic pencil-sketched people with simple, non-specific faces — someone at a desk, a person in an armchair, a head-and-shoulders bust, two hands shaking. Never a real person's likeness, never a recurring mascot, never photorealistic.
+
+SLIDE NUMBER (if applicable): top-right corner, set in the serif face inside a thin clean ink circle.
+
+FOOTER: thin plain horizontal rule as the only separator. Bottom-left: handle in small sans-serif with a thin slate-blue rule beneath it. Bottom-right: empty.
+
+CONTENT FOR THIS IMAGE: [TOPIC / HEADLINE / KICKER / BODY TEXT / OBJECTS GO HERE — for a single-part scene, fill in headline/kicker/body/objects as normal; for a multi-part collage scene from the script prompt, instead supply each part's VISUAL as that region's drawn object(s) and each part's CAPTION as that region's caption text, and omit the headline/kicker unless the script explicitly provides one]
+
+AVOID: a warm overall colour cast, cream or ivory or beige or sepia or kraft-paper backgrounds, vintage or aged-paper look, sepia or brown-grey shading, hand-lettered or marker or comic lettering, garbled or misspelled text, flat vector icons, uniform-weight outline pictograms, clip-art, extra fingers or limbs, distorted faces, cartoon mascot characters, photorealistic rendering, watermarks, real brand or institutional logos, cluttered illegible layout, low-contrast text, crowded or overlapping elements, warm hues used as a background wash or as the dominant colour of the frame, muddy or desaturated objects, flat uniform colour fills with no pencil texture, monochrome or greyscale objects, neon or fluorescent colour, any swash, flourish, or decorative mark above or beside the title.

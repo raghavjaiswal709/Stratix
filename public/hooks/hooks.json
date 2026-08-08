@@ -1,0 +1,14 @@
+{
+  "hooks": [
+    {
+      "id": "usd-default",
+      "label": "USD",
+      "filename": "usd.mov",
+      "path": "/hooks/usd.mov",
+      "durationMs": 1664,
+      "sizeBytes": 1803075,
+      "addedAt": "2026-08-08T00:00:00.000Z",
+      "isDefault": true
+    }
+  ]
+}

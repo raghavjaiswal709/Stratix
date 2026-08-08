@@ -64,6 +64,7 @@ import type {
   PosterColors,
   PosterConfig,
   PosterElement,
+  HookVideoEntry,
 } from "./types";
 import {
   RATIOS,
@@ -114,7 +115,7 @@ import { parseTranscriptFile } from "@/lib/motion-timeline/transcript";
 import { toAuthored, toEditable, type EditableTimeline } from "@/lib/motion-timeline/edit";
 import { MOTION_TIMELINE_TEMPLATE } from "@/lib/prompt-templates/motion-timeline-template";
 import { SPEECH_BREAKDOWN_TEMPLATE } from "@/lib/prompt-templates/speech-breakdown-template";
-import { computeCoverFitSlack, getAntonFontFamily } from "./canvas/canvasUtils";
+import { computeCoverFitSlack, getAntonFontFamily, drawVideoCover } from "./canvas/canvasUtils";
 import type { SentimentScheme } from "./canvas/canvasUtils";
 import { SampleJsonModal } from "./modals/SampleJsonModal";
 import { ShowPromptModal } from "./modals/ShowPromptModal";
@@ -351,6 +352,18 @@ export function ContentCreatorPage() {
   const motionZoneSeededSceneRef = useRef<number>(-1);
   /** layer id → the timeline ms its entrance was last detected at, for the brief on-entrance glow in drawMotionTimelineFrame. */
   const motionZoneFlourishRef = useRef<Record<string, number>>({});
+  /**
+   * Independent of the SFX bookkeeping above (which goes silent while paused
+   * or muted) — this drives the always-on black rotating border + diagonal
+   * shine on whichever single zone last appeared (drawActiveZoneOverlay), so
+   * it renders identically whether the editor is playing, paused or being
+   * scrubbed, and in the export. `motionCurrentZoneVisibleRef` mirrors last
+   * frame's visibility per layer for crossing detection, exactly like
+   * motionZoneVisibleRef above but computed unconditionally every frame.
+   */
+  const motionCurrentZoneVisibleRef = useRef<Record<string, boolean>>({});
+  const motionCurrentZoneIdRef = useRef<string | null>(null);
+  const motionCurrentZoneSceneRef = useRef<number>(-1);
   const motionAudioRef = useRef<HTMLAudioElement | null>(null);
   const motionAudioUrlRef = useRef<string | null>(null);
   const motionAudioR2UrlRef = useRef<string | null>(null);
@@ -379,9 +392,136 @@ export function ContentCreatorPage() {
     voiceGain: GainNode;
     musicGain: GainNode;
     sfxGain: GainNode;
+    hookGain: GainNode;
     voiceEl: HTMLAudioElement | null;
     musicEl: HTMLAudioElement | null;
+    hookEl: HTMLVideoElement | null;
   } | null>(null);
+
+  /**
+   * The "With hook" feature: when enabled, the selected clip from
+   * public/hooks/hooks.json plays before the real motion video — in both
+   * live preview and the exported file, see playHookPhase below. hooks.json
+   * itself is a plain static file (no database); uploads/deletes go through
+   * app/api/content-creator/hooks, local dev only.
+   */
+  const [motionHooks, setMotionHooks] = useState<HookVideoEntry[]>([]);
+  const [motionHookEnabled, setMotionHookEnabled] = useState(false);
+  const [motionSelectedHookId, setMotionSelectedHookId] = useState<string | null>(null);
+  const [isHookPhasePlaying, setIsHookPhasePlaying] = useState(false);
+  const [hookUploadState, setHookUploadState] = useState<"idle" | "uploading" | "error">("idle");
+  const [hookUploadError, setHookUploadError] = useState<string | null>(null);
+  /**
+   * Built once per selected hook the same way motionAudioRef/motionMusicRef
+   * are built — `document.createElement`, never attached to the DOM, since
+   * drawImage and createMediaElementSource both work fine on a detached
+   * element — rather than as JSX.
+   */
+  const motionHookVideoRef = useRef<HTMLVideoElement | null>(null);
+  const motionHookUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/hooks/hooks.json", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { hooks: [] }))
+      .then((data: { hooks?: HookVideoEntry[] }) => {
+        if (cancelled) return;
+        const hooks = Array.isArray(data.hooks) ? data.hooks : [];
+        setMotionHooks(hooks);
+        setMotionSelectedHookId((prev) => prev ?? hooks.find((h) => h.isDefault)?.id ?? hooks[0]?.id ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setMotionHooks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const hook = motionHooks.find((h) => h.id === motionSelectedHookId) ?? null;
+    if (!hook) {
+      motionHookVideoRef.current = null;
+      motionHookUrlRef.current = null;
+      return;
+    }
+    if (motionHookUrlRef.current === hook.path) return;
+    const video = document.createElement("video");
+    video.src = hook.path;
+    video.preload = "auto";
+    video.muted = false;
+    video.playsInline = true;
+    motionHookVideoRef.current = video;
+    motionHookUrlRef.current = hook.path;
+  }, [motionHooks, motionSelectedHookId]);
+
+  const refreshMotionHooks = useCallback(async (): Promise<HookVideoEntry[]> => {
+    try {
+      const r = await fetch("/hooks/hooks.json", { cache: "no-store" });
+      const data = r.ok ? await r.json() : { hooks: [] };
+      const hooks: HookVideoEntry[] = Array.isArray(data.hooks) ? data.hooks : [];
+      setMotionHooks(hooks);
+      return hooks;
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const handleUploadHook = useCallback(
+    async (file: File, label: string) => {
+      setHookUploadState("uploading");
+      setHookUploadError(null);
+      try {
+        // Measured client-side rather than parsed server-side — no ffmpeg
+        // dependency needed just to show a duration in the picker.
+        const durationMs = await new Promise<number | null>((resolve) => {
+          const probe = document.createElement("video");
+          const url = URL.createObjectURL(file);
+          const cleanup = (value: number | null) => {
+            URL.revokeObjectURL(url);
+            resolve(value);
+          };
+          probe.preload = "metadata";
+          probe.onloadedmetadata = () => cleanup(Number.isFinite(probe.duration) ? Math.round(probe.duration * 1000) : null);
+          probe.onerror = () => cleanup(null);
+          probe.src = url;
+        });
+
+        const form = new FormData();
+        form.append("file", file);
+        form.append("label", label);
+        if (durationMs != null) form.append("durationMs", String(durationMs));
+
+        const res = await fetch("/api/content-creator/hooks", { method: "POST", body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Upload failed");
+
+        await refreshMotionHooks();
+        if (data?.hook?.id) setMotionSelectedHookId(data.hook.id);
+        setHookUploadState("idle");
+      } catch (err: any) {
+        setHookUploadState("error");
+        setHookUploadError(err?.message || "Upload failed");
+      }
+    },
+    [refreshMotionHooks]
+  );
+
+  const handleDeleteHook = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`/api/content-creator/hooks?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Delete failed");
+        const hooks = await refreshMotionHooks();
+        setMotionSelectedHookId((prev) => (prev === id ? hooks.find((h) => h.isDefault)?.id ?? hooks[0]?.id ?? null : prev));
+      } catch (err: any) {
+        setHookUploadState("error");
+        setHookUploadError(err?.message || "Delete failed");
+      }
+    },
+    [refreshMotionHooks]
+  );
 
   const motionData: MotionVideoData = motionSlides[activeMotionIndex] ?? EMPTY_MOTION_DATA;
   const activeMotionSlideId = motionSlides[activeMotionIndex]?.slideId ?? "";
@@ -1835,7 +1975,8 @@ export function ContentCreatorPage() {
   const ensureMotionMix = useCallback(() => {
     const voiceEl = motionAudioRef.current;
     const musicEl = motionMusicRef.current;
-    if (!voiceEl && !musicEl) return null;
+    const hookEl = motionHookVideoRef.current;
+    if (!voiceEl && !musicEl && !hookEl) return null;
 
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
@@ -1850,11 +1991,14 @@ export function ContentCreatorPage() {
       // played on a zone change ends up in the recorded stream rather than
       // just the live speakers. See playMotionSfx below.
       const sfxGain = ctx.createGain();
-      [voiceGain, musicGain, sfxGain].forEach((g) => {
+      // The hook clip's own embedded audio, live during the hook pre-roll
+      // only — see playHookPhase.
+      const hookGain = ctx.createGain();
+      [voiceGain, musicGain, sfxGain, hookGain].forEach((g) => {
         g.connect(ctx.destination);
         g.connect(dest);
       });
-      mix = { ctx, dest, voiceGain, musicGain, sfxGain, voiceEl: null, musicEl: null };
+      mix = { ctx, dest, voiceGain, musicGain, sfxGain, hookGain, voiceEl: null, musicEl: null, hookEl: null };
       motionMixRef.current = mix;
     }
 
@@ -1874,11 +2018,137 @@ export function ContentCreatorPage() {
         /* as above */
       }
     }
+    if (hookEl && mix.hookEl !== hookEl) {
+      try {
+        mix.ctx.createMediaElementSource(hookEl).connect(mix.hookGain);
+        mix.hookEl = hookEl;
+      } catch {
+        /* as above */
+      }
+    }
 
     mix.musicGain.gain.value = motionMusicVolume;
     if (mix.ctx.state === "suspended") void mix.ctx.resume();
     return mix;
   }, [motionMusicVolume]);
+
+  /**
+   * Plays one hook clip to completion, drawing its frames into the same
+   * canvas the timeline renders into (cover-fit — see drawVideoCover — since
+   * a hook's own resolution may not match the fixed export canvas) and
+   * routing its audio through the same mixing graph the voiceover/music use,
+   * so during export it lands in the same recording as whatever follows it.
+   * Branches rAF vs setInterval exactly like the main clock effect above and
+   * for the same reason: a backgrounded export tab throttles rAF but not an
+   * interval on a tab that is audibly playing.
+   */
+  const playHookPhase = useCallback(
+    (hookEl: HTMLVideoElement, exporting: boolean): Promise<void> => {
+      return new Promise((resolve) => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext("2d") ?? null;
+        if (!canvas || !ctx) {
+          resolve();
+          return;
+        }
+        const W = Math.max(1, Math.round(ar.w));
+        const H = Math.max(1, Math.round(ar.h));
+        if (canvas.width !== W) canvas.width = W;
+        if (canvas.height !== H) canvas.height = H;
+
+        const mix = ensureMotionMix();
+        if (mix && mix.hookEl !== hookEl) {
+          try {
+            mix.ctx.createMediaElementSource(hookEl).connect(mix.hookGain);
+            mix.hookEl = hookEl;
+          } catch {
+            /* already routed through another graph — leave it on the default output */
+          }
+        }
+
+        let settled = false;
+        let rafId: number | null = null;
+        let intervalId: number | null = null;
+        let safetyTimer: number | null = null;
+
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          if (rafId != null) cancelAnimationFrame(rafId);
+          if (intervalId != null) window.clearInterval(intervalId);
+          if (safetyTimer != null) window.clearTimeout(safetyTimer);
+          hookEl.removeEventListener("ended", finish);
+          hookEl.pause();
+          resolve();
+        };
+
+        const draw = () => {
+          if (settled) return;
+          try {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, W, H);
+            drawVideoCover(ctx, hookEl, W, H);
+          } catch (err) {
+            console.warn("Hook frame draw failed, continuing:", err);
+          }
+        };
+
+        hookEl.addEventListener("ended", finish);
+        try {
+          hookEl.currentTime = 0;
+        } catch {
+          /* not seekable yet */
+        }
+        void hookEl.play().catch((err) => {
+          console.warn("Hook video could not play, skipping it:", err);
+          finish();
+        });
+
+        // A hook that never fires "ended" — a decode stall, a malformed file
+        // — must not hang playback or an export forever.
+        const safetyMs = (Number.isFinite(hookEl.duration) && hookEl.duration > 0 ? hookEl.duration * 1000 : 15000) + 2000;
+        safetyTimer = window.setTimeout(finish, safetyMs);
+
+        if (exporting) {
+          intervalId = window.setInterval(draw, 1000 / 30);
+        } else {
+          const tick = () => {
+            if (settled) return;
+            draw();
+            rafId = requestAnimationFrame(tick);
+          };
+          rafId = requestAnimationFrame(tick);
+        }
+      });
+    },
+    [ar, ensureMotionMix]
+  );
+
+  /**
+   * Shared by every play/pause control (the timeline panel's and the
+   * scrubber's). Pausing is always immediate; starting fresh from the very
+   * top with a hook selected plays the hook first and only flips
+   * isPlayingMotion once it finishes — resuming from mid-scrub never
+   * replays the hook.
+   */
+  const handleToggleMotionPlay = useCallback(() => {
+    if (isPlayingMotion) {
+      setIsPlayingMotion(false);
+      return;
+    }
+    const hook = motionHookEnabled ? motionHooks.find((h) => h.id === motionSelectedHookId) : undefined;
+    const atStart = motionTimeRef.current < 50;
+    if (hook && atStart && motionHookVideoRef.current && !isHookPhasePlaying) {
+      setIsHookPhasePlaying(true);
+      void playHookPhase(motionHookVideoRef.current, false).finally(() => {
+        setIsHookPhasePlaying(false);
+        setIsPlayingMotion(true);
+      });
+      return;
+    }
+    setIsPlayingMotion(true);
+  }, [isPlayingMotion, motionHookEnabled, motionHooks, motionSelectedHookId, isHookPhasePlaying, playHookPhase]);
 
   /**
    * Plays a zone-transition SFX through the same graph the voiceover and
@@ -2034,6 +2304,11 @@ export function ContentCreatorPage() {
   // Render canvas on motionTimeMs change when in motion mode
   useEffect(() => {
     if (creatorMode !== "motion" || !canvasRef.current) return;
+    // The hook pre-roll (playHookPhase) owns the canvas and draws its own
+    // frames directly while it runs — motionTimeMs isn't moving during that
+    // phase, but this effect can still re-run from an unrelated dependency
+    // change, and painting scene 0 over the hook mid-playback would flicker.
+    if (isHookPhasePlaying) return;
 
     // Timeline applied: the whole batch is one video. The frame decides which
     // slide is on screen, so the slide switcher follows playback rather than
@@ -2047,6 +2322,31 @@ export function ContentCreatorPage() {
       // export while its audio track keeps rolling underneath.
       try {
         const frame = sampleTimeline(motionTimeline, motionTimeMs);
+
+        // The topmost sampled scene is the one actually settling into place —
+        // mid-transition that is frame.scenes[frame.scenes.length - 1],
+        // otherwise it is the only entry — and its `layers` are what the
+        // viewer is actually looking at. Hoisted out of the SFX-only branch
+        // below (it used to live there alone) because the always-on
+        // current-zone tracking further down needs it too, regardless of
+        // whether SFX is enabled or the video is even playing.
+        const topScene = frame.scenes[frame.scenes.length - 1];
+        const activeSlide = motionSlides[frame.activeSlideIndex];
+        // Under wholeImageMotion (on by default), drawScene freezes every
+        // small, non-collage layer at rest from frame 0 regardless of its own
+        // cues — see isBigCollageElement in drawMotionTimelineFrame.ts. Firing
+        // a whoosh — or treating it as the current zone — for that layer's
+        // programmed-but-suppressed entrance would be for a "zone" that never
+        // visibly appears. Mirrored here rather than reworking the renderer
+        // to report back what it actually drew.
+        const isBigZoneLayer = (layerId: string): boolean => {
+          if (!motionWholeImageMotion) return true;
+          const layer = activeSlide?.layers.find((l) => l.id === layerId);
+          if (!layer) return true;
+          const objType = layer.objectType || "";
+          if (["collage-part", "photo", "illustration", "panel", "banner"].includes(objType)) return true;
+          return (layer.w ?? 0) * (layer.h ?? 0) >= 0.1;
+        };
 
         // Scene- AND zone-appearance SFX. Only while actually playing, so
         // scrubbing the timeline while paused stays silent — matches the old
@@ -2062,27 +2362,6 @@ export function ContentCreatorPage() {
               motionLastSceneIndexRef.current = frame.activeSceneIndex;
             }
 
-            // The topmost sampled scene is the one actually settling into
-            // place — mid-transition that is frame.scenes[frame.scenes.length
-            // - 1], otherwise it is the only entry — and its `layers` are what
-            // the viewer is actually looking at.
-            const topScene = frame.scenes[frame.scenes.length - 1];
-            // Under wholeImageMotion (on by default), drawScene freezes every
-            // small, non-collage layer at rest from frame 0 regardless of its
-            // own cues — see isBigCollageElement in drawMotionTimelineFrame.ts.
-            // Firing a whoosh for that layer's programmed-but-suppressed
-            // entrance would be sound for a "zone" that never visibly appears.
-            // Mirrored here rather than reworking the renderer to report back
-            // what it actually drew.
-            const activeSlide = motionSlides[frame.activeSlideIndex];
-            const isBigZoneLayer = (layerId: string): boolean => {
-              if (!motionWholeImageMotion) return true;
-              const layer = activeSlide?.layers.find((l) => l.id === layerId);
-              if (!layer) return true;
-              const objType = layer.objectType || "";
-              if (["collage-part", "photo", "illustration", "panel", "banner"].includes(objType)) return true;
-              return (layer.w ?? 0) * (layer.h ?? 0) >= 0.1;
-            };
             // A fresh scene index — whether reached by natural playback, a
             // seek, or a loop restart — re-seeds silently instead of comparing
             // against a stale or empty map, so landing mid-scene with several
@@ -2094,7 +2373,7 @@ export function ContentCreatorPage() {
               motionZoneVisibleRef.current = {};
               motionZoneSeededSceneRef.current = frame.activeSceneIndex;
             }
-            Object.entries(topScene.layers).forEach(([layerId, state]) => {
+            Object.entries(topScene?.layers ?? {}).forEach(([layerId, state]) => {
               if (!isBigZoneLayer(layerId)) return;
               const visible = state.opacity * state.wipe > 0.05;
               const wasVisible = motionZoneVisibleRef.current[layerId] ?? false;
@@ -2109,6 +2388,38 @@ export function ContentCreatorPage() {
           motionLastSceneIndexRef.current = -1;
           motionZoneSeededSceneRef.current = -1;
         }
+
+        // Which single zone reads as "current" right now, for the persistent
+        // black rotating border + diagonal shine (drawActiveZoneOverlay).
+        // Independent of the SFX bookkeeping above, which goes silent
+        // whenever paused or muted — this must keep working regardless, so
+        // scrubbing the timeline in the editor shows the same thing the
+        // export will. Exactly one zone at a time: whichever just appeared
+        // most recently, falling back to any other still-visible big zone if
+        // that one leaves, mirroring the flourish's own crossing-detection
+        // above but with its own independent frame-to-frame memory (see the
+        // refs' declaration).
+        const currentZoneReseeding = motionCurrentZoneSceneRef.current !== frame.activeSceneIndex;
+        motionCurrentZoneSceneRef.current = frame.activeSceneIndex;
+        const currentZoneVisibleNow: Record<string, boolean> = {};
+        Object.entries(topScene?.layers ?? {}).forEach(([layerId, state]) => {
+          if (isBigZoneLayer(layerId)) currentZoneVisibleNow[layerId] = state.opacity * state.wipe > 0.05;
+        });
+        if (currentZoneReseeding) {
+          // Landing mid-scene — via a seek, a loop restart, or just opening
+          // the editor — picks whatever is already on screen rather than
+          // showing nothing until the next fresh entrance.
+          motionCurrentZoneIdRef.current = Object.keys(currentZoneVisibleNow).find((id) => currentZoneVisibleNow[id]) ?? null;
+        } else {
+          Object.entries(currentZoneVisibleNow).forEach(([layerId, visible]) => {
+            const wasVisible = motionCurrentZoneVisibleRef.current[layerId] ?? false;
+            if (visible && !wasVisible) motionCurrentZoneIdRef.current = layerId;
+          });
+          if (motionCurrentZoneIdRef.current && !currentZoneVisibleNow[motionCurrentZoneIdRef.current]) {
+            motionCurrentZoneIdRef.current = Object.keys(currentZoneVisibleNow).find((id) => currentZoneVisibleNow[id]) ?? null;
+          }
+        }
+        motionCurrentZoneVisibleRef.current = currentZoneVisibleNow;
 
         const bounds = drawMotionTimelineFrame(
           canvasRef.current,
@@ -2129,6 +2440,7 @@ export function ContentCreatorPage() {
             zigzagMotion: motionZigzagMotion,
             hideImageCaptions: motionHideImageCaptions,
             zoneFlourishes: motionZoneFlourishRef.current,
+            currentZoneLayerId: motionCurrentZoneIdRef.current,
           },
           (sceneIndex) => motionTimeline.scenes[sceneIndex]?.intro
         );
@@ -2178,6 +2490,7 @@ export function ContentCreatorPage() {
     motionSfxVolume,
     playMotionSfx,
     playMotionSlideChime,
+    isHookPhasePlaying,
     ar,
     colors,
     config,
@@ -3445,42 +3758,33 @@ export function ContentCreatorPage() {
       );
     }
 
-    seekMotionTo(0);
-    setIsPlayingMotion(true);
-    // Wait for the rewound frame to be on the canvas before recording — but
-    // never wait forever. A backgrounded or throttled tab stops firing
-    // animation frames entirely, and a bare double-rAF await there leaves the
-    // export wedged on "RECORDING 0:00" with no error and no way out.
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      const done = () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      };
-      requestAnimationFrame(() => requestAnimationFrame(done));
-      window.setTimeout(done, 250);
-    });
+    // A hook plays before the real timeline, inside the very same recording
+    // — see playHookPhase. Resolved once, up front, so every branch below
+    // agrees on whether there is one; metadata (duration/videoWidth) has to
+    // be loaded before drawVideoCover or the safety timeout in playHookPhase
+    // can trust it, so a hook picked and exported in the same instant still
+    // gets a brief chance to finish loading rather than silently vanishing.
+    const selectedHook = motionHookEnabled ? motionHooks.find((h) => h.id === motionSelectedHookId) : undefined;
+    const hookEl = selectedHook ? motionHookVideoRef.current : null;
+    if (hookEl && hookEl.readyState < 1) {
+      await new Promise<void>((resolve) => {
+        const onReady = () => {
+          hookEl.removeEventListener("loadedmetadata", onReady);
+          resolve();
+        };
+        hookEl.addEventListener("loadedmetadata", onReady);
+        window.setTimeout(() => {
+          hookEl.removeEventListener("loadedmetadata", onReady);
+          resolve();
+        }, 4000);
+      });
+    }
+    const willPlayHook = !!hookEl && hookEl.readyState >= 1;
+    if (selectedHook && !willPlayHook) {
+      console.warn("Hook video metadata never loaded in time — exporting without the hook.");
+    }
 
-    const hasAudioSource = !!motionAudioRef.current || !!motionMusicRef.current;
-    let audioConfirmed = await waitForAudioReady(1500);
-    if (hasAudioSource && !audioConfirmed) {
-      // One nudge before giving up — a dropped play() promise or a context
-      // that needed a second resume() is recoverable, not a hard failure.
-      seekMotionTo(0);
-      motionAudioRef.current?.play().catch(() => {});
-      motionMusicRef.current?.play().catch(() => {});
-      audioConfirmed = await waitForAudioReady(1500);
-    }
-    if (hasAudioSource && !audioConfirmed) {
-      motionLoopRef.current = restoreLoop;
-      setIsExportingTimeline(false);
-      setTimelineExportElapsed(null);
-      setSegmentError(
-        "Could not confirm the voiceover was actually playing before recording started, so the export was cancelled rather than risk a silent video. Press Play once to warm up audio, then Export again."
-      );
-      return;
-    }
+    seekMotionTo(0);
 
     let progressTimer: number | null = null;
     const finish = () => {
@@ -3492,14 +3796,51 @@ export function ContentCreatorPage() {
 
     try {
       const canvas = canvasRef.current;
+
+      if (willPlayHook) {
+        // Paint one black frame synchronously so the very first frame
+        // captureStream sees is real, not stale/garbage — playHookPhase
+        // takes over painting actual frames a moment later. The main
+        // timeline's own frame 0 must not appear here: it hasn't "started"
+        // yet in any sense a viewer should see.
+        const W = Math.max(1, Math.round(ar.w));
+        const H = Math.max(1, Math.round(ar.h));
+        if (canvas.width !== W) canvas.width = W;
+        if (canvas.height !== H) canvas.height = H;
+        const warmCtx = canvas.getContext("2d");
+        if (warmCtx) {
+          warmCtx.setTransform(1, 0, 0, 1, 0, 0);
+          warmCtx.fillStyle = "#000000";
+          warmCtx.fillRect(0, 0, W, H);
+        }
+      } else {
+        setIsPlayingMotion(true);
+        // Wait for the rewound frame to be on the canvas before recording —
+        // but never wait forever. A backgrounded or throttled tab stops
+        // firing animation frames entirely, and a bare double-rAF await
+        // there leaves the export wedged on "RECORDING 0:00" with no error
+        // and no way out.
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          };
+          requestAnimationFrame(() => requestAnimationFrame(done));
+          window.setTimeout(done, 250);
+        });
+      }
+
       const stream = canvas.captureStream(motionTimeline.fps);
 
-      // One mixed audio track, not one per source: the voiceover and the music
-      // bed are summed in the graph and captured together.
+      // One mixed audio track, not one per source: the voiceover, the music
+      // bed and (while it plays) the hook are all summed in the graph and
+      // captured together.
       const mix = ensureMotionMix();
       if (mix) {
         mix.dest.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
-      } else {
+      } else if (!willPlayHook) {
         const audio = motionAudioRef.current as (HTMLAudioElement & { captureStream?: () => MediaStream }) | null;
         if (audio?.captureStream) {
           try {
@@ -3510,16 +3851,6 @@ export function ContentCreatorPage() {
         }
       }
 
-      // Confirmed a moment ago in waitForAudioReady, but the track list is
-      // rebuilt above — a source that was live then and silently dropped its
-      // track since (device change, element reset) must not still export as
-      // if nothing were wrong.
-      if (hasAudioSource && stream.getAudioTracks().length === 0) {
-        throw new Error(
-          "A voiceover or music file is loaded, but no audio track could be attached to the recording. Reload the audio file and export again."
-        );
-      }
-
       const mimeType = MP4_MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
       if (!mimeType) {
         throw new Error(
@@ -3528,12 +3859,18 @@ export function ContentCreatorPage() {
       }
 
       const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 12_000_000 });
+      // Set when the hook plays fine but the main timeline's own audio never
+      // confirms ready below — the hook's few seconds are already inside
+      // `chunks` by then, so onstop has to know to throw them away rather
+      // than download a recording that silently loses its voiceover.
+      let discardRecording = false;
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
       recorder.onstop = () => {
+        if (discardRecording) return;
         const blob = new Blob(chunks, { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -3546,6 +3883,66 @@ export function ContentCreatorPage() {
       };
 
       recorder.start();
+
+      if (willPlayHook && hookEl) {
+        // Guards the render effect off the canvas for the same reason the
+        // live preview does (see its isHookPhasePlaying check) — with
+        // isPlayingMotion still false here, nothing is driving motionTimeMs,
+        // but an unrelated re-render could still fire that effect and paint
+        // the timeline's frame 0 over the hook mid-playback without it.
+        setIsHookPhasePlaying(true);
+        try {
+          await playHookPhase(hookEl, true);
+        } finally {
+          setIsHookPhasePlaying(false);
+        }
+      }
+
+      // Exactly the pre-hook single-phase export from here on — the main
+      // timeline starts recording only once any hook has already finished,
+      // into the very same recorder/stream/chunks above.
+      setIsPlayingMotion(true);
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        requestAnimationFrame(() => requestAnimationFrame(done));
+        window.setTimeout(done, 250);
+      });
+
+      const hasAudioSource = !!motionAudioRef.current || !!motionMusicRef.current;
+      let audioConfirmed = await waitForAudioReady(1500);
+      if (hasAudioSource && !audioConfirmed) {
+        // One nudge before giving up — a dropped play() promise or a context
+        // that needed a second resume() is recoverable, not a hard failure.
+        seekMotionTo(0);
+        motionAudioRef.current?.play().catch(() => {});
+        motionMusicRef.current?.play().catch(() => {});
+        audioConfirmed = await waitForAudioReady(1500);
+      }
+      if (hasAudioSource && !audioConfirmed) {
+        discardRecording = true;
+        if (recorder.state !== "inactive") recorder.stop();
+        setSegmentError(
+          "Could not confirm the voiceover was actually playing before recording started, so the export was cancelled rather than risk a silent video. Press Play once to warm up audio, then Export again."
+        );
+        finish();
+        return;
+      }
+
+      // Confirmed a moment ago in waitForAudioReady, but the track list is
+      // rebuilt above — a source that was live then and silently dropped its
+      // track since (device change, element reset) must not still export as
+      // if nothing were wrong.
+      if (hasAudioSource && stream.getAudioTracks().length === 0) {
+        throw new Error(
+          "A voiceover or music file is loaded, but no audio track could be attached to the recording. Reload the audio file and export again."
+        );
+      }
+
       const startedAt = performance.now();
       progressTimer = window.setInterval(() => {
         setTimelineExportElapsed((performance.now() - startedAt) * speed);
@@ -5901,8 +6298,8 @@ export function ContentCreatorPage() {
                       onClear={clearMotionTimeline}
                       timeMs={motionTimeMs}
                       onSeek={seekMotionTo}
-                      isPlaying={isPlayingMotion}
-                      onTogglePlay={() => setIsPlayingMotion((p) => !p)}
+                      isPlaying={isPlayingMotion || isHookPhasePlaying}
+                      onTogglePlay={handleToggleMotionPlay}
                       onPlaySfx={playMotionSfx}
                       sfxEnabled={motionSfxEnabled}
                       onSfxEnabledChange={setMotionSfxEnabled}
@@ -5927,6 +6324,15 @@ export function ContentCreatorPage() {
                       onMusicVolumeChange={setMotionMusicVolume}
                       exportSpeed={motionExportSpeed}
                       onExportSpeedChange={setMotionExportSpeed}
+                      hooks={motionHooks}
+                      hookEnabled={motionHookEnabled}
+                      onHookEnabledChange={setMotionHookEnabled}
+                      selectedHookId={motionSelectedHookId}
+                      onSelectedHookIdChange={setMotionSelectedHookId}
+                      onUploadHook={handleUploadHook}
+                      onDeleteHook={handleDeleteHook}
+                      hookUploadState={hookUploadState}
+                      hookUploadError={hookUploadError}
                       onAutoSync={autoSyncMotionTimeline}
                       textOnlySync={motionTextOnlySync}
                       onTextOnlySyncChange={setMotionTextOnlySync}
@@ -7598,8 +8004,8 @@ export function ContentCreatorPage() {
             onBeginGesture={beginMotionGesture}
             timeMs={motionTimeMs}
             onSeek={seekMotionTo}
-            isPlaying={isPlayingMotion}
-            onTogglePlay={() => setIsPlayingMotion((p) => !p)}
+            isPlaying={isPlayingMotion || isHookPhasePlaying}
+            onTogglePlay={handleToggleMotionPlay}
             words={motionTranscript ?? []}
             slideNames={motionSlides.map((s) => s.fileName || "")}
             canUndo={motionHistoryTick >= 0 && motionUndoRef.current.length > 0}

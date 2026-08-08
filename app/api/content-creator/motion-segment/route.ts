@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { handleMotionSegmentLocal } from "@/lib/motion-segment-local";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -11,8 +12,5 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Prevent Next.js static NFT bundler from tracing local helper during Vercel build
-  const reqFn = eval("require");
-  const { handleMotionSegmentLocal } = reqFn("@/lib/motion-segment-local");
   return handleMotionSegmentLocal(req);
 }

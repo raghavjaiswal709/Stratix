@@ -8,6 +8,7 @@ import {
   AlertCircle,
   Captions,
   Check,
+  Clapperboard,
   Copy,
   Download,
   EyeOff,
@@ -26,7 +27,9 @@ import {
   Trash2,
   TriangleAlert,
   Type,
+  Upload,
   Wand2,
+  X,
 } from "lucide-react";
 import {
   preloadAllSfxFiles,
@@ -40,6 +43,7 @@ import {
   type TimelineReport,
   type TranscriptWord,
 } from "@/lib/motion-timeline";
+import type { HookVideoEntry } from "../types";
 
 /** The speeds people actually reach for, plus the slider for everything else. */
 const SPEED_PRESETS = [1, 1.3, 1.5, 1.7, 2] as const;
@@ -130,6 +134,17 @@ export interface MotionTimelinePanelProps {
   exportSpeed: number;
   onExportSpeedChange: (value: number) => void;
 
+  /** public/hooks/hooks.json, fetched by the parent as a plain static file. */
+  hooks: HookVideoEntry[];
+  hookEnabled: boolean;
+  onHookEnabledChange: (value: boolean) => void;
+  selectedHookId: string | null;
+  onSelectedHookIdChange: (id: string) => void;
+  onUploadHook: (file: File, label: string) => void;
+  onDeleteHook: (id: string) => void;
+  hookUploadState: "idle" | "uploading" | "error";
+  hookUploadError: string | null;
+
   onCopyPrompt: () => void;
   copiedPrompt: boolean;
 
@@ -201,6 +216,15 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onMusicVolumeChange,
     exportSpeed,
     onExportSpeedChange,
+    hooks,
+    hookEnabled,
+    onHookEnabledChange,
+    selectedHookId,
+    onSelectedHookIdChange,
+    onUploadHook,
+    onDeleteHook,
+    hookUploadState,
+    hookUploadError,
     onCopyPrompt,
     copiedPrompt,
     onExport,
@@ -213,6 +237,8 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
   const audioInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
   const combinedInputRef = useRef<HTMLInputElement>(null);
+  const hookInputRef = useRef<HTMLInputElement>(null);
+  const [hookLabelDraft, setHookLabelDraft] = useState("");
 
   const [selectedDefaultTransition, setSelectedDefaultTransition] = useState<TransitionType>("whooshCut");
   const [selectedDefaultSfx, setSelectedDefaultSfx] = useState<AudioSfxType>("whoosh");
@@ -1147,6 +1173,99 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             </span>
             <span>3&times; faster</span>
           </div>
+        </div>
+      )}
+
+      {/* Hook — an optional clip that plays before the real video, in both preview and the export, as one continuous recording. */}
+      {timeline && (
+        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2.5 space-y-2">
+          <button onClick={() => onHookEnabledChange(!hookEnabled)} className="w-full flex items-start gap-2 text-left cursor-pointer">
+            <span
+              className={`mt-[1px] h-3.5 w-6 shrink-0 rounded-full border transition relative ${
+                hookEnabled ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
+              }`}
+            >
+              <span
+                className={`absolute top-[1px] h-[10px] w-[10px] rounded-full bg-white transition-all ${
+                  hookEnabled ? "left-[13px]" : "left-[1px]"
+                }`}
+              />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <Clapperboard className="h-3 w-3 text-white/40" />
+                <span className="block text-[9.5px] font-bold text-white/80">With hook</span>
+              </span>
+              <span className="block text-[9px] text-white/40 leading-snug">
+                {hookEnabled
+                  ? "Plays the clip below first, then the real video — in preview and in the export, as one continuous recording."
+                  : "Off — playback and export start straight on the real video."}
+              </span>
+            </span>
+          </button>
+
+          {hookEnabled && (
+            <div className="space-y-1.5 pl-8">
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedHookId ?? ""}
+                  onChange={(e) => onSelectedHookIdChange(e.target.value)}
+                  className="w-full h-7 rounded border border-white/[0.12] bg-black/70 px-2 text-[10px] text-white/90 outline-none cursor-pointer"
+                >
+                  {hooks.length === 0 && <option value="">No hooks yet</option>}
+                  {hooks.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.label}
+                      {h.durationMs ? ` · ${formatTimecode(h.durationMs)}` : ""}
+                    </option>
+                  ))}
+                </select>
+                {selectedHookId && !hooks.find((h) => h.id === selectedHookId)?.isDefault && (
+                  <button
+                    onClick={() => onDeleteHook(selectedHookId)}
+                    title="Delete this hook"
+                    className="h-7 w-7 shrink-0 rounded border border-white/[0.10] bg-white/[0.03] hover:bg-red-500/15 hover:border-red-500/30 text-white/40 hover:text-red-300 flex items-center justify-center transition cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <input
+                ref={hookInputRef}
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    onUploadHook(file, hookLabelDraft.trim() || file.name.replace(/\.[^.]+$/, ""));
+                    setHookLabelDraft("");
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={hookLabelDraft}
+                  onChange={(e) => setHookLabelDraft(e.target.value)}
+                  placeholder="Label for the next upload (optional)"
+                  className="w-full h-7 rounded border border-white/[0.10] bg-white/[0.03] px-2 text-[9.5px] text-white/80 placeholder:text-white/25 outline-none"
+                />
+                <button
+                  onClick={() => hookInputRef.current?.click()}
+                  disabled={hookUploadState === "uploading"}
+                  className="h-7 shrink-0 px-2.5 rounded border border-white/[0.10] bg-white/[0.03] hover:bg-white/[0.08] text-white/60 hover:text-white flex items-center gap-1 text-[9.5px] font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {hookUploadState === "uploading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                  Upload
+                </button>
+              </div>
+              {hookUploadState === "error" && hookUploadError && <p className="text-[9px] text-red-300/80">{hookUploadError}</p>}
+              <p className="text-[9px] text-white/30">MP4, MOV or WebM &middot; uploading needs the app running locally (npm run dev)</p>
+            </div>
+          )}
         </div>
       )}
 

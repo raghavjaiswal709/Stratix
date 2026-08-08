@@ -74,12 +74,32 @@ export interface TimelineRenderOptions {
    * never reads as a zoom or a pulse.
    */
   zoneFlourishes?: Record<string, number>;
+  /**
+   * Id of the single layer currently treated as "the" active zone, or null
+   * when none is. Exactly one at a time — see ContentCreatorPage's render
+   * effect for how it picks a winner when more than one big zone is on
+   * screen at once (most-recently-appeared wins, falling back to any other
+   * still-visible big zone if that one leaves). Drawn with
+   * drawActiveZoneOverlay, which — unlike zoneFlourishes above — runs for
+   * the layer's whole on-screen duration, not just its entrance.
+   */
+  currentZoneLayerId?: string | null;
 }
 
 /** How long the on-entrance sweep-then-flash lasts, in ms, once a zone appears. */
 const ZONE_FLOURISH_MS = 340;
 /** Share of ZONE_FLOURISH_MS spent on the sweep before the flash takes over. */
 const ZONE_FLOURISH_SWEEP_SHARE = 0.55;
+
+/** Dash length/gap for the current-zone rotating border, in unzoomed px. */
+const ZONE_ACTIVE_BORDER_DASH = 10;
+const ZONE_ACTIVE_BORDER_GAP = 7;
+/** How fast the dashes appear to travel around the perimeter, in unzoomed px/sec. */
+const ZONE_ACTIVE_BORDER_SPEED = 55;
+/** One full corner-to-corner shine sweep, in ms. */
+const ZONE_SHINE_PERIOD_MS = 1800;
+/** Half-width of the soft shine band, as a fraction of the zone's own diagonal. */
+const ZONE_SHINE_BAND_FRACTION = 0.22;
 
 /**
  * Canvas font stack.
@@ -480,6 +500,75 @@ function drawZoneFlourish(
 }
 
 /**
+ * The persistent "this is the current zone" treatment — unlike drawZoneFlourish
+ * above (a brief one-shot entrance beat drawn *before* the clip/image so an
+ * in-progress wipe never cuts it off), this has to stay visible for the
+ * zone's entire on-screen duration, so it is painted *after* ctx.drawImage
+ * instead: once a wipe finishes revealing, the opaque drawImage call would
+ * otherwise paint straight over anything drawn earlier in the layer's own
+ * save/restore block. Two parts, both confined to the zone's exact rectangle
+ * — no outset, unlike the padded purple editor-selection box below:
+ *
+ *   1. A thin black dashed border traced exactly on the rect's own edge, its
+ *      dash offset animating continuously so it reads as rotating around the
+ *      perimeter forever.
+ *   2. A soft diagonal white shine swept from the top-left corner to the
+ *      bottom-right, clipped to the rect, looping forever.
+ *
+ * Both are pure functions of timeMs (see zigzagWobbleDeg for the same
+ * contract), so they play back identically in live preview and in the
+ * exported file with no extra wiring.
+ */
+function drawActiveZoneOverlay(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  timeMs: number,
+  camZoom: number
+) {
+  if (w <= 0 || h <= 0) return;
+
+  // 1. Rotating border — exact bounds, thin, zoom-compensated so it reads as
+  // the same on-screen thickness at any camera zoom.
+  ctx.save();
+  ctx.globalAlpha = 1;
+  const dash = ZONE_ACTIVE_BORDER_DASH / camZoom;
+  const gap = ZONE_ACTIVE_BORDER_GAP / camZoom;
+  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 2 / camZoom;
+  ctx.setLineDash([dash, gap]);
+  ctx.lineDashOffset = -((timeMs / 1000) * ZONE_ACTIVE_BORDER_SPEED) % (dash + gap);
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
+
+  // 2. Diagonal shine — clipped to the exact rect, swept along the true
+  // top-left→bottom-right diagonal so it always travels corner to corner
+  // regardless of the zone's own aspect ratio.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  const diag = Math.hypot(w, h);
+  const band = Math.max(1, diag * ZONE_SHINE_BAND_FRACTION);
+  const loopT = (timeMs % ZONE_SHINE_PERIOD_MS) / ZONE_SHINE_PERIOD_MS;
+  const pos = -band + loopT * (diag + 2 * band);
+  ctx.translate(x, y);
+  ctx.rotate(Math.atan2(h, w));
+  const grad = ctx.createLinearGradient(pos - band, 0, pos + band, 0);
+  grad.addColorStop(0, "rgba(255,255,255,0)");
+  grad.addColorStop(0.5, "rgba(255,255,255,0.55)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = grad;
+  // Generously oversized so the band fully covers the rect after the
+  // rotation above no matter its aspect ratio — the clip is what actually
+  // keeps the shine inside the zone's own edges.
+  ctx.fillRect(-diag, -diag, diag * 3, diag * 3);
+  ctx.restore();
+}
+
+/**
  * Paints over a collage-part's own baked-in caption strip(s) — the opposite
  * of drawing something new, so it must be called from inside the exact same
  * local coordinate space (and, critically, the same clip path from
@@ -728,6 +817,18 @@ function drawScene(
       if (boundCaptions) drawCaptionCovers(ctx, layer, boundCaptions, left, top, curW, curH);
     }
     ctx.restore();
+
+    if (opts.currentZoneLayerId === layer.id) {
+      ctx.save();
+      if (rot !== 0) {
+        ctx.translate(left + curW / 2, top + curH / 2);
+        ctx.rotate(rot);
+        drawActiveZoneOverlay(ctx, -curW / 2, -curH / 2, curW, curH, timeMs, cam.z);
+      } else {
+        drawActiveZoneOverlay(ctx, left, top, curW, curH, timeMs, cam.z);
+      }
+      ctx.restore();
+    }
 
     if (collectBounds) {
       // Bounds are consumed by the DOM overlay, which lives outside the canvas

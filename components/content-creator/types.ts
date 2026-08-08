@@ -319,3 +319,26 @@ export interface PosterElement {
   w: number;
   h: number;
 }
+
+/**
+ * One entry in public/hooks/hooks.json — a short clip that, when the "With
+ * hook" toggle is on, plays before the real motion timeline in both live
+ * preview and the exported file. Video bytes and this manifest are both
+ * plain files on local disk (no database) — see app/api/content-creator/hooks/route.ts.
+ */
+export interface HookVideoEntry {
+  id: string;
+  label: string;
+  filename: string;
+  /** Public URL, e.g. "/hooks/usd.mov" — served as a static asset. */
+  path: string;
+  durationMs: number | null;
+  sizeBytes: number;
+  addedAt: string;
+  /** The seeded usd.mov entry — kept undeletable so "With hook" always has something to play. */
+  isDefault?: boolean;
+}
+
+export interface HooksManifest {
+  hooks: HookVideoEntry[];
+}

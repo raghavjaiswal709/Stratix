@@ -544,3 +544,21 @@ export function contrastTextColor(hex: string): string {
 }
 export type FontFns = { label: (sz?: number, bold?: boolean) => string; body: (sz?: number, bold?: boolean) => string; serif: (sz?: number, bold?: boolean) => string; };
 export type Rfn = (n: number) => number;
+
+// Draws a <video> frame into a W×H box, cropping (never stretching) to fill
+// it exactly — same contract as CSS `object-fit: cover`. Used for the hook
+// clip pre-roll, whose own resolution/aspect ratio may not match the fixed
+// export canvas.
+export function drawVideoCover(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  W: number,
+  H: number,
+) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return;
+  const scale = Math.max(W / vw, H / vh);
+  const sw = W / scale, sh = H / scale;
+  const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { handleRemoveWatermarkLocal } from "@/lib/remove-watermark-local";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -11,8 +12,5 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Prevent Next.js static NFT bundler from tracing local helper during Vercel build
-  const reqFn = eval("require");
-  const { handleRemoveWatermarkLocal } = reqFn("@/lib/remove-watermark-local");
   return handleRemoveWatermarkLocal(req);
 }
