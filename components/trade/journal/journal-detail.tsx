@@ -24,6 +24,7 @@ import {
   Sparkles,
   Loader2,
   Unlink,
+  MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { renderTemplate } from "@/lib/prompts/template";
@@ -31,6 +32,12 @@ import { useAppContext } from "@/lib/context";
 import { AnalyzingOverlay, RefineDiff, RefineIconButton } from "./ai-refine";
 import { getTradingSession, getSessionBadgeClasses } from "@/lib/trade-session";
 import { uploadScreenshotToR2 } from "@/lib/uploadScreenshot";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 interface ChecklistItem {
   item: string;
@@ -1460,46 +1467,41 @@ Please analyze this data and generate a detailed report:
             )}
 
             <div className="flex items-center gap-2">
-              {isCompiledMember && (
-                <button
-                  onClick={() => setDecompileOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/5 transition"
-                  title={hasMergedChildren ? "Split this compilation back into separate trades" : "Remove this trade from its compilation"}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="flex items-center justify-center h-8 w-8 rounded-lg border border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5 transition"
+                  title="More actions"
                 >
-                  <Unlink className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Decompile</span>
-                </button>
-              )}
-              <button
-                onClick={() => setEditOpen((o) => !o)}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] transition",
-                  editOpen
-                    ? "border-white/[0.15] bg-white/[0.05] text-white/65"
-                    : "border-white/10 text-white/50 hover:text-white/80 hover:bg-white/5"
-                )}
-              >
-                <Edit2 className="h-3.5 w-3.5" />
-                Edit
-              </button>
-              <button
-                onClick={handleRefineJournal}
-                disabled={refining}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition",
-                  refining
-                    ? "border-white/10 bg-white/5 text-white/40 cursor-not-allowed"
-                    : "border-white/[0.15] bg-gradient-to-r from-white/[0.07] to-white/[0.04] text-white/80 hover:from-white/[0.12] hover:to-white/[0.08] hover:text-white"
-                )}
-                title="Refine all journal text with AI (gpt-4o-mini)"
-              >
-                {refining ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="h-3.5 w-3.5" />
-                )}
-                <span className="hidden sm:inline">{refining ? "Refining…" : "Refine All"}</span>
-              </button>
+                  <MoreHorizontal className="h-4 w-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                    <Edit2 className="h-3.5 w-3.5" />
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleRefineJournal}
+                    disabled={refining}
+                    title="Refine all journal text with AI (gpt-4o-mini)"
+                  >
+                    {refining ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    {refining ? "Refining…" : "Refine All"}
+                  </DropdownMenuItem>
+                  {isCompiledMember && (
+                    <DropdownMenuItem
+                      onClick={() => setDecompileOpen(true)}
+                      title={hasMergedChildren ? "Split this compilation back into separate trades" : "Remove this trade from its compilation"}
+                    >
+                      <Unlink className="h-3.5 w-3.5" />
+                      Decompile
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <button
                 onClick={handleSave}
                 disabled={saving}

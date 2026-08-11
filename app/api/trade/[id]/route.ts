@@ -154,6 +154,39 @@ export async function PUT(
           },
           { $set: journalUpdate }
         );
+      } else if ("parentTradeId" in body || "mergedTradeIds" in body) {
+        // Group membership itself just changed (a trade was linked into or
+        // out of a compilation) with no journal fields in this same request —
+        // e.g. the merge modal linking in a child that was already journaled
+        // on its own, whose payload deliberately omits journal fields so it
+        // doesn't clobber that data. Nothing above ever propagates it in that
+        // case, so a trade journaled before being compiled would stay
+        // permanently split from its group — regardless of how far apart the
+        // members' entry/exit times are (that was never the actual cause;
+        // it's purely "did this request carry journal fields").
+        // Reconcile here: if exactly one member of the resulting group
+        // already has journal content, fan it out to the rest. Two members
+        // independently journaled before being linked is a real conflict,
+        // not a sync gap — leave those alone rather than guessing which one
+        // to discard.
+        const group = await TradeEntryModel.find({
+          userId: session.user.id,
+          $or: [{ _id: groupParentId }, { parentTradeId: groupParentId }],
+        }).lean();
+
+        const journaledSources = group.filter((t) => t.journaled);
+        const blankTargets = group.filter((t) => !t.journaled);
+
+        if (journaledSources.length === 1 && blankTargets.length > 0) {
+          const source = journaledSources[0] as any;
+          const sourceData: Record<string, unknown> = {};
+          for (const field of journalFields) sourceData[field] = source[field];
+
+          await TradeEntryModel.updateMany(
+            { _id: { $in: blankTargets.map((t) => t._id) }, userId: session.user.id },
+            { $set: sourceData }
+          );
+        }
       }
     }
   }

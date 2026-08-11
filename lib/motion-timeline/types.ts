@@ -256,12 +256,13 @@ export const DEFAULT_TRANSITION_AUDIO_MAP: Record<TransitionType, AudioSfxType> 
   slideDown: "whip",
   irisCircle: "iris",
   diagonalWipe: "breeze",
-  splitReveal: "pop",
+  splitReveal: "whoosh",
   cardFlip: "shutter",
   fade: "breeze",
   dipToBlack: "impact",
-  cut: "pop",
+  cut: "whoosh",
 };
+
 
 export interface CompiledScene {
   index: number;
