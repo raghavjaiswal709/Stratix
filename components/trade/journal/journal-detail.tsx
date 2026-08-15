@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { TradeChart, type TradeChartRef } from "./trade-chart";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import {
   TrendingUp,
   TrendingDown,
@@ -31,6 +31,7 @@ import { renderTemplate } from "@/lib/prompts/template";
 import { useAppContext } from "@/lib/context";
 import { AnalyzingOverlay, RefineDiff, RefineIconButton } from "./ai-refine";
 import { getTradingSession, getSessionBadgeClasses } from "@/lib/trade-session";
+import { formatISTDateTime } from "@/lib/utils/ist-time";
 import { uploadScreenshotToR2 } from "@/lib/uploadScreenshot";
 import {
   DropdownMenu,
@@ -1445,7 +1446,7 @@ Please analyze this data and generate a detailed report:
                   </>
                 )}
                 <span className="hidden sm:inline text-white/15">·</span>
-                <span className="hidden sm:inline text-white/50">{format(parseISO(displayEntryTime), "MMM d, yyyy HH:mm")}</span>
+                <span className="hidden sm:inline text-white/50">{formatISTDateTime(displayEntryTime, trade.source)}</span>
               </div>
             </div>
           </div>

@@ -22,6 +22,7 @@ import {
   Play,
   Repeat,
   RotateCcw,
+  RotateCw,
   Scissors,
   Sparkles,
   Trash2,
@@ -75,6 +76,12 @@ export interface MotionTimelinePanelProps {
   onIntroCardChange: (value: boolean) => void;
   captions: boolean;
   onCaptionsChange: (value: boolean) => void;
+  /** "bottom" by default — the same big centred position an Overlay clip's own caption uses. "top" restores the original full-width banner. */
+  captionPosition: "top" | "bottom";
+  onCaptionPositionChange: (value: "top" | "bottom") => void;
+  /** Opacity of the caption's own black backing, 0–1. Defaults to 0.4. */
+  captionBgOpacity: number;
+  onCaptionBgOpacityChange: (value: number) => void;
   /** Off by default. Paints over each collage-part's own baked-in caption strip at render time — the words underneath are still what auto-sync matches against, untouched. */
   hideImageCaptions: boolean;
   onHideImageCaptionsChange: (value: boolean) => void;
@@ -87,6 +94,9 @@ export interface MotionTimelinePanelProps {
   /** On by default. A small continuous rotational shake on every graphic part, in place. */
   zigzagMotion: boolean;
   onZigzagMotionChange: (value: boolean) => void;
+  /** Off by default. The always-on black rotating dashed border + diagonal shine on whichever zone last appeared. */
+  zoneBorder: boolean;
+  onZoneBorderChange: (value: boolean) => void;
   onCopySpeechPrompt: () => void;
   copiedSpeechPrompt: boolean;
   autoSyncReport: AutoSyncReport | null;
@@ -183,6 +193,10 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onIntroCardChange,
     captions,
     onCaptionsChange,
+    captionPosition,
+    onCaptionPositionChange,
+    captionBgOpacity,
+    onCaptionBgOpacityChange,
     hideImageCaptions,
     onHideImageCaptionsChange,
     paperCutStyle,
@@ -191,6 +205,8 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onWholeImageMotionChange,
     zigzagMotion,
     onZigzagMotionChange,
+    zoneBorder,
+    onZoneBorderChange,
     onCopySpeechPrompt,
     copiedSpeechPrompt,
     autoSyncReport,
@@ -727,7 +743,7 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </span>
         </button>
 
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-5 gap-1.5">
           <button
             onClick={() => onIntroCardChange(!introCard)}
             title="Open on a black card with white type over the recap, before the first poster"
@@ -776,6 +792,18 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
               Hide image caption
             </span>
           </button>
+          <button
+            onClick={() => onZoneBorderChange(!zoneBorder)}
+            title="Black rotating dashed border + diagonal shine on whichever zone last appeared"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              zoneBorder ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <RotateCw className={`h-3 w-3 shrink-0 ${zoneBorder ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${zoneBorder ? "text-emerald-200/90" : "text-white/55"}`}>
+              Zone border
+            </span>
+          </button>
         </div>
 
         <div className="flex items-center gap-2 pt-0.5">
@@ -795,6 +823,58 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             className="w-full cursor-pointer accent-emerald-400 h-1.5"
           />
           <span className="text-[8.5px] text-white/50 font-mono w-14 text-right shrink-0">{captionLeadMs}ms</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
+            title="Bottom matches an Overlay clip's own big centred caption; top is the original full-width banner"
+          >
+            Caption position
+          </span>
+          <div className="flex-1 grid grid-cols-2 gap-1">
+            <button
+              onClick={() => onCaptionPositionChange("top")}
+              className={`h-6 rounded text-[9px] font-bold transition cursor-pointer border ${
+                captionPosition === "top"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/90"
+                  : "border-white/[0.08] bg-white/[0.02] text-white/50 hover:bg-white/[0.05]"
+              }`}
+            >
+              Top
+            </button>
+            <button
+              onClick={() => onCaptionPositionChange("bottom")}
+              className={`h-6 rounded text-[9px] font-bold transition cursor-pointer border ${
+                captionPosition === "bottom"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/90"
+                  : "border-white/[0.08] bg-white/[0.02] text-white/50 hover:bg-white/[0.05]"
+              }`}
+            >
+              Bottom
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
+            title="Opacity of the caption's own black backing — the text itself always stays fully opaque"
+          >
+            Caption bg
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={Math.round(captionBgOpacity * 100)}
+            onChange={(e) => onCaptionBgOpacityChange(Number(e.target.value) / 100)}
+            className="w-full cursor-pointer accent-emerald-400 h-1.5"
+          />
+          <span className="text-[8.5px] text-white/50 font-mono w-14 text-right shrink-0">
+            {Math.round(captionBgOpacity * 100)}%
+          </span>
         </div>
 
         {autoSyncNote && <p className="text-[9.5px] text-white/55 leading-snug">{autoSyncNote}</p>}
@@ -1337,12 +1417,26 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
                     </button>
                   </div>
                   <div className="grid grid-cols-3 gap-1">
+                    {/* Uncontrolled (defaultValue, not value) + remounted only when the
+                        clip's own value changes externally (drag on the timeline, undo).
+                        A controlled input clamped on every keystroke fought typing
+                        anything the clamp would reject mid-entry — e.g. durationMs's
+                        100ms floor turning "5" (on the way to "5000") straight back
+                        into "100" before a second digit could land. Free typing now;
+                        the floor is only ever enforced once, on blur/Enter. */}
                     <label className="space-y-0.5">
                       <span className="block text-[8px] uppercase tracking-wider text-white/30">Start ms</span>
                       <input
                         type="number"
-                        value={Math.round(o.startMs)}
-                        onChange={(e) => onUpdateOverlayClip(o.id, { startMs: Math.max(0, Number(e.target.value) || 0) })}
+                        key={`${o.id}-start-${Math.round(o.startMs)}`}
+                        defaultValue={Math.round(o.startMs)}
+                        onBlur={(e) => {
+                          const n = Number(e.target.value);
+                          const next = Number.isFinite(n) ? Math.max(0, Math.round(n)) : o.startMs;
+                          if (next !== o.startMs) onUpdateOverlayClip(o.id, { startMs: next });
+                          else e.target.value = String(Math.round(o.startMs));
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                         className="w-full h-6 rounded border border-white/[0.10] bg-black/70 px-1 text-[9.5px] text-white/90 outline-none"
                       />
                     </label>
@@ -1350,8 +1444,16 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
                       <span className="block text-[8px] uppercase tracking-wider text-white/30">Duration ms</span>
                       <input
                         type="number"
-                        value={Math.round(o.durationMs)}
-                        onChange={(e) => onUpdateOverlayClip(o.id, { durationMs: Math.max(100, Number(e.target.value) || 100) })}
+                        min={100}
+                        key={`${o.id}-dur-${Math.round(o.durationMs)}`}
+                        defaultValue={Math.round(o.durationMs)}
+                        onBlur={(e) => {
+                          const n = Number(e.target.value);
+                          const next = Number.isFinite(n) ? Math.max(100, Math.round(n)) : o.durationMs;
+                          if (next !== o.durationMs) onUpdateOverlayClip(o.id, { durationMs: next });
+                          else e.target.value = String(Math.round(o.durationMs));
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                         className="w-full h-6 rounded border border-white/[0.10] bg-black/70 px-1 text-[9.5px] text-white/90 outline-none"
                       />
                     </label>
@@ -1361,8 +1463,15 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
                       </span>
                       <input
                         type="number"
-                        value={o.zIndex}
-                        onChange={(e) => onUpdateOverlayClip(o.id, { zIndex: Math.round(Number(e.target.value) || 0) })}
+                        key={`${o.id}-z-${o.zIndex}`}
+                        defaultValue={o.zIndex}
+                        onBlur={(e) => {
+                          const n = Number(e.target.value);
+                          const next = Number.isFinite(n) ? Math.round(n) : o.zIndex;
+                          if (next !== o.zIndex) onUpdateOverlayClip(o.id, { zIndex: next });
+                          else e.target.value = String(o.zIndex);
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                         className="w-full h-6 rounded border border-white/[0.10] bg-black/70 px-1 text-[9.5px] text-white/90 outline-none"
                       />
                     </label>

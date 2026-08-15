@@ -143,7 +143,17 @@ function overlayToEditable(raw: AuthoredOverlayClip): EditableOverlayClip | null
   const startMs = [raw.startMs, raw.start].find((v) => typeof v === "number");
   const durationMs = [raw.durationMs, raw.duration].find((v) => typeof v === "number");
   return {
-    id: nextId("overlay"),
+    // Preserved from the authored id when present — compileOverlays (see
+    // compile.ts) does the same, so the editable doc and the compiled
+    // timeline agree on overlay ids for anything parsed from the same
+    // source (a reload from history, an AI-authored timeline). Losing that
+    // agreement is what used to tear down and rebuild every overlay's
+    // <video> element (see the lifecycle effect in useMotionCore.ts) the
+    // moment a saved project's first edit landed: the editable doc would
+    // mint fresh ids no compiled overlay had ever used, so the very next
+    // recompile looked like every single clip had just been deleted and a
+    // brand-new one added in its place.
+    id: str(raw.id) ?? nextId("overlay"),
     label: str(raw.label) ?? "Clip",
     videoUrl,
     startMs: Math.max(0, Math.round(num(startMs, 0))),

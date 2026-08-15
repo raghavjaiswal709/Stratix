@@ -32,6 +32,17 @@ export interface TimelineRenderOptions {
    */
   words?: Array<{ text: string; startMs: number; endMs: number }>;
   captions?: boolean;
+  /**
+   * Where the burnt-in caption sits absent an active captionOverlay clip
+   * (which always forces the big centred treatment regardless of this —
+   * see drawActiveCaption). Defaults to "bottom": the same big centred
+   * lower-third treatment as an Overlay clip's own caption, so the two never
+   * visibly swap position mid-video. "top" restores the original full-width
+   * banner flush with the frame's top edge.
+   */
+  captionPosition?: "top" | "bottom";
+  /** Opacity of the caption's own black backing, 0–1. Defaults to 0.4. Text stays fully opaque regardless. */
+  captionBgOpacity?: number;
   /** Draws a white "cut paper" margin behind every collage-part layer. */
   paperCutStyle?: boolean;
   /**
@@ -91,9 +102,18 @@ export interface TimelineRenderOptions {
    * screen at once (most-recently-appeared wins, falling back to any other
    * still-visible big zone if that one leaves). Drawn with
    * drawActiveZoneOverlay, which — unlike zoneFlourishes above — runs for
-   * the layer's whole on-screen duration, not just its entrance.
+   * the layer's whole on-screen duration, not just its entrance. Always on
+   * when there's a current zone — independent of zoneBorderEnabled below —
+   * since the diagonal shine it paints is a separate, always-on effect from
+   * the rotating border.
    */
   currentZoneLayerId?: string | null;
+  /**
+   * Off by default. Gates only the black rotating dashed border half of
+   * drawActiveZoneOverlay — the diagonal white corner-to-corner shine on the
+   * same zone is unrelated and always plays regardless of this flag.
+   */
+  zoneBorderEnabled?: boolean;
 }
 
 /** How long the on-entrance sweep-then-flash lasts, in ms, once a zone appears. */
@@ -242,7 +262,8 @@ function drawCaption(
   H: number,
   timeMs: number,
   words: NonNullable<TimelineRenderOptions["words"]>,
-  leadMs: number
+  leadMs: number,
+  bgOpacity: number
 ) {
   // Reading ahead of the transcript by leadMs, so a caption always lands a
   // beat before the word rather than exactly on it — see captionLeadMs.
@@ -292,13 +313,14 @@ function drawCaption(
   const y = H * 0.065;
   const spaceW = ctx.measureText(" ").width;
 
-  // The banner: opaque black, full width, flush with the top — only its
-  // bottom edge tracks the text, so it is exactly as tall as this burst
-  // needs and no taller.
+  // The banner: black, full width, flush with the top — only its bottom
+  // edge tracks the text, so it is exactly as tall as this burst needs and
+  // no taller. Opacity is user-configurable (captionBgOpacity); the text
+  // itself stays fully opaque regardless — only the backing fades.
   const padBottom = size * 0.34;
   const boxH = y + padBottom;
 
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = bgOpacity;
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, W, boxH);
 
@@ -328,7 +350,8 @@ function drawBigOverlayCaption(
   H: number,
   timeMs: number,
   words: NonNullable<TimelineRenderOptions["words"]>,
-  leadMs: number
+  leadMs: number,
+  bgOpacity: number
 ) {
   const t = timeMs + leadMs;
 
@@ -369,8 +392,11 @@ function drawBigOverlayCaption(
   const boxW = Math.min(W * 0.94, total + padX * 2);
   const boxH = size + padY * 2;
 
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  // User-configurable opacity (captionBgOpacity) — same knob as the top
+  // banner's, kept as plain black + globalAlpha rather than an rgba() alpha
+  // so both caption styles share one source of truth for the setting.
+  ctx.globalAlpha = bgOpacity;
+  ctx.fillStyle = "#000000";
   rrect(ctx, W / 2 - boxW / 2, y - boxH / 2, boxW, boxH, boxH * 0.22);
   ctx.fill();
 
@@ -602,9 +628,9 @@ function drawZoneFlourish(
  *
  *   1. A thin black dashed border traced exactly on the rect's own edge, its
  *      dash offset animating continuously so it reads as rotating around the
- *      perimeter forever.
+ *      perimeter forever. Off by default — gated on borderEnabled.
  *   2. A soft diagonal white shine swept from the top-left corner to the
- *      bottom-right, clipped to the rect, looping forever.
+ *      bottom-right, clipped to the rect, looping forever. Always on.
  *
  * Both are pure functions of timeMs (see zigzagWobbleDeg for the same
  * contract), so they play back identically in live preview and in the
@@ -617,22 +643,27 @@ function drawActiveZoneOverlay(
   w: number,
   h: number,
   timeMs: number,
-  camZoom: number
+  camZoom: number,
+  borderEnabled: boolean
 ) {
   if (w <= 0 || h <= 0) return;
 
   // 1. Rotating border — exact bounds, thin, zoom-compensated so it reads as
-  // the same on-screen thickness at any camera zoom.
-  ctx.save();
-  ctx.globalAlpha = 1;
-  const dash = ZONE_ACTIVE_BORDER_DASH / camZoom;
-  const gap = ZONE_ACTIVE_BORDER_GAP / camZoom;
-  ctx.strokeStyle = "#000000";
-  ctx.lineWidth = 2 / camZoom;
-  ctx.setLineDash([dash, gap]);
-  ctx.lineDashOffset = -((timeMs / 1000) * ZONE_ACTIVE_BORDER_SPEED) % (dash + gap);
-  ctx.strokeRect(x, y, w, h);
-  ctx.restore();
+  // the same on-screen thickness at any camera zoom. Off by default (see
+  // zoneBorderEnabled) — the diagonal shine below is the always-on half of
+  // this effect and does not depend on this flag.
+  if (borderEnabled) {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    const dash = ZONE_ACTIVE_BORDER_DASH / camZoom;
+    const gap = ZONE_ACTIVE_BORDER_GAP / camZoom;
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2 / camZoom;
+    ctx.setLineDash([dash, gap]);
+    ctx.lineDashOffset = -((timeMs / 1000) * ZONE_ACTIVE_BORDER_SPEED) % (dash + gap);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
 
   // 2. Diagonal shine — clipped to the exact rect, swept along the true
   // top-left→bottom-right diagonal so it always travels corner to corner
@@ -914,9 +945,9 @@ function drawScene(
       if (rot !== 0) {
         ctx.translate(left + curW / 2, top + curH / 2);
         ctx.rotate(rot);
-        drawActiveZoneOverlay(ctx, -curW / 2, -curH / 2, curW, curH, timeMs, cam.z);
+        drawActiveZoneOverlay(ctx, -curW / 2, -curH / 2, curW, curH, timeMs, cam.z, !!opts.zoneBorderEnabled);
       } else {
-        drawActiveZoneOverlay(ctx, left, top, curW, curH, timeMs, cam.z);
+        drawActiveZoneOverlay(ctx, left, top, curW, curH, timeMs, cam.z, !!opts.zoneBorderEnabled);
       }
       ctx.restore();
     }
@@ -985,10 +1016,11 @@ function drawOverlays(
 }
 
 /**
- * Whichever caption style applies this frame — the big centred overlay
- * treatment while a captionOverlay clip is active, the normal top banner
- * otherwise. Always the very last thing painted, after every front overlay,
- * so a caption can never be obscured by one.
+ * Whichever caption style applies this frame — the big centred treatment
+ * (default, and always forced while a captionOverlay clip is active) or the
+ * classic top banner when captionPosition is explicitly "top". Always the
+ * very last thing painted, after every front overlay, so a caption can
+ * never be obscured by one.
  */
 function drawActiveCaption(
   ctx: CanvasRenderingContext2D,
@@ -1001,9 +1033,11 @@ function drawActiveCaption(
 ) {
   if (!opts.captions || !opts.words?.length || showingIntro) return;
   const leadMs = opts.captionLeadMs ?? 200;
+  const bgOpacity = Math.max(0, Math.min(1, opts.captionBgOpacity ?? 0.4));
   const overlayClip = activeOverlays.find((o) => o.captionOverlay);
-  if (overlayClip) drawBigOverlayCaption(ctx, W, H, timeMs, opts.words, leadMs);
-  else drawCaption(ctx, W, H, timeMs, opts.words, leadMs);
+  const useBigPosition = !!overlayClip || opts.captionPosition !== "top";
+  if (useBigPosition) drawBigOverlayCaption(ctx, W, H, timeMs, opts.words, leadMs, bgOpacity);
+  else drawCaption(ctx, W, H, timeMs, opts.words, leadMs, bgOpacity);
 }
 
 export function drawMotionTimelineFrame(

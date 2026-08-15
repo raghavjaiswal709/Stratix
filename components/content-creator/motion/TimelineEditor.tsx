@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Clapperboard,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -14,6 +15,7 @@ import {
   Redo2,
   Trash2,
   Undo2,
+  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -35,6 +37,8 @@ import {
   deleteCue,
   duplicateCue,
   updateCue,
+  updateOverlay,
+  deleteOverlay,
   type EditableCue,
   type EditableScene,
   type EditableTimeline,
@@ -44,6 +48,7 @@ import {
    height here has to match on both sides or the labels drift off their rows. */
 const RULER_H = 22;
 const WORDS_H = 18;
+const OVERLAY_H = 26;
 const SCENE_H = 30;
 const TRACK_H = 24;
 const GUTTER_W = 156;
@@ -74,6 +79,8 @@ type Drag =
   | { kind: "cue-resize"; sceneId: string; trackId: string | null; cueId: string; startDur: number; startX: number }
   | { kind: "boundary"; index: number }
   | { kind: "scene"; sceneId: string; startX: number }
+  | { kind: "overlay"; overlayId: string; grabMs: number }
+  | { kind: "overlay-resize"; overlayId: string; startDur: number; startX: number }
   | { kind: "scrub" };
 
 const fmt = (ms: number) => {
@@ -94,6 +101,7 @@ export function TimelineEditor(props: TimelineEditorProps) {
   const [snapOn, setSnapOn] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<{ sceneId: string; trackId: string | null; cueId: string } | null>(null);
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [snapLabel, setSnapLabel] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   /* Tall enough to work in, short enough to leave the frame legible. Roughly a
@@ -118,7 +126,16 @@ export function TimelineEditor(props: TimelineEditorProps) {
   /* ── Gesture handling ───────────────────────────────────────────────────
      One set of window listeners for every drag kind. Attaching per-element
      handlers instead would drop the gesture the moment the pointer left the
-     3px-wide thing being dragged. */
+     3px-wide thing being dragged.
+
+     A raw pointermove can fire far faster than the screen actually repaints
+     — a high-polling-rate mouse or trackpad easily outpaces 60fps. Recomputing
+     and re-rendering on every single one queues up more work than the display
+     can show, which is what a dragged cue or a scrubbed playhead lagging
+     behind the cursor looks like from the outside. Only the latest pointer
+     position matters, so raw events just record it; one rAF per frame is what
+     actually applies it, coalescing however many moves landed in between into
+     the one update the frame can use. */
   useEffect(() => {
     if (!dragRef.current) return;
 
@@ -129,11 +146,17 @@ export function TimelineEditor(props: TimelineEditorProps) {
       return pxToMs(clientX - rect.left + el.scrollLeft);
     };
 
-    const onMove = (e: PointerEvent) => {
+    let rafId: number | null = null;
+    let pendingClientX: number | null = null;
+    let pendingAltKey = false;
+
+    const applyMove = () => {
+      rafId = null;
       const drag = dragRef.current;
-      if (!drag) return;
-      e.preventDefault();
-      const at = localMs(e.clientX);
+      if (!drag || pendingClientX === null) return;
+      const clientX = pendingClientX;
+      const altKey = pendingAltKey;
+      const at = localMs(clientX);
 
       if (drag.kind === "scrub") {
         onSeek(Math.max(0, Math.min(duration, at)));
@@ -144,7 +167,7 @@ export function TimelineEditor(props: TimelineEditorProps) {
         const scene = doc.scenes.find((s) => s.id === drag.sceneId);
         if (!scene) return;
         let target = at - drag.grabMs;
-        if (snapOn && !e.altKey) {
+        if (snapOn && !altKey) {
           const targets = snapTargetsFor(doc, drag.sceneId, words, drag.cueId);
           const snapped = snapTime(target, targets, pxToMs(7));
           target = snapped.atMs;
@@ -155,14 +178,14 @@ export function TimelineEditor(props: TimelineEditorProps) {
       }
 
       if (drag.kind === "cue-resize") {
-        const deltaMs = pxToMs(e.clientX - drag.startX);
+        const deltaMs = pxToMs(clientX - drag.startX);
         onChange(resizeCue(doc, drag.sceneId, drag.trackId, drag.cueId, drag.startDur + deltaMs));
         return;
       }
 
       if (drag.kind === "boundary") {
         let target = at;
-        if (snapOn && !e.altKey) {
+        if (snapOn && !altKey) {
           const wordTargets = words.map((w) => ({ atMs: w.startMs, kind: "word" as const, label: w.text }));
           const snapped = snapTime(target, wordTargets, pxToMs(7));
           target = snapped.atMs;
@@ -173,13 +196,43 @@ export function TimelineEditor(props: TimelineEditorProps) {
       }
 
       if (drag.kind === "scene") {
-        const deltaMs = pxToMs(e.clientX - drag.startX);
-        dragRef.current = { ...drag, startX: e.clientX };
+        const deltaMs = pxToMs(clientX - drag.startX);
+        dragRef.current = { ...drag, startX: clientX };
         onChange(shiftScene(doc, drag.sceneId, deltaMs));
+        return;
+      }
+
+      if (drag.kind === "overlay") {
+        let target = at - drag.grabMs;
+        if (snapOn && !altKey) {
+          const wordTargets = words.map((w) => ({ atMs: w.startMs, kind: "word" as const, label: w.text }));
+          const snapped = snapTime(target, wordTargets, pxToMs(7));
+          target = snapped.atMs;
+          setSnapLabel(snapped.hit ? `word · ${snapped.hit.label}` : null);
+        }
+        onChange(updateOverlay(doc, drag.overlayId, { startMs: Math.max(0, target) }));
+        return;
+      }
+
+      if (drag.kind === "overlay-resize") {
+        const deltaMs = pxToMs(clientX - drag.startX);
+        onChange(updateOverlay(doc, drag.overlayId, { durationMs: drag.startDur + deltaMs }));
       }
     };
 
+    const onMove = (e: PointerEvent) => {
+      if (!dragRef.current) return;
+      e.preventDefault();
+      pendingClientX = e.clientX;
+      pendingAltKey = e.altKey;
+      if (rafId === null) rafId = requestAnimationFrame(applyMove);
+    };
+
     const onUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       const had = dragRef.current;
       dragRef.current = null;
       setSnapLabel(null);
@@ -191,6 +244,7 @@ export function TimelineEditor(props: TimelineEditorProps) {
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
@@ -204,13 +258,40 @@ export function TimelineEditor(props: TimelineEditorProps) {
   };
 
   /* Keyboard nudging — the last 30ms of a sync is faster by arrow key than by
-     any drag, and this is the tool people reach for once things are close. */
+     any drag, and this is the tool people reach for once things are close.
+     Cue and overlay selection are mutually exclusive (selecting one clears
+     the other — see onSelect/overlay onPointerDown below), so this only
+     ever acts on whichever is actually selected. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!selected) return;
+      if (!selected && !selectedOverlayId) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
+      if (selectedOverlayId) {
+        const overlay = doc.overlays.find((o) => o.id === selectedOverlayId);
+        if (!overlay) return;
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const step = e.shiftKey ? 100 : 10;
+          onBeginGesture();
+          onChange(
+            updateOverlay(doc, selectedOverlayId, {
+              startMs: Math.max(0, overlay.startMs + (e.key === "ArrowLeft" ? -step : step)),
+            }),
+            { commit: true }
+          );
+        }
+        if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault();
+          onBeginGesture();
+          onChange(deleteOverlay(doc, selectedOverlayId), { commit: true });
+          setSelectedOverlayId(null);
+        }
+        return;
+      }
+
+      if (!selected) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         const step = e.shiftKey ? 100 : 10;
@@ -232,7 +313,7 @@ export function TimelineEditor(props: TimelineEditorProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, doc, onChange, onBeginGesture]);
+  }, [selected, selectedOverlayId, doc, onChange, onBeginGesture]);
 
   // Keep the gutter's vertical scroll locked to the lanes'.
   const syncScroll = () => {
@@ -267,7 +348,8 @@ export function TimelineEditor(props: TimelineEditorProps) {
   }, [selected, doc]);
 
   const totalTracks = doc.scenes.reduce((n, s) => n + (expanded[s.id] ? s.tracks.length : 0), 0);
-  const bodyH = doc.scenes.length * SCENE_H + totalTracks * TRACK_H;
+  const overlayRowH = doc.overlays.length > 0 ? OVERLAY_H : 0;
+  const bodyH = overlayRowH + doc.scenes.length * SCENE_H + totalTracks * TRACK_H;
 
   const saveBadge = {
     idle: { text: "SAVED", cls: "text-white/30 border-white/[0.08] bg-white/[0.03]" },
@@ -358,6 +440,17 @@ export function TimelineEditor(props: TimelineEditorProps) {
             <span className="text-[8.5px] uppercase tracking-wider text-white/25">Scenes &amp; elements</span>
           </div>
           <div ref={gutterRef} className="overflow-hidden" style={{ height: `calc(100% - ${RULER_H + WORDS_H}px)` }}>
+            {doc.overlays.length > 0 && (
+              <div
+                className="flex items-center gap-1 px-1.5 border-b border-white/[0.05]"
+                style={{ height: OVERLAY_H, background: "rgba(168,85,247,0.06)" }}
+                title="Overlay clips — video inserted at an arbitrary point on the timeline, independent of any one slide"
+              >
+                <Clapperboard className="h-3 w-3 text-purple-300/70 shrink-0" />
+                <span className="text-[9.5px] font-bold text-purple-200/80 truncate flex-1">Overlays</span>
+                <span className="text-[8px] font-mono text-white/30 shrink-0">{doc.overlays.length}</span>
+              </div>
+            )}
             {doc.scenes.map((scene, i) => (
               <div key={scene.id}>
                 <div
@@ -445,6 +538,82 @@ export function TimelineEditor(props: TimelineEditorProps) {
               })}
             </div>
 
+            {/* Overlay clips — timeline-level, not scene-level, so they get
+                their own flat row rather than nesting under any one scene. */}
+            {doc.overlays.length > 0 && (
+              <div className="relative border-b border-white/[0.05]" style={{ height: OVERLAY_H, background: "rgba(168,85,247,0.03)" }}>
+                {doc.overlays.map((overlay) => {
+                  const isSel = selectedOverlayId === overlay.id;
+                  const left = msToPx(overlay.startMs);
+                  const width = Math.max(10, msToPx(overlay.durationMs));
+                  return (
+                    <div
+                      key={overlay.id}
+                      onPointerDown={(e) => {
+                        if ((e.target as HTMLElement).dataset.role) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelected(null);
+                        setSelectedOverlayId(overlay.id);
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        begin({
+                          kind: "overlay",
+                          overlayId: overlay.id,
+                          grabMs: (e.clientX - rect.left) / (width || 1) * overlay.durationMs,
+                        });
+                      }}
+                      title={`${overlay.label} · ${fmt(overlay.startMs)} · ${Math.round(overlay.durationMs)}ms${
+                        overlay.zIndex < 0 ? " · behind" : " · in front"
+                      }${overlay.captionOverlay ? " · caption overlay" : ""}`}
+                      className={`absolute top-[3px] rounded-[3px] border overflow-hidden cursor-grab active:cursor-grabbing transition-colors group ${
+                        isSel
+                          ? "border-white bg-white/[0.30] z-10"
+                          : "border-purple-500/40 bg-purple-500/20 hover:bg-purple-500/30"
+                      }`}
+                      style={{ left, width, height: OVERLAY_H - 6 }}
+                    >
+                      <div className="flex items-center h-full px-1 gap-1">
+                        <Clapperboard className="h-2.5 w-2.5 text-white/70 shrink-0" />
+                        <span className="text-[8px] leading-[15px] font-medium text-white/85 whitespace-nowrap truncate">
+                          {overlay.label}
+                        </span>
+                        <button
+                          data-role="delete"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onBeginGesture();
+                            onChange(deleteOverlay(doc, overlay.id), { commit: true });
+                            if (selectedOverlayId === overlay.id) setSelectedOverlayId(null);
+                          }}
+                          title="Delete this overlay clip"
+                          className="ml-auto shrink-0 text-white/0 group-hover:text-white/60 hover:!text-red-300 transition cursor-pointer"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                      <div
+                        data-role="resize"
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSelected(null);
+                          setSelectedOverlayId(overlay.id);
+                          begin({
+                            kind: "overlay-resize",
+                            overlayId: overlay.id,
+                            startDur: overlay.durationMs,
+                            startX: e.clientX,
+                          });
+                        }}
+                        className="absolute inset-y-0 right-0 w-[5px] cursor-col-resize hover:bg-white/40"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Scene + track rows */}
             <div className="relative">
               {doc.scenes.map((scene, i) => (
@@ -456,7 +625,10 @@ export function TimelineEditor(props: TimelineEditorProps) {
                   msToPx={msToPx}
                   slideName={slideNames[scene.slideIndex]}
                   selected={selected}
-                  onSelect={setSelected}
+                  onSelect={(s) => {
+                    setSelected(s);
+                    setSelectedOverlayId(null);
+                  }}
                   onBeginDrag={begin}
                   onTransition={(which, patch) => {
                     onBeginGesture();
@@ -464,14 +636,17 @@ export function TimelineEditor(props: TimelineEditorProps) {
                   }}
                 />
               ))}
+            </div>
 
-              {/* Playhead */}
-              <div
-                className="absolute top-0 bottom-0 w-px bg-white pointer-events-none z-30"
-                style={{ left: msToPx(timeMs) }}
-              >
-                <div className="absolute -top-1 -left-[3px] h-1.5 w-1.5 rotate-45 bg-white" />
-              </div>
+            {/* Playhead — spans from below the sticky ruler+words down through
+                the overlay row and every scene/track row, so it reads as one
+                continuous line through the whole timeline rather than
+                stopping short of whichever row happened to own it. */}
+            <div
+              className="absolute w-px bg-white pointer-events-none z-30"
+              style={{ left: msToPx(timeMs), top: RULER_H + WORDS_H, bottom: 0 }}
+            >
+              <div className="absolute -top-1 -left-[3px] h-1.5 w-1.5 rotate-45 bg-white" />
             </div>
           </div>
         </div>

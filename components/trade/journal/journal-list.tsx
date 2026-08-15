@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown, Filter, X, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/context";
 import { getTradingSession, getSessionBadgeClasses, getSessionTextColor } from "@/lib/trade-session";
+import { formatISTDateTime } from "@/lib/utils/ist-time";
 import type { JournalDetailTrade } from "./journal-detail";
 import type { JournalSortFilterPrefs } from "@/types";
 
@@ -547,7 +548,7 @@ export function JournalList({
                     </div>
                     <div className="flex items-center justify-between gap-1 mt-0.5">
                       <span className="text-[10px] text-white/25 truncate">
-                        {format(parseISO(displayEntryTime), "MMM d, yyyy, HH:mm")}
+                        {formatISTDateTime(displayEntryTime, trade.source, { commaBeforeTime: true })}
                       </span>
                       {(() => {
                         const sessionInfo = getTradingSession(displayEntryTime, trade.source);

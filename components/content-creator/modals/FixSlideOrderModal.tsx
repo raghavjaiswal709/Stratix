@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -8,6 +8,7 @@ import {
   ImagePlus,
   Loader2,
   Lock,
+  Maximize2,
   RotateCcw,
   Shuffle,
   Upload,
@@ -92,6 +93,7 @@ function ScriptOrderView({
   const [dragOverSlot, setDragOverSlot] = useState<number | null>(null);
   const [uploadingFor, setUploadingFor] = useState<number | "extras" | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<number | "extras" | null>(null);
@@ -175,6 +177,7 @@ function ScriptOrderView({
   const extras = plan.extras.map((id) => slideById.get(id)).filter((s): s is MotionSlide => !!s);
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="absolute inset-0" onClick={onClose} />
       <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col rounded-2xl border border-white/[0.1] bg-[#141412] shadow-2xl overflow-hidden">
@@ -248,6 +251,7 @@ function ScriptOrderView({
               }}
               onRemove={() => slot.slideId && unassign(slot.slideId)}
               onUpload={() => openPicker(slot.segmentIndex)}
+              onZoom={setZoomedImage}
             />
           ))}
         </div>
@@ -288,7 +292,7 @@ function ScriptOrderView({
               }}
             >
               {extras.map((slide) => (
-                <SlideChip key={slide.slideId} slide={slide} />
+                <SlideChip key={slide.slideId} slide={slide} onZoom={setZoomedImage} />
               ))}
             </div>
           )}
@@ -321,6 +325,8 @@ function ScriptOrderView({
         </div>
       </div>
     </div>
+    {zoomedImage && <ImageLightbox src={zoomedImage} onClose={() => setZoomedImage(null)} />}
+    </>
   );
 }
 
@@ -335,6 +341,7 @@ function SlotRow({
   onDrop,
   onRemove,
   onUpload,
+  onZoom,
 }: {
   slot: ScriptSlot;
   slide: MotionSlide | undefined;
@@ -346,6 +353,7 @@ function SlotRow({
   onDrop: (slideId: string) => void;
   onRemove: () => void;
   onUpload: () => void;
+  onZoom: (src: string) => void;
 }) {
   const missing = slot.status === "missing";
   const border = isDropTarget
@@ -392,8 +400,15 @@ function SlotRow({
             alt=""
             draggable
             onDragStart={(e) => e.dataTransfer.setData("text/plain", slide.slideId)}
+            onClick={() => onZoom(slide.originalUrl || slide.backgroundUrl || "")}
+            title="Click to view full size"
             className="h-16 w-[52px] object-contain bg-black/40 rounded-md cursor-grab active:cursor-grabbing"
           />
+          <span
+            className="absolute inset-0 flex items-end justify-end p-0.5 pointer-events-none opacity-0 group-hover:opacity-100 transition"
+          >
+            <Maximize2 className="h-2.5 w-2.5 text-white/70 drop-shadow" />
+          </span>
           <span
             title={
               slot.manual
@@ -443,11 +458,12 @@ function SlotRow({
   );
 }
 
-function SlideChip({ slide }: { slide: MotionSlide }) {
+function SlideChip({ slide, onZoom }: { slide: MotionSlide; onZoom: (src: string) => void }) {
   return (
     <div
       draggable
       onDragStart={(e) => e.dataTransfer.setData("text/plain", slide.slideId)}
+      onClick={() => onZoom(slide.originalUrl || slide.backgroundUrl || "")}
       title={slideCaption(slide) || slide.fileName}
       className="relative shrink-0 cursor-grab active:cursor-grabbing group"
     >
@@ -457,6 +473,7 @@ function SlideChip({ slide }: { slide: MotionSlide }) {
         draggable={false}
         className="h-16 w-[52px] object-contain bg-black/40 rounded-md border border-white/10 pointer-events-none"
       />
+      <Maximize2 className="absolute top-0.5 right-0.5 h-3 w-3 text-white/0 group-hover:text-white/70 transition pointer-events-none drop-shadow" />
       <GripVertical className="absolute bottom-0.5 right-0.5 h-3 w-3 text-white/0 group-hover:text-white/60 transition pointer-events-none" />
     </div>
   );
@@ -484,6 +501,7 @@ function BadgeOrderView({
   const [order, setOrder] = useState<number[]>(analysis.suggestedOrder);
   const [draggedPos, setDraggedPos] = useState<number | null>(null);
   const [dragOverPos, setDragOverPos] = useState<number | null>(null);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
   const isDirty = order.some((originalIdx, pos) => originalIdx !== analysis.suggestedOrder[pos]);
 
@@ -495,6 +513,7 @@ function BadgeOrderView({
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="absolute inset-0" onClick={onClose} />
       <div className="relative w-full max-w-5xl max-h-[88vh] flex flex-col rounded-2xl border border-white/[0.1] bg-[#141412] shadow-2xl overflow-hidden">
@@ -567,6 +586,7 @@ function BadgeOrderView({
                     setDraggedPos(null);
                     setDragOverPos(null);
                   }}
+                  onClick={() => thumb && setZoomedImage(thumb)}
                   title={slide.fileName}
                   className={`relative rounded-xl border overflow-hidden cursor-grab active:cursor-grabbing transition-all group ${
                     isBeingDragged
@@ -584,6 +604,12 @@ function BadgeOrderView({
                     <img src={thumb} alt="" draggable={false} className="w-full aspect-[4/5] object-contain bg-black/40 pointer-events-none select-none" />
                   ) : (
                     <div className="w-full aspect-[4/5] bg-black/40" />
+                  )}
+
+                  {thumb && (
+                    <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-md bg-black/80 backdrop-blur-sm flex items-center justify-center border border-white/15 z-10 opacity-0 group-hover:opacity-100 transition pointer-events-none">
+                      <Maximize2 className="h-3 w-3 text-white/70" />
+                    </span>
                   )}
 
                   <div className="absolute top-1.5 left-1.5 flex items-center gap-1 z-10">
@@ -670,6 +696,45 @@ function BadgeOrderView({
           </button>
         </div>
       </div>
+    </div>
+    {zoomedImage && <ImageLightbox src={zoomedImage} onClose={() => setZoomedImage(null)} />}
+    </>
+  );
+}
+
+/**
+ * Full-size preview for any thumbnail in this modal — click any image to
+ * open, click the backdrop/X or press Escape to close. Sits above the
+ * modal itself (z-[100] vs the modal's z-50) so it reads as a layer on top
+ * rather than replacing what's underneath.
+ */
+function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-sm p-6 cursor-zoom-out"
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        title="Close"
+        className="absolute top-4 right-4 p-2 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.1] transition cursor-pointer"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <img
+        src={src}
+        alt=""
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[88vh] max-w-[92vw] object-contain rounded-lg shadow-2xl cursor-default"
+      />
     </div>
   );
 }

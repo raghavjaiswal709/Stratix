@@ -163,9 +163,11 @@ export const TradeChart = forwardRef<TradeChartRef, TradeChartProps>(
     const [error, setError] = useState<string | null>(null);
     const [justSaved, setJustSaved] = useState(false);
     // TradingView shows mt5 candles in IST (broker time isn't what TradingView
-    // displays) — toggling this re-anchors the chart's displayed clock to IST
-    // for mt5 trades too, so a candle lines up with what the trader saw on TV.
-    const [tvTiming, setTvTiming] = useState(false);
+    // displays) — this re-anchors the chart's displayed clock to IST for mt5
+    // trades too, so a candle lines up with what the trader saw on TV. Defaults
+    // on so the X axis is always accurate IST out of the box; toggling off
+    // switches an mt5 trade's display to the raw broker/MT5-terminal clock.
+    const [tvTiming, setTvTiming] = useState(true);
     const { theme } = useAppContext();
     const isDark = theme !== "light";
 

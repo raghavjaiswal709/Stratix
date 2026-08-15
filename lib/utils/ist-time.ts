@@ -99,3 +99,27 @@ export function getStartOfISTWeek(nowUTC: Date): Date {
   const daysSinceMonday = (dow + 6) % 7;
   return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate() - daysSinceMonday));
 }
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * "MMM d, yyyy HH:mm" (optionally with a comma before the time) rendered in
+ * true IST. Deliberately not `date-fns`'s `format()` — that reads the Date's
+ * *local* (runtime/browser) getters, but `toIST()` stores true IST digits in
+ * the UTC slots (see file header), so formatting must read via getUTC*() too,
+ * exactly like getISTDateKey/getTradingSession above — otherwise the display
+ * silently reverts to whatever timezone the viewer's machine happens to be in.
+ */
+export function formatISTDateTime(
+  input: Date | string | number,
+  source: TradeTimeSource,
+  opts?: { commaBeforeTime?: boolean }
+): string {
+  const d = toIST(input, source);
+  const month = MONTH_ABBR[d.getUTCMonth()];
+  const day = d.getUTCDate();
+  const year = d.getUTCFullYear();
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${month} ${day}, ${year}${opts?.commaBeforeTime ? "," : ""} ${hh}:${mm}`;
+}
