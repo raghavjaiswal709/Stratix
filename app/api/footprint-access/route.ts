@@ -20,14 +20,11 @@ interface FootprintAccessDoc {
 /** The link counts as live while the engine has refreshed it recently (it does so every minute). */
 const LIVE_WITHIN_MS = 3 * 60_000;
 
-/** GET /api/footprint-access — the current Footprint Pro link. Admin only. */
+/** GET /api/footprint-access — whether Footprint Pro is running, and its current link. Any signed-in user. */
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (session.user.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const client = await clientPromise;

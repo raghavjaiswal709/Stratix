@@ -20,15 +20,23 @@ const PANEL_W = 300;
 
 const clock = (ms: number | null) => (ms ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
 
+/** Dark page shown in the new window while the sign-in link is prepared. */
+const OPENING_PAGE = `<!doctype html><html><head><title>Footprint Pro</title><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;height:100vh;display:grid;place-items:center;background:#0b0e13;color:#8f9bb0;font:14px system-ui,-apple-system,sans-serif">
+Opening Footprint Pro…</body></html>`;
+
 /**
- * "Access Footprint": opens the Footprint Pro order-flow dashboard that runs on the trading Mac. Its public link
- * changes whenever Footprint restarts; the Footprint engine writes the current one to the database, so this
- * always shows the live link. Admins only. `rail` = collapsed sidebar, `full` = expanded sidebar, `mobile` = top bar.
+ * "Access Footprint": opens the Footprint Pro order-flow dashboard that runs on the trading Mac, signed in with this
+ * Stratix account. Its public link changes whenever Footprint restarts; the Footprint engine writes the current one
+ * to the database. "Orderflow Access" asks for a one-time sign-in link and opens it in its own full-size window
+ * without tabs. Footprint then asks for its password; layouts, settings and the paper account belong to this
+ * e-mail. `rail` = collapsed sidebar, `full` = expanded sidebar, `mobile` = top bar.
  */
 export function AccessFootprint({ variant }: { variant: Variant }) {
   const { data: session } = useSession();
-  const isAdmin = session?.user?.role === "admin";
+  const signedIn = !!session?.user;
   const [open, setOpen] = useState(false);
+  const [opening, setOpening] = useState(false);
   const [data, setData] = useState<FootprintAccess | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +50,7 @@ export function AccessFootprint({ variant }: { variant: Variant }) {
     setLoading(true);
     try {
       const res = await fetch("/api/footprint-access", { cache: "no-store" });
-      if (!res.ok) throw new Error(res.status === 403 ? "Admins only" : `Could not load the link (${res.status})`);
+      if (!res.ok) throw new Error(`Could not load the link (${res.status})`);
       setData((await res.json()) as FootprintAccess);
       setError(null);
     } catch (e) {
@@ -54,13 +62,13 @@ export function AccessFootprint({ variant }: { variant: Variant }) {
 
   // status dot on the button: check now and then; while the panel is open, every 30 s
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!signedIn) return;
     void load();
     const t = setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, open ? 30_000 : 120_000);
     return () => clearInterval(t);
-  }, [isAdmin, open, load]);
+  }, [signedIn, open, load]);
 
   // place the panel next to the button
   useLayoutEffect(() => {
@@ -96,7 +104,7 @@ export function AccessFootprint({ variant }: { variant: Variant }) {
     };
   }, [open]);
 
-  if (!isAdmin) return null;
+  if (!signedIn) return null;
 
   const live = !!data?.url && data.online;
   const dot = (
@@ -108,9 +116,48 @@ export function AccessFootprint({ variant }: { variant: Variant }) {
     />
   );
 
-  const openDashboard = () => {
-    if (!data?.url) return;
-    window.open(data.url, "_blank", "noopener,noreferrer");
+  const openDashboard = async () => {
+    if (!data?.url || opening) return;
+    // The window must be opened during the click (pop-up blockers), so open it first and point it at the
+    // sign-in link once that is ready. A pop-up window has no tabs, bookmarks or toolbars; sized to the screen.
+    const w = Math.max(800, window.screen.availWidth || window.innerWidth);
+    const h = Math.max(600, window.screen.availHeight || window.innerHeight);
+    const popup = window.open("", "footprint-pro", `popup=yes,width=${w},height=${h},left=0,top=0`);
+    try {
+      if (popup) {
+        popup.document.open();
+        popup.document.write(OPENING_PAGE);
+        popup.document.close();
+      }
+    } catch {
+      /* a Footprint window from before (another site): it is just navigated */
+    }
+    setOpening(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/footprint-access/ticket", { method: "POST", cache: "no-store" });
+      const j = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !j.url) throw new Error(j.error || `Could not open Footprint (${res.status})`);
+      if (popup && !popup.closed) {
+        try {
+          // the dashboard must not be able to reach back into Stratix
+          popup.opener = null;
+        } catch {
+          /* cross-origin */
+        }
+        popup.location.href = j.url;
+        popup.focus();
+      } else {
+        // pop-ups are blocked: open it here
+        window.location.href = j.url;
+      }
+      setOpen(false);
+    } catch (e) {
+      popup?.close();
+      setError(e instanceof Error ? e.message : "Could not open Footprint");
+    } finally {
+      setOpening(false);
+    }
   };
 
   const copy = () => {
@@ -227,16 +274,17 @@ export function AccessFootprint({ variant }: { variant: Variant }) {
             </div>
 
             <button
-              onClick={openDashboard}
-              disabled={!data?.url}
+              onClick={() => void openDashboard()}
+              disabled={!data?.url || opening}
               className={cn(
                 "flex h-10 w-full items-center justify-center gap-2 rounded-lg text-[13.5px] font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40",
                 live ? "bg-emerald-500 text-black hover:bg-emerald-400" : "border border-border bg-white/[0.06] text-foreground hover:bg-white/[0.1]",
               )}
             >
               <ExternalLink className="h-4 w-4" />
-              Orderflow Access
+              {opening ? "Opening…" : "Orderflow Access"}
             </button>
+            {error && data && <p className="mt-2 text-[11.5px] text-red-300/90">{error}</p>}
 
             {data?.url && (
               <div className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-border bg-black/20 px-2 py-1.5">
@@ -255,7 +303,8 @@ export function AccessFootprint({ variant }: { variant: Variant }) {
             )}
 
             <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
-              Sign in with your Footprint password. Your browser can remember it. The link updates by itself whenever Footprint restarts.
+              Opens in its own window, signed in as <span className="text-foreground">{session?.user?.email}</span>. Enter the Footprint password there;
+              your layouts, settings and paper account are saved to this account. Use the full-screen button in Footprint to hide the browser bars.
             </p>
           </div>,
           document.body,
