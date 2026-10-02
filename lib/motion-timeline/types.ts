@@ -57,6 +57,11 @@ export interface AuthoredCue {
    * the real audio timing, using `atMs` only to disambiguate a repeated word.
    */
   word?: string;
+  /** True once a user has hand-dragged this cue's timing — see edit.ts's manual-override mechanism. */
+  manual?: boolean;
+  /** Timing this cue had before any manual override — the reset target. */
+  autoAtMs?: number;
+  autoDurMs?: number;
   [key: string]: unknown;
 }
 
@@ -105,6 +110,11 @@ export interface AuthoredScene {
   tracks?: AuthoredTrack[];
   elements?: AuthoredTrack[];
   layers?: AuthoredTrack[];
+  /** True once a user has hand-dragged this scene's timing — see edit.ts's manual-override mechanism. */
+  manual?: boolean;
+  /** Timing this scene had before any manual override — the reset target. */
+  autoStartMs?: number;
+  autoEndMs?: number;
   [key: string]: unknown;
 }
 
@@ -128,6 +138,11 @@ export interface AuthoredOverlayClip {
   zIndex?: number;
   /** When true, the burnt-in caption switches to the larger, always-on-top overlay style while this clip is active. */
   captionOverlay?: boolean;
+  /** True once a user has hand-dragged this clip's timing — see edit.ts's manual-override mechanism. */
+  manual?: boolean;
+  /** Timing this clip had before any manual override — the reset target. */
+  autoStartMs?: number;
+  autoDurationMs?: number;
   [key: string]: unknown;
 }
 

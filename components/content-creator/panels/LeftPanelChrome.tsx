@@ -2,6 +2,7 @@
 
 import { ChevronLeft, Layers2, ListChecks, Star } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ACTIVE_CREATOR_MODES } from "../types";
 import type { CreatorMode, NewsItem } from "../types";
 
 /** Left panel header (collapse/Set-as-Default/Select-Posters) + Creator Mode switcher strip + tab-selector strip. */
@@ -28,6 +29,15 @@ export function LeftPanelChrome({
   setActiveTab: (tab: string) => void;
   TABS: { id: string; label: string; icon: React.ComponentType<{ className?: string }> }[];
 }) {
+  // Opening a history item saved under a retired mode (Daily Analysis,
+  // Indicator, Facts, Learnings) still switches into it — its fields and
+  // renderer are all intact. Give that mode a pill of its own for as long as
+  // it is the one open, so the strip is never showing nothing selected; it
+  // disappears again the moment you leave.
+  const modes: CreatorMode[] = (ACTIVE_CREATOR_MODES as readonly CreatorMode[]).includes(creatorMode)
+    ? [...ACTIVE_CREATOR_MODES]
+    : [creatorMode, ...ACTIVE_CREATOR_MODES];
+
   return (
     <>
       {/* Panel header */}
@@ -82,12 +92,11 @@ export function LeftPanelChrome({
         <label className="text-[8.5px] font-bold uppercase tracking-widest text-[#787870] block mb-1">
           Creator Mode
         </label>
-        {/* Horizontally scrollable strip — 5 labels (incl. two-word ones like
-            "Daily Analysis") never fit evenly in a 3-wide grid on the ~300px
-            mobile panel without wrapping onto 2 lines, so each pill sizes to
-            its own text and the strip scrolls instead. */}
+        {/* Horizontally scrollable strip — two-word labels never fit evenly in
+            a grid on the ~300px mobile panel without wrapping onto 2 lines, so
+            each pill sizes to its own text and the strip scrolls instead. */}
         <div className="flex gap-0.5 bg-white/[0.02] border border-white/[0.06] p-0.5 rounded-lg overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {(["analysis", "news", "indicator", "facts", "learnings", "watermark", "motion"] as const).map((m) => {
+          {modes.map((m) => {
             const active = creatorMode === m;
             const labels: Record<CreatorMode, string> = {
               analysis: "Daily Analysis",
@@ -97,6 +106,7 @@ export function LeftPanelChrome({
               learnings: "Learnings",
               watermark: "Logo Watermark",
               motion: "Motion Video",
+              levels: "Levels",
             };
             return (
               <button
@@ -115,7 +125,8 @@ export function LeftPanelChrome({
         </div>
       </div>
 
-      {/* Tab Selection */}
+      {/* Tab Selection — Levels is a single editor and supplies no tabs. */}
+      {TABS.length > 0 && (
       <div className="px-4 py-1 border-b shrink-0" style={{ borderColor: "rgba(255, 255, 255, 0.06)" }}>
         <div className="flex bg-white/[0.03] border border-white/[0.06] p-0.5 rounded-lg">
           <TooltipProvider delay={100}>
@@ -145,6 +156,7 @@ export function LeftPanelChrome({
           </TooltipProvider>
         </div>
       </div>
+      )}
     </>
   );
 }

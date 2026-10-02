@@ -2,11 +2,23 @@
 // Fetches historical candle data in monthly chunks, caches each month first in
 // IndexedDB (persists across refreshes) then in a fast in-memory Map.
 // Resamples 1-minute base data to any target timeframe on the client side.
+//
+// Source priority per month: R2 archive (/api/backtesting/archive — the
+// continuously-updated, gap-backfilled store) first, then the bundled
+// public/data/candles static CSV snapshot as a fallback if R2 has nothing,
+// then live Dukascopy as the last resort. The static bundle is frozen at
+// whatever it was the last time someone ran the local download script —
+// candle writes moved to R2-only a while back, so it no longer updates.
 
 import type { Candle, InstrumentKey, Timeframe } from "./types";
 
 // ── IndexedDB persistence layer ───────────────────────────────────────────────
-const IDB_DB_NAME    = "stratix-candles-v1";
+// Bumped to v2: a batch of fabricated XAUUSD weekend candles (Jun/Jul 2026,
+// Nov 2025) was found and deleted server-side. "Historical data doesn't
+// change" no longer held for anyone who had those months cached under v1 —
+// bumping the DB name orphans that cache so every browser re-fetches the
+// corrected data instead of serving the fake candles for up to 8 more days.
+const IDB_DB_NAME    = "stratix-candles-v2";
 const IDB_STORE      = "months";
 const IDB_TTL_MS     = 8 * 24 * 60 * 60 * 1000; // 8 days — historical data doesn't change
 
@@ -63,7 +75,7 @@ const memCache = new Map<string, Candle[]>();
 const currentMonthCache = new Map<string, { data: Candle[]; ts: number }>();
 const CURRENT_MONTH_TTL = 5 * 60 * 1000; // 5 minutes
 
-let lastFetchedSource: "IndexedDB" | "GitHub CDN" | "Local Static" | "Dukascopy API" = "Dukascopy API";
+let lastFetchedSource: "IndexedDB" | "R2 Archive" | "GitHub CDN" | "Local Static" | "Dukascopy API" = "Dukascopy API";
 
 export function getLastFetchedSource(): string { return lastFetchedSource; }
 
@@ -114,6 +126,27 @@ function parseCandlesCSV(text: string): Candle[] {
       close: parseFloat(p[ci]), volume: parseFloat(p[vi]) });
   }
   return out;
+}
+
+// ── R2 archive fetch (server-side proxy for a month's CSV — see route header
+//    comment for why this is tried ahead of the static bundle) ───────────────
+async function fetchArchiveMonth(
+  instrument: InstrumentKey,
+  year: number,
+  monthStr: string,
+  signal?: AbortSignal,
+): Promise<Candle[]> {
+  try {
+    const res = await fetch(
+      `/api/backtesting/archive?instrument=${instrument}&year=${year}&month=${monthStr}`,
+      { signal },
+    );
+    if (!res.ok) return [];
+    return parseCandlesCSV(await res.text());
+  } catch (err: unknown) {
+    if ((err as Error).name === "AbortError") throw err;
+    return [];
+  }
 }
 
 // ── Single month fetch with three-tier cache: mem → IDB → network ────────────
@@ -178,29 +211,40 @@ async function fetchMonth(
   if (currentMonth) {
     let csvCandles: Candle[] = [];
     let lastTs = 0;
-    const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
-    const csvUrl = `${baseCandlesUrl}/${instrument}/${instrument}_${year}_${monthStr}.csv`;
-    
-    // Attempt 1: Main CSV URL
-    try {
-      const res = await fetch(csvUrl, { signal });
-      if (res.ok) {
-        csvCandles = parseCandlesCSV(await res.text());
-      }
-    } catch (err: unknown) {
-      if ((err as Error).name === "AbortError") throw err;
-    }
 
-    // Attempt 2: Local fallback CSV if attempt 1 was empty/failed
-    if (csvCandles.length === 0 && process.env.NEXT_PUBLIC_CANDLES_URL) {
-      const localUrl = `/data/candles/${instrument}/${instrument}_${year}_${monthStr}.csv`;
+    // Attempt 1: R2 archive (freshest — cron-refreshed every 4h, gap-backfilled)
+    csvCandles = await fetchArchiveMonth(instrument, year, monthStr, signal);
+    if (csvCandles.length > 0) lastFetchedSource = "R2 Archive";
+
+    // Attempt 2/3: bundled static CSV snapshot, only if R2 had nothing
+    if (csvCandles.length === 0) {
+      const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
+      const csvUrl = `${baseCandlesUrl}/${instrument}/${instrument}_${year}_${monthStr}.csv`;
+
       try {
-        const res = await fetch(localUrl, { signal });
+        const res = await fetch(csvUrl, { signal });
         if (res.ok) {
           csvCandles = parseCandlesCSV(await res.text());
+          if (csvCandles.length > 0) {
+            lastFetchedSource = csvUrl.startsWith("https://cdn.jsdelivr.net") ? "GitHub CDN" : "Local Static";
+          }
         }
       } catch (err: unknown) {
         if ((err as Error).name === "AbortError") throw err;
+      }
+
+      // Local fallback CSV if the attempt above was empty/failed
+      if (csvCandles.length === 0 && process.env.NEXT_PUBLIC_CANDLES_URL) {
+        const localUrl = `/data/candles/${instrument}/${instrument}_${year}_${monthStr}.csv`;
+        try {
+          const res = await fetch(localUrl, { signal });
+          if (res.ok) {
+            csvCandles = parseCandlesCSV(await res.text());
+            if (csvCandles.length > 0) lastFetchedSource = "Local Static";
+          }
+        } catch (err: unknown) {
+          if ((err as Error).name === "AbortError") throw err;
+        }
       }
     }
 
@@ -238,12 +282,20 @@ async function fetchMonth(
       }
     }
 
-    // If API failed or wasn't needed, return the CSV data we got
-    lastFetchedSource = csvUrl.startsWith("https://cdn.jsdelivr.net") ? "GitHub CDN" : "Local Static";
+    // If API failed or wasn't needed, return whatever archive/CSV data we got
+    // (lastFetchedSource was already set by whichever attempt above succeeded)
     return set(csvCandles);
   }
 
-  // ── Historical months (and current-month API fallback): try static CSV first ──
+  // ── Historical months (and current-month API fallback): try the R2 archive
+  //    first (freshest, gap-backfilled), then the bundled static CSV snapshot,
+  //    then Dukascopy as a last resort ─────────────────────────────────────
+  const archiveData = await fetchArchiveMonth(instrument, year, monthStr, signal);
+  if (archiveData.length > 0) {
+    lastFetchedSource = "R2 Archive";
+    return set(archiveData);
+  }
+
   const baseCandlesUrl = process.env.NEXT_PUBLIC_CANDLES_URL || "/data/candles";
   const csvUrl = `${baseCandlesUrl}/${instrument}/${instrument}_${year}_${monthStr}.csv`;
   try {

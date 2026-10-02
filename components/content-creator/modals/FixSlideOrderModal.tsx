@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
+  Clock,
   GripVertical,
   ImagePlus,
   Loader2,
@@ -24,6 +25,7 @@ import {
   type ScriptSlot,
 } from "../slideOrder";
 import type { ScriptSegmentation } from "../scriptSegments";
+import { MANUAL_TIMING_LABEL } from "../motion/TimelineEditor";
 
 /**
  * Fix Slide Order.
@@ -44,6 +46,7 @@ export function FixSlideOrderModal({
   onClose,
   onApply,
   onDecomposeFiles,
+  modifiedSlideIds,
 }: {
   slides: MotionSlide[];
   /** The script's parts, in speaking order — see scriptSegments.ts. */
@@ -52,6 +55,8 @@ export function FixSlideOrderModal({
   onApply: (orderedSlides: MotionSlide[]) => void;
   /** Decomposes newly picked images into slides, for filling a gap in place. */
   onDecomposeFiles?: (files: File[]) => Promise<MotionSlide[]>;
+  /** slideIds whose timeline scene currently has manually-overridden timing — see TimelineEditor.tsx. */
+  modifiedSlideIds?: Set<string>;
 }) {
   if (segmentation.segments.length === 0) {
     return <BadgeOrderView slides={slides} onClose={onClose} onApply={onApply} />;
@@ -63,6 +68,7 @@ export function FixSlideOrderModal({
       onClose={onClose}
       onApply={onApply}
       onDecomposeFiles={onDecomposeFiles}
+      modifiedSlideIds={modifiedSlideIds}
     />
   );
 }
@@ -77,12 +83,14 @@ function ScriptOrderView({
   onClose,
   onApply,
   onDecomposeFiles,
+  modifiedSlideIds,
 }: {
   slides: MotionSlide[];
   segmentation: ScriptSegmentation;
   onClose: () => void;
   onApply: (orderedSlides: MotionSlide[]) => void;
   onDecomposeFiles?: (files: File[]) => Promise<MotionSlide[]>;
+  modifiedSlideIds?: Set<string>;
 }) {
   // Grows as gaps are filled, so the modal can add images without closing.
   const [workingSlides, setWorkingSlides] = useState<MotionSlide[]>(slides);
@@ -175,6 +183,9 @@ function ScriptOrderView({
   };
 
   const extras = plan.extras.map((id) => slideById.get(id)).filter((s): s is MotionSlide => !!s);
+  const modifiedCount = modifiedSlideIds
+    ? plan.slots.filter((s) => s.slideId && modifiedSlideIds.has(s.slideId)).length
+    : 0;
 
   return (
     <>
@@ -202,6 +213,7 @@ function ScriptOrderView({
                 {plan.weakCount > 0 && <span className="text-amber-300/80"> · {plan.weakCount} unsure</span>}
                 {plan.missingCount > 0 && <span className="text-red-300/90"> · {plan.missingCount} missing</span>}
                 {extras.length > 0 && <span className="text-white/50"> · {extras.length} unplaced</span>}
+                {modifiedCount > 0 && <span className="text-yellow-300/85"> · {modifiedCount} retimed</span>}
               </span>
             </div>
           </div>
@@ -240,6 +252,7 @@ function ScriptOrderView({
               key={slot.segmentIndex}
               slot={slot}
               slide={slot.slideId ? slideById.get(slot.slideId) : undefined}
+              isModified={!!slot.slideId && !!modifiedSlideIds?.has(slot.slideId)}
               isDropTarget={dragOverSlot === slot.segmentIndex}
               busy={uploadingFor === slot.segmentIndex}
               canUpload={!!onDecomposeFiles}
@@ -333,6 +346,7 @@ function ScriptOrderView({
 function SlotRow({
   slot,
   slide,
+  isModified,
   isDropTarget,
   busy,
   canUpload,
@@ -345,6 +359,8 @@ function SlotRow({
 }: {
   slot: ScriptSlot;
   slide: MotionSlide | undefined;
+  /** True when this slot's slide is used by a timeline scene with manually-overridden timing — a distinct fact from `slot.manual` (hand-placed image) below. */
+  isModified: boolean;
   isDropTarget: boolean;
   busy: boolean;
   canUpload: boolean;
@@ -433,6 +449,14 @@ function SlotRow({
               <Check className="h-2.5 w-2.5 text-emerald-400" />
             )}
           </span>
+          {isModified && (
+            <span
+              title={`${MANUAL_TIMING_LABEL} — this scene's timing was hand-adjusted in the timeline below`}
+              className="absolute -bottom-1 -left-1 h-4 w-4 rounded-full flex items-center justify-center border border-yellow-400/70 bg-black"
+            >
+              <Clock className="h-2.5 w-2.5 text-yellow-400" />
+            </span>
+          )}
           <button
             onClick={onRemove}
             title="Remove this image from this part"

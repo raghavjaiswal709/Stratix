@@ -16,6 +16,8 @@ export function SampleJsonModal({
   onApply: (json: string) => void;
 }) {
   const sampleData: Record<CreatorMode, unknown> = {
+    // Levels builds its slides from dropped screenshots, not from pasted JSON.
+    levels: null,
     analysis: SAMPLE_ANALYSIS,
     news: SAMPLE_NEWS,
     indicator: SAMPLE,
@@ -64,7 +66,7 @@ export function SampleJsonModal({
   }
 
   const modeLabels: Record<CreatorMode, string> = {
-    analysis: "Analysis", news: "News Batch", indicator: "Indicator", facts: "Facts", learnings: "Learnings", watermark: "Logo Watermark", motion: "Motion Video",
+    analysis: "Analysis", news: "News Batch", indicator: "Indicator", facts: "Facts", learnings: "Learnings", watermark: "Logo Watermark", motion: "Motion Video", levels: "Levels",
   };
 
   return (

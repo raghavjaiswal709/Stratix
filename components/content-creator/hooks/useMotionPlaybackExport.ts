@@ -97,6 +97,7 @@ export function useMotionPlaybackExport({
   motionWholeImageMotion,
   motionZigzagMotion,
   motionZoneBorder,
+  motionMinimalMode,
   motionHideImageCaptions,
   motionSfxEnabled,
   motionSfxVolume,
@@ -107,6 +108,7 @@ export function useMotionPlaybackExport({
   motionCurrentZoneVisibleRef,
   motionCurrentZoneIdRef,
   motionCurrentZoneSceneRef,
+  motionMinimalPrevZoneIdRef,
   setElementBounds,
   setSegmentError,
   setIsRecordingVideo,
@@ -165,6 +167,8 @@ export function useMotionPlaybackExport({
   motionZigzagMotion: boolean;
   /** Off by default: gates the always-on black rotating border + diagonal shine on the current zone. */
   motionZoneBorder: boolean;
+  /** Off by default: one decomposed part at a time, rested dead centre, on a flat page. */
+  motionMinimalMode: boolean;
   motionHideImageCaptions: boolean;
   motionSfxEnabled: boolean;
   motionSfxVolume: number;
@@ -175,6 +179,7 @@ export function useMotionPlaybackExport({
   motionCurrentZoneVisibleRef: RefObject<Record<string, boolean>>;
   motionCurrentZoneIdRef: RefObject<string | null>;
   motionCurrentZoneSceneRef: RefObject<number>;
+  motionMinimalPrevZoneIdRef: RefObject<string | null>;
   setElementBounds: (bounds: PosterElement[]) => void;
   setSegmentError: (msg: string | null) => void;
   setIsRecordingVideo: (recording: boolean) => void;
@@ -550,6 +555,12 @@ export function useMotionPlaybackExport({
         // refs' declaration).
         const currentZoneReseeding = motionCurrentZoneSceneRef.current !== frame.activeSceneIndex;
         motionCurrentZoneSceneRef.current = frame.activeSceneIndex;
+        // Snapshotted before the update below so a genuine handover — this
+        // zone replaced that one — can be told apart from a re-seed, which is
+        // the playhead being moved rather than anything on screen changing.
+        // Minimal mode holds the outgoing zone under the incoming one; a
+        // re-seed has no outgoing zone, because the viewer was never shown it.
+        const zoneIdBeforeUpdate = motionCurrentZoneIdRef.current;
         const currentZoneVisibleNow: Record<string, boolean> = {};
         Object.entries(topScene?.layers ?? {}).forEach(([layerId, state]) => {
           if (isBigZoneLayer(layerId)) currentZoneVisibleNow[layerId] = state.opacity * state.wipe > 0.05;
@@ -569,6 +580,16 @@ export function useMotionPlaybackExport({
           }
         }
         motionCurrentZoneVisibleRef.current = currentZoneVisibleNow;
+
+        if (currentZoneReseeding) {
+          motionMinimalPrevZoneIdRef.current = null;
+        } else if (motionCurrentZoneIdRef.current !== zoneIdBeforeUpdate) {
+          // Only a swap between two real zones leaves something to hold. A
+          // zone leaving with nothing to replace it hands over to null, and
+          // the renderer's own per-scene fallback keeps painting it through
+          // its exit — resurrecting it here would freeze it on screen instead.
+          motionMinimalPrevZoneIdRef.current = motionCurrentZoneIdRef.current ? zoneIdBeforeUpdate : null;
+        }
 
         // Keeps every active overlay's <video> seeked to its place in the
         // clip (looping past the clip's own native duration if the overlay's
@@ -648,6 +669,8 @@ export function useMotionPlaybackExport({
             // border half of that effect does (see zoneBorderEnabled below).
             currentZoneLayerId: motionCurrentZoneIdRef.current,
             zoneBorderEnabled: motionZoneBorder,
+            minimalMode: motionMinimalMode,
+            minimalPrevZoneLayerId: motionMinimalPrevZoneIdRef.current,
           },
           (sceneIndex) => motionTimeline.scenes[sceneIndex]?.intro
         );
@@ -697,6 +720,7 @@ export function useMotionPlaybackExport({
     motionWholeImageMotion,
     motionZigzagMotion,
     motionZoneBorder,
+    motionMinimalMode,
     motionHideImageCaptions,
     motionSfxEnabled,
     motionSfxVolume,
@@ -710,6 +734,7 @@ export function useMotionPlaybackExport({
     setActiveMotionIndex, setElementBounds,
     motionLastSceneIndexRef, motionZoneSeededSceneRef, motionZoneVisibleRef, motionZoneFlourishRef,
     motionCurrentZoneSceneRef, motionCurrentZoneVisibleRef, motionCurrentZoneIdRef,
+    motionMinimalPrevZoneIdRef,
   ]);
 
   const motionActiveWord = useMemo(

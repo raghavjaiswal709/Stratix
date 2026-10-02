@@ -13,6 +13,7 @@ import {
   Download,
   EyeOff,
   FileSpreadsheet,
+  Focus,
   FolderOpen,
   Loader2,
   Gauge,
@@ -46,6 +47,7 @@ import {
 } from "@/lib/motion-timeline";
 import type { HookVideoEntry } from "../types";
 import type { EditableOverlayClip } from "@/lib/motion-timeline/edit";
+import { MANUAL_TIMING_LABEL } from "./TimelineEditor";
 
 /** The speeds people actually reach for, plus the slider for everything else. */
 const SPEED_PRESETS = [1, 1.3, 1.5, 1.7, 2] as const;
@@ -58,6 +60,15 @@ export function formatTimecode(ms: number): string {
   const centis = Math.floor((safe % 1000) / 10);
   return `${minutes}:${String(seconds).padStart(2, "0")}.${String(centis).padStart(2, "0")}`;
 }
+
+/**
+ * The stages a motion project is built in, in the order the left panel's tab
+ * strip lists them. "slides" has no MotionTimelinePanel content of its own —
+ * decomposition and the layer manager live in MotionFields — but is part of
+ * the union so the panel can be handed any active tab and simply render its
+ * header.
+ */
+export type MotionPanelSection = "slides" | "audio" | "sync" | "look" | "timeline";
 
 export interface MotionTimelinePanelProps {
   slideCount: number;
@@ -97,10 +108,22 @@ export interface MotionTimelinePanelProps {
   /** Off by default. The always-on black rotating dashed border + diagonal shine on whichever zone last appeared. */
   zoneBorder: boolean;
   onZoneBorderChange: (value: boolean) => void;
+  /** Off by default. One decomposed part on screen at a time, rested dead centre, every other zone left blank page. */
+  minimalMode: boolean;
+  onMinimalModeChange: (value: boolean) => void;
+  /**
+   * Which stage of the panel to render. The whole motion project used to be
+   * one continuous scroll several thousand pixels long; the left panel now
+   * carries a tab per stage and hands the active one down here. Only the
+   * header is common to all four.
+   */
+  section: MotionPanelSection;
   onCopySpeechPrompt: () => void;
   copiedSpeechPrompt: boolean;
   autoSyncReport: AutoSyncReport | null;
   autoSyncNote: string | null;
+  /** True when a scene/cue this report describes has since been manually retimed — see edit.ts's `manual` flag. */
+  hasManualEdits: boolean;
 
   /** PART D of the video prompt — drives the local, zero-token build. */
   manifestText: string;
@@ -207,10 +230,14 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
     onZigzagMotionChange,
     zoneBorder,
     onZoneBorderChange,
+    minimalMode,
+    onMinimalModeChange,
+    section,
     onCopySpeechPrompt,
     copiedSpeechPrompt,
     autoSyncReport,
     autoSyncNote,
+    hasManualEdits,
     manifestText,
     onManifestTextChange,
     onBuildFromManifest,
@@ -289,9 +316,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
   const warnings = report?.issues.filter((i) => i.level === "warning") ?? [];
   const duration = timeline?.durationMs ?? 0;
   const progress = duration > 0 ? Math.min(1, timeMs / duration) : 0;
+  const show = (s: MotionPanelSection) => section === s;
 
   return (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-3">
+      {/* Header */}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -309,12 +338,18 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
         </span>
       </div>
 
+      {show("sync") && (
+      <>
       <p className="text-[10.5px] text-white/45 leading-relaxed">
         Load the word-level transcript and hit auto-sync. Stratix reads the words your decomposer already found on each
         poster, finds where the voiceover says them, and cuts the whole video to that &mdash; no AI, no manifest, no
         tokens. Every millisecond traces back to a row in your CSV.
       </p>
+      </>
+      )}
 
+      {show("audio") && (
+      <>
       {/* Step 1 — before any of this exists, the script and the slides have to
           be written to match each other. */}
       <div className="rounded-lg border border-white/[0.10] bg-white/[0.02] p-2.5 space-y-1.5">
@@ -347,7 +382,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           )}
         </button>
       </div>
+      </>
+      )}
 
+      {show("audio") && (
+      <>
       {/* One picker for both files at once — opens the OS file manager with
           multi-select on, and each file lands in the right slot below (CSV
           transcript vs. voiceover WAV/MP3/etc.) by its own extension, so
@@ -364,6 +403,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           e.target.value = "";
         }}
       />
+      </>
+      )}
+
+      {show("audio") && (
+      <>
       <button
         onClick={() => combinedInputRef.current?.click()}
         title="Pick the CSV transcript and the voiceover audio together — each one is detected automatically"
@@ -372,7 +416,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
         <FolderOpen className="h-3.5 w-3.5" />
         <span>LOAD CSV + AUDIO TOGETHER</span>
       </button>
+      </>
+      )}
 
+      {show("audio") && (
+      <>
       {/* Step two — the CSV the whole sync is derived from, and the audio it came from */}
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 space-y-1.5">
@@ -462,7 +510,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           )}
         </div>
       </div>
+      </>
+      )}
 
+      {show("audio") && (
+      <>
       {/* Background music — a bed under the narration, mixed into the export */}
       <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2 space-y-1.5">
         <div className="flex items-center justify-between">
@@ -520,7 +572,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </button>
         )}
       </div>
+      </>
+      )}
 
+      {show("audio") && (
+      <>
       {/* Transitions & Audio Sound Effects Library (10+ Transitions & Sound Effects + Downloading) */}
       <div className="rounded-lg border border-white/[0.12] bg-white/[0.03] p-2.5 space-y-2.5">
         <div className="flex items-center justify-between">
@@ -628,8 +684,13 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </div>
         )}
       </div>
+      </>
+      )}
 
-      {/* Primary path — slides + CSV, nothing else */}
+      {/* Auto sync — the CSV path. Everything that decides WHEN a part
+          moves; nothing that decides how it looks. */}
+      {show("sync") && (
+      <>
       <div className="rounded-lg border border-white/[0.14] bg-white/[0.04] p-2.5 space-y-2">
         <div className="flex items-center justify-between">
           <label className="text-[10px] font-bold text-white/55 uppercase tracking-widest">
@@ -639,7 +700,6 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             NO AI
           </span>
         </div>
-
         <button
           onClick={onAutoSync}
           disabled={slideCount === 0 || !transcript?.length || !!assetProgress}
@@ -657,7 +717,6 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             AUTO-SYNC {slideCount} SLIDE{slideCount === 1 ? "" : "S"} TO THE VOICEOVER
           </span>
         </button>
-
         {/* What gets synced. Images have nothing quotable in them, so pacing
             them across the slide is guesswork; by default they simply arrive
             with the slide and only the words wait for their cue. */}
@@ -685,200 +744,12 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
             </span>
           </span>
         </button>
-
-        {/* A part animating on its own xPct/yPct/scale/rotate while the camera
-            also pans/zooms reads as it tearing loose from the collage. On by
-            default: parts hold their rest transform and only the camera
-            moves, so the whole poster reads as one photo being panned. */}
-        <button
-          onClick={() => onWholeImageMotionChange(!wholeImageMotion)}
-          className="w-full flex items-start gap-2 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/[0.05] transition cursor-pointer"
-        >
-          <span
-            className={`mt-[1px] h-3.5 w-6 shrink-0 rounded-full border transition relative ${
-              wholeImageMotion ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
-            }`}
-          >
-            <span
-              className={`absolute top-[1px] h-[10px] w-[10px] rounded-full bg-white transition-all ${
-                wholeImageMotion ? "left-[13px]" : "left-[1px]"
-              }`}
-            />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-[9.5px] font-bold text-white/80">Whole-image motion &middot; small parts hold still</span>
-            <span className="block text-[9px] text-white/40 leading-snug">
-              {wholeImageMotion
-                ? "Small elements sit at rest — major collage parts & photos move & appear in CSV sync. Camera pans/zooms the poster."
-                : "Each decomposed part flies, scales and rotates on its own cues."}
-            </span>
-          </span>
-        </button>
-
-        {/* Independent of wholeImageMotion — a tiny in-place rotational shake
-            on every graphic layer only, never on text, so a batch of cut-out
-            parts feels hand-placed rather than pinned dead-still. */}
-        <button
-          onClick={() => onZigzagMotionChange(!zigzagMotion)}
-          className="w-full flex items-start gap-2 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/[0.05] transition cursor-pointer"
-        >
-          <span
-            className={`mt-[1px] h-3.5 w-6 shrink-0 rounded-full border transition relative ${
-              zigzagMotion ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
-            }`}
-          >
-            <span
-              className={`absolute top-[1px] h-[10px] w-[10px] rounded-full bg-white transition-all ${
-                zigzagMotion ? "left-[13px]" : "left-[1px]"
-              }`}
-            />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-[9.5px] font-bold text-white/80">Zigzag shake &middot; graphics only</span>
-            <span className="block text-[9px] text-white/40 leading-snug">
-              {zigzagMotion
-                ? "Every graphic part rocks 5–10°, randomly timed 1–2s per part, in place — never text, never a drift."
-                : "Graphic parts hold perfectly still aside from whatever their own cues do."}
-            </span>
-          </span>
-        </button>
-
-        <div className="grid grid-cols-5 gap-1.5">
-          <button
-            onClick={() => onIntroCardChange(!introCard)}
-            title="Open on a black card with white type over the recap, before the first poster"
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
-              introCard ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
-            }`}
-          >
-            <Type className={`h-3 w-3 shrink-0 ${introCard ? "text-emerald-300/90" : "text-white/35"}`} />
-            <span className={`text-[9px] font-bold ${introCard ? "text-emerald-200/90" : "text-white/55"}`}>
-              Intro card
-            </span>
-          </button>
-          <button
-            onClick={() => onCaptionsChange(!captions)}
-            title="Burn phrase-burst captions along the top of the video, current word highlighted"
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
-              captions ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
-            }`}
-          >
-            <Captions className={`h-3 w-3 shrink-0 ${captions ? "text-emerald-300/90" : "text-white/35"}`} />
-            <span className={`text-[9px] font-bold ${captions ? "text-emerald-200/90" : "text-white/55"}`}>
-              Captions
-            </span>
-          </button>
-          <button
-            onClick={() => onPaperCutStyleChange(!paperCutStyle)}
-            title="White cut-paper margin + staggered drop-in on every collage part"
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
-              paperCutStyle ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
-            }`}
-          >
-            <Scissors className={`h-3 w-3 shrink-0 ${paperCutStyle ? "text-emerald-300/90" : "text-white/35"}`} />
-            <span className={`text-[9px] font-bold ${paperCutStyle ? "text-emerald-200/90" : "text-white/55"}`}>
-              Paper cut
-            </span>
-          </button>
-          <button
-            onClick={() => onHideImageCaptionsChange(!hideImageCaptions)}
-            title="Paint over each collage part's own baked-in caption strip — the words underneath still drive the sync, unchanged"
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
-              hideImageCaptions ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
-            }`}
-          >
-            <EyeOff className={`h-3 w-3 shrink-0 ${hideImageCaptions ? "text-emerald-300/90" : "text-white/35"}`} />
-            <span className={`text-[9px] font-bold ${hideImageCaptions ? "text-emerald-200/90" : "text-white/55"}`}>
-              Hide image caption
-            </span>
-          </button>
-          <button
-            onClick={() => onZoneBorderChange(!zoneBorder)}
-            title="Black rotating dashed border + diagonal shine on whichever zone last appeared"
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
-              zoneBorder ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
-            }`}
-          >
-            <RotateCw className={`h-3 w-3 shrink-0 ${zoneBorder ? "text-emerald-300/90" : "text-white/35"}`} />
-            <span className={`text-[9px] font-bold ${zoneBorder ? "text-emerald-200/90" : "text-white/55"}`}>
-              Zone border
-            </span>
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2 pt-0.5">
-          <span
-            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
-            title="Burnt-in captions (and the intro card's word-lighting) light up this many ms before the transcript's own timing"
-          >
-            Caption lead
-          </span>
-          <input
-            type="range"
-            min={-500}
-            max={800}
-            step={10}
-            value={captionLeadMs}
-            onChange={(e) => onCaptionLeadMsChange(Number(e.target.value))}
-            className="w-full cursor-pointer accent-emerald-400 h-1.5"
-          />
-          <span className="text-[8.5px] text-white/50 font-mono w-14 text-right shrink-0">{captionLeadMs}ms</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span
-            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
-            title="Bottom matches an Overlay clip's own big centred caption; top is the original full-width banner"
-          >
-            Caption position
-          </span>
-          <div className="flex-1 grid grid-cols-2 gap-1">
-            <button
-              onClick={() => onCaptionPositionChange("top")}
-              className={`h-6 rounded text-[9px] font-bold transition cursor-pointer border ${
-                captionPosition === "top"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/90"
-                  : "border-white/[0.08] bg-white/[0.02] text-white/50 hover:bg-white/[0.05]"
-              }`}
-            >
-              Top
-            </button>
-            <button
-              onClick={() => onCaptionPositionChange("bottom")}
-              className={`h-6 rounded text-[9px] font-bold transition cursor-pointer border ${
-                captionPosition === "bottom"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/90"
-                  : "border-white/[0.08] bg-white/[0.02] text-white/50 hover:bg-white/[0.05]"
-              }`}
-            >
-              Bottom
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span
-            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
-            title="Opacity of the caption's own black backing — the text itself always stays fully opaque"
-          >
-            Caption bg
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={Math.round(captionBgOpacity * 100)}
-            onChange={(e) => onCaptionBgOpacityChange(Number(e.target.value) / 100)}
-            className="w-full cursor-pointer accent-emerald-400 h-1.5"
-          />
-          <span className="text-[8.5px] text-white/50 font-mono w-14 text-right shrink-0">
-            {Math.round(captionBgOpacity * 100)}%
-          </span>
-        </div>
-
         {autoSyncNote && <p className="text-[9.5px] text-white/55 leading-snug">{autoSyncNote}</p>}
-
+        {autoSyncReport && hasManualEdits && (
+          <p className="text-[9.5px] text-yellow-300/85 leading-snug border border-yellow-500/25 bg-yellow-500/[0.06] rounded-lg px-2 py-1.5">
+            {MANUAL_TIMING_LABEL} since this report was generated — some rows below may be stale.
+          </p>
+        )}
         {autoSyncReport && (
           <div className="space-y-1.5">
             <div className="grid grid-cols-3 gap-1.5 text-center">
@@ -964,13 +835,235 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </div>
         )}
       </div>
+      </>
+      )}
 
+      {/* Look — how a synced part reads on screen, and what burns in over
+          it. Independent of timing: changing any of this never reshuffles
+          a cue. */}
+      {show("look") && (
+      <>
+      <div className="rounded-lg border border-white/[0.14] bg-white/[0.04] p-2.5 space-y-2">
+        {/* A part animating on its own xPct/yPct/scale/rotate while the camera
+            also pans/zooms reads as it tearing loose from the collage. On by
+            default: parts hold their rest transform and only the camera
+            moves, so the whole poster reads as one photo being panned. */}
+        <button
+          onClick={() => onWholeImageMotionChange(!wholeImageMotion)}
+          className="w-full flex items-start gap-2 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/[0.05] transition cursor-pointer"
+        >
+          <span
+            className={`mt-[1px] h-3.5 w-6 shrink-0 rounded-full border transition relative ${
+              wholeImageMotion ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
+            }`}
+          >
+            <span
+              className={`absolute top-[1px] h-[10px] w-[10px] rounded-full bg-white transition-all ${
+                wholeImageMotion ? "left-[13px]" : "left-[1px]"
+              }`}
+            />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[9.5px] font-bold text-white/80">Whole-image motion &middot; small parts hold still</span>
+            <span className="block text-[9px] text-white/40 leading-snug">
+              {wholeImageMotion
+                ? "Small elements sit at rest — major collage parts & photos move & appear in CSV sync. Camera pans/zooms the poster."
+                : "Each decomposed part flies, scales and rotates on its own cues."}
+            </span>
+          </span>
+        </button>
+        {/* Independent of wholeImageMotion — a tiny in-place rotational shake
+            on every graphic layer only, never on text, so a batch of cut-out
+            parts feels hand-placed rather than pinned dead-still. */}
+        <button
+          onClick={() => onZigzagMotionChange(!zigzagMotion)}
+          className="w-full flex items-start gap-2 rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/[0.05] transition cursor-pointer"
+        >
+          <span
+            className={`mt-[1px] h-3.5 w-6 shrink-0 rounded-full border transition relative ${
+              zigzagMotion ? "border-emerald-500/40 bg-emerald-500/25" : "border-white/[0.12] bg-white/[0.06]"
+            }`}
+          >
+            <span
+              className={`absolute top-[1px] h-[10px] w-[10px] rounded-full bg-white transition-all ${
+                zigzagMotion ? "left-[13px]" : "left-[1px]"
+              }`}
+            />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[9.5px] font-bold text-white/80">Zigzag shake &middot; graphics only</span>
+            <span className="block text-[9px] text-white/40 leading-snug">
+              {zigzagMotion
+                ? "Every graphic part rocks 5–10°, randomly timed 1–2s per part, in place — never text, never a drift."
+                : "Graphic parts hold perfectly still aside from whatever their own cues do."}
+            </span>
+          </span>
+        </button>
+        <div className="grid grid-cols-3 gap-1.5">
+          <button
+            onClick={() => onIntroCardChange(!introCard)}
+            title="Open on a black card with white type over the recap, before the first poster"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              introCard ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <Type className={`h-3 w-3 shrink-0 ${introCard ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${introCard ? "text-emerald-200/90" : "text-white/55"}`}>
+              Intro card
+            </span>
+          </button>
+          <button
+            onClick={() => onCaptionsChange(!captions)}
+            title="Burn phrase-burst captions along the top of the video, current word highlighted"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              captions ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <Captions className={`h-3 w-3 shrink-0 ${captions ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${captions ? "text-emerald-200/90" : "text-white/55"}`}>
+              Captions
+            </span>
+          </button>
+          <button
+            onClick={() => onPaperCutStyleChange(!paperCutStyle)}
+            title="White cut-paper margin + staggered drop-in on every collage part"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              paperCutStyle ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <Scissors className={`h-3 w-3 shrink-0 ${paperCutStyle ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${paperCutStyle ? "text-emerald-200/90" : "text-white/55"}`}>
+              Paper cut
+            </span>
+          </button>
+          <button
+            onClick={() => onHideImageCaptionsChange(!hideImageCaptions)}
+            title="Paint over each collage part's own baked-in caption strip — the words underneath still drive the sync, unchanged"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              hideImageCaptions ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <EyeOff className={`h-3 w-3 shrink-0 ${hideImageCaptions ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${hideImageCaptions ? "text-emerald-200/90" : "text-white/55"}`}>
+              Hide image caption
+            </span>
+          </button>
+          <button
+            onClick={() => onZoneBorderChange(!zoneBorder)}
+            title="Black rotating dashed border + diagonal shine on whichever zone last appeared"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              zoneBorder ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <RotateCw className={`h-3 w-3 shrink-0 ${zoneBorder ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${zoneBorder ? "text-emerald-200/90" : "text-white/55"}`}>
+              Zone border
+            </span>
+          </button>
+          <button
+            onClick={() => onMinimalModeChange(!minimalMode)}
+            title="One part on screen at a time, rested just above centre whichever band it was cut from, held clear of the caption — every other zone left blank page"
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left transition cursor-pointer ${
+              minimalMode ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+            }`}
+          >
+            <Focus className={`h-3 w-3 shrink-0 ${minimalMode ? "text-emerald-300/90" : "text-white/35"}`} />
+            <span className={`text-[9px] font-bold ${minimalMode ? "text-emerald-200/90" : "text-white/55"}`}>
+              Minimal mode
+            </span>
+          </button>
+        </div>
+        {minimalMode && (
+          <p className="text-[9px] leading-snug text-white/40 -mt-0.5">
+            One part at a time on a flat page, resting a little above centre &mdash; 30% of the free
+            height above it, 70% below &mdash; and never allowed to reach the caption. Position, other
+            parts, captions and small elements are all dropped; every cue still fires on its own beat,
+            it just plays on that one mark.
+          </p>
+        )}
+        <div className="flex items-center gap-2 pt-0.5">
+          <span
+            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
+            title="Burnt-in captions (and the intro card's word-lighting) light up this many ms before the transcript's own timing"
+          >
+            Caption lead
+          </span>
+          <input
+            type="range"
+            min={-500}
+            max={800}
+            step={10}
+            value={captionLeadMs}
+            onChange={(e) => onCaptionLeadMsChange(Number(e.target.value))}
+            className="w-full cursor-pointer accent-emerald-400 h-1.5"
+          />
+          <span className="text-[8.5px] text-white/50 font-mono w-14 text-right shrink-0">{captionLeadMs}ms</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
+            title="Bottom matches an Overlay clip's own big centred caption; top is the original full-width banner"
+          >
+            Caption position
+          </span>
+          <div className="flex-1 grid grid-cols-2 gap-1">
+            <button
+              onClick={() => onCaptionPositionChange("top")}
+              className={`h-6 rounded text-[9px] font-bold transition cursor-pointer border ${
+                captionPosition === "top"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/90"
+                  : "border-white/[0.08] bg-white/[0.02] text-white/50 hover:bg-white/[0.05]"
+              }`}
+            >
+              Top
+            </button>
+            <button
+              onClick={() => onCaptionPositionChange("bottom")}
+              className={`h-6 rounded text-[9px] font-bold transition cursor-pointer border ${
+                captionPosition === "bottom"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200/90"
+                  : "border-white/[0.08] bg-white/[0.02] text-white/50 hover:bg-white/[0.05]"
+              }`}
+            >
+              Bottom
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[8.5px] text-white/35 uppercase font-mono shrink-0"
+            title="Opacity of the caption's own black backing — the text itself always stays fully opaque"
+          >
+            Caption bg
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={Math.round(captionBgOpacity * 100)}
+            onChange={(e) => onCaptionBgOpacityChange(Number(e.target.value) / 100)}
+            className="w-full cursor-pointer accent-emerald-400 h-1.5"
+          />
+          <span className="text-[8.5px] text-white/50 font-mono w-14 text-right shrink-0">
+            {Math.round(captionBgOpacity * 100)}%
+          </span>
+        </div>
+      </div>
+      </>
+      )}
+      {show("sync") && (
+      <>
       <div className="flex items-center gap-2 pt-0.5">
         <div className="h-px flex-1 bg-white/[0.07]" />
         <span className="text-[8.5px] uppercase tracking-widest text-white/20">or drive it from a manifest</span>
         <div className="h-px flex-1 bg-white/[0.07]" />
       </div>
+      </>
+      )}
 
+      {show("sync") && (
+      <>
       {/* Second path — build locally from the manifest */}
       <div className="rounded-lg border border-white/[0.10] bg-white/[0.02] p-2.5 space-y-1.5">
         <div className="flex items-center justify-between">
@@ -1007,13 +1100,21 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </div>
         )}
       </div>
+      </>
+      )}
 
+      {show("sync") && (
+      <>
       <div className="flex items-center gap-2 pt-0.5">
         <div className="h-px flex-1 bg-white/[0.07]" />
         <span className="text-[8.5px] uppercase tracking-widest text-white/20">or hand it to an AI</span>
         <div className="h-px flex-1 bg-white/[0.07]" />
       </div>
+      </>
+      )}
 
+      {show("sync") && (
+      <>
       {/* Step 1 — the prompt */}
       <button
         onClick={onCopyPrompt}
@@ -1032,7 +1133,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </>
         )}
       </button>
+      </>
+      )}
 
+      {show("sync") && (
+      <>
       {/* Step 2 — paste the answer */}
       <div className="space-y-1.5">
         <label className="text-[10px] font-bold text-white/25 uppercase tracking-widest block">
@@ -1063,7 +1168,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </button>
         </div>
       </div>
+      </>
+      )}
 
+      {show("sync") && (
+      <>
       {/* Validation */}
       {errors.length > 0 && (
         <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-2.5 space-y-1.5">
@@ -1081,7 +1190,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           ))}
         </div>
       )}
+      </>
+      )}
 
+      {show("sync") && (
+      <>
       {report && errors.length === 0 && (
         <div className="rounded-lg border border-white/[0.08] bg-black/30 p-2.5 space-y-2">
           <div className="grid grid-cols-4 gap-1.5 text-center">
@@ -1154,7 +1267,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           )}
         </div>
       )}
+      </>
+      )}
 
+      {show("timeline") && (
+      <>
       {/* Transport */}
       {timeline && (
         <div className="rounded-lg border border-white/[0.08] bg-black/30 p-2.5 space-y-2">
@@ -1243,8 +1360,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           )}
         </div>
       )}
+      </>
+      )}
 
-
+      {show("timeline") && (
+      <>
       {/* Export speed */}
       {timeline && (
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2.5 space-y-2">
@@ -1295,7 +1415,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </div>
         </div>
       )}
+      </>
+      )}
 
+      {show("timeline") && (
+      <>
       {/* Hook — an optional clip that plays before the real video, in both preview and the export, as one continuous recording. */}
       {timeline && (
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2.5 space-y-2">
@@ -1388,7 +1512,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           )}
         </div>
       )}
+      </>
+      )}
 
+      {show("timeline") && (
+      <>
       {/* Overlay clips — inserted at an arbitrary point on the timeline, independent of any one slide, at a user-set depth relative to the whole slide composition. */}
       {timeline && (
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2.5 space-y-2">
@@ -1536,7 +1664,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           </p>
         </div>
       )}
+      </>
+      )}
 
+      {show("timeline") && (
+      <>
       {/* Export */}
       {timeline && (
         <button
@@ -1569,6 +1701,11 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           )}
         </button>
       )}
+      </>
+      )}
+
+      {show("timeline") && (
+      <>
       {timeline && (
         <p className="text-[9px] text-white/30 leading-relaxed">
           H.264 MP4, recorded in real time from the live canvas
@@ -1581,6 +1718,9 @@ export function MotionTimelinePanel(props: MotionTimelinePanelProps) {
           {formatTimecode(duration / Math.max(0.25, exportSpeed))} — keep this tab in the foreground until it finishes.
         </p>
       )}
+      </>
+      )}
+
     </div>
   );
 }

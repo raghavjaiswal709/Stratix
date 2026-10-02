@@ -95,6 +95,8 @@ export function useHistoryPanel({
   setMotionZigzagMotion,
   motionZoneBorder,
   setMotionZoneBorder,
+  motionMinimalMode,
+  setMotionMinimalMode,
   motionHideImageCaptions,
   setMotionHideImageCaptions,
   motionIntroCard,
@@ -214,6 +216,8 @@ export function useHistoryPanel({
   setMotionZigzagMotion: (v: boolean) => void;
   motionZoneBorder: boolean;
   setMotionZoneBorder: (v: boolean) => void;
+  motionMinimalMode: boolean;
+  setMotionMinimalMode: (v: boolean) => void;
   motionHideImageCaptions: boolean;
   setMotionHideImageCaptions: (v: boolean) => void;
   motionIntroCard: boolean;
@@ -341,6 +345,7 @@ export function useHistoryPanel({
             wholeImageMotion: motionWholeImageMotion,
             zigzagMotion: motionZigzagMotion,
             zoneBorder: motionZoneBorder,
+            minimalMode: motionMinimalMode,
             hideImageCaptions: motionHideImageCaptions,
             introCard: motionIntroCard,
             captions: motionCaptions,
@@ -447,6 +452,7 @@ export function useHistoryPanel({
         if (typeof payload.wholeImageMotion === "boolean") setMotionWholeImageMotion(payload.wholeImageMotion);
         if (typeof payload.zigzagMotion === "boolean") setMotionZigzagMotion(payload.zigzagMotion);
         setMotionZoneBorder(typeof payload.zoneBorder === "boolean" ? payload.zoneBorder : false);
+        setMotionMinimalMode(typeof payload.minimalMode === "boolean" ? payload.minimalMode : false);
         setMotionHideImageCaptions(typeof payload.hideImageCaptions === "boolean" ? payload.hideImageCaptions : false);
         setMotionIntroCard(typeof payload.introCard === "boolean" ? payload.introCard : false);
         setMotionCaptions(typeof payload.captions === "boolean" ? payload.captions : false);

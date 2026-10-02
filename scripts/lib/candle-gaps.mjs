@@ -29,9 +29,15 @@ export function isExpectedClosure(fromSec, toSec) {
   const fromDay = from.getUTCDay();
   const toDay   = to.getUTCDay();
 
+  // Reopen always lands on Sunday (~22:00 UTC) in this data — confirmed by
+  // every genuine weekend gap on record ending with toDay === 0. There is no
+  // "ends on Monday" case: a gap that stretches past Sunday and into Monday
+  // is a real hole (e.g. Dukascopy lag at the week's first hour), not a
+  // closure — getUTCHours() maxes out at 23, so a Monday clause here would
+  // match any hour of Monday and mask real gaps instead of just the reopen.
   const isWeekend =
     (fromDay === 6 || fromDay === 0 || (fromDay === 5 && from.getUTCHours() >= 20)) &&
-    (toDay === 6 || toDay === 0 || (toDay === 1 && to.getUTCHours() <= 23));
+    (toDay === 6 || toDay === 0);
 
   // A few minutes of slack either side: the rollover doesn't land on the
   // exact same minute every day, and neither Dukascopy nor Twelve Data has

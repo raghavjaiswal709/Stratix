@@ -13,6 +13,7 @@ import {
   Pause,
   Play,
   Redo2,
+  RotateCcw,
   Trash2,
   Undo2,
   X,
@@ -20,6 +21,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
+  CAMERA_CUE_DOCS,
+  CUE_DOCS,
   CUE_NAMES,
   EASE_NAMES,
   type TranscriptWord,
@@ -27,8 +30,13 @@ import {
 } from "@/lib/motion-timeline";
 import {
   moveCue,
-  moveSceneBoundary,
   resizeCue,
+  resetAllModifications,
+  resetCueModification,
+  resetOverlayModification,
+  resetSceneModification,
+  resizeSceneStart,
+  resizeSceneEnd,
   shiftScene,
   snapTargetsFor,
   snapTime,
@@ -43,6 +51,9 @@ import {
   type EditableScene,
   type EditableTimeline,
 } from "@/lib/motion-timeline/edit";
+
+/** Consistent wording across the timeline and the "Match Slides to the Script" modal — see FixSlideOrderModal.tsx. */
+export const MANUAL_TIMING_LABEL = "Timing manually overridden";
 
 /* Row geometry. The gutter and the lanes are two separate scrollers, so every
    height here has to match on both sides or the labels drift off their rows. */
@@ -77,8 +88,9 @@ export interface TimelineEditorProps {
 type Drag =
   | { kind: "cue"; sceneId: string; trackId: string | null; cueId: string; grabMs: number; startAt: number }
   | { kind: "cue-resize"; sceneId: string; trackId: string | null; cueId: string; startDur: number; startX: number }
-  | { kind: "boundary"; index: number }
-  | { kind: "scene"; sceneId: string; startX: number }
+  | { kind: "scene"; sceneId: string; grabMs: number }
+  | { kind: "scene-resize-start"; sceneId: string }
+  | { kind: "scene-resize-end"; sceneId: string }
   | { kind: "overlay"; overlayId: string; grabMs: number }
   | { kind: "overlay-resize"; overlayId: string; startDur: number; startX: number }
   | { kind: "scrub" };
@@ -183,7 +195,17 @@ export function TimelineEditor(props: TimelineEditorProps) {
         return;
       }
 
-      if (drag.kind === "boundary") {
+      if (drag.kind === "scene") {
+        const dragged = doc.scenes.find((s) => s.id === drag.sceneId);
+        if (!dragged) return;
+        // Free drag — no neighbor clamp, overlap and gaps are both fine (see
+        // shiftScene's doc comment). Reordering is just a side effect of
+        // sorting by the new startMs, not a separate operation.
+        onChange(shiftScene(doc, drag.sceneId, at - drag.grabMs - dragged.startMs));
+        return;
+      }
+
+      if (drag.kind === "scene-resize-start" || drag.kind === "scene-resize-end") {
         let target = at;
         if (snapOn && !altKey) {
           const wordTargets = words.map((w) => ({ atMs: w.startMs, kind: "word" as const, label: w.text }));
@@ -191,14 +213,11 @@ export function TimelineEditor(props: TimelineEditorProps) {
           target = snapped.atMs;
           setSnapLabel(snapped.hit ? `word · ${snapped.hit.label}` : null);
         }
-        onChange(moveSceneBoundary(doc, drag.index, target));
-        return;
-      }
-
-      if (drag.kind === "scene") {
-        const deltaMs = pxToMs(clientX - drag.startX);
-        dragRef.current = { ...drag, startX: clientX };
-        onChange(shiftScene(doc, drag.sceneId, deltaMs));
+        onChange(
+          drag.kind === "scene-resize-start"
+            ? resizeSceneStart(doc, drag.sceneId, target)
+            : resizeSceneEnd(doc, drag.sceneId, target)
+        );
         return;
       }
 
@@ -347,6 +366,34 @@ export function TimelineEditor(props: TimelineEditorProps) {
     return cue && scene ? { scene, cue } : null;
   }, [selected, doc]);
 
+  // What freeform params (distancePct, xPct/yPct, …) this cue's action
+  // actually takes — straight from the same catalog the AI prompt is built
+  // from, so a new cue action never needs a second place to teach the
+  // Inspector about its params.
+  const selectedCueParams = useMemo(() => {
+    if (!selected) return [];
+    const catalog = selected.trackId === null ? CAMERA_CUE_DOCS : CUE_DOCS;
+    const docEntry = catalog.find((d) => d.name === selectedCue?.cue.action);
+    return docEntry ? editableParamNames(docEntry.params) : [];
+  }, [selected, selectedCue]);
+
+  const hasAnyManual = useMemo(
+    () =>
+      doc.scenes.some(
+        (s) => s.manual || s.camera.some((c) => c.manual) || s.tracks.some((t) => t.cues.some((c) => c.manual))
+      ) || doc.overlays.some((o) => o.manual),
+    [doc]
+  );
+
+  const resetScene = (sceneId: string) => {
+    onBeginGesture();
+    onChange(resetSceneModification(doc, sceneId), { commit: true });
+  };
+  const resetOverlay = (overlayId: string) => {
+    onBeginGesture();
+    onChange(resetOverlayModification(doc, overlayId), { commit: true });
+  };
+
   const totalTracks = doc.scenes.reduce((n, s) => n + (expanded[s.id] ? s.tracks.length : 0), 0);
   const overlayRowH = doc.overlays.length > 0 ? OVERLAY_H : 0;
   const bodyH = overlayRowH + doc.scenes.length * SCENE_H + totalTracks * TRACK_H;
@@ -384,6 +431,17 @@ export function TimelineEditor(props: TimelineEditorProps) {
         <button onClick={onRedo} disabled={!canRedo} title="Redo (⇧⌘Z)"
           className="h-6 w-6 rounded flex items-center justify-center text-white/55 hover:text-white hover:bg-white/[0.08] transition cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed">
           <Redo2 className="h-3 w-3" />
+        </button>
+        <button
+          onClick={() => {
+            onBeginGesture();
+            onChange(resetAllModifications(doc), { commit: true });
+          }}
+          disabled={!hasAnyManual}
+          title={hasAnyManual ? `${MANUAL_TIMING_LABEL} in one or more places — reset everything back to auto-sync` : "No manual timing overrides to reset"}
+          className="h-6 px-2 rounded flex items-center gap-1 text-[9.5px] font-bold border transition cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed border-yellow-500/35 bg-yellow-500/10 text-yellow-300/90 hover:bg-yellow-500/20"
+        >
+          <RotateCcw className="h-3 w-3" /> RESET ALL
         </button>
 
         <button
@@ -564,10 +622,12 @@ export function TimelineEditor(props: TimelineEditorProps) {
                       }}
                       title={`${overlay.label} · ${fmt(overlay.startMs)} · ${Math.round(overlay.durationMs)}ms${
                         overlay.zIndex < 0 ? " · behind" : " · in front"
-                      }${overlay.captionOverlay ? " · caption overlay" : ""}`}
+                      }${overlay.captionOverlay ? " · caption overlay" : ""}${overlay.manual ? ` · ${MANUAL_TIMING_LABEL}` : ""}`}
                       className={`absolute top-[3px] rounded-[3px] border overflow-hidden cursor-grab active:cursor-grabbing transition-colors group ${
                         isSel
                           ? "border-white bg-white/[0.30] z-10"
+                          : overlay.manual
+                          ? "border-yellow-400/70 bg-yellow-400/25 hover:bg-yellow-400/35"
                           : "border-purple-500/40 bg-purple-500/20 hover:bg-purple-500/30"
                       }`}
                       style={{ left, width, height: OVERLAY_H - 6 }}
@@ -577,6 +637,20 @@ export function TimelineEditor(props: TimelineEditorProps) {
                         <span className="text-[8px] leading-[15px] font-medium text-white/85 whitespace-nowrap truncate">
                           {overlay.label}
                         </span>
+                        {overlay.manual && (
+                          <button
+                            data-role="revert"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              resetOverlay(overlay.id);
+                            }}
+                            title={`${MANUAL_TIMING_LABEL} — click to reset`}
+                            className="ml-auto shrink-0 text-yellow-200/80 hover:text-yellow-100 transition cursor-pointer"
+                          >
+                            <RotateCcw className="h-2.5 w-2.5" />
+                          </button>
+                        )}
                         <button
                           data-role="delete"
                           onPointerDown={(e) => e.stopPropagation()}
@@ -587,7 +661,7 @@ export function TimelineEditor(props: TimelineEditorProps) {
                             if (selectedOverlayId === overlay.id) setSelectedOverlayId(null);
                           }}
                           title="Delete this overlay clip"
-                          className="ml-auto shrink-0 text-white/0 group-hover:text-white/60 hover:!text-red-300 transition cursor-pointer"
+                          className={`${overlay.manual ? "" : "ml-auto"} shrink-0 text-white/0 group-hover:text-white/60 hover:!text-red-300 transition cursor-pointer`}
                         >
                           <X className="h-2.5 w-2.5" />
                         </button>
@@ -634,6 +708,7 @@ export function TimelineEditor(props: TimelineEditorProps) {
                     onBeginGesture();
                     onChange(setTransition(doc, scene.id, which, patch), { commit: true });
                   }}
+                  onResetScene={resetScene}
                 />
               ))}
             </div>
@@ -719,7 +794,38 @@ export function TimelineEditor(props: TimelineEditorProps) {
             />
           </label>
 
+          {selectedCueParams.length > 0 && (
+            <div className="flex items-center gap-1.5 shrink-0 pl-1.5 border-l border-white/[0.08]" title="This cue's own motion params — e.g. how far it travels, and in which direction. Unclamped: any value places the element anywhere, including fully off-frame.">
+              {selectedCueParams.map((name) => (
+                <ParamField
+                  key={name}
+                  label={name}
+                  value={typeof selectedCue.cue.params[name] === "number" ? (selectedCue.cue.params[name] as number) : undefined}
+                  onCommit={(v) => {
+                    onBeginGesture();
+                    onChange(
+                      updateCue(doc, selected!.sceneId, selected!.trackId, selected!.cueId, { params: { [name]: v } }),
+                      { commit: true }
+                    );
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
           <div className="ml-auto flex items-center gap-1 shrink-0">
+            {selectedCue.cue.manual && (
+              <button
+                onClick={() => {
+                  onBeginGesture();
+                  onChange(resetCueModification(doc, selected!.sceneId, selected!.trackId, selected!.cueId), { commit: true });
+                }}
+                title={`${MANUAL_TIMING_LABEL} — click to reset to auto-sync`}
+                className="h-6 w-6 rounded flex items-center justify-center text-yellow-300/85 hover:text-yellow-200 hover:bg-yellow-500/10 transition cursor-pointer"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            )}
             <button
               onClick={() => {
                 onBeginGesture();
@@ -780,6 +886,63 @@ function NumberField({ label, value, onCommit }: { label: string; value: number;
   );
 }
 
+/**
+ * A cue's freeform param names come straight out of CUE_DOCS/CAMERA_CUE_DOCS
+ * (cues.ts) — the same catalog the AI prompt is built from — so the
+ * Inspector never needs its own hardcoded per-action list. `(track.wipeFrom)`
+ * -style entries are documentation, not an editable number, and are dropped.
+ */
+function editableParamNames(paramsDoc: string): string[] {
+  if (!paramsDoc || paramsDoc === "—") return [];
+  return paramsDoc
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p && !p.startsWith("("));
+}
+
+/** Every param in the catalog is either a percent-of-canvas, a degree, or a unitless scale/count — inferred from its name rather than a second hand-maintained table. */
+function paramUnit(name: string): string {
+  if (/pct$/i.test(name)) return "%";
+  if (/deg$/i.test(name)) return "°";
+  return "";
+}
+
+/** Like NumberField, but for an optional freeform cue param: blank reads as "using the cue's built-in default", and blurring a blank field commits nothing. */
+function ParamField({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: number | undefined;
+  onCommit: (v: number) => void;
+}) {
+  const unit = paramUnit(label);
+  const [draft, setDraft] = useState(value === undefined ? "" : String(value));
+  useEffect(() => setDraft(value === undefined ? "" : String(value)), [value]);
+  return (
+    <label className="flex items-center gap-1 shrink-0">
+      <span className="text-[8.5px] uppercase tracking-wider text-white/25">{label}</span>
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const n = Number(draft);
+          if (draft.trim() !== "" && Number.isFinite(n) && n !== value) onCommit(n);
+          else setDraft(value === undefined ? "" : String(value));
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        placeholder="auto"
+        title={`${label} — leave blank to use this cue's built-in default`}
+        className="h-6 w-14 rounded border border-white/[0.10] bg-black/60 px-1.5 text-[10px] font-mono tabular-nums text-white/85 outline-none focus:border-white/[0.28] placeholder:text-white/20"
+      />
+      {unit && <span className="text-[8px] text-white/20">{unit}</span>}
+    </label>
+  );
+}
+
 interface SceneRowProps {
   scene: EditableScene;
   index: number;
@@ -790,6 +953,7 @@ interface SceneRowProps {
   onSelect: (s: { sceneId: string; trackId: string | null; cueId: string } | null) => void;
   onBeginDrag: (d: Drag) => void;
   onTransition: (which: "enter" | "exit", patch: { type?: TransitionType; durationMs?: number }) => void;
+  onResetScene: (sceneId: string) => void;
 }
 
 const TRANSITION_CYCLE: TransitionType[] = [
@@ -828,7 +992,7 @@ const TRANSITION_LABEL: Record<TransitionType, string> = {
   cut: "CUT",
 };
 
-function SceneRow({ scene, index, expanded, msToPx, slideName, selected, onSelect, onBeginDrag, onTransition }: SceneRowProps) {
+function SceneRow({ scene, index, expanded, msToPx, slideName, selected, onSelect, onBeginDrag, onTransition, onResetScene }: SceneRowProps) {
   const left = msToPx(scene.startMs);
   const width = Math.max(2, msToPx(scene.endMs - scene.startMs));
 
@@ -837,14 +1001,23 @@ function SceneRow({ scene, index, expanded, msToPx, slideName, selected, onSelec
       {/* Macro row */}
       <div className="relative border-b border-white/[0.05]" style={{ height: SCENE_H, background: sceneTint(index) }}>
         <div
-          className="absolute top-1 bottom-1 rounded border border-white/[0.14] bg-white/[0.06] hover:bg-white/[0.10] transition cursor-grab active:cursor-grabbing overflow-hidden"
+          className={`absolute top-1 bottom-1 rounded border transition cursor-grab active:cursor-grabbing overflow-hidden ${
+            scene.manual
+              ? "border-yellow-400/70 bg-yellow-400/[0.16] hover:bg-yellow-400/[0.22]"
+              : "border-white/[0.14] bg-white/[0.06] hover:bg-white/[0.10]"
+          }`}
           style={{ left, width }}
           onPointerDown={(e) => {
             if ((e.target as HTMLElement).dataset.role) return;
             e.preventDefault();
-            onBeginDrag({ kind: "scene", sceneId: scene.id, startX: e.clientX });
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            onBeginDrag({
+              kind: "scene",
+              sceneId: scene.id,
+              grabMs: ((e.clientX - rect.left) / (width || 1)) * (scene.endMs - scene.startMs),
+            });
           }}
-          title={`${scene.label} · slide ${scene.slideIndex + 1}${slideName ? ` (${slideName})` : ""}`}
+          title={`${scene.label} · slide ${scene.slideIndex + 1}${slideName ? ` (${slideName})` : ""}${scene.manual ? ` · ${MANUAL_TIMING_LABEL}` : ""}`}
         >
           <div className="flex items-center gap-1 h-full px-1">
             {/* The entering transition lives inline at the head of the scene —
@@ -872,28 +1045,53 @@ function SceneRow({ scene, index, expanded, msToPx, slideName, selected, onSelec
             </button>
             <span className="text-[8px] font-mono text-white/35 shrink-0">{scene.slideIndex + 1}</span>
             <span className="text-[9px] font-bold text-white/80 truncate">{scene.label}</span>
-            <span className="text-[8px] font-mono text-white/25 shrink-0 ml-auto pl-1">
+            {scene.manual && (
+              <button
+                data-role="revert"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResetScene(scene.id);
+                }}
+                title={`${MANUAL_TIMING_LABEL} — click to reset to auto-sync`}
+                className="shrink-0 ml-auto h-[15px] w-[15px] rounded-full flex items-center justify-center text-yellow-950 bg-yellow-400 hover:bg-yellow-300 transition cursor-pointer"
+              >
+                <RotateCcw className="h-[9px] w-[9px]" />
+              </button>
+            )}
+            <span className={`text-[8px] font-mono text-white/25 shrink-0 pl-1 ${scene.manual ? "" : "ml-auto"}`}>
               {((scene.endMs - scene.startMs) / 1000).toFixed(2)}s
             </span>
           </div>
         </div>
 
-        {/* Boundary handle — the cut between this scene and the previous one */}
-        {index > 0 && (
-          <div
-            data-role="boundary"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onBeginDrag({ kind: "boundary", index });
-            }}
-            title="Drag the cut"
-            className="absolute top-0 bottom-0 z-20 w-[7px] -ml-[3px] cursor-col-resize group"
-            style={{ left }}
-          >
-            <div className="absolute inset-y-0 left-[3px] w-px bg-white/25 group-hover:bg-white group-hover:w-[2px] transition-all" />
-          </div>
-        )}
+        {/* Edge handles — stretch this ONE scene from either side. Independent
+            per scene (not shared with a neighbor like the old boundary drag
+            was), since a resize must never touch any other scene. */}
+        <div
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onBeginDrag({ kind: "scene-resize-start", sceneId: scene.id });
+          }}
+          title="Stretch this scene's start"
+          className="absolute top-0 bottom-0 z-20 w-[7px] -ml-[3px] cursor-col-resize group"
+          style={{ left }}
+        >
+          <div className="absolute inset-y-0 left-[3px] w-px bg-white/25 group-hover:bg-white group-hover:w-[2px] transition-all" />
+        </div>
+        <div
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onBeginDrag({ kind: "scene-resize-end", sceneId: scene.id });
+          }}
+          title="Stretch this scene's end"
+          className="absolute top-0 bottom-0 z-20 w-[7px] -ml-[3px] cursor-col-resize group"
+          style={{ left: left + width }}
+        >
+          <div className="absolute inset-y-0 left-[3px] w-px bg-white/25 group-hover:bg-white group-hover:w-[2px] transition-all" />
+        </div>
       </div>
 
       {/* Micro rows */}
@@ -926,10 +1124,12 @@ function SceneRow({ scene, index, expanded, msToPx, slideName, selected, onSelec
                       startAt: cue.atMs,
                     });
                   }}
-                  title={`${cue.action} · ${fmt(cue.atMs)} · ${Math.round(cue.durMs)}ms${cue.word ? ` · on "${cue.word}"` : ""}`}
+                  title={`${cue.action} · ${fmt(cue.atMs)} · ${Math.round(cue.durMs)}ms${cue.word ? ` · on "${cue.word}"` : ""}${cue.manual ? ` · ${MANUAL_TIMING_LABEL}` : ""}`}
                   className={`absolute top-[3px] rounded-[3px] border overflow-hidden cursor-grab active:cursor-grabbing transition-colors ${
                     isSel
                       ? "border-white bg-white/[0.30] z-10"
+                      : cue.manual
+                      ? "border-yellow-400/70 bg-yellow-400/25 hover:bg-yellow-400/35"
                       : cue.word
                       ? "border-emerald-500/40 bg-emerald-500/20 hover:bg-emerald-500/30"
                       : "border-white/[0.16] bg-white/[0.10] hover:bg-white/[0.18]"

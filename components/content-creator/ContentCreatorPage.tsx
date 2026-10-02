@@ -87,7 +87,9 @@ import { WebImageSearch } from "./WebImageSearch";
 import { parseJsonResponse } from "./apiUtils";
 import { drawPoster } from "./canvas/drawPoster";
 import { drawMotionTimelineFrame } from "./canvas/drawMotionTimelineFrame";
-import { MotionTimelinePanel } from "./motion/MotionTimelinePanel";
+import { useLevelsCarousel } from "./levels/useLevelsCarousel";
+import { LevelsTab } from "./levels/LevelsTab";
+import { LevelsCarouselPanel } from "./levels/LevelsCarouselPanel";
 import { TimelineEditor } from "./motion/TimelineEditor";
 import {
   autoSyncTimeline,
@@ -270,6 +272,7 @@ export function ContentCreatorPage() {
     motionWholeImageMotion, setMotionWholeImageMotion,
     motionZigzagMotion, setMotionZigzagMotion,
     motionZoneBorder, setMotionZoneBorder,
+    motionMinimalMode, setMotionMinimalMode,
     motionSfxEnabled, setMotionSfxEnabled,
     motionSfxVolume, setMotionSfxVolume,
     copiedSpeechPrompt, setCopiedSpeechPrompt,
@@ -294,6 +297,7 @@ export function ContentCreatorPage() {
     motionTimeRef, motionClockOriginRef, motionLoopRef,
     motionLastSceneIndexRef, motionZoneVisibleRef, motionZoneSeededSceneRef, motionZoneFlourishRef,
     motionCurrentZoneVisibleRef, motionCurrentZoneIdRef, motionCurrentZoneSceneRef,
+    motionMinimalPrevZoneIdRef,
     motionAudioRef, motionAudioUrlRef, motionAudioR2UrlRef,
     motionMusicRef, motionMusicUrlRef, motionMusicR2UrlRef,
     motionCsvR2UrlRef, motionTranscriptRawTextRef, motionSpeedRef, motionMixRef,
@@ -511,7 +515,7 @@ export function ContentCreatorPage() {
     motionManifestText, setMotionManifestText, setMotionManifestNote, setMotionManifestWarnings,
     motionDoc, setMotionDoc, motionUndoRef, motionRedoRef, setMotionHistoryTick, motionSaveTimerRef,
     setMotionSaveState, saveToHistory, activeHistoryId, setActiveHistoryId, motionAudioName, motionMusicName,
-    motionMusicVolume, motionWholeImageMotion, motionZigzagMotion, motionZoneBorder, motionHideImageCaptions,
+    motionMusicVolume, motionWholeImageMotion, motionZigzagMotion, motionZoneBorder, motionMinimalMode, motionHideImageCaptions,
     motionCsvR2UrlRef, motionAudioR2UrlRef, motionMusicR2UrlRef, motionTranscriptRawTextRef,
     ratioId, colors, config, posterStyle, gradientPresetId, editorialTheme, gradientFade, sentimentScheme,
     creatorMode, setJsonText, clearMotionTimeline, setShowFixSlideOrderModal, setCopiedMotionPrompt, setCopiedSpeechPrompt,
@@ -538,9 +542,10 @@ export function ContentCreatorPage() {
     motionHookEnabled, motionHooks, motionSelectedHookId, motionHookVideoRef, isHookPhasePlaying, setIsHookPhasePlaying,
     motionOverlayVideoElsRef, motionLayerImgElsRef, motionAssetVersion, motionOverlayVideoVersion,
     motionTranscript, motionCaptions, motionCaptionPosition, motionCaptionBgOpacity, motionCaptionLeadMs, motionPaperCutStyle, motionWholeImageMotion,
-    motionZigzagMotion, motionZoneBorder, motionHideImageCaptions, motionSfxEnabled, motionSfxVolume,
+    motionZigzagMotion, motionZoneBorder, motionMinimalMode, motionHideImageCaptions, motionSfxEnabled, motionSfxVolume,
     motionLastSceneIndexRef, motionZoneVisibleRef, motionZoneSeededSceneRef, motionZoneFlourishRef,
     motionCurrentZoneVisibleRef, motionCurrentZoneIdRef, motionCurrentZoneSceneRef,
+    motionMinimalPrevZoneIdRef,
     setElementBounds, setSegmentError, setIsRecordingVideo,
   });
 
@@ -698,6 +703,7 @@ export function ContentCreatorPage() {
     motionPaperCutStyle, setMotionPaperCutStyle, motionTextOnlySync, setMotionTextOnlySync,
     motionWholeImageMotion, setMotionWholeImageMotion, motionZigzagMotion, setMotionZigzagMotion,
     motionZoneBorder, setMotionZoneBorder,
+    motionMinimalMode, setMotionMinimalMode,
     motionHideImageCaptions, setMotionHideImageCaptions,
     motionIntroCard, setMotionIntroCard, motionCaptions, setMotionCaptions,
     motionCaptionPosition, setMotionCaptionPosition,
@@ -711,6 +717,33 @@ export function ContentCreatorPage() {
     motionAudioR2UrlRef, setMotionAudioR2Url, motionAudioUrlRef, motionAudioRef, clearMotionAudio,
     motionMusicR2UrlRef, setMotionMusicR2Url, motionMusicUrlRef, motionMusicRef, clearMotionMusic,
   });
+
+  // Slides whose timeline scene has a manually-overridden timing (see the
+  // `manual` flag in lib/motion-timeline/edit.ts) — surfaced as a yellow
+  // "retimed" indicator in the "Match Slides to the Script" modal below, so
+  // a script-matching decision doesn't miss that the timing was hand-tuned.
+  // A scene's own cascaded word-detach cues count too, since the scene as a
+  // whole was retimed even if `scene.manual` itself happens to be false
+  // (e.g. a boundary drag touches the neighbor, not the scene being dragged).
+  // Levels carousel — its own self-contained editor state; the tab swaps the
+  // whole right-hand panel out for the carousel workspace, so nothing here
+  // touches the poster pipeline above.
+  const levels = useLevelsCarousel();
+
+  const modifiedSlideIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!motionDoc) return ids;
+    for (const scene of motionDoc.scenes) {
+      const touched =
+        scene.manual ||
+        scene.camera.some((c) => c.manual) ||
+        scene.tracks.some((t) => t.cues.some((c) => c.manual));
+      if (!touched) continue;
+      const slideId = motionSlides[scene.slideIndex]?.slideId;
+      if (slideId) ids.add(slideId);
+    }
+    return ids;
+  }, [motionDoc, motionSlides]);
 
   return (
     <div className="flex h-full overflow-hidden text-white/80 font-sans selection:bg-white/10 selection:text-white relative">
@@ -749,9 +782,16 @@ export function ContentCreatorPage() {
 
         {/* Scrollable Configuration Panel */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Levels is a whole editor of its own — one panel, its own canvas on
+              the right, and no tab strip. It replaces the poster tabs outright
+              rather than sitting beside them, so a stale activeTab left over
+              from another mode cannot leak a Colors or JSON panel in under it. */}
+          {creatorMode === "levels" ? <LevelsTab state={levels} /> : (
+          <>
           
-          {/* CONTENT TAB */}
-          {activeTab === "content" && (
+          {/* CONTENT TAB — and, in motion mode, all five of its own tabs, since
+              MotionFields routes them internally off `motionTab`. */}
+          {(activeTab === "content" || creatorMode === "motion") && (
             <div className="space-y-3.5">
 
               {creatorMode === "analysis" && (
@@ -846,6 +886,7 @@ export function ContentCreatorPage() {
 
               {creatorMode === "motion" && (
                 <MotionFields
+                  motionTab={activeTab}
                   handleMotionFilesUpload={handleMotionFilesUpload}
                   motionFileInputRef={motionFileInputRef}
                   motionSlides={motionSlides}
@@ -936,10 +977,13 @@ export function ContentCreatorPage() {
                   setMotionZigzagMotion={setMotionZigzagMotion}
                   motionZoneBorder={motionZoneBorder}
                   setMotionZoneBorder={setMotionZoneBorder}
+                  motionMinimalMode={motionMinimalMode}
+                  setMotionMinimalMode={setMotionMinimalMode}
                   handleCopySpeechPrompt={handleCopySpeechPrompt}
                   copiedSpeechPrompt={copiedSpeechPrompt}
                   motionAutoSyncReport={motionAutoSyncReport}
                   motionAutoSyncNote={motionAutoSyncNote}
+                  hasManualTimingEdits={modifiedSlideIds.size > 0}
                   motionManifestText={motionManifestText}
                   setMotionManifestText={setMotionManifestText}
                   buildMotionTimelineFromManifest={buildMotionTimelineFromManifest}
@@ -1022,9 +1066,13 @@ export function ContentCreatorPage() {
 
           {/* PROMPT BUILDER TAB */}
           {activeTab === "prompt-builder" && <PromptBuilder />}
+
+          </>
+          )}
         </div>
 
-        {/* Generate + Re-render (Left panel footer) */}
+        {/* Generate + Re-render (Left panel footer) — poster pipeline only */}
+        {creatorMode !== "levels" && (
         <GenerateFooter
           generateError={generateError}
           setGenerateError={setGenerateError}
@@ -1051,10 +1099,18 @@ export function ContentCreatorPage() {
           openHistory={openHistory}
           setShowCalendarModal={setShowCalendarModal}
         />
+        )}
       </div>
       </div>
 
       {/* ── Right Panel: Preview ──────────────────────────────────────────── */}
+      {creatorMode === "levels" ? (
+        <LevelsCarouselPanel
+          state={levels}
+          panelCollapsed={panelCollapsed}
+          setPanelCollapsed={setPanelCollapsed}
+        />
+      ) : (
       <PreviewCanvasPanel
         panelCollapsed={panelCollapsed}
         setPanelCollapsed={setPanelCollapsed}
@@ -1112,6 +1168,7 @@ export function ContentCreatorPage() {
         redoMotionEdit={redoMotionEdit}
         motionSaveState={motionSaveState}
       />
+      )}
 
       {/* Hidden file picker — clicking a news poster's image frame (or the
           Upload button) routes here; the chosen file becomes the poster image */}
@@ -1211,6 +1268,7 @@ export function ContentCreatorPage() {
           onClose={() => setShowFixSlideOrderModal(false)}
           onApply={handleApplyFixedSlideOrder}
           onDecomposeFiles={handleDecomposeForSlot}
+          modifiedSlideIds={modifiedSlideIds}
         />
       )}
 

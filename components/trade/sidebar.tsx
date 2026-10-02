@@ -39,6 +39,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { ProfileSwitcher, ProfileDot, ManageModal } from "@/components/trade/profile-switcher";
 import { StratixMark, StratixWordmark } from "@/components/shared/stratix-logo";
+import { AccessFootprint } from "@/components/footprint/access-footprint";
 
 interface NavItem {
   href: string;
@@ -206,6 +207,9 @@ function CollapsedSidebar({
           <TooltipContent side="right">Pin sidebar</TooltipContent>
         </Tooltip>
       </div>
+
+      {/* Footprint Pro (order-flow dashboard on the trading Mac) — admins only */}
+      <AccessFootprint variant="rail" />
 
       {/* Nav */}
       <nav className="flex-1 flex flex-col items-center px-2 pt-4 gap-1 overflow-y-auto">
@@ -518,6 +522,9 @@ function ExpandedSidebar({
           </button>
         )}
       </div>
+
+      {/* Footprint Pro (order-flow dashboard on the trading Mac) — admins only */}
+      <AccessFootprint variant="full" />
 
       {/* Navigation */}
       <nav className="flex-1 px-2 pt-4 space-y-0.5 overflow-y-auto">

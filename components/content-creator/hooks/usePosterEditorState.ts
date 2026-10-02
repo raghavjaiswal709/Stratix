@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Bot, Code2, Edit3, Palette, Sliders, Wand2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Clapperboard, Code2, Edit3, Layers, Music, Palette, Sliders, Sparkles, Wand2 } from "lucide-react";
 import type {
   AnalysisData,
   CreatorMode,
@@ -24,7 +24,7 @@ import type { SentimentScheme } from "../canvas/canvasUtils";
  * in it depends on `ar` or on motion state.
  */
 export function usePosterEditorState() {
-  const [creatorMode, setCreatorMode] = useState<CreatorMode>("analysis");
+  const [creatorMode, setCreatorMode] = useState<CreatorMode>("news");
   // News/Facts/Learnings/Watermark all store their batch as an array in `newsData` and
   // share the carousel/download/editor plumbing below — "indicator" and
   // "analysis" are the odd ones out, each with a single object.
@@ -266,14 +266,43 @@ export function usePosterEditorState() {
     }`;
   };
 
-  const TABS = [
-    { id: "content", label: "Content", icon: Edit3 },
-    { id: "colors", label: "Colors", icon: Palette },
-    { id: "layout", label: "Layout", icon: Sliders },
-    { id: "json", label: "JSON", icon: Code2 },
-    { id: "ai-prompt", label: "AI Prompt", icon: Bot },
-    { id: "prompt-builder", label: "Prompt Builder", icon: Wand2 },
-  ];
+  /**
+   * The tab strip belongs to the mode, not to the page.
+   *
+   * The poster pipeline needs colours, a ratio, the raw JSON and the prompt
+   * tools; a motion project needs none of those and instead has five stages of
+   * its own that used to be one 2,000px scroll. Levels is a single canvas
+   * editor with its own right-hand panel and needs no strip at all.
+   */
+  const TABS = useMemo(() => {
+    if (creatorMode === "levels") return [];
+    if (creatorMode === "motion") {
+      return [
+        { id: "motion-slides", label: "Slides & Layers", icon: Layers },
+        { id: "motion-audio", label: "Script, Audio & SFX", icon: Music },
+        { id: "motion-sync", label: "Sync", icon: Sparkles },
+        { id: "motion-look", label: "Look & Captions", icon: Palette },
+        { id: "motion-timeline", label: "Timeline & Export", icon: Clapperboard },
+      ];
+    }
+    return [
+      { id: "content", label: "Content", icon: Edit3 },
+      { id: "colors", label: "Colors", icon: Palette },
+      { id: "layout", label: "Layout", icon: Sliders },
+      { id: "json", label: "JSON", icon: Code2 },
+      { id: "ai-prompt", label: "AI Prompt", icon: Bot },
+      { id: "prompt-builder", label: "Prompt Builder", icon: Wand2 },
+    ];
+  }, [creatorMode]);
+
+  // Switching mode almost always invalidates the open tab — "colors" does not
+  // exist in a motion project and "motion-sync" does not exist outside one —
+  // so fall back to that mode's own first tab rather than showing an empty
+  // panel. Levels has no tabs at all and keeps whatever was open, unused.
+  useEffect(() => {
+    if (!TABS.length) return;
+    if (!TABS.some((t) => t.id === activeTab)) setActiveTab(TABS[0].id);
+  }, [TABS, activeTab]);
 
   return {
     creatorMode, setCreatorMode, isBatchMode,

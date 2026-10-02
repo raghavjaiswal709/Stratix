@@ -44,6 +44,11 @@ export interface EditableCue {
   word?: string;
   /** Everything else the cue carries (distancePct, amount, fromScale…). */
   params: Record<string, number | string>;
+  /** True once a user has hand-dragged this cue — see moveCue/resizeCue and cueToAuthored's word-detach gate. */
+  manual: boolean;
+  /** atMs/durMs from just before the first manual edit — what "reset" restores. */
+  autoAtMs: number;
+  autoDurMs: number;
 }
 
 export interface EditableTrack {
@@ -75,6 +80,11 @@ export interface EditableScene {
   tracks: EditableTrack[];
   /** Title-card text; when set, this scene paints as a card, not a slide. */
   intro?: string;
+  /** True once a user has hand-overridden this scene's timing — see shiftScene/resizeSceneStart/resizeSceneEnd. */
+  manual: boolean;
+  /** startMs/endMs from just before the first manual edit — what "reset" restores. */
+  autoStartMs: number;
+  autoEndMs: number;
 }
 
 /** A clip inserted at an arbitrary point on the timeline — see AuthoredOverlayClip. */
@@ -86,6 +96,11 @@ export interface EditableOverlayClip {
   durationMs: number;
   zIndex: number;
   captionOverlay: boolean;
+  /** True once a user has hand-dragged this clip — see updateOverlay. */
+  manual: boolean;
+  /** startMs/durationMs from just before the first manual edit — what "reset" restores. */
+  autoStartMs: number;
+  autoDurationMs: number;
 }
 
 export interface EditableTimeline {
@@ -111,6 +126,7 @@ const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim
 const RESERVED_CUE_KEYS = new Set([
   "action", "type", "name", "atMs", "at", "tMs", "t",
   "durMs", "durationMs", "duration", "ease", "word", "phrase", "onWord", "syllable", "note", "comment",
+  "manual", "autoAtMs", "autoDurMs",
 ]);
 
 function cueToEditable(raw: AuthoredCue): EditableCue | null {
@@ -126,14 +142,22 @@ function cueToEditable(raw: AuthoredCue): EditableCue | null {
     if (typeof v === "number" || typeof v === "string") params[k] = v;
   });
 
+  const atMs = Math.round(num(at, 0));
+  const durMs = Math.max(0, Math.round(num(dur, 320)));
+
   return {
     id: nextId("cue"),
     action,
-    atMs: Math.round(num(at, 0)),
-    durMs: Math.max(0, Math.round(num(dur, 320))),
+    atMs,
+    durMs,
     ease: str(raw.ease),
     word: str(raw.word) ?? str(raw.phrase) ?? str(raw.onWord),
     params,
+    manual: raw.manual === true,
+    // A fresh (never-yet-manual) cue has no baseline to speak of — default it
+    // to its own current timing so it's ready the instant it becomes manual.
+    autoAtMs: Math.round(num(raw.autoAtMs, atMs)),
+    autoDurMs: Math.round(num(raw.autoDurMs, durMs)),
   };
 }
 
@@ -142,6 +166,8 @@ function overlayToEditable(raw: AuthoredOverlayClip): EditableOverlayClip | null
   if (!videoUrl) return null;
   const startMs = [raw.startMs, raw.start].find((v) => typeof v === "number");
   const durationMs = [raw.durationMs, raw.duration].find((v) => typeof v === "number");
+  const resolvedStartMs = Math.max(0, Math.round(num(startMs, 0)));
+  const resolvedDurationMs = Math.max(100, Math.round(num(durationMs, 3000)));
   return {
     // Preserved from the authored id when present — compileOverlays (see
     // compile.ts) does the same, so the editable doc and the compiled
@@ -156,15 +182,18 @@ function overlayToEditable(raw: AuthoredOverlayClip): EditableOverlayClip | null
     id: str(raw.id) ?? nextId("overlay"),
     label: str(raw.label) ?? "Clip",
     videoUrl,
-    startMs: Math.max(0, Math.round(num(startMs, 0))),
-    durationMs: Math.max(100, Math.round(num(durationMs, 3000))),
+    startMs: resolvedStartMs,
+    durationMs: resolvedDurationMs,
     zIndex: Math.round(num(raw.zIndex, 0)),
     captionOverlay: raw.captionOverlay === true,
+    manual: raw.manual === true,
+    autoStartMs: Math.round(num(raw.autoStartMs, resolvedStartMs)),
+    autoDurationMs: Math.round(num(raw.autoDurationMs, resolvedDurationMs)),
   };
 }
 
 function overlayToAuthored(o: EditableOverlayClip): AuthoredOverlayClip {
-  return {
+  const out: AuthoredOverlayClip = {
     id: o.id,
     label: o.label,
     videoUrl: o.videoUrl,
@@ -173,6 +202,12 @@ function overlayToAuthored(o: EditableOverlayClip): AuthoredOverlayClip {
     zIndex: o.zIndex,
     captionOverlay: o.captionOverlay,
   };
+  if (o.manual) {
+    out.manual = true;
+    out.autoStartMs = Math.round(o.autoStartMs);
+    out.autoDurationMs = Math.round(o.autoDurationMs);
+  }
+  return out;
 }
 
 function transitionToEditable(raw: unknown, fallback: TransitionType): EditableTransition {
@@ -214,12 +249,18 @@ export function toEditable(doc: AuthoredTimeline, slideCount: number): EditableT
       ? []
       : (s.camera as { cues?: AuthoredCue[] } | undefined)?.cues ?? [];
 
+    const startMs = Math.round(num([s.startMs, s.start].find((v) => typeof v === "number"), 0));
+    const endMs = Math.round(num([s.endMs, s.end].find((v) => typeof v === "number"), 0));
+
     return {
       id: nextId("scene"),
       slideIndex: Math.max(0, Math.min(Math.max(0, slideCount - 1), Number.isFinite(slideIndex) ? slideIndex : i)),
       label: str(s.label) ?? str(s.note) ?? `Scene ${i + 1}`,
-      startMs: Math.round(num([s.startMs, s.start].find((v) => typeof v === "number"), 0)),
-      endMs: Math.round(num([s.endMs, s.end].find((v) => typeof v === "number"), 0)),
+      startMs,
+      endMs,
+      manual: s.manual === true,
+      autoStartMs: Math.round(num(s.autoStartMs, startMs)),
+      autoEndMs: Math.round(num(s.autoEndMs, endMs)),
       enter: transitionToEditable(s.enter, i === 0 ? "fade" : "cut"),
       exit: transitionToEditable(s.exit, "cut"),
       camera: cameraSource.map(cueToEditable).filter((c): c is EditableCue => c !== null),
@@ -290,6 +331,11 @@ export function toAuthored(doc: EditableTimeline): AuthoredTimeline {
       };
       if (s.camera.length > 0) scene.camera = { cues: s.camera.map(cueToAuthored) };
       if (s.intro) scene.intro = s.intro;
+      if (s.manual) {
+        scene.manual = true;
+        scene.autoStartMs = Math.round(s.autoStartMs);
+        scene.autoEndMs = Math.round(s.autoEndMs);
+      }
       return scene;
     }),
     overlays: doc.overlays.map(overlayToAuthored),
@@ -300,7 +346,18 @@ function cueToAuthored(c: EditableCue): AuthoredCue {
   const out: AuthoredCue = { action: c.action, atMs: Math.round(c.atMs) };
   if (c.durMs > 0) out.durMs = Math.round(c.durMs);
   if (c.ease) out.ease = c.ease;
-  if (c.word) out.word = c.word;
+  // A manually-retimed cue must stop being re-derived from its transcript
+  // word on the next compile — see compile.ts's snapToWord, which otherwise
+  // unconditionally overwrites atMs from the transcript on every recompile,
+  // silently undoing a drag one frame after it happens. `c.word` itself is
+  // left untouched on the editable doc (not cleared) so that resetting
+  // `manual` alone is enough to re-attach it — see resetAllModifications.
+  if (c.word && !c.manual) out.word = c.word;
+  if (c.manual) {
+    out.manual = true;
+    out.autoAtMs = Math.round(c.autoAtMs);
+    out.autoDurMs = Math.round(c.autoDurMs);
+  }
   Object.entries(c.params).forEach(([k, v]) => {
     (out as Record<string, unknown>)[k] = v;
   });
@@ -314,34 +371,31 @@ function cueToAuthored(c: EditableCue): AuthoredCue {
 /**
  * Re-establishes everything the compiler assumes, after any edit.
  *
- * Scenes are sorted and made contiguous, because a gap freezes the previous
- * scene on screen and an overlap makes two scenes fight over the same frame —
- * both of which the compiler reports as problems rather than fixing. Cues are
- * clamped into their own scene, because a cue outside its scene fires on a
- * slide that is not on screen.
+ * Scenes are deliberately NOT forced contiguous here — no gap-closing, no
+ * pushing a scene forward to avoid an overlap. Moving or resizing one scene
+ * must never resize or reposition any other scene; that ripple was the bug
+ * (a neighbor's own window would change shape without its content being told
+ * to adapt, so its elements looked "left behind"). Overlap and gaps are both
+ * already meaningful to the player: sample.ts's findSceneIndex resolves an
+ * overlap by picking whichever scene started most recently, and a gap simply
+ * freezes the previous scene on screen until the next one starts — neither
+ * needs the editor to prevent it. Scenes ARE still sorted by startMs, purely
+ * for a stable render/gutter order and because findSceneIndex's "last scene
+ * that has started" rule depends on it. Cues are still clamped into their
+ * own scene's window, because a cue outside it fires on a slide that scene
+ * isn't even showing at that instant.
  */
 export function normalize(doc: EditableTimeline): EditableTimeline {
-  const scenes = [...doc.scenes].sort((a, b) => a.startMs - b.startMs);
+  const scenes = [...doc.scenes]
+    .sort((a, b) => a.startMs - b.startMs)
+    .map((scene) => {
+      const startMs = Math.max(0, Math.round(scene.startMs));
+      const endMs = Math.max(startMs + MIN_SCENE_MS, Math.round(scene.endMs));
+      if (startMs === scene.startMs && endMs === scene.endMs) return scene;
+      return { ...scene, startMs, endMs };
+    });
 
-  let cursor = 0;
-  const fixed: EditableScene[] = scenes.map((scene, i) => {
-    const startMs = i === 0 ? Math.max(0, Math.round(scene.startMs)) : Math.max(cursor, Math.round(scene.startMs));
-    const endMs = Math.max(startMs + MIN_SCENE_MS, Math.round(scene.endMs));
-    cursor = endMs;
-    return { ...scene, startMs, endMs };
-  });
-
-  // Close any hole a drag opened: a scene begins where the last one ended.
-  for (let i = 1; i < fixed.length; i++) {
-    if (fixed[i].startMs !== fixed[i - 1].endMs) {
-      fixed[i] = { ...fixed[i], startMs: fixed[i - 1].endMs };
-      if (fixed[i].endMs < fixed[i].startMs + MIN_SCENE_MS) {
-        fixed[i] = { ...fixed[i], endMs: fixed[i].startMs + MIN_SCENE_MS };
-      }
-    }
-  }
-
-  const clamped = fixed.map((scene) => ({
+  const clamped = scenes.map((scene) => ({
     ...scene,
     camera: scene.camera.map((c) => clampCue(c, scene)),
     tracks: scene.tracks.map((t) => ({
@@ -354,7 +408,9 @@ export function normalize(doc: EditableTimeline): EditableTimeline {
     ...doc,
     scenes: clamped,
     overlays: doc.overlays.map(clampOverlay),
-    durationMs: clamped.length ? clamped[clamped.length - 1].endMs : 0,
+    // The last scene by START isn't necessarily the last one to END once
+    // overlap/gaps are allowed, so the reel's length is the latest of any of them.
+    durationMs: clamped.length ? Math.max(...clamped.map((s) => s.endMs)) : 0,
   };
 }
 
@@ -407,12 +463,23 @@ function mapCue(
   });
 }
 
+/** A cue's first manual timing edit locks in its pre-edit atMs/durMs as the reset baseline; later edits leave that baseline alone. */
+function markCueManual(c: EditableCue): Pick<EditableCue, "manual" | "autoAtMs" | "autoDurMs"> {
+  return c.manual
+    ? { manual: true, autoAtMs: c.autoAtMs, autoDurMs: c.autoDurMs }
+    : { manual: true, autoAtMs: c.atMs, autoDurMs: c.durMs };
+}
+
 export function moveCue(doc: EditableTimeline, sceneId: string, trackId: string | null, cueId: string, atMs: number) {
-  return mapCue(doc, sceneId, trackId, cueId, (c) => ({ ...c, atMs: Math.round(atMs) }));
+  return mapCue(doc, sceneId, trackId, cueId, (c) => ({ ...c, ...markCueManual(c), atMs: Math.round(atMs) }));
 }
 
 export function resizeCue(doc: EditableTimeline, sceneId: string, trackId: string | null, cueId: string, durMs: number) {
-  return mapCue(doc, sceneId, trackId, cueId, (c) => ({ ...c, durMs: Math.max(MIN_CUE_MS, Math.round(durMs)) }));
+  return mapCue(doc, sceneId, trackId, cueId, (c) => ({
+    ...c,
+    ...markCueManual(c),
+    durMs: Math.max(MIN_CUE_MS, Math.round(durMs)),
+  }));
 }
 
 export function updateCue(
@@ -420,7 +487,7 @@ export function updateCue(
   sceneId: string,
   trackId: string | null,
   cueId: string,
-  patch: Partial<Pick<EditableCue, "action" | "ease" | "word" | "atMs" | "durMs">> & { params?: Record<string, number | string> }
+  patch: Partial<Pick<EditableCue, "action" | "ease" | "word">> & { params?: Record<string, number | string> }
 ) {
   return mapCue(doc, sceneId, trackId, cueId, (c) => ({
     ...c,
@@ -459,7 +526,15 @@ export function duplicateCue(doc: EditableTimeline, sceneId: string, trackId: st
     const clone = (cues: EditableCue[]) => {
       const src = cues.find((c) => c.id === cueId);
       if (!src) return cues;
-      return [...cues, { ...src, id: nextId("cue"), atMs: src.atMs + Math.max(MIN_CUE_MS, src.durMs) }];
+      const atMs = src.atMs + Math.max(MIN_CUE_MS, src.durMs);
+      // A word-bound source would otherwise hand its transcript binding to
+      // the copy too — which then resnaps right back onto the ORIGINAL
+      // cue's time on the next compile, since both would target the same
+      // word. Detach the copy immediately so it stays where it was placed.
+      const dup: EditableCue = src.word
+        ? { ...src, id: nextId("cue"), atMs, manual: true, autoAtMs: atMs, autoDurMs: src.durMs }
+        : { ...src, id: nextId("cue"), atMs };
+      return [...cues, dup];
     };
     if (trackId === null) return { ...scene, camera: clone(scene.camera) };
     return {
@@ -501,68 +576,93 @@ export function setSceneLabel(doc: EditableTimeline, sceneId: string, label: str
 }
 
 /**
- * Moves the cut between scene `index - 1` and scene `index`.
- *
- * Only the two scenes either side move: a boundary drag is a trim, not a
- * ripple, so the rest of the reel stays locked to the audio it was synced to.
- * That is the behaviour that matters here — the whole point of the timeline is
- * that everything else is already right.
+ * Detaches a cue from its transcript word so a scene-level timing override
+ * actually sticks — pairs with cueToAuthored's `!c.manual` gate, which is
+ * what stops compile.ts's snapToWord from re-pinning it to the old time on
+ * the very next recompile. A no-op for cues with no word, or already manual.
  */
-export function moveSceneBoundary(doc: EditableTimeline, index: number, atMs: number): EditableTimeline {
-  if (index <= 0 || index >= doc.scenes.length) return doc;
-
-  const prev = doc.scenes[index - 1];
-  const next = doc.scenes[index];
-  const lo = prev.startMs + MIN_SCENE_MS;
-  const hi = next.endMs - MIN_SCENE_MS;
-  if (hi <= lo) return doc;
-
-  const at = Math.round(Math.min(Math.max(atMs, lo), hi));
-  const scenes = doc.scenes.map((s, i) => {
-    if (i === index - 1) return { ...s, endMs: at };
-    if (i === index) return { ...s, startMs: at };
-    return s;
-  });
-  return normalize({ ...doc, scenes });
-}
-
-/** Moves the very end of the reel. */
-export function setTimelineEnd(doc: EditableTimeline, endMs: number): EditableTimeline {
-  if (doc.scenes.length === 0) return doc;
-  const last = doc.scenes[doc.scenes.length - 1];
-  const at = Math.max(last.startMs + MIN_SCENE_MS, Math.round(endMs));
-  const scenes = doc.scenes.map((s, i) => (i === doc.scenes.length - 1 ? { ...s, endMs: at } : s));
-  return normalize({ ...doc, scenes });
+function detachIfWordBound(c: EditableCue): EditableCue {
+  if (!c.word || c.manual) return c;
+  return { ...c, manual: true, autoAtMs: c.atMs, autoDurMs: c.durMs };
 }
 
 /**
- * Shifts a whole scene and everything in it.
+ * Applies a startMs/endMs patch to a scene as a manual override: captures
+ * the pre-override baseline once (kept stable across repeated edits), and
+ * detaches the scene's own word-bound cues so they don't fight the new
+ * placement on the next compile.
+ */
+function overrideSceneTiming(scene: EditableScene, patch: Partial<Pick<EditableScene, "startMs" | "endMs">>): EditableScene {
+  return {
+    ...scene,
+    ...patch,
+    manual: true,
+    autoStartMs: scene.manual ? scene.autoStartMs : scene.startMs,
+    autoEndMs: scene.manual ? scene.autoEndMs : scene.endMs,
+    camera: scene.camera.map(detachIfWordBound),
+    tracks: scene.tracks.map((t) => ({ ...t, cues: t.cues.map(detachIfWordBound) })),
+  };
+}
+
+/**
+ * Grows or shrinks a scene from its LEFT edge only — this scene's own
+ * startMs changes, its endMs and every other scene are untouched. Content
+ * inside doesn't move (this reshapes the window, it isn't "this beat happens
+ * later" — see shiftScene for that); a cue left outside the new, narrower
+ * window is clamped back into it by normalize(), same as any other edit.
+ */
+export function resizeSceneStart(doc: EditableTimeline, sceneId: string, newStartMs: number): EditableTimeline {
+  return mapScene(doc, sceneId, (scene) => {
+    const startMs = Math.max(0, Math.min(Math.round(newStartMs), scene.endMs - MIN_SCENE_MS));
+    if (startMs === scene.startMs) return scene;
+    return overrideSceneTiming(scene, { startMs });
+  });
+}
+
+/** Grows or shrinks a scene from its RIGHT edge only — mirror of resizeSceneStart. */
+export function resizeSceneEnd(doc: EditableTimeline, sceneId: string, newEndMs: number): EditableTimeline {
+  return mapScene(doc, sceneId, (scene) => {
+    const endMs = Math.max(scene.startMs + MIN_SCENE_MS, Math.round(newEndMs));
+    if (endMs === scene.endMs) return scene;
+    return overrideSceneTiming(scene, { endMs });
+  });
+}
+
+/**
+ * Shifts a whole scene and everything in it — freely, in either direction,
+ * with no regard for any other scene. Overlap and gaps are both fine (see
+ * normalize()'s doc comment: sample.ts already resolves both sensibly); the
+ * only floor is 0, so a scene can't be dragged to start before the reel does.
  *
- * The cues move with the scene, which is what "this beat happens later" means;
- * clamping them individually would smear the choreography against the wall.
+ * The cues move with the scene, which is what "this beat happens later"
+ * means; clamping them individually would smear the choreography against
+ * the wall. No other scene is read, touched, or even looked at here.
  */
 export function shiftScene(doc: EditableTimeline, sceneId: string, deltaMs: number): EditableTimeline {
-  const index = doc.scenes.findIndex((s) => s.id === sceneId);
-  if (index < 0) return doc;
-
-  const scene = doc.scenes[index];
-  const prevEnd = index > 0 ? doc.scenes[index - 1].startMs + MIN_SCENE_MS : 0;
-  const nextStart = index < doc.scenes.length - 1 ? doc.scenes[index + 1].endMs - MIN_SCENE_MS : Infinity;
+  const scene = doc.scenes.find((s) => s.id === sceneId);
+  if (!scene) return doc;
 
   const length = scene.endMs - scene.startMs;
-  const start = Math.round(Math.min(Math.max(scene.startMs + deltaMs, prevEnd), nextStart - length));
+  const start = Math.max(0, Math.round(scene.startMs + deltaMs));
   const delta = start - scene.startMs;
   if (delta === 0) return doc;
 
-  const shiftCue = (c: EditableCue) => ({ ...c, atMs: c.atMs + delta });
-  const scenes = doc.scenes.map((s, i) => {
-    if (i === index - 1) return { ...s, endMs: start };
-    if (i === index + 1) return { ...s, startMs: start + length };
-    if (i !== index) return s;
+  // Shifts a cue by the scene's own delta, then detaches it from its
+  // transcript word (if any) — baseline is the cue's PRE-shift time, i.e.
+  // its own last auto/word-derived position, not the shifted one.
+  const shiftCue = (c: EditableCue): EditableCue => {
+    if (!c.word || c.manual) return { ...c, atMs: c.atMs + delta };
+    return { ...c, atMs: c.atMs + delta, manual: true, autoAtMs: c.atMs, autoDurMs: c.durMs };
+  };
+  const scenes = doc.scenes.map((s) => {
+    if (s.id !== sceneId) return s;
     return {
       ...s,
       startMs: start,
       endMs: start + length,
+      manual: true,
+      autoStartMs: s.manual ? s.autoStartMs : s.startMs,
+      autoEndMs: s.manual ? s.autoEndMs : s.endMs,
       camera: s.camera.map(shiftCue),
       tracks: s.tracks.map((t) => ({ ...t, cues: t.cues.map(shiftCue) })),
     };
@@ -580,11 +680,87 @@ export function updateOverlay(
   id: string,
   patch: Partial<Omit<EditableOverlayClip, "id">>
 ): EditableTimeline {
-  return normalize({ ...doc, overlays: doc.overlays.map((o) => (o.id === id ? { ...o, ...patch } : o)) });
+  // Every current caller only ever patches startMs/durationMs (drag, resize,
+  // keyboard nudge) — treat those as manual timing overrides, same as a cue.
+  const isTimingEdit = patch.startMs !== undefined || patch.durationMs !== undefined;
+  return normalize({
+    ...doc,
+    overlays: doc.overlays.map((o) => {
+      if (o.id !== id) return o;
+      if (!isTimingEdit) return { ...o, ...patch };
+      return {
+        ...o,
+        ...patch,
+        manual: true,
+        autoStartMs: o.manual ? o.autoStartMs : o.startMs,
+        autoDurationMs: o.manual ? o.autoDurationMs : o.durationMs,
+      };
+    }),
+  });
 }
 
 export function deleteOverlay(doc: EditableTimeline, id: string): EditableTimeline {
   return normalize({ ...doc, overlays: doc.overlays.filter((o) => o.id !== id) });
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Reset — undoes manual overrides, restoring auto-sync/transcript timing.
+ * Distinct from undo/redo: this targets *which things are manually timed*,
+ * not *how many gestures ago* — useful after several edits, or after a
+ * reload (manual/auto* survive the round-trip through toAuthored/toEditable,
+ * unlike the in-memory undo stack).
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+/** Restores one cue to its pre-manual-edit timing, if it has any override to undo. */
+function resetCue(c: EditableCue): EditableCue {
+  if (!c.manual) return c;
+  return { ...c, manual: false, atMs: c.autoAtMs, durMs: c.autoDurMs };
+}
+
+/**
+ * Restores a scene's own timing plus every cue inside it. Reverting a scene
+ * reverts what happened to it as a whole, including the word-detach cascade
+ * shiftScene/resizeSceneStart/resizeSceneEnd applied — leaving a cue's own
+ * manual override in place while its scene snapped back would strand it at a
+ * now-meaningless offset, clamped into a scene window it was never actually
+ * placed against.
+ */
+function resetScene(scene: EditableScene): EditableScene {
+  const hasCueOverride = scene.camera.some((c) => c.manual) || scene.tracks.some((t) => t.cues.some((c) => c.manual));
+  if (!scene.manual && !hasCueOverride) return scene;
+  return {
+    ...scene,
+    manual: false,
+    startMs: scene.manual ? scene.autoStartMs : scene.startMs,
+    endMs: scene.manual ? scene.autoEndMs : scene.endMs,
+    camera: scene.camera.map(resetCue),
+    tracks: scene.tracks.map((t) => ({ ...t, cues: t.cues.map(resetCue) })),
+  };
+}
+
+function resetOverlay(o: EditableOverlayClip): EditableOverlayClip {
+  if (!o.manual) return o;
+  return { ...o, manual: false, startMs: o.autoStartMs, durationMs: o.autoDurationMs };
+}
+
+/** Restores every manually-overridden scene, cue and overlay to its pre-edit timing — the toolbar's "Reset all" action. */
+export function resetAllModifications(doc: EditableTimeline): EditableTimeline {
+  return normalize({ ...doc, scenes: doc.scenes.map(resetScene), overlays: doc.overlays.map(resetOverlay) });
+}
+
+/** Restores just one scene (and its own cues) — the per-item revert in the timeline's yellow tooltip. */
+export function resetSceneModification(doc: EditableTimeline, sceneId: string): EditableTimeline {
+  return mapScene(doc, sceneId, resetScene);
+}
+
+/** Restores just one cue — the per-item revert in the timeline's yellow tooltip. */
+export function resetCueModification(doc: EditableTimeline, sceneId: string, trackId: string | null, cueId: string): EditableTimeline {
+  return mapCue(doc, sceneId, trackId, cueId, resetCue);
+}
+
+/** Restores just one overlay clip — the per-item revert on a manually-timed overlay. */
+export function resetOverlayModification(doc: EditableTimeline, id: string): EditableTimeline {
+  return normalize({ ...doc, overlays: doc.overlays.map((o) => (o.id === id ? resetOverlay(o) : o)) });
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

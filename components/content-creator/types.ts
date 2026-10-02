@@ -107,7 +107,19 @@ export type LogoPosition = "top-right" | "top-left" | "top-center" | "bottom-rig
 
 export interface AspectRatio { id: string; label: string; w: number; h: number; desc: string; }
 
-export type CreatorMode = "analysis" | "news" | "indicator" | "facts" | "learnings" | "watermark" | "motion";
+/**
+ * Every editor the page can be in.
+ *
+ * Only four are offered in the mode switcher: news, watermark, motion and
+ * levels. "analysis", "indicator", "facts" and "learnings" are retired — their
+ * fields, renderers and prompts all still work, and a history item saved under
+ * one of them still opens correctly, but nothing in the UI routes to them any
+ * more. Removing them from this union would make those saved items unloadable.
+ */
+export type CreatorMode = "analysis" | "news" | "indicator" | "facts" | "learnings" | "watermark" | "motion" | "levels";
+
+/** The modes the creator-mode switcher actually offers, in the order it shows them. */
+export const ACTIVE_CREATOR_MODES = ["news", "watermark", "motion", "levels"] as const;
 
 export interface PixelBounds { left: number; top: number; width: number; height: number; }
 

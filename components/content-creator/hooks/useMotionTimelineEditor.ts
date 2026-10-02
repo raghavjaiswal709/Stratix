@@ -94,6 +94,7 @@ export function useMotionTimelineEditor({
   motionWholeImageMotion,
   motionZigzagMotion,
   motionZoneBorder,
+  motionMinimalMode,
   motionHideImageCaptions,
   motionCsvR2UrlRef,
   motionAudioR2UrlRef,
@@ -179,6 +180,7 @@ export function useMotionTimelineEditor({
   motionWholeImageMotion: boolean;
   motionZigzagMotion: boolean;
   motionZoneBorder: boolean;
+  motionMinimalMode: boolean;
   motionHideImageCaptions: boolean;
   motionCsvR2UrlRef: RefObject<string | null>;
   motionAudioR2UrlRef: RefObject<string | null>;
@@ -220,6 +222,19 @@ export function useMotionTimelineEditor({
     setMotionTimeline(timeline);
     if (!timeline) return;
 
+    // Seed the editable doc from the same JSON, and reset undo/redo to match
+    // — otherwise the drag strip and undo/redo kept operating on whatever
+    // motionDoc existed before this paste (stale, or null on a first paste),
+    // desynced from the timeline that's actually now playing. Same pattern
+    // as applyBuiltTimeline below.
+    const parsedDoc = parseLooseJson<AuthoredTimeline>(motionTimelineText).value;
+    if (parsedDoc) {
+      setMotionDoc(toEditable(parsedDoc, motionSlides.length));
+      motionUndoRef.current = [];
+      motionRedoRef.current = [];
+      setMotionHistoryTick((t) => t + 1);
+    }
+
     // Start the new timeline from the top rather than wherever the old
     // playhead happened to sit.
     motionTimeRef.current = 0;
@@ -250,6 +265,10 @@ export function useMotionTimelineEditor({
     ensureMotionAssets,
     setMotionTimelineReport,
     setMotionTimeline,
+    setMotionDoc,
+    motionUndoRef,
+    motionRedoRef,
+    setMotionHistoryTick,
     motionTimeRef,
     motionClockOriginRef,
     setMotionTimeMs,
@@ -432,6 +451,7 @@ export function useMotionTimelineEditor({
           wholeImageMotion: motionWholeImageMotion,
           zigzagMotion: motionZigzagMotion,
           zoneBorder: motionZoneBorder,
+          minimalMode: motionMinimalMode,
           hideImageCaptions: motionHideImageCaptions,
           introCard: motionIntroCard,
           captions: motionCaptions,
@@ -467,6 +487,7 @@ export function useMotionTimelineEditor({
       motionWholeImageMotion,
       motionZigzagMotion,
       motionZoneBorder,
+      motionMinimalMode,
       motionHideImageCaptions,
       motionIntroCard,
       motionCaptions,
@@ -533,6 +554,7 @@ export function useMotionTimelineEditor({
     motionWholeImageMotion,
     motionZigzagMotion,
     motionZoneBorder,
+    motionMinimalMode,
     motionHideImageCaptions,
     motionIntroCard,
     motionCaptions,
@@ -622,13 +644,17 @@ export function useMotionTimelineEditor({
           label = source.label;
         }
         const durationMs = (await probeVideoDurationMs(videoUrl)) ?? 3000;
+        const startMs = Math.round(motionTimeRef.current);
         const next = addOverlay(motionDoc, {
           label,
           videoUrl,
-          startMs: Math.round(motionTimeRef.current),
+          startMs,
           durationMs,
           zIndex: 0,
           captionOverlay: false,
+          manual: false,
+          autoStartMs: startMs,
+          autoDurationMs: durationMs,
         });
         applyMotionDocEdit(next, { commit: true });
         setMotionOverlayUploadState("idle");
@@ -749,6 +775,7 @@ export function useMotionTimelineEditor({
           wholeImageMotion: motionWholeImageMotion,
           zigzagMotion: motionZigzagMotion,
           zoneBorder: motionZoneBorder,
+          minimalMode: motionMinimalMode,
           hideImageCaptions: motionHideImageCaptions,
           introCard: motionIntroCard,
           captions: motionCaptions,
@@ -804,6 +831,7 @@ export function useMotionTimelineEditor({
       motionWholeImageMotion,
       motionZigzagMotion,
       motionZoneBorder,
+      motionMinimalMode,
       motionHideImageCaptions,
       motionIntroCard,
       motionCaptions,

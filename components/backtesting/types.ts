@@ -105,6 +105,7 @@ export type DrawingType =
   | "fib"                                                  // Fibonacci
   | "long" | "short"                                       // Risk positions
   | "patterns"                                             // Harmonic patterns
+  | "elliottimpulse"                                       // Elliott impulse wave (1-2-3-4-5)
   | "text" | "brush" | "ruler" | "smiley"                 // Annotations
   | "cursor" | "eraser";                                   // Controls
 

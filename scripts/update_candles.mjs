@@ -67,13 +67,28 @@ const CHUNK_HOURS  = 24;   // fetch in 24-hour slices — keeps requests small &
 const MAX_RETRIES  = 3;    // per-chunk retry attempts
 const RETRY_DELAY  = 4000; // ms between retries (linear backoff × attempt)
 
+// Dukascopy's datafeed (datafeed.dukascopy.com) is intermittently unreachable —
+// observed directly as connect timeouts on a healthy network, mixed with
+// occasional successes seconds apart. That's not a "market closed" empty
+// response (handled separately below); it's the vendor's own reliability.
+// Rather than leave a hole for the *next* run's separate gap-backfill pass to
+// maybe get to later, try Twelve Data immediately for the exact same window
+// so an update run is self-healing in one pass. Capped so a broad Dukascopy
+// outage can't blow the workflow's 30-minute budget or Twelve Data's rate
+// limit — same shared throttle() as the backfill pass, so this and that pass
+// can never collectively exceed it even if both run in the same process.
+const INLINE_TWELVE_DATA_CAP = 40;
+let inlineTwelveDataCallsUsed = 0;
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 /**
- * Fetch one time-slice for a given instrument, with up to MAX_RETRIES attempts.
- * Returns an array of candle objects (may be empty if the market was closed).
+ * Fetch one time-slice for a given instrument, with up to MAX_RETRIES attempts,
+ * falling back to Twelve Data for that exact window if Dukascopy never comes
+ * through and the symbol has a Twelve Data mapping. Returns an array of candle
+ * objects (may be empty if the market was genuinely closed).
  */
-async function fetchChunkWithRetry(instrument, from, to, tag, chunkLabel) {
+async function fetchChunkWithRetry(symbol, instrument, from, to, tag, chunkLabel) {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const raw = await getHistoricRates({
@@ -95,20 +110,37 @@ async function fetchChunkWithRetry(instrument, from, to, tag, chunkLabel) {
       const isClosed =
         toDay === 6 || toDay === 0 ||                                   // to is Sat/Sun
         (fromDay === 5 && from.getUTCHours() >= 21);                    // from is Fri post-close
-      if (isClosed || attempt === MAX_RETRIES) return [];
+      if (isClosed) return [];
+      if (attempt === MAX_RETRIES) return fetchTwelveDataFallback(symbol, from, to, tag, chunkLabel);
 
       console.log(`${tag}   chunk ${chunkLabel} attempt ${attempt}/${MAX_RETRIES}: 0 candles — retrying…`);
       await sleep(RETRY_DELAY * attempt);
     } catch (err) {
       if (attempt === MAX_RETRIES) {
         console.error(`${tag}   chunk ${chunkLabel} failed after ${MAX_RETRIES} attempts: ${err?.message ?? err}`);
-        return [];
+        return fetchTwelveDataFallback(symbol, from, to, tag, chunkLabel);
       }
       console.log(`${tag}   chunk ${chunkLabel} attempt ${attempt}/${MAX_RETRIES} error: ${err?.message ?? err} — retrying…`);
       await sleep(RETRY_DELAY * attempt);
     }
   }
   return [];
+}
+
+/** Normalizes Twelve Data's { timestamp: ms } shape to Dukascopy's — both already match. */
+async function fetchTwelveDataFallback(symbol, from, to, tag, chunkLabel) {
+  if (!(symbol in TWELVE_DATA_SYMBOL_MAP)) return [];
+  if (inlineTwelveDataCallsUsed >= INLINE_TWELVE_DATA_CAP) return [];
+  inlineTwelveDataCallsUsed++;
+  try {
+    const candles = await fetchTwelveDataCandles(symbol, from, to);
+    if (candles.length > 0) {
+      console.log(`${tag}   chunk ${chunkLabel}: Dukascopy unavailable, recovered ${candles.length} candle(s) from Twelve Data`);
+    }
+    return candles;
+  } catch {
+    return [];
+  }
 }
 
 // ─── Per-symbol update ────────────────────────────────────────────────────────
@@ -161,7 +193,7 @@ async function updateSymbol(symbol) {
   for (let i = 0; i < chunks.length; i++) {
     const { from, to } = chunks[i];
     const label = useChunks ? `${i + 1}/${chunks.length}` : '1/1';
-    const raw   = await fetchChunkWithRetry(INSTRUMENT_MAP[symbol], from, to, tag, label);
+    const raw   = await fetchChunkWithRetry(symbol, INSTRUMENT_MAP[symbol], from, to, tag, label);
 
     if (raw.length > 0) {
       allRaw.push(...raw);

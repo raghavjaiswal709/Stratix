@@ -86,6 +86,11 @@ export function GenerateFooter({
         </div>
       )}
 
+      {/* Generate / Re-render drive the poster pipeline. A motion project has
+          neither: it is decomposed from uploaded artwork, not generated, and it
+          repaints every frame on its own clock. Only the utility row below
+          applies there. */}
+      {creatorMode !== "motion" && (
       <div className="flex gap-2 relative">
         {/* Generate — niche dropdown (opens upward) */}
         <div className="relative flex-1">
@@ -135,85 +140,6 @@ export function GenerateFooter({
                   </span>
                 </button>
 
-                <div className="w-full flex items-start gap-1 rounded-lg hover:bg-white/[0.05] transition border-t border-white/[0.03]">
-                  <button
-                    onClick={() => generateFactsBatch()}
-                    className="flex-1 min-w-0 flex items-start gap-3 px-3 py-2.5 text-left active:scale-[0.99] transition cursor-pointer"
-                  >
-                    <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shrink-0 mt-0.5">
-                      <Lightbulb className="h-4 w-4 text-emerald-400" />
-                    </div>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[11.5px] font-bold text-white tracking-wide">AI Facts Batch</span>
-                      <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
-                        Auto-generate 5-8 verified, punchy trading/market facts with cover + outro.
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowGenerateMenu(false); setShowPromptForCategory("facts"); }}
-                    title="Show the full generation prompt"
-                    className="shrink-0 mt-2 mr-1.5 p-1.5 rounded-lg text-white/30 hover:text-white/80 hover:bg-white/10 transition cursor-pointer"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                <div className="w-full flex items-start gap-1 rounded-lg hover:bg-white/[0.05] transition border-t border-white/[0.03]">
-                  <button
-                    onClick={() => generateLearningsBatch()}
-                    className="flex-1 min-w-0 flex items-start gap-3 px-3 py-2.5 text-left active:scale-[0.99] transition cursor-pointer"
-                  >
-                    <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shrink-0 mt-0.5">
-                      <BookOpen className="h-4 w-4 text-emerald-400" />
-                    </div>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[11.5px] font-bold text-white tracking-wide">AI Learnings Batch</span>
-                      <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
-                        Auto-picks one concept and teaches it step by step, with cover + recap + outro.
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowGenerateMenu(false); setShowPromptForCategory("learnings"); }}
-                    title="Show the full generation prompt"
-                    className="shrink-0 mt-2 mr-1.5 p-1.5 rounded-lg text-white/30 hover:text-white/80 hover:bg-white/10 transition cursor-pointer"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setShowGenerateMenu(false);
-                    setCreatorMode("analysis");
-                    setShowPromptModal(true);
-                  }}
-                  className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-white/[0.05] active:scale-[0.99] transition cursor-pointer border-t border-white/[0.03]"
-                >
-                  <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-white/5 border border-white/10 shrink-0 mt-0.5">
-                    <Bot className="h-4 w-4 text-white/70" />
-                  </div>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[11.5px] font-bold text-white tracking-wide">Daily Analysis Prompt</span>
-                    <span className="block text-[9.5px] text-white/40 leading-snug mt-0.5 font-normal">
-                      Compile session candles and structures into prompts for external AI.
-                    </span>
-                  </span>
-                </button>
-
-                <button
-                  disabled
-                  className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left opacity-35 cursor-not-allowed border-t border-white/[0.03]"
-                >
-                  <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-white/[0.02] border border-white/[0.04] shrink-0 mt-0.5">
-                    <Layers2 className="h-4 w-4 text-white/30" />
-                  </div>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[11.5px] font-bold text-white/50 tracking-wide">Indicator / Classic</span>
-                    <span className="block text-[9.5px] text-white/25 leading-snug mt-0.5 font-normal">Coming soon</span>
-                  </span>
-                </button>
               </div>
             </>
           )}
@@ -247,6 +173,7 @@ export function GenerateFooter({
           <span className="hidden xs:inline">RE-RENDER</span>
         </button>
       </div>
+      )}
 
       {/* Utility actions — always their own row, icon-only, so this never
           competes with Generate/Re-render for space and can never get

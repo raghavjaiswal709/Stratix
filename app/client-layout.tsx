@@ -11,6 +11,7 @@ import { Menu, LogOut } from "lucide-react";
 import { useAppContext } from "@/lib/context";
 import { DASHBOARD_PALETTES } from "@/types";
 import { StratixMark, StratixWordmark } from "@/components/shared/stratix-logo";
+import { AccessFootprint } from "@/components/footprint/access-footprint";
 
 function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const { data: session } = useSession();
@@ -49,6 +50,9 @@ function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         <StratixMark size={24} />
         <StratixWordmark size={11} />
       </button>
+
+      {/* Footprint Pro (order-flow dashboard on the trading Mac) — admins only */}
+      <AccessFootprint variant="mobile" />
 
       {/* User avatar + dropdown — always visible */}
       <div className="relative shrink-0">

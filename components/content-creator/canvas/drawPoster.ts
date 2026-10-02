@@ -63,6 +63,10 @@ export function drawPoster(
     return drawMotionVideoPoster(canvas, data, ar, img ?? null, data?.layerImgEls);
   }
 
+  // Levels is a canvas editor of its own (LevelsCanvasStage) and never routes
+  // through the poster renderer; treat it like the analysis card if it ever does.
+  if (mode === "levels") return [];
+
   if (mode === "news") {
     return posterStyle === "bold"
       ? drawBoldPoster(ctx, data, img, W, H, r, activeNewsIndex, totalNewsCount, "news", gradient, fadeIntensity, sentimentScheme, isReel)

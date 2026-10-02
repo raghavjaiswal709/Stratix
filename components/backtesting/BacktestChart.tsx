@@ -94,6 +94,14 @@ const TOOL_POINTS: Partial<Record<DrawingType, number>> = {
   trendline: 2, ray: 2, arrow: 2, rectangle: 2, circle: 2, fib: 2,
   long: 2, short: 2, ruler: 2, text: 1,
   channel: 3, triangle: 3, patterns: 5,
+  elliottimpulse: 6, // unlabeled start point + 5 labeled wave endpoints (1-2-3-4-5)
+};
+
+// Seconds per bar for the ruler's bar-count readout — matches dataFetcher.ts's
+// own TF_SECONDS map (kept local here since this is a rendering constant, not
+// a data-fetching one).
+const RULER_TF_SECONDS: Record<Timeframe, number> = {
+  "1m": 60, "5m": 300, "15m": 900, "1H": 3600, "4H": 14400, "1D": 86400,
 };
 
 const CHART_BG = "#0f0f0f";
@@ -157,7 +165,14 @@ export function BacktestChart({
   const [lassoBox, setLassoBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([]);
   const [isModifierHeld, setIsModifierHeld] = useState(false);
-  
+
+  // TradingView-parity Measure tool: hold Shift + click-drag with any tool
+  // active (most commonly cursor) for a transient price/%/bars/pips readout
+  // that disappears on mouseup — distinct from the persisted "Ruler" drawing.
+  const [isShiftHeld, setIsShiftHeld] = useState(false);
+  const [measureOverlay, setMeasureOverlay] = useState<{ start: TimePricePoint; current: TimePricePoint } | null>(null);
+  const isMeasuringRef = useRef(false);
+
   // Template menu open state
   const [isTemplateMenuOpen, setIsTemplateMenuOpen] = useState(false);
 
@@ -986,6 +1001,23 @@ export function BacktestChart({
         return;
       }
 
+      // TradingView-parity tool shortcuts. Uses e.code (physical key), not
+      // e.key: on macOS, Option+<letter> remaps e.key to an accented/special
+      // character for many keys (e.g. Alt+H → "˙"), so e.key comparisons
+      // would silently never match. e.code stays "KeyH" regardless of what
+      // character the OS composes, on every platform.
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const toolByCode: Partial<Record<string, DrawingType>> = e.shiftKey
+          ? { KeyR: "rectangle" }                                   // Shift+Alt+R — rectangle
+          : { KeyT: "trendline", KeyH: "hline", KeyV: "vline", KeyJ: "ray", KeyF: "fib" };
+        const tool = toolByCode[e.code];
+        if (tool) {
+          e.preventDefault();
+          setActiveTool(tool);
+          return;
+        }
+      }
+
       const ctrl = e.ctrlKey || e.metaKey;
 
       // Ctrl+Z — undo last drawing action
@@ -1016,19 +1048,27 @@ export function BacktestChart({
     return () => window.removeEventListener("keydown", handler);
   }, [onDrawingsChange]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cmd / Ctrl key modifier tracker for drag-selection pointer capture
+  // Cmd / Ctrl key modifier tracker for drag-selection pointer capture, and
+  // Shift for the Measure gesture (see isShiftHeld/measureOverlay above).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Meta" || e.key === "Control" || e.metaKey || e.ctrlKey) {
         setIsModifierHeld(true);
       }
+      if (e.key === "Shift") setIsShiftHeld(true);
     };
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.key === "Meta" || e.key === "Control") {
         setIsModifierHeld(false);
       }
+      if (e.key === "Shift") {
+        setIsShiftHeld(false);
+        // Releasing Shift mid-drag ends the measurement, matching "hold" semantics
+        isMeasuringRef.current = false;
+        setMeasureOverlay(null);
+      }
     };
-    const handleBlur = () => setIsModifierHeld(false);
+    const handleBlur = () => { setIsModifierHeld(false); setIsShiftHeld(false); isMeasuringRef.current = false; setMeasureOverlay(null); };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
@@ -1140,6 +1180,50 @@ export function BacktestChart({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [selectedDrawingId, selectedDrawingIds, onDrawingsChange]);
+
+  // Ctrl/Cmd+C / Ctrl/Cmd+V — copy/paste selected drawing(s) (TradingView
+  // parity). Pasted copies get fresh ids and are nudged forward in time so
+  // they don't land exactly on top of the originals. Ctrl/Cmd+Alt+H — toggle
+  // hide-all-drawings (same action as the eye-icon toolbar button).
+  const drawingClipboardRef = useRef<Drawing[]>([]);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+
+      if (e.altKey && e.code === "KeyH") {
+        e.preventDefault();
+        setAreDrawingsHidden(p => !p);
+        return;
+      }
+
+      if (e.code === "KeyC" && !e.shiftKey && !e.altKey) {
+        const ids = selectedDrawingIds.length > 0 ? selectedDrawingIds : (selectedDrawingId ? [selectedDrawingId] : []);
+        if (ids.length === 0) return;
+        e.preventDefault();
+        drawingClipboardRef.current = localDrawingsRef.current.filter(d => ids.includes(d.id));
+        return;
+      }
+
+      if (e.code === "KeyV" && !e.shiftKey && !e.altKey) {
+        if (drawingClipboardRef.current.length === 0) return;
+        e.preventDefault();
+        const barSec = RULER_TF_SECONDS[(timeframe as Timeframe) || "1H"];
+        const timeOffset = barSec * 10; // paste ~10 bars forward so copies are visibly distinct
+        const pasted = drawingClipboardRef.current.map((d, i) => ({
+          ...d,
+          id: `${Date.now()}-${i}`,
+          points: d.points.map(pt => ({ ...pt, time: pt.time + timeOffset })),
+        }));
+        commitDrawings([...localDrawingsRef.current, ...pasted]);
+        setSelectedDrawingIds(pasted.map(d => d.id));
+        setSelectedDrawingId(pasted.length === 1 ? pasted[0].id : null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedDrawingId, selectedDrawingIds, commitDrawings, timeframe]);
 
   // ── CRITICAL: Global window mouseup ──────────────────────────────────────
   // We MUST NOT stop propagation in drawing onMouseUp handlers — that would
@@ -1619,6 +1703,19 @@ export function BacktestChart({
       return;
     }
 
+    // TradingView-parity Measure: Shift+click-drag works with any tool active
+    // and takes priority over that tool's own click behavior, same as TV.
+    if (e.shiftKey && !activeDrawingRef.current && !multiCreatingRef.current) {
+      const coords = getTimePriceFromEvent(e);
+      if (!coords) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const start: TimePricePoint = { time: coords.time, price: coords.price };
+      isMeasuringRef.current = true;
+      setMeasureOverlay({ start, current: start });
+      return;
+    }
+
     if (activeTool === "cursor" || isLocked) return;
     e.stopPropagation();
     e.preventDefault();
@@ -1725,6 +1822,16 @@ export function BacktestChart({
   };
 
   const handleSvgMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (isMeasuringRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+      const coords = getTimePriceFromEvent(e);
+      if (coords) {
+        setMeasureOverlay(prev => prev ? { ...prev, current: { time: coords.time, price: coords.price } } : prev);
+      }
+      return;
+    }
+
     if (lassoBox) {
       e.stopPropagation();
       e.preventDefault();
@@ -1738,7 +1845,50 @@ export function BacktestChart({
     const coords = getTimePriceFromEvent(e);
     if (!coords) return;
     let { time: timeSec, price } = coords;
-    if (settings.isMagnetActive) price = getMagnetSnappedPrice(timeSec, price);
+
+    // Shift-key constraints, matching TradingView: trend lines snap to the
+    // nearest 45° increment (horizontal/diagonal/vertical); rectangle/circle
+    // lock to a 1:1 aspect (square/circle). Computed in pixel space against
+    // the drawing's anchor point, then converted back to time/price — applied
+    // instead of magnet-snap for this update since candle-snapping would
+    // pull the second point off the exact angle/aspect Shift is holding.
+    let shiftConstrained = false;
+    if (e.shiftKey && activeDrawingRef.current && (isDraggingDrawingRef.current || isClickCreating)) {
+      const dtype  = activeDrawingRef.current.type;
+      const anchor = activeDrawingRef.current.points[0];
+      const anchorXY = anchor ? getXY(anchor) : null;
+      const container = containerRef.current;
+      const chart = chartRef.current;
+      const series = candleSeriesRef.current;
+      if (anchorXY && container && chart && series) {
+        const rect = container.getBoundingClientRect();
+        const rawX = e.clientX - rect.left;
+        const rawY = e.clientY - rect.top;
+        const dx = rawX - anchorXY.x;
+        const dy = rawY - anchorXY.y;
+
+        let cx: number | null = null;
+        let cy: number | null = null;
+        if (dtype === "trendline" || dtype === "ray" || dtype === "arrow") {
+          const angle   = Math.atan2(dy, dx);
+          const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+          const dist    = Math.hypot(dx, dy);
+          cx = anchorXY.x + dist * Math.cos(snapped);
+          cy = anchorXY.y + dist * Math.sin(snapped);
+        } else if (dtype === "rectangle" || dtype === "circle") {
+          const side = Math.max(Math.abs(dx), Math.abs(dy));
+          cx = anchorXY.x + Math.sign(dx || 1) * side;
+          cy = anchorXY.y + Math.sign(dy || 1) * side;
+        }
+
+        if (cx != null && cy != null) {
+          const t  = extrapolateTime(chart, cx);
+          const pr = series.coordinateToPrice(cy);
+          if (t != null && pr != null) { timeSec = t; price = pr as number; shiftConstrained = true; }
+        }
+      }
+    }
+    if (!shiftConstrained && settings.isMagnetActive) price = getMagnetSnappedPrice(timeSec, price);
     const p: TimePricePoint = { time: timeSec, price };
 
     // Update preview for active drawing
@@ -1772,6 +1922,14 @@ export function BacktestChart({
   };
 
   const handleSvgMouseUp = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (isMeasuringRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+      isMeasuringRef.current = false;
+      setMeasureOverlay(null);
+      return;
+    }
+
     if (lassoBox) {
       e.stopPropagation();
       e.preventDefault();
@@ -2417,8 +2575,13 @@ export function BacktestChart({
     if (draw.type === "ruler") {
       const p2 = getXY(draw.points[1]);
       if (!p1 || !p2) return null;
-      const pips  = Math.abs(draw.points[0].price - draw.points[1].price) * 10000;
-      const bars  = Math.round(Math.abs(draw.points[0].time - draw.points[1].time) / 900);
+      // Per-instrument pip size (matches the same lotSpecs.ts values the app
+      // already uses for P&L/pip-value math elsewhere) — not a hardcoded
+      // 4-decimal-forex assumption, which was wrong for XAUUSD, JPY pairs, etc.
+      const pipSize = getLotSpec(symbol || "xauusd").pipSize;
+      const pips  = Math.abs(draw.points[0].price - draw.points[1].price) / pipSize;
+      const barSec = RULER_TF_SECONDS[(timeframe as Timeframe) || "1H"];
+      const bars  = Math.round(Math.abs(draw.points[0].time - draw.points[1].time) / barSec);
       const bx    = Math.min(p1.x, p2.x);
       const by    = Math.min(p1.y, p2.y) - 22;
       return (
@@ -2520,6 +2683,54 @@ export function BacktestChart({
             <text key={i} x={v.p.x} y={v.p.y - 9} fill={isSelected ? SEL_COLOR : col}
               fontSize={9} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{v.l}</text>
           ))}
+          {isSelected && draw.points.map((_, idx) => {
+            const xy = getXY(draw.points[idx]);
+            if (!xy) return null;
+            return makeAnchor(xy.x, xy.y, draw.id, idx, `a${idx}`);
+          })}
+        </g>
+      );
+    }
+
+    // ── Elliott Impulse Wave (6-click: unlabeled start, then 1-2-3-4-5) ──────
+    if (draw.type === "elliottimpulse") {
+      const ptsXY = draw.points.map(pt => getXY(pt));
+      const validXY = ptsXY.filter(Boolean) as { x: number; y: number }[];
+      const col = draw.color || "#a855f7";
+      const sw  = draw.strokeWidth ?? 1.5;
+      const labels = ["", "1", "2", "3", "4", "5"];
+
+      if (draw.points.length >= 2 && draw.points.length < 6) {
+        // Partial preview: show lines + placed points so far
+        return (
+          <g key={draw.id}>
+            {validXY.length >= 2 && validXY.map((pt, i) => {
+              if (i === 0) return null;
+              const prev = validXY[i - 1];
+              return <line key={i} x1={prev.x} y1={prev.y} x2={pt.x} y2={pt.y}
+                stroke={col} strokeWidth={sw} strokeDasharray="5 3" strokeLinecap="round" />;
+            })}
+            {validXY.map((pt, i) => (
+              <g key={i}>
+                <circle cx={pt.x} cy={pt.y} r={4} fill={col} fillOpacity={0.8} />
+                {labels[i] && <text x={pt.x} y={pt.y - 8} fill={col} fontSize={9} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{labels[i]}</text>}
+              </g>
+            ))}
+          </g>
+        );
+      }
+
+      if (draw.points.length < 6 || ptsXY.some(v => !v)) return null;
+      const wavePts = ptsXY as { x: number; y: number }[];
+      const pathD = wavePts.map((pt, i) => `${i === 0 ? "M" : "L"}${pt.x},${pt.y}`).join(" ");
+      return (
+        <g key={draw.id} {...groupProps}>
+          <path d={pathD} fill="none" stroke="transparent" strokeWidth={12} strokeLinejoin="round" />
+          <path d={pathD} fill="none" stroke={isSelected ? SEL_COLOR : col} strokeWidth={isSelected ? sw + 1 : sw} strokeLinejoin="round" />
+          {wavePts.map((pt, i) => labels[i] ? (
+            <text key={i} x={pt.x} y={pt.y - 9} fill={isSelected ? SEL_COLOR : col}
+              fontSize={10} fontFamily="monospace" fontWeight="bold" textAnchor="middle">{labels[i]}</text>
+          ) : null)}
           {isSelected && draw.points.map((_, idx) => {
             const xy = getXY(draw.points[idx]);
             if (!xy) return null;
@@ -2863,6 +3074,9 @@ export function BacktestChart({
         <TB active={activeTool === "patterns"} onClick={() => setActiveTool("patterns")} icon={
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 12L5 4.5L8.5 9L11.5 3L14 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><circle cx="2" cy="12" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="5" cy="4.5" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="8.5" cy="9" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="11.5" cy="3" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="14" cy="7" r="1" fill="currentColor" fillOpacity="0.7"/></svg>
         } label="Harmonic XABCD Pattern" isFavorited={settings.favoriteTools?.includes("patterns")} onStarClick={() => handleToggleFavorite("patterns")} />
+        <TB active={activeTool === "elliottimpulse"} onClick={() => setActiveTool("elliottimpulse")} icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1.5 13L4.5 4.5L6.5 8L10 2L11.5 6L14 1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><circle cx="1.5" cy="13" r="1" fill="currentColor" fillOpacity="0.5"/><circle cx="4.5" cy="4.5" r="1" fill="currentColor" fillOpacity="0.8"/><circle cx="6.5" cy="8" r="1" fill="currentColor" fillOpacity="0.8"/><circle cx="10" cy="2" r="1" fill="currentColor" fillOpacity="0.8"/><circle cx="11.5" cy="6" r="1" fill="currentColor" fillOpacity="0.8"/><circle cx="14" cy="1" r="1" fill="currentColor" fillOpacity="0.8"/></svg>
+        } label="Elliott Impulse Wave (1-2-3-4-5)" isFavorited={settings.favoriteTools?.includes("elliottimpulse")} onStarClick={() => handleToggleFavorite("elliottimpulse")} />
 
         <Sep />
 
@@ -2997,7 +3211,7 @@ export function BacktestChart({
         {!areDrawingsHidden && (
           <svg
             className={`absolute inset-0 w-full h-full z-10 ${
-              activeTool !== "cursor" || isClickCreating || !!multiCreating || isModifierHeld || lassoBox
+              activeTool !== "cursor" || isClickCreating || !!multiCreating || isModifierHeld || lassoBox || isShiftHeld
                 ? "pointer-events-auto"
                 : "pointer-events-none"
             }`}
@@ -3543,6 +3757,37 @@ export function BacktestChart({
               </g>
             )}
 
+            {/* ── TradingView-parity Measure overlay (Shift+drag, transient) ── */}
+            {measureOverlay && (() => {
+              const xy1 = getXY(measureOverlay.start);
+              const xy2 = getXY(measureOverlay.current);
+              if (!xy1 || !xy2) return null;
+              const priceDiff = measureOverlay.current.price - measureOverlay.start.price;
+              const pctChange = measureOverlay.start.price !== 0 ? (priceDiff / measureOverlay.start.price) * 100 : 0;
+              const pipSize   = getLotSpec(symbol || "xauusd").pipSize;
+              const pips      = Math.abs(priceDiff) / pipSize;
+              const barSec    = RULER_TF_SECONDS[(timeframe as Timeframe) || "1H"];
+              const bars      = Math.round(Math.abs(measureOverlay.current.time - measureOverlay.start.time) / barSec);
+              const up = priceDiff >= 0;
+              const measureColor = up ? "#10b981" : "#ef4444";
+              const bx = Math.min(xy1.x, xy2.x);
+              const by = Math.min(xy1.y, xy2.y) - 34;
+              return (
+                <g pointerEvents="none">
+                  <line x1={xy1.x} y1={xy1.y} x2={xy2.x} y2={xy2.y} stroke={measureColor} strokeWidth={1.2} strokeDasharray="4 3" />
+                  <circle cx={xy1.x} cy={xy1.y} r={3} fill={measureColor} />
+                  <circle cx={xy2.x} cy={xy2.y} r={3} fill={measureColor} />
+                  <rect x={bx} y={Math.max(0, by)} width={128} height={30} rx={4} fill={measureColor} fillOpacity={0.92} />
+                  <text x={bx + 64} y={Math.max(0, by) + 12} textAnchor="middle" fill="#000" fontSize={9} fontFamily="monospace" fontWeight="bold">
+                    {up ? "+" : ""}{formatPrice(priceDiff, minPriceRef.current)} ({up ? "+" : ""}{pctChange.toFixed(2)}%)
+                  </text>
+                  <text x={bx + 64} y={Math.max(0, by) + 24} textAnchor="middle" fill="#000" fontSize={9} fontFamily="monospace" fontWeight="bold">
+                    {pips.toFixed(1)} Pips · {bars} Bars
+                  </text>
+                </g>
+              );
+            })()}
+
             {/* Lasso Selector Box */}
             {lassoBox && (
               <rect
@@ -3823,6 +4068,8 @@ export function BacktestChart({
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-lg px-3 py-1.5 text-[10px] font-mono text-white/50 pointer-events-none">
             {multiCreating.type === "patterns"
               ? `Click point ${multiCreating.points.length + 1}/5 — ${["X", "A", "B", "C", "D"][multiCreating.points.length]}`
+              : multiCreating.type === "elliottimpulse"
+              ? `Click point ${multiCreating.points.length + 1}/6 — ${["Start", "Wave 1", "Wave 2", "Wave 3", "Wave 4", "Wave 5"][multiCreating.points.length]}`
               : multiCreating.points.length === 1
                 ? `Click to set 2nd point (${multiCreating.type})`
                 : `Click to set 3rd point and finalize`}
@@ -4819,6 +5066,7 @@ function getToolIcon(tool: DrawingType) {
     case "long": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="9" height="5" stroke="#10b981" strokeWidth="1.1" fill="rgba(16,185,129,0.15)"/><rect x="2" y="8.5" width="9" height="4" stroke="#ef4444" strokeWidth="1.1" fill="rgba(239,68,68,0.1)"/><path d="M13 6.5L13 2M11.5 3.5L13 2L14.5 3.5" stroke="#10b981" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
     case "short": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="9" height="4" stroke="#10b981" strokeWidth="1.1" fill="rgba(16,185,129,0.1)"/><rect x="2" y="7.5" width="9" height="5" stroke="#ef4444" strokeWidth="1.1" fill="rgba(239,68,68,0.15)"/><path d="M13 9.5L13 14M11.5 12.5L13 14L14.5 12.5" stroke="#ef4444" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
     case "patterns": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 12L5 4.5L8.5 9L11.5 3L14 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><circle cx="2" cy="12" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="5" cy="4.5" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="8.5" cy="9" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="11.5" cy="3" r="1" fill="currentColor" fillOpacity="0.7"/><circle cx="14" cy="7" r="1" fill="currentColor" fillOpacity="0.7"/></svg>;
+    case "elliottimpulse": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M1.5 13L4.5 4.5L6.5 8L10 2L11.5 6L14 1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><circle cx="1.5" cy="13" r="1" fill="currentColor" fillOpacity="0.5"/><circle cx="4.5" cy="4.5" r="1" fill="currentColor" fillOpacity="0.8"/><circle cx="6.5" cy="8" r="1" fill="currentColor" fillOpacity="0.8"/><circle cx="10" cy="2" r="1" fill="currentColor" fillOpacity="0.8"/><circle cx="11.5" cy="6" r="1" fill="currentColor" fillOpacity="0.8"/><circle cx="14" cy="1" r="1" fill="currentColor" fillOpacity="0.8"/></svg>;
     case "text": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3.5 4H12.5M8 4V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M5.5 13H10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeOpacity="0.5"/></svg>;
     case "brush": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 12Q6 8 9 9Q12 10 14 6" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeOpacity="0.18"/><path d="M3 12Q6 8 9 9Q12 10 14 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>;
     case "ruler": return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="5.5" width="13" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3"/><line x1="4" y1="5.5" x2="4" y2="8" stroke="currentColor" strokeWidth="1"/><line x1="6.5" y1="5.5" x2="6.5" y2="9.5" stroke="currentColor" strokeWidth="1"/><line x1="9" y1="5.5" x2="9" y2="8" stroke="currentColor" strokeWidth="1"/><line x1="11.5" y1="5.5" x2="11.5" y2="9.5" stroke="currentColor" strokeWidth="1"/></svg>;
@@ -4842,6 +5090,7 @@ function getToolLabel(tool: DrawingType) {
     case "long": return "Long Position";
     case "short": return "Short Position";
     case "patterns": return "Harmonic XABCD Pattern";
+    case "elliottimpulse": return "Elliott Impulse Wave";
     case "text": return "Text Annotation";
     case "brush": return "Highlighter Brush";
     case "ruler": return "Ruler";

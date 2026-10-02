@@ -114,7 +114,76 @@ export interface TimelineRenderOptions {
    * same zone is unrelated and always plays regardless of this flag.
    */
   zoneBorderEnabled?: boolean;
+  /**
+   * Off by default. "One part, dead centre, on an empty page."
+   *
+   * A decomposed poster is normally painted whole: every collage part sits
+   * where it was printed — top band, middle band, bottom band — and once
+   * each has had its entrance they are all on screen together. Minimal mode
+   * throws that composition away and shows exactly ONE part at a time,
+   * rested at the centre of the frame no matter which band it came off, with
+   * every other part, every caption and every small element left unpainted.
+   *
+   * The page behind it is filled flat with the artwork's own paper colour
+   * (MotionLayer.backgroundColor — the modal colour of the ring the
+   * decomposer sampled around each cut-out) rather than the punched-out
+   * background image, because that image still carries the collage's pencil
+   * dividers and any residue the cut left behind. A flat fill of the poster's
+   * own paper is the only way the other two thirds of the frame come out
+   * genuinely clean.
+   *
+   * Which part is "the one" comes from currentZoneLayerId — the caller
+   * already tracks exactly one across frames. See the per-scene fallback in
+   * drawScene for the two cases that tracking cannot cover.
+   */
+  minimalMode?: boolean;
+  /**
+   * Minimal mode only. The part currentZoneLayerId just took over from, held
+   * at rest underneath it and faded out by exactly as much as the incoming
+   * part has arrived. Without it a handoff dips through an empty page for the
+   * whole length of the new part's entrance; with it the frame always holds
+   * one full part and the new one simply replaces the old one in place.
+   */
+  minimalPrevZoneLayerId?: string | null;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Caption geometry.
+ *
+ * Both caption painters below are laid out from these, and so is minimal
+ * mode's placement — it has to know exactly how much of the frame a caption
+ * is about to claim in order to keep a centred part out of it, and a literal
+ * copied into two places is a literal that drifts. Every value is a share of
+ * the frame height H, or of the caption's own type size where noted.
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+/** Top banner (captionPosition "top"): type size, baseline, and the padding below it. */
+const TOP_CAPTION_SIZE_FRAC = 0.042;
+const TOP_CAPTION_BASELINE_FRAC = 0.065;
+const TOP_CAPTION_PAD_BOTTOM_RATIO = 0.34;
+/** Lower third (captionPosition "bottom", and any captionOverlay clip): size, baseline centre, box padding. */
+const BOTTOM_CAPTION_SIZE_FRAC = 0.06;
+const BOTTOM_CAPTION_CENTRE_FRAC = 0.78;
+const BOTTOM_CAPTION_PAD_Y_RATIO = 0.55;
+
+/**
+ * Where each caption's backing ends, at its largest — a burst that has to
+ * shrink to fit only ever claims less. These are the lines minimal mode keeps
+ * a part clear of.
+ */
+const TOP_CAPTION_BOTTOM_FRAC = TOP_CAPTION_BASELINE_FRAC + TOP_CAPTION_SIZE_FRAC * TOP_CAPTION_PAD_BOTTOM_RATIO;
+const BOTTOM_CAPTION_TOP_FRAC =
+  BOTTOM_CAPTION_CENTRE_FRAC - (BOTTOM_CAPTION_SIZE_FRAC * (1 + BOTTOM_CAPTION_PAD_Y_RATIO * 2)) / 2;
+
+/**
+ * Minimal mode's vertical anchor: the share of a frame's leftover height that
+ * is left ABOVE the part, the rest going below it. 0.5 would be dead centre;
+ * 0.30 lifts the part off centre and banks the empty page underneath it,
+ * where the caption lives.
+ */
+const MINIMAL_TOP_GAP_SHARE = 0.30;
+/** Breathing room minimal mode keeps between a part and a caption's backing, as a share of H. */
+const MINIMAL_CAPTION_CLEARANCE_FRAC = 0.02;
 
 /** How long the on-entrance sweep-then-flash lasts, in ms, once a zone appears. */
 const ZONE_FLOURISH_MS = 340;
@@ -296,7 +365,7 @@ function drawCaption(
   // Shrink to fit rather than wrap — a caption burst reads best as one line.
   // The banner itself is always the full frame width regardless, so this is
   // purely about not letting the text touch the very edges.
-  let size = Math.round(H * 0.042);
+  let size = Math.round(H * TOP_CAPTION_SIZE_FRAC);
   ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
   const widthOf = (list: string[]) =>
     list.reduce((sum, w) => sum + ctx.measureText(w).width, 0) + ctx.measureText(" ").width * Math.max(0, list.length - 1);
@@ -310,14 +379,14 @@ function drawCaption(
 
   // Higher than a hugging pill needed to sit, since the banner now reads as
   // part of the frame's own top edge rather than a chip floating over it.
-  const y = H * 0.065;
+  const y = H * TOP_CAPTION_BASELINE_FRAC;
   const spaceW = ctx.measureText(" ").width;
 
   // The banner: black, full width, flush with the top — only its bottom
   // edge tracks the text, so it is exactly as tall as this burst needs and
   // no taller. Opacity is user-configurable (captionBgOpacity); the text
   // itself stays fully opaque regardless — only the backing fades.
-  const padBottom = size * 0.34;
+  const padBottom = size * TOP_CAPTION_PAD_BOTTOM_RATIO;
   const boxH = y + padBottom;
 
   ctx.globalAlpha = bgOpacity;
@@ -374,7 +443,7 @@ function drawBigOverlayCaption(
 
   ctx.save();
 
-  let size = Math.round(H * 0.06);
+  let size = Math.round(H * BOTTOM_CAPTION_SIZE_FRAC);
   ctx.font = `italic 800 ${size}px ${CANVAS_FONT_STACK}`;
   const maxWidth = W * 0.86;
   const widthOf = (list: string[]) =>
@@ -386,9 +455,9 @@ function drawBigOverlayCaption(
     total = widthOf(phrase);
   }
 
-  const y = H * 0.78;
+  const y = H * BOTTOM_CAPTION_CENTRE_FRAC;
   const padX = size * 0.9;
-  const padY = size * 0.55;
+  const padY = size * BOTTOM_CAPTION_PAD_Y_RATIO;
   const boxW = Math.min(W * 0.94, total + padX * 2);
   const boxH = size + padY * 2;
 
@@ -765,6 +834,54 @@ function zigzagWobbleDeg(layerId: string, timeMs: number): number {
   return sharp * ampDeg;
 }
 
+/**
+ * Is this layer one of the poster's "zones" — a piece big enough to carry a
+ * beat of the script on its own — rather than a badge, an icon or a stray
+ * word? Everything the choreographer times, the zone SFX fires on and minimal
+ * mode picks between is drawn from this set. Kept in step with
+ * useMotionPlaybackExport's isBigZoneLayer, which asks the same question of a
+ * layer id in order to report back what it actually drew.
+ */
+function isBigCollageElement(layer: MotionLayer): boolean {
+  const area = (layer.w ?? 0) * (layer.h ?? 0);
+  const objType = layer.objectType || "";
+  if (objType === "collage-part" || objType === "photo" || objType === "illustration" || objType === "panel" || objType === "banner") {
+    return true;
+  }
+  return area >= 0.10;
+}
+
+/**
+ * The poster's own paper colour, for minimal mode's flat page fill.
+ *
+ * Every cut-out records the modal colour of the ring the decomposer sampled
+ * around it (scripts/motion_segment.py · ring_col), and for a collage part
+ * that ring is bare page by construction — the parts are the only things on
+ * it. So the part being shown is asked first, then any other collage part,
+ * then anything at all; null means the decomposition predates the field and
+ * the caller should fall back to the punched-out background image.
+ */
+function minimalPageColor(layers: MotionLayer[], winnerId: string | null): string | null {
+  const hex = (c: string | null | undefined): string | null =>
+    typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c.trim()) ? c.trim() : null;
+
+  const winner = winnerId ? layers.find((l) => l.id === winnerId) : undefined;
+  const fromWinner = hex(winner?.backgroundColor);
+  if (fromWinner) return fromWinner;
+
+  for (const l of layers) {
+    if (l.objectType === "collage-part") {
+      const c = hex(l.backgroundColor);
+      if (c) return c;
+    }
+  }
+  for (const l of layers) {
+    const c = hex(l.backgroundColor);
+    if (c) return c;
+  }
+  return null;
+}
+
 function drawScene(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -820,23 +937,127 @@ function drawScene(
   const perSlide = assets.layerImgEls[slide.slideId] || {};
   const allLayers = slide.layers || [];
 
+  const minimalOn = !!opts.minimalMode;
+
+  /** This layer's share of "arrived", 0–1: faded in AND wiped in. */
+  const presenceOf = (layer: MotionLayer): number => {
+    const st = scene.layers[layer.id];
+    if (!st) return 0;
+    const o = Math.max(0, Math.min(1, st.opacity));
+    const w = Math.max(0, Math.min(1, st.wipe));
+    return o * w;
+  };
+
+  /*
+   * Minimal mode's cast for this scene: the one part that is on, and the one
+   * it is replacing.
+   *
+   * currentZoneLayerId is the authority — the caller is the only thing with
+   * the frame-to-frame memory needed to know which part arrived most
+   * recently. But it is tracked for the *top* scene alone, so two cases need
+   * a fallback the scene can work out for itself: the outgoing half of a
+   * scene transition, where the tracked id belongs to the other scene
+   * entirely, and a scene landed on by a seek before any crossing has been
+   * observed. In both, the most-present big zone is the right answer.
+   */
+  const minimalZones = minimalOn
+    ? allLayers.filter((l) => l.animatable !== false && !!l.imageUrl && isBigCollageElement(l))
+    : [];
+  let minimalWinner: MotionLayer | null = null;
+  let minimalOutgoingId: string | null = null;
+  if (minimalOn) {
+    const claimed = opts.currentZoneLayerId
+      ? minimalZones.find((l) => l.id === opts.currentZoneLayerId && presenceOf(l) > 0.001)
+      : undefined;
+    minimalWinner =
+      claimed ??
+      minimalZones.reduce<MotionLayer | null>(
+        (best, l) => (presenceOf(l) > 0.001 && (!best || presenceOf(l) > presenceOf(best)) ? l : best),
+        null
+      );
+    if (minimalWinner && opts.minimalPrevZoneLayerId && opts.minimalPrevZoneLayerId !== minimalWinner.id) {
+      const prev = minimalZones.find((l) => l.id === opts.minimalPrevZoneLayerId);
+      if (prev) minimalOutgoingId = prev.id;
+    }
+  }
+  const minimalWinnerPresence = minimalWinner ? presenceOf(minimalWinner) : 0;
+
+  /**
+   * Where a part of height `h` rests in minimal mode.
+   *
+   * Not the exact middle: the free height is split MINIMAL_TOP_GAP_SHARE
+   * above / the remainder below, which lifts the part off centre and leaves
+   * the heavier margin at the foot of the page. Dead centre puts a part in a
+   * dead heat with the lower-third caption and reads as a frame with nowhere
+   * for the eye to rest.
+   *
+   * Then it is held clear of whichever caption is actually switched on. The
+   * reservation follows the *configured* captionPosition rather than what a
+   * captionOverlay clip momentarily forces, so a part never jumps position
+   * partway through a scene because a clip started. A part too tall to fit
+   * the band the caption leaves is pinned to the top of that band — from
+   * there the only remaining direction is off the top of the frame.
+   */
+  const minimalRestTop = (h: number): number => {
+    const slideTop = originY;
+    const slideBoxH = sh * fit;
+    const placed = slideTop + (slideBoxH - h) * MINIMAL_TOP_GAP_SHARE;
+    if (!opts.captions || !opts.words?.length) return placed;
+
+    const clearance = H * MINIMAL_CAPTION_CLEARANCE_FRAC;
+    const capturedByTop = opts.captionPosition === "top";
+    const upperBound = capturedByTop ? Math.max(slideTop, H * TOP_CAPTION_BOTTOM_FRAC + clearance) : slideTop;
+    const lowerBound = capturedByTop
+      ? slideTop + slideBoxH
+      : Math.min(slideTop + slideBoxH, H * BOTTOM_CAPTION_TOP_FRAC - clearance);
+
+    const maxTop = lowerBound - h;
+    if (maxTop <= upperBound) return upperBound;
+    return Math.min(Math.max(placed, upperBound), maxTop);
+  };
+
   // A slide whose cut-outs have not all decoded cannot be composited: the
   // background has holes exactly where those elements belong, so drawing the
   // ready ones leaves gaps in the poster. The flattened original is the same
   // artwork with nothing missing, so it is painted whole instead — the frame
   // still moves with the camera, it simply holds until the pieces arrive.
+  //
+  // Minimal mode is exempt: it paints a flat page rather than the punched-out
+  // background, so there are no holes to hide, and the flattened original
+  // would put every part back on screen at once — the exact thing the mode
+  // exists to prevent. It simply waits for the one part it needs.
   const incomplete = allLayers.some((l) => l.imageUrl && !ready(perSlide[l.id]));
-  if (incomplete) {
+  if (incomplete && !minimalOn) {
     if (ready(flatImg)) paintBase(flatImg);
     else if (ready(bgImg)) paintBase(bgImg);
     ctx.restore();
     return [];
   }
 
-  if (ready(bgImg) && bg.opacity > 0.001) paintBase(bgImg);
+  const minimalPage = minimalOn ? minimalPageColor(allLayers, minimalWinner?.id ?? null) : null;
+  if (minimalPage) {
+    // Flat, so the background channel's drift/scale/blur have nothing to act
+    // on — only its opacity, which still fades the page to black on cue. Half
+    // a pixel of bleed keeps a fractional origin from showing a hairline seam.
+    if (bg.opacity > 0.001) {
+      ctx.save();
+      ctx.globalAlpha = scene.alpha * bg.opacity;
+      ctx.fillStyle = minimalPage;
+      ctx.fillRect(originX - 0.5, originY - 0.5, sw * fit + 1, sh * fit + 1);
+      ctx.restore();
+    }
+  } else if (ready(bgImg) && bg.opacity > 0.001) {
+    paintBase(bgImg);
+  }
 
-  // 2. Elements, in the z-order the decomposer assigned.
-  const ordered = [...allLayers].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+  // 2. Elements, in the z-order the decomposer assigned — except in minimal
+  //    mode, where the cast is two at most and the outgoing part must sit
+  //    under the incoming one whatever the decomposer's z-order says.
+  const ordered = minimalOn
+    ? ([minimalOutgoingId, minimalWinner?.id ?? null]
+        .map((id) => (id ? allLayers.find((l) => l.id === id) : undefined))
+        .filter((l): l is MotionLayer => !!l))
+    : [...allLayers].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
   // Collage-part id → the caption layer(s) bound to it, only built when the
   // toggle is actually on. The matcher upstream still reads every caption's
@@ -855,15 +1076,6 @@ function drawScene(
 
   const wholeImageMotionOn = opts.wholeImageMotion !== false;
 
-  const isBigCollageElement = (layer: MotionLayer): boolean => {
-    const area = (layer.w ?? 0) * (layer.h ?? 0);
-    const objType = layer.objectType || "";
-    if (objType === "collage-part" || objType === "photo" || objType === "illustration" || objType === "panel" || objType === "banner") {
-      return true;
-    }
-    return area >= 0.10;
-  };
-
   ordered.forEach((layer: MotionLayer) => {
     const img = perSlide[layer.id];
     if (!ready(img)) return;
@@ -877,20 +1089,37 @@ function drawScene(
     const isBig = isBigCollageElement(layer);
     const HIDDEN_LAYER_STATE: LayerState = { ...REST_LAYER_STATE, opacity: 0 };
 
+    // The part minimal mode is handing over FROM. It has already finished its
+    // own entrance, so it is held at rest — no half-played cue, no exit of its
+    // own — and dissolved out by exactly how far the incoming part has come.
+    const isMinimalOutgoing = minimalOn && layer.id === minimalOutgoingId;
+    const minimalFade = isMinimalOutgoing ? 1 - minimalWinnerPresence : 1;
+    if (minimalFade <= 0.001) return;
+
     // Under wholeImageMotion:
     // Small elements (icons, badges, small text) stay static at rest from frame 0.
     // Bigger elements (collage parts, photos, panels, illustrations) appear and move
     // according to their CSV timeline sync!
     const isSmallStatic = wholeImageMotionOn && !isBig;
-    const state = isSmallStatic
+    const state = isMinimalOutgoing
       ? REST_LAYER_STATE
-      : scene.layers[layer.id] ?? (isTextLayer ? REST_LAYER_STATE : HIDDEN_LAYER_STATE);
+      : isSmallStatic
+        ? REST_LAYER_STATE
+        : scene.layers[layer.id] ?? (isTextLayer ? REST_LAYER_STATE : HIDDEN_LAYER_STATE);
     if (state.opacity <= 0.001) return;
 
-    const restLeft = originX + layer.x * sw * fit;
-    const restTop = originY + layer.y * sh * fit;
     const baseW = Math.max(1, layer.w * sw * fit * (layer.scale ?? 1));
     const baseH = Math.max(1, layer.h * sh * fit * (layer.scale ?? 1));
+    // Minimal mode ignores where the part was printed. Whichever band it was
+    // cut from, it rests on one mark — centred across, and sitting just above
+    // centre down the page, clear of the caption (see minimalRestTop) — so a
+    // top-band part and a bottom-band part land identically and the sequence
+    // reads as one thing being swapped out, not as pieces of a collage
+    // lighting up in place. Every cue still plays relative to here:
+    // xPct/yPct/scale/rotate displace from that mark exactly as they displaced
+    // from the printed position before.
+    const restLeft = minimalOn ? originX + (sw * fit - baseW) / 2 : originX + layer.x * sw * fit;
+    const restTop = minimalOn ? minimalRestTop(baseH) : originY + layer.y * sh * fit;
 
     // Small elements hold still at rest under wholeImageMotion.
     // Bigger collage elements move (scale, xPct, yPct, rotate) according to CSV timeline cues.
@@ -912,7 +1141,7 @@ function drawScene(
     const rot = ((layer.rotation ?? 0) + partRotate + wobbleDeg) * (Math.PI / 180);
 
     ctx.save();
-    ctx.globalAlpha = scene.alpha * state.opacity * (layer.opacity ?? 1);
+    ctx.globalAlpha = scene.alpha * state.opacity * (layer.opacity ?? 1) * minimalFade;
     if (state.blur > 0.01) ctx.filter = `blur(${state.blur}px)`;
 
     const isPaperCutPart = !!opts.paperCutStyle && layer.objectType === "collage-part";
@@ -940,7 +1169,11 @@ function drawScene(
     }
     ctx.restore();
 
-    if (opts.currentZoneLayerId === layer.id) {
+    // In minimal mode the scene's own pick wins, so the border/shine cannot
+    // end up on the part being faded out (or on nothing at all) when the
+    // per-scene fallback above disagreed with the tracked id.
+    const isCurrentZone = minimalOn ? minimalWinner?.id === layer.id : opts.currentZoneLayerId === layer.id;
+    if (isCurrentZone) {
       ctx.save();
       if (rot !== 0) {
         ctx.translate(left + curW / 2, top + curH / 2);

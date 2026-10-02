@@ -26,9 +26,6 @@ on:
 concurrency:
   group: update-candles
 
-permissions:
-  contents: write
-
 jobs:
   update-candles:
     name: Fetch & append latest candles — ${{ github.event.inputs.session || 'scheduled' }}
@@ -81,26 +78,8 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: node scripts/update_candles.mjs
-
-      # ── 6. Commit & push only if there is new data ───────────────────────
-      #    git diff --staged --quiet exits 0 when nothing changed.
-      #    We never create an empty commit.
-      - name: Commit and push new candles
-        run: |
-          git config user.name  "Stratix Bot"
-          git config user.email "actions@github.com"
-
-          # Stage only the candles directory — nothing else
-          git add public/data/candles/
-
-          if git diff --staged --quiet; then
-            echo "✓ No new candle data to commit — Dukascopy may not have published yet."
-            echo "  This is expected for metals (XAUUSD/XAGUSD) and some FX pairs"
-            echo "  which can lag the real-time feed by 1–24 hours."
-          else
-            # Build a concise stat line for the commit message
-            STAT=$(git diff --staged --stat | tail -1)
-            git commit -m "chore(candles): ${{ steps.session.outputs.name }} update — ${STAT}"
-            git push
-            echo "✓ Pushed updated candle files."
-          fi
+        # update_candles.mjs writes straight to R2 (see scripts/lib/candle-storage.mjs)
+        # — nothing lands on local disk, so there is no git commit/push step here.
+        # public/data/candles/ in this repo is a one-time snapshot frozen at the
+        # R2 migration; the live app reads the R2 copy directly (app/api/candles,
+        # app/api/backtesting/archive), not this checkout.

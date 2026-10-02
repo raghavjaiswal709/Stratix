@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import type { DecompositionStrength, MotionLayer, MotionSlide, MotionTextBlock, MotionVideoData } from "../types";
 import { buildMotionLayoutJson, describeMotionSlide } from "../motionLayoutJson";
-import { MotionTimelinePanel } from "../motion/MotionTimelinePanel";
+import { MotionTimelinePanel, type MotionPanelSection } from "../motion/MotionTimelinePanel";
 
 /**
  * The "Motion Video" content-tab panel: upload/decompose UI, the AI Timeline
@@ -116,10 +116,16 @@ export function MotionFields(props: {
   setMotionZigzagMotion: (v: boolean) => void;
   motionZoneBorder: boolean;
   setMotionZoneBorder: (v: boolean) => void;
+  motionMinimalMode: boolean;
+  setMotionMinimalMode: (v: boolean) => void;
+  /** The left panel's active tab id ("motion-slides" … "motion-timeline") — routed to a stage below. */
+  motionTab: string;
   handleCopySpeechPrompt: () => void;
   copiedSpeechPrompt: boolean;
   motionAutoSyncReport: any;
   motionAutoSyncNote: string | null;
+  /** True when any scene/cue in motionDoc currently has manually-overridden timing — see edit.ts's `manual` flag. */
+  hasManualTimingEdits: boolean;
   motionManifestText: string;
   setMotionManifestText: (text: string) => void;
   buildMotionTimelineFromManifest: () => void;
@@ -159,12 +165,27 @@ export function MotionFields(props: {
     motionHideImageCaptions, setMotionHideImageCaptions,
     motionPaperCutStyle, setMotionPaperCutStyle, motionWholeImageMotion, setMotionWholeImageMotion,
     motionZigzagMotion, setMotionZigzagMotion, motionZoneBorder, setMotionZoneBorder,
+    motionMinimalMode, setMotionMinimalMode, motionTab,
     handleCopySpeechPrompt, copiedSpeechPrompt, motionAutoSyncReport,
-    motionAutoSyncNote, motionManifestText, setMotionManifestText, buildMotionTimelineFromManifest,
+    motionAutoSyncNote, hasManualTimingEdits, motionManifestText, setMotionManifestText, buildMotionTimelineFromManifest,
     motionManifestNote, motionManifestWarnings, handleCopyMotionPrompt, copiedMotionPrompt,
     handleExportTimelineVideo, isExportingTimeline, timelineExportElapsed, motionAssetProgress, motionData,
     isRecordingVideo, handleExportMotionVideo, setMotionData, setJsonText, copiedMotionJson, setCopiedMotionJson,
   } = props;
+
+  /**
+   * A motion project is built in five stages and the left panel now carries a
+   * tab per stage. Everything below is gated on this rather than stacked into
+   * one continuous scroll, and MotionTimelinePanel — which owns four of the
+   * five — is handed the same value.
+   */
+  const section: MotionPanelSection =
+    motionTab === "motion-audio" ? "audio"
+    : motionTab === "motion-sync" ? "sync"
+    : motionTab === "motion-look" ? "look"
+    : motionTab === "motion-timeline" ? "timeline"
+    : "slides";
+  const show = (s: MotionPanelSection) => section === s;
 
   return (
     <div className="space-y-4">
@@ -184,6 +205,8 @@ export function MotionFields(props: {
         </p>
       </div>
 
+      {show("slides") && (
+      <>
       {/* File Upload Dropzone */}
       <div
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -218,7 +241,11 @@ export function MotionFields(props: {
           {motionSlides.length > 0 ? ` (last used: ${motionStrength})` : ""}
         </p>
       </div>
+      </>
+      )}
 
+      {show("slides") && (
+      <>
       {/* Segmentation Loading Spinner */}
       {isSegmenting && (
         <div className="p-4 rounded-xl border border-purple-500/40 bg-purple-500/15 flex items-center gap-3 text-white animate-pulse">
@@ -276,7 +303,11 @@ export function MotionFields(props: {
           </button>
         </div>
       )}
+      </>
+      )}
 
+      {show("slides") && (
+      <>
       {/* Slide Switcher — one entry per uploaded image */}
       {motionSlides.length > 1 && (
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
@@ -349,10 +380,13 @@ export function MotionFields(props: {
           </div>
         </div>
       )}
+      </>
+      )}
 
       {/* AI Timeline — paste an audio-synced choreography and play it */}
-      {motionSlides.length > 0 && (
+      {motionSlides.length > 0 && !show("slides") && (
         <MotionTimelinePanel
+          section={section}
           slideCount={motionSlides.length}
           timelineText={motionTimelineText}
           onTimelineTextChange={setMotionTimelineText}
@@ -426,10 +460,13 @@ export function MotionFields(props: {
           onZigzagMotionChange={setMotionZigzagMotion}
           zoneBorder={motionZoneBorder}
           onZoneBorderChange={setMotionZoneBorder}
+          minimalMode={motionMinimalMode}
+          onMinimalModeChange={setMotionMinimalMode}
           onCopySpeechPrompt={handleCopySpeechPrompt}
           copiedSpeechPrompt={copiedSpeechPrompt}
           autoSyncReport={motionAutoSyncReport}
           autoSyncNote={motionAutoSyncNote}
+          hasManualEdits={hasManualTimingEdits}
           manifestText={motionManifestText}
           onManifestTextChange={setMotionManifestText}
           onBuildFromManifest={buildMotionTimelineFromManifest}
@@ -449,8 +486,7 @@ export function MotionFields(props: {
         <div className="space-y-3">
           {/* Procedural loop preview — replaced entirely by the
               AI timeline once one is applied. */}
-          {!motionTimeline && (
-          <>
+          {show("timeline") && !motionTimeline && (
           <button
             disabled={isRecordingVideo}
             onClick={handleExportMotionVideo}
@@ -469,6 +505,10 @@ export function MotionFields(props: {
             )}
           </button>
 
+          )}
+
+          {show("look") && !motionTimeline && (
+          <>
           {/* Global Preset Animations */}
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
             <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider block">Animation Style Preset</span>
@@ -497,6 +537,8 @@ export function MotionFields(props: {
           </>
           )}
 
+          {show("slides") && (
+          <>
           {/* Extracted Text — the literal words OCR read off this slide */}
           {(motionData.text?.blocks?.length ?? 0) > 0 && (
             <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-2">
@@ -543,7 +585,11 @@ export function MotionFields(props: {
               </div>
             </div>
           )}
+          </>
+          )}
 
+          {show("slides") && (
+          <>
           {/* Decomposed Layer Manager */}
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 space-y-3">
             <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider block">
@@ -658,7 +704,11 @@ export function MotionFields(props: {
               })}
             </div>
           </div>
+          </>
+          )}
 
+          {show("slides") && (
+          <>
           {/* Element Layout, Text & Position JSON with 1-Click Copy */}
           <div className="rounded-xl border border-purple-500/30 bg-purple-500/[0.04] p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
@@ -700,6 +750,8 @@ export function MotionFields(props: {
               </pre>
             </div>
           </div>
+          </>
+          )}
         </div>
       )}
     </div>

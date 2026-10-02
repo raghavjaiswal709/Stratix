@@ -214,6 +214,10 @@ export function useMotionCore({
   // Off by default: the always-on black rotating border + diagonal shine on
   // whichever zone last appeared (see motionCurrentZoneVisibleRef below).
   const [motionZoneBorder, setMotionZoneBorder] = useState(false);
+  // Off by default: one decomposed part at a time, rested dead centre, on a
+  // flat page — every other part and element left unpainted. See minimalMode
+  // in drawMotionTimelineFrame.ts.
+  const [motionMinimalMode, setMotionMinimalMode] = useState(false);
   const [motionSfxEnabled, setMotionSfxEnabled] = useState(true);
   const [motionSfxVolume, setMotionSfxVolume] = useState(0.65);
   const [copiedSpeechPrompt, setCopiedSpeechPrompt] = useState(false);
@@ -270,6 +274,14 @@ export function useMotionCore({
   const motionCurrentZoneVisibleRef = useRef<Record<string, boolean>>({});
   const motionCurrentZoneIdRef = useRef<string | null>(null);
   const motionCurrentZoneSceneRef = useRef<number>(-1);
+  /**
+   * The zone motionCurrentZoneIdRef most recently took over from — minimal
+   * mode holds it under the incoming one so a handoff never dips through an
+   * empty page. Cleared whenever the current zone is re-seeded rather than
+   * genuinely replaced, since a seek's "previous" is not a part the viewer
+   * was ever looking at.
+   */
+  const motionMinimalPrevZoneIdRef = useRef<string | null>(null);
   const motionAudioRef = useRef<HTMLAudioElement | null>(null);
   const motionAudioUrlRef = useRef<string | null>(null);
   const motionAudioR2UrlRef = useRef<string | null>(null);
@@ -1068,6 +1080,7 @@ export function useMotionCore({
     motionWholeImageMotion, setMotionWholeImageMotion,
     motionZigzagMotion, setMotionZigzagMotion,
     motionZoneBorder, setMotionZoneBorder,
+    motionMinimalMode, setMotionMinimalMode,
     motionSfxEnabled, setMotionSfxEnabled,
     motionSfxVolume, setMotionSfxVolume,
     copiedSpeechPrompt, setCopiedSpeechPrompt,
@@ -1092,6 +1105,7 @@ export function useMotionCore({
     motionTimeRef, motionClockOriginRef, motionLoopRef,
     motionLastSceneIndexRef, motionZoneVisibleRef, motionZoneSeededSceneRef, motionZoneFlourishRef,
     motionCurrentZoneVisibleRef, motionCurrentZoneIdRef, motionCurrentZoneSceneRef,
+    motionMinimalPrevZoneIdRef,
     motionAudioRef, motionAudioUrlRef, motionAudioR2UrlRef,
     motionMusicRef, motionMusicUrlRef, motionMusicR2UrlRef,
     motionCsvR2UrlRef, motionTranscriptRawTextRef, motionSpeedRef, motionMixRef,
